@@ -74,6 +74,10 @@ const model: IkiModel = {
 Stick to the `StandardParameter` ids (`ParamMouthOpenY`, `ParamAngleX`, …) so
 any host can drive any model without per-model wiring.
 
+> **Stability:** pre-release — the `.iki` format may change without an
+> `IKI_FORMAT_VERSION` bump until the first published release. After that,
+> breaking schema changes bump the version.
+
 ## Roadmap
 
 1. **Format + runtime** (parameter-driven color quads) — done
