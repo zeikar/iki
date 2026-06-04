@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Iki — playground</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        display: flex;
+        min-height: 100vh;
+        background: #14151a;
+        color: #e7e7ea;
+      }
+      #stage {
+        flex: 1;
+        display: grid;
+        place-items: center;
+      }
+      canvas {
+        width: min(70vmin, 560px);
+        height: min(70vmin, 560px);
+      }
+      #panel {
+        width: 280px;
+        padding: 24px 20px;
+        background: #1c1d24;
+        border-left: 1px solid #2a2b33;
+      }
+      #panel h1 {
+        margin: 0 0 4px;
+        font-size: 18px;
+      }
+      #panel p {
+        margin: 0 0 20px;
+        font-size: 12px;
+        color: #9a9aa5;
+      }
+      .control {
+        margin-bottom: 14px;
+        font-size: 12px;
+      }
+      .control label {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 4px;
+      }
+      .control input {
+        width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage"><canvas id="iki"></canvas></div>
+    <aside id="panel">
+      <h1>Iki</h1>
+      <p>Drag the sliders — a host (Charivo) drives these same parameters.</p>
+      <div id="controls"></div>
+    </aside>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

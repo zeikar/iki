@@ -1,0 +1,57 @@
+{
+  "name": "iki",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Iki — an open 2D rig puppet animation engine. A from-scratch Live2D alternative for the web.",
+  "keywords": [
+    "live2d",
+    "inochi2d",
+    "vtuber",
+    "2d",
+    "puppet",
+    "rig",
+    "animation",
+    "avatar",
+    "webgl",
+    "typescript"
+  ],
+  "homepage": "https://github.com/zeikar/iki#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zeikar/iki.git"
+  },
+  "bugs": {
+    "url": "https://github.com/zeikar/iki/issues"
+  },
+  "author": {
+    "name": "Zeikar",
+    "url": "https://github.com/zeikar"
+  },
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r --filter './packages/*' build",
+    "dev": "pnpm -r --parallel dev",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "playground": "pnpm --filter @iki/playground dev",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "pnpm build && changeset publish",
+    "clean": "pnpm -r exec rm -rf dist",
+    "verify": "pnpm build && pnpm typecheck && pnpm format:check"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.1",
+    "@types/node": "^22.10.1",
+    "prettier": "^3.6.2",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2",
+    "vite": "^5.4.20"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  }
+}

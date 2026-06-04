@@ -1,0 +1,45 @@
+{
+  "name": "@iki/format",
+  "version": "0.0.0",
+  "description": "The .iki model format — schema, TypeScript types, loader, and validator",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zeikar/iki.git",
+    "directory": "packages/format"
+  },
+  "author": {
+    "name": "Zeikar",
+    "url": "https://github.com/zeikar"
+  },
+  "homepage": "https://github.com/zeikar/iki#readme",
+  "bugs": {
+    "url": "https://github.com/zeikar/iki/issues"
+  }
+}
