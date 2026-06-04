@@ -90,3 +90,7 @@ any host can drive any model without per-model wiring.
 ## License
 
 MIT © Zeikar
+
+---
+
+**Built with [HyperClaude](http://zeikar.dev/hyperclaude/)** — _Claude builds, Codex critiques._
