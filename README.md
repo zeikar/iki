@@ -1,5 +1,8 @@
 # Iki
 
+[![Built with HyperClaude](https://img.shields.io/badge/Built%20with-HyperClaude-D97757?logo=anthropic&logoColor=white)](http://zeikar.dev/hyperclaude/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+
 > 息 (breath) · 生き (life) · 粋 (chic)
 
 **Iki** is an open 2D rig puppet animation engine for the web — a from-scratch
