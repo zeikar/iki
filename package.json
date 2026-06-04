@@ -35,6 +35,9 @@
     "typecheck": "pnpm -r --parallel typecheck",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "playground": "pnpm --filter @iki/playground dev",
     "changeset": "changeset",
     "version": "changeset version",
@@ -45,10 +48,12 @@
   "devDependencies": {
     "@changesets/cli": "^2.27.1",
     "@types/node": "^22.10.1",
+    "@vitest/coverage-v8": "^2.1.9",
     "prettier": "^3.6.2",
     "tsup": "^8.5.0",
     "typescript": "^5.9.2",
-    "vite": "^5.4.20"
+    "vite": "^5.4.20",
+    "vitest": "^2.1.9"
   },
   "engines": {
     "node": ">=20.0.0",
