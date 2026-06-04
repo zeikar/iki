@@ -61,13 +61,8 @@ export interface IkiTransform {
 /** A drawable piece of the character. */
 export interface IkiPart {
   id: string;
-  /**
-   * Texture url/path. When absent the part is drawn as a solid `color` quad —
-   * the v1 runtime ships color-only; texture sampling lands with the editor.
-   */
-  texture?: string;
-  /** RGBA, each channel 0..1. Fallback fill when no texture is set. */
-  color?: [number, number, number, number];
+  /** RGBA fill, each channel 0..1. (Texture sampling arrives in a later version.) */
+  color: [number, number, number, number];
   /** Width in model-space units. */
   width: number;
   /** Height in model-space units. */

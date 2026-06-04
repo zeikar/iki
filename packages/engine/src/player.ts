@@ -112,7 +112,7 @@ export class IkiPlayer {
       m = multiply(m, rotate(t.rotation));
       m = multiply(m, scale(part.width * t.scaleX, part.height * t.scaleY));
 
-      const [r, g, b, a] = part.color ?? [0.8, 0.8, 0.8, 1];
+      const [r, g, b, a] = part.color;
       gl.uniformMatrix3fv(this.uMatrix, false, toMat3(m));
       gl.uniform4f(this.uColor, r, g, b, a * t.opacity);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
