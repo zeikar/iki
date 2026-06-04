@@ -4,3 +4,6 @@ dist
 .DS_Store
 coverage
 .turbo
+
+# hyperclaude workflow artifacts (plans, reviews, research)
+.hyperclaude/
