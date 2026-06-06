@@ -88,6 +88,8 @@ any host can drive any model without per-model wiring.
 3. **Textures** — atlas + UV-rect texture sampling, `color` as tint multiplier — done
    > Atlas authors should add padding / extruded borders between sub-rects to avoid LINEAR-filter bleeding.
 4. **Warp/rotation deformers** — the soft 2.5D head-turn that defines the look
+   - **4a. Rotation deformer + pivot + parent hierarchy** — done
+   - **4b. Warp mesh, keyform, per-vertex UV** — pending
 5. **Editor** — author parts, meshes, and bindings
 6. **AI generator** — image → segmented parts → auto-rigged `.iki`
 
