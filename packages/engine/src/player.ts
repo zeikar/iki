@@ -3,6 +3,16 @@ import { ParameterStore } from "./parameter-store";
 import { multiply, rotate, scale, toMat3, translate } from "./affine";
 
 /**
+ * Outcome of {@link IkiPlayer.load}: the indices into `model.textures` that
+ * failed to decode or upload (empty = every declared texture loaded). The model
+ * is still swapped in and rendered; parts using a failed texture are skipped.
+ * A host can inspect this to detect and report a partial load.
+ */
+export interface IkiLoadResult {
+  failedTextures: number[];
+}
+
+/**
  * Drives a single `.iki` model on a WebGL2 canvas.
  *
  * v1 scope: parts are solid-color or atlas-sampled textured quads, transformed
@@ -61,9 +71,11 @@ export class IkiPlayer {
    *
    * Individual texture decode/upload failures are non-fatal: they are logged
    * via `console.error`, the affected parts are skipped, and `load()` still
-   * resolves. The model is assumed already validated by `@iki/format`.
+   * resolves — the returned {@link IkiLoadResult} lists the indices of any
+   * textures that failed, so a host can detect and report a partial load. The
+   * model is assumed already validated by `@iki/format`.
    */
-  async load(model: IkiModel): Promise<void> {
+  async load(model: IkiModel): Promise<IkiLoadResult> {
     const { gl } = this;
     const generation = ++this.loadGeneration;
 
@@ -79,7 +91,7 @@ export class IkiPlayer {
       for (const result of decoded) {
         if (result.status === "fulfilled" && result.value) result.value.close();
       }
-      return;
+      return { failedTextures: [] };
     }
 
     const uploaded: (WebGLTexture | null)[] = decoded.map((result, i) => {
@@ -125,6 +137,10 @@ export class IkiPlayer {
     this.params = new ParameterStore(model.parameters);
     this.parts = [...model.parts].sort((a, b) => a.order - b.order);
     this.textures = uploaded;
+
+    return {
+      failedTextures: uploaded.flatMap((t, i) => (t === null ? [i] : [])),
+    };
   }
 
   /** Start the render loop. Safe to call more than once. */

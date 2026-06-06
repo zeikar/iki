@@ -1,4 +1,4 @@
-export { IkiPlayer } from "./player";
+export { IkiPlayer, type IkiLoadResult } from "./player";
 export { ParameterStore } from "./parameter-store";
 export {
   type Affine,

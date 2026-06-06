@@ -8,7 +8,15 @@ const player = new IkiPlayer(canvas);
 // start() may be called any time, but nothing renders until the first load()
 // resolves. load() swaps the model atomically — you never see a partial frame.
 player.start();
-await player.load(sampleModel);
+// load() resolves to a report of any textures that failed to decode/upload;
+// the rest of the model still renders. A real host would surface this.
+const { failedTextures } = await player.load(sampleModel);
+if (failedTextures.length > 0) {
+  console.warn(
+    `Iki: ${failedTextures.length} texture(s) failed to load`,
+    failedTextures,
+  );
+}
 
 // Build one slider per parameter. A real host (Charivo's render adapter) drives
 // these same ids from lip-sync RMS, gaze, blink timers, and expressions.
