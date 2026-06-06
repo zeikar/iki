@@ -236,6 +236,179 @@ describe("parsePart errors", () => {
   });
 });
 
+describe("textures — happy path", () => {
+  it("(a) accepts a model with textures array and a textured part", () => {
+    const input = {
+      ...validModel(),
+      textures: [{ source: "data:image/png;base64,abc" }],
+      parts: [
+        {
+          ...validModel().parts[0],
+          texture: { index: 0, uv: { x: 0, y: 0, width: 0.5, height: 0.5 } },
+        },
+      ],
+    };
+    const model = parseIkiModel(input);
+    expect(model.textures).toHaveLength(1);
+    expect(model.textures![0].source).toBe("data:image/png;base64,abc");
+    expect(model.parts[0].texture).toEqual({
+      index: 0,
+      uv: { x: 0, y: 0, width: 0.5, height: 0.5 },
+    });
+  });
+
+  it("(f) back-compat: existing color-only model with no textures/texture still validates", () => {
+    const model = parseIkiModel(validModel());
+    expect(model.textures).toBeUndefined();
+    expect(model.parts[0].texture).toBeUndefined();
+  });
+});
+
+describe("textures — top-level errors", () => {
+  it("rejects textures as non-array", () => {
+    const input = { ...validModel(), textures: { source: "x" } };
+    expect(() => parseIkiModel(input)).toThrow(/textures must be an array/);
+  });
+
+  it("(e) rejects an empty source string", () => {
+    const input = { ...validModel(), textures: [{ source: "" }] };
+    expect(() => parseIkiModel(input)).toThrow(
+      /textures\[0\].source must be a non-empty string/,
+    );
+  });
+});
+
+describe("part.texture errors", () => {
+  function modelWithTexture(
+    textureOverride: Record<string, unknown>,
+    texturesCount = 1,
+  ) {
+    return {
+      ...validModel(),
+      textures: Array.from({ length: texturesCount }, (_, i) => ({
+        source: `data:image/png;base64,${i}`,
+      })),
+      parts: [
+        {
+          ...validModel().parts[0],
+          texture: textureOverride,
+        },
+      ],
+    };
+  }
+
+  it("(b) rejects part.texture.index out of range (>= count)", () => {
+    const input = modelWithTexture(
+      { index: 1, uv: { x: 0, y: 0, width: 0.5, height: 0.5 } },
+      1,
+    );
+    expect(() => parseIkiModel(input)).toThrow(
+      /parts\[0\]\.texture\.index 1 is not a declared texture/,
+    );
+  });
+
+  it("(b) rejects part.texture.index when negative", () => {
+    const input = modelWithTexture(
+      { index: -1, uv: { x: 0, y: 0, width: 0.5, height: 0.5 } },
+      1,
+    );
+    expect(() => parseIkiModel(input)).toThrow(
+      /parts\[0\]\.texture\.index -1 is not a declared texture/,
+    );
+  });
+
+  it("(b) rejects part.texture.index when non-integer", () => {
+    const input = modelWithTexture(
+      { index: 0.5, uv: { x: 0, y: 0, width: 0.5, height: 0.5 } },
+      1,
+    );
+    expect(() => parseIkiModel(input)).toThrow(
+      /parts\[0\]\.texture\.index 0\.5 is not a declared texture/,
+    );
+  });
+
+  it("(b) rejects part.texture.index when textures is absent (count 0)", () => {
+    const input = {
+      ...validModel(),
+      parts: [
+        {
+          ...validModel().parts[0],
+          texture: { index: 0, uv: { x: 0, y: 0, width: 0.5, height: 0.5 } },
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /parts\[0\]\.texture\.index 0 is not a declared texture/,
+    );
+  });
+
+  it("(c) rejects a uv field < 0", () => {
+    const input = modelWithTexture({
+      index: 0,
+      uv: { x: -0.1, y: 0, width: 0.5, height: 0.5 },
+    });
+    expect(() => parseIkiModel(input)).toThrow(
+      /parts\[0\]\.texture\.uv\.x must be a number in 0\.\.1/,
+    );
+  });
+
+  it("(c) rejects a uv field > 1", () => {
+    const input = modelWithTexture({
+      index: 0,
+      uv: { x: 0, y: 0, width: 1.1, height: 0.5 },
+    });
+    expect(() => parseIkiModel(input)).toThrow(
+      /parts\[0\]\.texture\.uv\.width must be a number in 0\.\.1/,
+    );
+  });
+
+  it("(c) rejects a non-finite uv field", () => {
+    const input = modelWithTexture({
+      index: 0,
+      uv: { x: 0, y: Infinity, width: 0.5, height: 0.5 },
+    });
+    expect(() => parseIkiModel(input)).toThrow(
+      /parts\[0\]\.texture\.uv\.y must be a number in 0\.\.1/,
+    );
+  });
+
+  it("(d) rejects x + width > 1", () => {
+    const input = modelWithTexture({
+      index: 0,
+      uv: { x: 0.6, y: 0, width: 0.5, height: 0.5 },
+    });
+    expect(() => parseIkiModel(input)).toThrow(
+      /parts\[0\]\.texture\.uv exceeds atlas bounds/,
+    );
+  });
+
+  it("(d) rejects y + height > 1", () => {
+    const input = modelWithTexture({
+      index: 0,
+      uv: { x: 0, y: 0.6, width: 0.5, height: 0.5 },
+    });
+    expect(() => parseIkiModel(input)).toThrow(
+      /parts\[0\]\.texture\.uv exceeds atlas bounds/,
+    );
+  });
+
+  it("accepts a rect that exactly touches the right/bottom edge (x+width===1)", () => {
+    const input = modelWithTexture({
+      index: 0,
+      uv: { x: 0.5, y: 0, width: 0.5, height: 1 },
+    });
+    expect(() => parseIkiModel(input)).not.toThrow();
+  });
+
+  it("accepts a rect where float sum 0.1+0.9 is within epsilon of 1", () => {
+    const input = modelWithTexture({
+      index: 0,
+      uv: { x: 0.1, y: 0, width: 0.9, height: 0.5 },
+    });
+    expect(() => parseIkiModel(input)).not.toThrow();
+  });
+});
+
 describe("loadIkiModel", () => {
   it("parses a valid JSON string", () => {
     const model = loadIkiModel(JSON.stringify(validModel()));

@@ -4,7 +4,9 @@ import {
   type IkiModel,
   type IkiParameter,
   type IkiPart,
+  type IkiTexture,
   type IkiTransformChannel,
+  type IkiUvRect,
 } from "./types";
 
 /** Thrown when input does not conform to the `.iki` format. */
@@ -63,6 +65,37 @@ function parseColor(
   return [value[0], value[1], value[2], value[3]];
 }
 
+function parseUvField(value: unknown, path: string): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < 0 ||
+    value > 1
+  ) {
+    throw new IkiFormatError(`${path} must be a number in 0..1`);
+  }
+  return value;
+}
+
+const UV_EPSILON = 1e-9;
+
+function parseUvRect(value: unknown, path: string): IkiUvRect {
+  if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
+  const x = parseUvField(value.x, `${path}.x`);
+  const y = parseUvField(value.y, `${path}.y`);
+  const width = parseUvField(value.width, `${path}.width`);
+  const height = parseUvField(value.height, `${path}.height`);
+  if (x + width > 1 + UV_EPSILON || y + height > 1 + UV_EPSILON) {
+    throw new IkiFormatError(`${path} exceeds atlas bounds`);
+  }
+  return { x, y, width, height };
+}
+
+function parseTexture(value: unknown, path: string): IkiTexture {
+  if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
+  return { source: str(value.source, `${path}.source`) };
+}
+
 function parseParameter(value: unknown, path: string): IkiParameter {
   if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
   return {
@@ -108,6 +141,7 @@ function parsePart(
   value: unknown,
   path: string,
   validParameters: ReadonlySet<string>,
+  texturesCount: number,
 ): IkiPart {
   if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
   const transform = value.transform;
@@ -118,6 +152,29 @@ function parsePart(
   if (bindings !== undefined && !Array.isArray(bindings)) {
     throw new IkiFormatError(`${path}.bindings must be an array`);
   }
+
+  let texture: IkiPart["texture"];
+  if (value.texture !== undefined) {
+    if (!isObject(value.texture)) {
+      throw new IkiFormatError(`${path}.texture must be an object`);
+    }
+    const rawIndex = value.texture.index;
+    if (
+      typeof rawIndex !== "number" ||
+      !Number.isInteger(rawIndex) ||
+      rawIndex < 0 ||
+      rawIndex >= texturesCount
+    ) {
+      throw new IkiFormatError(
+        `${path}.texture.index ${rawIndex ?? "(missing)"} is not a declared texture`,
+      );
+    }
+    texture = {
+      index: rawIndex,
+      uv: parseUvRect(value.texture.uv, `${path}.texture.uv`),
+    };
+  }
+
   return {
     id: str(value.id, `${path}.id`),
     color: parseColor(value.color, `${path}.color`),
@@ -147,6 +204,7 @@ function parsePart(
     bindings: bindings?.map((b, i) =>
       parseBinding(b, `${path}.bindings[${i}]`, validParameters),
     ),
+    texture,
   };
 }
 
@@ -186,6 +244,15 @@ export function parseIkiModel(input: unknown): IkiModel {
     declaredIds.add(param.id);
   }
 
+  let textures: IkiTexture[] | undefined;
+  if (input.textures !== undefined) {
+    if (!Array.isArray(input.textures)) {
+      throw new IkiFormatError("textures must be an array");
+    }
+    textures = input.textures.map((t, i) => parseTexture(t, `textures[${i}]`));
+  }
+  const texturesCount = textures?.length ?? 0;
+
   return {
     version,
     name: str(input.name, "name"),
@@ -194,7 +261,10 @@ export function parseIkiModel(input: unknown): IkiModel {
       height: num(input.canvas.height, "canvas.height"),
     },
     parameters,
-    parts: input.parts.map((p, i) => parsePart(p, `parts[${i}]`, declaredIds)),
+    textures,
+    parts: input.parts.map((p, i) =>
+      parsePart(p, `parts[${i}]`, declaredIds, texturesCount),
+    ),
   };
 }
 
