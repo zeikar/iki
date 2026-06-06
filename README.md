@@ -12,8 +12,8 @@ animates it in WebGL. A host (such as [Charivo](https://github.com/zeikar/chariv
 drives those parameters from lip-sync, gaze, blink, and expressions.
 
 > Status: **early / from scratch.** The runtime renders parameter-driven
-> color quads today. Texture sampling, warp-mesh deformation, the editor, and
-> the AI generator are the milestones ahead.
+> color quads and atlas-sampled texture parts today. Warp-mesh deformation,
+> the editor, and the AI generator are the milestones ahead.
 
 ## Why
 
@@ -56,7 +56,7 @@ const model: IkiModel = {
   parts: [
     {
       id: "mouth",
-      color: [0.78, 0.32, 0.36, 1],
+      color: [0.78, 0.32, 0.36, 1], // solid fill, or tint multiplier when a texture is present
       width: 150,
       height: 34,
       order: 0,
@@ -85,7 +85,8 @@ any host can drive any model without per-model wiring.
 
 1. **Format + runtime** (parameter-driven color quads) — done
 2. **Charivo adapter** — `@charivo/render-iki` implementing the renderer contract
-3. **Textures** — sample part textures instead of flat color
+3. **Textures** — atlas + UV-rect texture sampling, `color` as tint multiplier — done
+   > Atlas authors should add padding / extruded borders between sub-rects to avoid LINEAR-filter bleeding.
 4. **Warp/rotation deformers** — the soft 2.5D head-turn that defines the look
 5. **Editor** — author parts, meshes, and bindings
 6. **AI generator** — image → segmented parts → auto-rigged `.iki`
