@@ -43,8 +43,8 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function num(value: unknown, path: string): number {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    throw new IkiFormatError(`${path} must be a number`);
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new IkiFormatError(`${path} must be a finite number`);
   }
   return value;
 }

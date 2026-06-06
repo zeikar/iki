@@ -70,7 +70,9 @@ describe("parseIkiModel — top-level errors", () => {
 
   it("rejects a non-number version", () => {
     const input = { ...validModel(), version: "1" };
-    expect(() => parseIkiModel(input)).toThrow(/version must be a number/);
+    expect(() => parseIkiModel(input)).toThrow(
+      /version must be a finite number/,
+    );
   });
 
   it("rejects an unsupported version", () => {
@@ -93,7 +95,9 @@ describe("parseIkiModel — top-level errors", () => {
   it("rejects a non-number canvas dimension", () => {
     const input = validModel();
     (input.canvas as Record<string, unknown>).width = "wide";
-    expect(() => parseIkiModel(input)).toThrow(/canvas.width must be a number/);
+    expect(() => parseIkiModel(input)).toThrow(
+      /canvas.width must be a finite number/,
+    );
   });
 
   it("rejects non-array parameters and parts", () => {
@@ -137,7 +141,7 @@ describe("parseParameter errors", () => {
     const badMin = validModel();
     (badMin.parameters[0] as Record<string, unknown>).min = "0";
     expect(() => parseIkiModel(badMin)).toThrow(
-      /parameters\[0\].min must be a number/,
+      /parameters\[0\].min must be a finite number/,
     );
   });
 });
@@ -197,7 +201,7 @@ describe("parseBinding errors", () => {
     const badFrom = validModel();
     (badFrom.parts[0].bindings[0] as Record<string, unknown>).from = "0";
     expect(() => parseIkiModel(badFrom)).toThrow(
-      /bindings\[0\].from must be a number/,
+      /bindings\[0\].from must be a finite number/,
     );
 
     const notObject = validModel();
@@ -232,7 +236,7 @@ describe("parsePart errors", () => {
   it("rejects a non-number order", () => {
     const input = validModel();
     (input.parts[0] as Record<string, unknown>).order = "0";
-    expect(() => parseIkiModel(input)).toThrow(/order must be a number/);
+    expect(() => parseIkiModel(input)).toThrow(/order must be a finite number/);
   });
 });
 
@@ -598,6 +602,86 @@ describe("deformers — opacity rejection", () => {
     };
     expect(() => parseIkiModel(input)).toThrow(
       /deformers\[0\]\.bindings\[0\]\.channel "opacity" is not supported on a deformer/,
+    );
+  });
+});
+
+describe("non-finite number rejection", () => {
+  it("rejects Infinity in deformer pivot.x", () => {
+    const input = {
+      ...validModel(),
+      deformers: [makeDeformer("d0", { pivot: { x: Infinity, y: 0 } })],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /deformers\[0\]\.pivot\.x must be a finite number/,
+    );
+  });
+
+  it("rejects -Infinity in deformer pivot.y", () => {
+    const input = {
+      ...validModel(),
+      deformers: [makeDeformer("d0", { pivot: { x: 0, y: -Infinity } })],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /deformers\[0\]\.pivot\.y must be a finite number/,
+    );
+  });
+
+  it("rejects Infinity in deformer transform field", () => {
+    const input = {
+      ...validModel(),
+      deformers: [makeDeformer("d0", { transform: { x: Infinity, y: 0 } })],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /deformers\[0\]\.transform\.x must be a finite number/,
+    );
+  });
+
+  it("rejects Infinity in deformer binding from", () => {
+    const input = {
+      ...validModel(),
+      deformers: [
+        makeDeformer("d0", {
+          bindings: [
+            { parameter: "ParamA", channel: "rotate", from: Infinity, to: 1 },
+          ],
+        }),
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /deformers\[0\]\.bindings\[0\]\.from must be a finite number/,
+    );
+  });
+
+  it("rejects Infinity in deformer binding to", () => {
+    const input = {
+      ...validModel(),
+      deformers: [
+        makeDeformer("d0", {
+          bindings: [
+            { parameter: "ParamA", channel: "rotate", from: 0, to: Infinity },
+          ],
+        }),
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /deformers\[0\]\.bindings\[0\]\.to must be a finite number/,
+    );
+  });
+
+  it("rejects Infinity in part transform field", () => {
+    const input = validModel();
+    input.parts[0].transform = { x: Infinity, y: 0 } as never;
+    expect(() => parseIkiModel(input)).toThrow(
+      /parts\[0\]\.transform\.x must be a finite number/,
+    );
+  });
+
+  it("rejects Infinity in part binding from", () => {
+    const input = validModel();
+    (input.parts[0].bindings[0] as Record<string, unknown>).from = Infinity;
+    expect(() => parseIkiModel(input)).toThrow(
+      /parts\[0\]\.bindings\[0\]\.from must be a finite number/,
     );
   });
 });
