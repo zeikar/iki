@@ -9,6 +9,26 @@
  */
 export const IKI_FORMAT_VERSION = 1;
 
+/**
+ * A sub-rectangle of a texture atlas in normalized UV space (0..1).
+ * `x`/`y` is the top-left corner; `width`/`height` extend right/down.
+ */
+export interface IkiUvRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * A texture entry in the model's atlas table.
+ * v1 decodes `data:` URIs only; `source` is a plain string so external paths
+ * are a later non-breaking addition.
+ */
+export interface IkiTexture {
+  source: string;
+}
+
 /** A controllable knob on the model (e.g. mouth open, head angle). */
 export interface IkiParameter {
   /** Stable id used by bindings and runtime control. */
@@ -61,7 +81,7 @@ export interface IkiTransform {
 /** A drawable piece of the character. */
 export interface IkiPart {
   id: string;
-  /** RGBA fill, each channel 0..1. (Texture sampling arrives in a later version.) */
+  /** RGBA solid fill, each channel 0..1. Acts as a tint multiplier when `texture` is present ([1,1,1,1] = original). */
   color: [number, number, number, number];
   /** Width in model-space units. */
   width: number;
@@ -71,6 +91,8 @@ export interface IkiPart {
   /** Paint order; lower draws first (further back). */
   order: number;
   bindings?: IkiBinding[];
+  /** Texture reference; `index` into {@link IkiModel.textures}; `uv` selects the atlas sub-rect. */
+  texture?: { index: number; uv: IkiUvRect };
 }
 
 /** A complete `.iki` puppet model. */
@@ -81,5 +103,7 @@ export interface IkiModel {
   /** Logical model-space canvas the parts are laid out in. */
   canvas: { width: number; height: number };
   parameters: IkiParameter[];
+  /** Atlas table; parts reference entries by index. */
+  textures?: IkiTexture[];
   parts: IkiPart[];
 }
