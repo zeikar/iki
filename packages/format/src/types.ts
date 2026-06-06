@@ -22,8 +22,8 @@ export interface IkiUvRect {
 
 /**
  * A texture entry in the model's atlas table.
- * v1 decodes `data:` URIs only; `source` is a plain string so external paths
- * are a later non-breaking addition.
+ * v1 validates and accepts `data:image/` URIs only; `source` is a plain string
+ * so loosening validation to allow external paths later is a non-breaking addition.
  */
 export interface IkiTexture {
   source: string;

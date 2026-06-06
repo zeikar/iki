@@ -276,6 +276,23 @@ describe("textures — top-level errors", () => {
       /textures\[0\].source must be a non-empty string/,
     );
   });
+
+  it("(e2) rejects a non-data: URI source (e.g. a plain filename)", () => {
+    const input = { ...validModel(), textures: [{ source: "face.png" }] };
+    expect(() => parseIkiModel(input)).toThrow(
+      /textures\[0\].source must be a data:image\/ URI \(external sources are not supported yet\)/,
+    );
+  });
+
+  it("(e3) rejects a data: URI that is not an image (e.g. data:text/plain)", () => {
+    const input = {
+      ...validModel(),
+      textures: [{ source: "data:text/plain,hi" }],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /textures\[0\].source must be a data:image\/ URI \(external sources are not supported yet\)/,
+    );
+  });
 });
 
 describe("part.texture errors", () => {

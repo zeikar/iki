@@ -5,10 +5,10 @@ import { multiply, rotate, scale, toMat3, translate } from "./affine";
 /**
  * Drives a single `.iki` model on a WebGL2 canvas.
  *
- * v1 scope: parts are solid-color quads, transformed each frame by their base
- * transform plus the sum of their parameter bindings. This proves the full
- * parameter -> transform -> pixels pipeline. Texture sampling and warp-mesh
- * deformation are the next milestones; the public surface here stays stable.
+ * v1 scope: parts are solid-color or atlas-sampled textured quads, transformed
+ * each frame by their base transform plus the sum of their parameter bindings.
+ * `load()` is async — it decodes and uploads textures before swapping the model
+ * in. Warp-mesh deformation is a later milestone.
  */
 export class IkiPlayer {
   private readonly gl: WebGL2RenderingContext;
@@ -53,13 +53,15 @@ export class IkiPlayer {
   }
 
   /**
-   * Load a model and reset parameters to their defaults. Decodes and uploads
-   * any textures before swapping state, so the model never renders half-loaded.
-   * The model is assumed already validated by `@iki/format`.
+   * Load a model and reset parameters to their defaults. All textures are
+   * decoded and uploaded before the model is swapped in — the swap is atomic,
+   * so you never see a partially-textured frame. `start()` may be called any
+   * time, but nothing renders until the first `load()` resolves. For an
+   * embedded `data:` atlas this is near-instant.
    *
-   * The promise resolves once all textures are decoded and uploaded. `start()`
-   * may be called without awaiting — textured parts whose slot is not yet ready
-   * (or failed / external-skipped) are silently skipped each frame until populated.
+   * Individual texture decode/upload failures are non-fatal: they are logged
+   * via `console.error`, the affected parts are skipped, and `load()` still
+   * resolves. The model is assumed already validated by `@iki/format`.
    */
   async load(model: IkiModel): Promise<void> {
     const { gl } = this;

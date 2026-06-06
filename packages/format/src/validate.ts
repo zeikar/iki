@@ -93,7 +93,13 @@ function parseUvRect(value: unknown, path: string): IkiUvRect {
 
 function parseTexture(value: unknown, path: string): IkiTexture {
   if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
-  return { source: str(value.source, `${path}.source`) };
+  const source = str(value.source, `${path}.source`);
+  if (!source.startsWith("data:image/")) {
+    throw new IkiFormatError(
+      `${path}.source must be a data:image/ URI (external sources are not supported yet)`,
+    );
+  }
+  return { source };
 }
 
 function parseParameter(value: unknown, path: string): IkiParameter {

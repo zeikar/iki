@@ -5,8 +5,8 @@ const canvas = document.getElementById("iki") as HTMLCanvasElement;
 const controls = document.getElementById("controls") as HTMLDivElement;
 
 const player = new IkiPlayer(canvas);
-// Start rendering immediately — solid parts draw right away; textured parts pop
-// in once load() resolves and the atlas is uploaded to the GPU.
+// start() may be called any time, but nothing renders until the first load()
+// resolves. load() swaps the model atomically — you never see a partial frame.
 player.start();
 await player.load(sampleModel);
 
