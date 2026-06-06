@@ -1,6 +1,7 @@
 import type { IkiModel, IkiParameter, IkiPart } from "@iki/format";
 import { ParameterStore } from "./parameter-store";
 import { multiply, rotate, scale, toMat3, translate } from "./affine";
+import { evaluateTransform, resolveDeformerWorlds } from "./deform";
 
 /**
  * Outcome of {@link IkiPlayer.load}: the indices into `model.textures` that
@@ -210,6 +211,11 @@ export class IkiPlayer {
     gl.useProgram(this.program);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
 
+    const deformerWorlds =
+      this.model.deformers && this.model.deformers.length > 0
+        ? resolveDeformerWorlds(this.model.deformers, this.params)
+        : undefined;
+
     for (const part of this.parts) {
       const texture = part.texture
         ? this.textures[part.texture.index]
@@ -218,8 +224,22 @@ export class IkiPlayer {
       if (part.texture && !texture) continue;
 
       const t = this.evaluate(part);
-      // clip <- project <- translate <- rotate <- scale(size)
-      let m = multiply(scale(clipX, clipY), translate(t.x, t.y));
+      // clip <- project <- [deformer?] <- translate <- rotate <- scale(size)
+      let m: ReturnType<typeof multiply>;
+      if (part.deformer !== undefined) {
+        const dWorld = deformerWorlds!.get(part.deformer);
+        if (!dWorld) {
+          throw new Error(
+            `part "${part.id}" references unknown deformer "${part.deformer}"`,
+          );
+        }
+        m = multiply(
+          multiply(scale(clipX, clipY), dWorld),
+          translate(t.x, t.y),
+        );
+      } else {
+        m = multiply(scale(clipX, clipY), translate(t.x, t.y));
+      }
       m = multiply(m, rotate(t.rotation));
       m = multiply(m, scale(part.width * t.scaleX, part.height * t.scaleY));
 
@@ -244,50 +264,8 @@ export class IkiPlayer {
   }
 
   /** Resolve a part's effective transform from its base plus active bindings. */
-  private evaluate(part: IkiPart): Required<
-    Pick<IkiPart["transform"], "x" | "y">
-  > & {
-    rotation: number;
-    scaleX: number;
-    scaleY: number;
-    opacity: number;
-  } {
-    const base = part.transform;
-    const result = {
-      x: base.x,
-      y: base.y,
-      rotation: base.rotation ?? 0,
-      scaleX: base.scaleX ?? 1,
-      scaleY: base.scaleY ?? 1,
-      opacity: base.opacity ?? 1,
-    };
-
-    for (const binding of part.bindings ?? []) {
-      const t = this.params.normalized(binding.parameter);
-      const value = binding.from + (binding.to - binding.from) * t;
-      switch (binding.channel) {
-        case "translateX":
-          result.x += value;
-          break;
-        case "translateY":
-          result.y += value;
-          break;
-        case "rotate":
-          result.rotation += value;
-          break;
-        case "scaleX":
-          result.scaleX += value;
-          break;
-        case "scaleY":
-          result.scaleY += value;
-          break;
-        case "opacity":
-          result.opacity *= value;
-          break;
-      }
-    }
-
-    return result;
+  private evaluate(part: IkiPart): ReturnType<typeof evaluateTransform> {
+    return evaluateTransform(part.transform, part.bindings, this.params);
   }
 }
 
