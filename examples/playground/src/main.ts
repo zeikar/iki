@@ -1,8 +1,13 @@
 import { IkiPlayer } from "@iki/engine";
+import { parseIkiModel } from "@iki/format";
 import { sampleModel } from "./sample-model";
 
 const canvas = document.getElementById("iki") as HTMLCanvasElement;
 const controls = document.getElementById("controls") as HTMLDivElement;
+
+// Validate the model through the format parser — a real host does this for any
+// untrusted .iki source. IkiFormatError is thrown here if the model is malformed.
+const parsedModel = parseIkiModel(sampleModel);
 
 const player = new IkiPlayer(canvas);
 // start() may be called any time, but nothing renders until the first load()
@@ -10,7 +15,7 @@ const player = new IkiPlayer(canvas);
 player.start();
 // load() resolves to a report of any textures that failed to decode/upload;
 // the rest of the model still renders. A real host would surface this.
-const { failedTextures } = await player.load(sampleModel);
+const { failedTextures } = await player.load(parsedModel);
 if (failedTextures.length > 0) {
   console.warn(
     `Iki: ${failedTextures.length} texture(s) failed to load`,

@@ -18,22 +18,6 @@ const LIP: [number, number, number, number] = [0.78, 0.32, 0.36, 1];
 const ATLAS =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAGklEQVR42mP4z8DwH4SRIJoAlA8EDGCMIQAAZhYj3eRg21gAAAAASUVORK5CYII=";
 
-// Shared head motion every facial part inherits so the face moves as one.
-const headSway = [
-  {
-    parameter: StandardParameter.AngleX,
-    channel: "translateX",
-    from: -50,
-    to: 50,
-  },
-  {
-    parameter: StandardParameter.Breath,
-    channel: "translateY",
-    from: 0,
-    to: -12,
-  },
-] as const;
-
 export const sampleModel: IkiModel = {
   version: 1,
   name: "Sample Face",
@@ -97,6 +81,35 @@ export const sampleModel: IkiModel = {
       default: 0,
     },
   ],
+  // headDeformer rotates/bobs the whole face as one rigid body about the neck pivot.
+  // Parts bound to it must NOT duplicate these bindings (double-apply).
+  deformers: [
+    {
+      id: "headDeformer",
+      // Pivot at neck level: model space, y negative = below canvas center.
+      pivot: { x: 0, y: -350 },
+      bindings: [
+        {
+          parameter: StandardParameter.AngleX,
+          channel: "rotate",
+          from: 6,
+          to: -6,
+        },
+        {
+          parameter: StandardParameter.AngleX,
+          channel: "translateX",
+          from: -50,
+          to: 50,
+        },
+        {
+          parameter: StandardParameter.Breath,
+          channel: "translateY",
+          from: 0,
+          to: -12,
+        },
+      ],
+    },
+  ],
   parts: [
     {
       id: "head",
@@ -105,15 +118,7 @@ export const sampleModel: IkiModel = {
       height: 620,
       order: 0,
       transform: { x: 0, y: 0 },
-      bindings: [
-        ...headSway,
-        {
-          parameter: StandardParameter.AngleX,
-          channel: "rotate",
-          from: 6,
-          to: -6,
-        },
-      ],
+      deformer: "headDeformer",
     },
     {
       id: "eyeL",
@@ -122,8 +127,8 @@ export const sampleModel: IkiModel = {
       height: 90,
       order: 2,
       transform: { x: -110, y: 70 },
+      deformer: "headDeformer",
       bindings: [
-        ...headSway,
         {
           parameter: StandardParameter.EyeOpenLeft,
           channel: "scaleY",
@@ -151,8 +156,8 @@ export const sampleModel: IkiModel = {
       height: 90,
       order: 2,
       transform: { x: 110, y: 70 },
+      deformer: "headDeformer",
       bindings: [
-        ...headSway,
         {
           parameter: StandardParameter.EyeOpenRight,
           channel: "scaleY",
@@ -180,8 +185,8 @@ export const sampleModel: IkiModel = {
       height: 34,
       order: 2,
       transform: { x: 0, y: -150 },
+      deformer: "headDeformer",
       bindings: [
-        ...headSway,
         {
           parameter: StandardParameter.MouthOpen,
           channel: "scaleY",
@@ -206,7 +211,7 @@ export const sampleModel: IkiModel = {
       order: 3,
       transform: { x: -380, y: 380 },
       texture: { index: 0, uv: { x: 0.05, y: 0.05, width: 0.4, height: 0.4 } },
-      bindings: [...headSway],
+      deformer: "headDeformer",
     },
     // Textured badge (tinted orange) — bottom-right atlas quadrant = yellow [1,1,0,1],
     // tinted by [1,0.35,0,1] -> result [1,0.35,0,1] ≈ orange, demonstrating per-channel
@@ -219,7 +224,7 @@ export const sampleModel: IkiModel = {
       order: 3,
       transform: { x: 380, y: 380 },
       texture: { index: 0, uv: { x: 0.55, y: 0.55, width: 0.4, height: 0.4 } },
-      bindings: [...headSway],
+      deformer: "headDeformer",
     },
   ],
 };
