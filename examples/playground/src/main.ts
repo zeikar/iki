@@ -5,8 +5,10 @@ const canvas = document.getElementById("iki") as HTMLCanvasElement;
 const controls = document.getElementById("controls") as HTMLDivElement;
 
 const player = new IkiPlayer(canvas);
-player.load(sampleModel);
+// Start rendering immediately — solid parts draw right away; textured parts pop
+// in once load() resolves and the atlas is uploaded to the GPU.
 player.start();
+await player.load(sampleModel);
 
 // Build one slider per parameter. A real host (Charivo's render adapter) drives
 // these same ids from lip-sync RMS, gaze, blink timers, and expressions.
