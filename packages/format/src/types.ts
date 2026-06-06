@@ -93,6 +93,33 @@ export interface IkiPart {
   bindings?: IkiBinding[];
   /** Texture reference; `index` into {@link IkiModel.textures}; `uv` selects the atlas sub-rect. */
   texture?: { index: number; uv: IkiUvRect };
+  /** Id of the deformer this part hangs from. */
+  deformer?: string;
+}
+
+/** Matrix-only subset of {@link IkiTransformChannel} — opacity is not representable as a matrix. */
+export type IkiMatrixChannel = Exclude<IkiTransformChannel, "opacity">;
+
+/** Base transform for a deformer (no opacity — a matrix cannot represent opacity). */
+export type IkiDeformerTransform = Omit<IkiTransform, "opacity">;
+
+/** A binding on a deformer; drives only matrix channels (no opacity). */
+export interface IkiDeformerBinding {
+  parameter: string;
+  channel: IkiMatrixChannel;
+  from: number;
+  to: number;
+}
+
+/** A deformer node in the rig hierarchy; matrix-only (no opacity). */
+export interface IkiDeformer {
+  id: string;
+  /** Id of the parent deformer; omit for a root deformer. */
+  parent?: string;
+  /** Pivot point in model space (origin = canvas center, +y up). */
+  pivot: { x: number; y: number };
+  transform?: IkiDeformerTransform;
+  bindings?: IkiDeformerBinding[];
 }
 
 /** A complete `.iki` puppet model. */
@@ -106,4 +133,5 @@ export interface IkiModel {
   /** Atlas table; parts reference entries by index. */
   textures?: IkiTexture[];
   parts: IkiPart[];
+  deformers?: IkiDeformer[];
 }

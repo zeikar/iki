@@ -1,10 +1,14 @@
 import {
   IKI_FORMAT_VERSION,
   type IkiBinding,
+  type IkiDeformer,
+  type IkiDeformerBinding,
+  type IkiMatrixChannel,
   type IkiModel,
   type IkiParameter,
   type IkiPart,
   type IkiTexture,
+  type IkiTransform,
   type IkiTransformChannel,
   type IkiUvRect,
 } from "./types";
@@ -24,6 +28,14 @@ const TRANSFORM_CHANNELS: ReadonlySet<IkiTransformChannel> = new Set([
   "scaleX",
   "scaleY",
   "opacity",
+]);
+
+const MATRIX_CHANNELS: ReadonlySet<IkiMatrixChannel> = new Set([
+  "translateX",
+  "translateY",
+  "rotate",
+  "scaleX",
+  "scaleY",
 ]);
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -143,6 +155,115 @@ function parseBinding(
   };
 }
 
+function parseTransform(value: unknown, path: string): IkiTransform {
+  if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
+  return {
+    x: num(value.x, `${path}.x`),
+    y: num(value.y, `${path}.y`),
+    rotation:
+      value.rotation === undefined
+        ? undefined
+        : num(value.rotation, `${path}.rotation`),
+    scaleX:
+      value.scaleX === undefined
+        ? undefined
+        : num(value.scaleX, `${path}.scaleX`),
+    scaleY:
+      value.scaleY === undefined
+        ? undefined
+        : num(value.scaleY, `${path}.scaleY`),
+    opacity:
+      value.opacity === undefined
+        ? undefined
+        : num(value.opacity, `${path}.opacity`),
+  };
+}
+
+function parseDeformerBinding(
+  value: unknown,
+  path: string,
+  validParameters: ReadonlySet<string>,
+): IkiDeformerBinding {
+  if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
+  const channel = value.channel;
+  if (channel === "opacity") {
+    throw new IkiFormatError(
+      `${path}.channel "opacity" is not supported on a deformer`,
+    );
+  }
+  if (
+    typeof channel !== "string" ||
+    !MATRIX_CHANNELS.has(channel as IkiMatrixChannel)
+  ) {
+    throw new IkiFormatError(
+      `${path}.channel must be one of ${[...MATRIX_CHANNELS].join(", ")}`,
+    );
+  }
+  const parameter = str(value.parameter, `${path}.parameter`);
+  if (!validParameters.has(parameter)) {
+    throw new IkiFormatError(
+      `${path}.parameter "${parameter}" is not a declared parameter`,
+    );
+  }
+  return {
+    parameter,
+    channel: channel as IkiMatrixChannel,
+    from: num(value.from, `${path}.from`),
+    to: num(value.to, `${path}.to`),
+  };
+}
+
+function parseDeformer(
+  value: unknown,
+  path: string,
+  validParameters: ReadonlySet<string>,
+): IkiDeformer {
+  if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
+  const id = str(value.id, `${path}.id`);
+
+  const pivot = value.pivot;
+  if (!isObject(pivot)) {
+    throw new IkiFormatError(`${path}.pivot must be an object`);
+  }
+
+  let transform: IkiDeformer["transform"];
+  if (value.transform !== undefined) {
+    if (!isObject(value.transform)) {
+      throw new IkiFormatError(`${path}.transform must be an object`);
+    }
+    if (value.transform.opacity !== undefined) {
+      throw new IkiFormatError(
+        `${path}.transform.opacity is not supported on a deformer (matrix-only)`,
+      );
+    }
+    const raw = parseTransform(value.transform, `${path}.transform`);
+    // Strip opacity — IkiDeformerTransform is Omit<IkiTransform, "opacity">
+    const { opacity: _opacity, ...rest } = raw;
+    transform = rest;
+  }
+
+  const bindings = value.bindings;
+  if (bindings !== undefined && !Array.isArray(bindings)) {
+    throw new IkiFormatError(`${path}.bindings must be an array`);
+  }
+
+  return {
+    id,
+    parent:
+      value.parent === undefined
+        ? undefined
+        : str(value.parent, `${path}.parent`),
+    pivot: {
+      x: num(pivot.x, `${path}.pivot.x`),
+      y: num(pivot.y, `${path}.pivot.y`),
+    },
+    transform,
+    bindings: bindings?.map((b, i) =>
+      parseDeformerBinding(b, `${path}.bindings[${i}]`, validParameters),
+    ),
+  };
+}
+
 function parsePart(
   value: unknown,
   path: string,
@@ -186,31 +307,16 @@ function parsePart(
     color: parseColor(value.color, `${path}.color`),
     width: num(value.width, `${path}.width`),
     height: num(value.height, `${path}.height`),
-    transform: {
-      x: num(transform.x, `${path}.transform.x`),
-      y: num(transform.y, `${path}.transform.y`),
-      rotation:
-        transform.rotation === undefined
-          ? undefined
-          : num(transform.rotation, `${path}.transform.rotation`),
-      scaleX:
-        transform.scaleX === undefined
-          ? undefined
-          : num(transform.scaleX, `${path}.transform.scaleX`),
-      scaleY:
-        transform.scaleY === undefined
-          ? undefined
-          : num(transform.scaleY, `${path}.transform.scaleY`),
-      opacity:
-        transform.opacity === undefined
-          ? undefined
-          : num(transform.opacity, `${path}.transform.opacity`),
-    },
+    transform: parseTransform(transform, `${path}.transform`),
     order: num(value.order, `${path}.order`),
     bindings: bindings?.map((b, i) =>
       parseBinding(b, `${path}.bindings[${i}]`, validParameters),
     ),
     texture,
+    deformer:
+      value.deformer === undefined
+        ? undefined
+        : str(value.deformer, `${path}.deformer`),
   };
 }
 
@@ -259,6 +365,90 @@ export function parseIkiModel(input: unknown): IkiModel {
   }
   const texturesCount = textures?.length ?? 0;
 
+  // Parse parts (deformer field collected here; cross-check after deformers are known)
+  const parts = input.parts.map((p, i) =>
+    parsePart(p, `parts[${i}]`, declaredIds, texturesCount),
+  );
+
+  // Parse deformers (optional)
+  let deformers: IkiDeformer[] | undefined;
+  if (input.deformers !== undefined) {
+    if (!Array.isArray(input.deformers)) {
+      throw new IkiFormatError("deformers must be an array");
+    }
+    deformers = input.deformers.map((d, i) =>
+      parseDeformer(d, `deformers[${i}]`, declaredIds),
+    );
+  }
+
+  // Shared namespace: deformer ids must not collide with each other or part ids
+  const deformerIds = new Set<string>();
+  if (deformers) {
+    for (let i = 0; i < deformers.length; i++) {
+      const { id } = deformers[i];
+      if (deformerIds.has(id)) {
+        throw new IkiFormatError(
+          `deformers[${i}].id "${id}" collides with a previous deformer id`,
+        );
+      }
+      // Find the part index for a better error message
+      const partIdx = parts.findIndex((p) => p.id === id);
+      if (partIdx !== -1) {
+        throw new IkiFormatError(
+          `deformers[${i}].id "${id}" collides with parts[${partIdx}].id`,
+        );
+      }
+      deformerIds.add(id);
+    }
+  }
+
+  // Cross-check deformer parent references and detect cycles
+  if (deformers) {
+    for (let i = 0; i < deformers.length; i++) {
+      const { id, parent } = deformers[i];
+      if (parent === undefined) continue;
+      if (parent === id) {
+        throw new IkiFormatError(
+          `deformers[${i}].parent "${parent}" is a self-reference`,
+        );
+      }
+      if (!deformerIds.has(parent)) {
+        throw new IkiFormatError(
+          `deformers[${i}].parent "${parent}" is not a declared deformer`,
+        );
+      }
+    }
+
+    // Cycle detection via topological walk (visited-set per node)
+    const parentOf = new Map<string, string>();
+    for (const d of deformers) {
+      if (d.parent !== undefined) parentOf.set(d.id, d.parent);
+    }
+    for (const d of deformers) {
+      const visited = new Set<string>();
+      let cur: string | undefined = d.id;
+      while (cur !== undefined) {
+        if (visited.has(cur)) {
+          throw new IkiFormatError(
+            `deformers contain a cycle involving "${cur}"`,
+          );
+        }
+        visited.add(cur);
+        cur = parentOf.get(cur);
+      }
+    }
+  }
+
+  // Cross-check part.deformer references
+  for (let i = 0; i < parts.length; i++) {
+    const ref = parts[i].deformer;
+    if (ref !== undefined && !deformerIds.has(ref)) {
+      throw new IkiFormatError(
+        `parts[${i}].deformer "${ref}" is not a declared deformer`,
+      );
+    }
+  }
+
   return {
     version,
     name: str(input.name, "name"),
@@ -268,9 +458,8 @@ export function parseIkiModel(input: unknown): IkiModel {
     },
     parameters,
     textures,
-    parts: input.parts.map((p, i) =>
-      parsePart(p, `parts[${i}]`, declaredIds, texturesCount),
-    ),
+    parts,
+    deformers,
   };
 }
 

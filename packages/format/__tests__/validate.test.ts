@@ -443,3 +443,161 @@ describe("loadIkiModel", () => {
     );
   });
 });
+
+// ── Deformer tests ────────────────────────────────────────────────────────────
+
+/** Minimal valid deformer entry. */
+function makeDeformer(
+  id: string,
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return { id, pivot: { x: 0, y: 0 }, ...overrides };
+}
+
+describe("deformers — happy path", () => {
+  it("(a) valid two-level hierarchy parses without error", () => {
+    const input = {
+      ...validModel(),
+      deformers: [
+        makeDeformer("head"),
+        makeDeformer("jaw", {
+          parent: "head",
+          transform: { x: 0, y: -50, rotation: 5 },
+          bindings: [
+            { parameter: "ParamA", channel: "rotate", from: 0, to: 30 },
+          ],
+        }),
+      ],
+      parts: [{ ...validModel().parts[0], deformer: "jaw" }],
+    };
+    const model = parseIkiModel(input);
+    expect(model.deformers).toHaveLength(2);
+    expect(model.deformers![1].parent).toBe("head");
+    expect(model.parts[0].deformer).toBe("jaw");
+  });
+
+  it("(b) root deformer (omitted parent) is valid", () => {
+    const input = { ...validModel(), deformers: [makeDeformer("root")] };
+    const model = parseIkiModel(input);
+    expect(model.deformers![0].parent).toBeUndefined();
+  });
+
+  it("back-compat: model with no deformers and no part.deformer still validates", () => {
+    const model = parseIkiModel(validModel());
+    expect(model.deformers).toBeUndefined();
+    expect(model.parts[0].deformer).toBeUndefined();
+  });
+});
+
+describe("deformers — parent errors", () => {
+  it("(b) unknown parent throws", () => {
+    const input = {
+      ...validModel(),
+      deformers: [makeDeformer("child", { parent: "nonexistent" })],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /deformers\[0\]\.parent "nonexistent" is not a declared deformer/,
+    );
+  });
+
+  it("(c) self-parent throws", () => {
+    const input = {
+      ...validModel(),
+      deformers: [makeDeformer("loop", { parent: "loop" })],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /deformers\[0\]\.parent "loop" is a self-reference/,
+    );
+  });
+
+  it("(d) cycle throws", () => {
+    const input = {
+      ...validModel(),
+      deformers: [
+        makeDeformer("a", { parent: "b" }),
+        makeDeformer("b", { parent: "a" }),
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(/deformers contain a cycle/);
+  });
+});
+
+describe("deformers — id collision errors", () => {
+  it("(e) duplicate deformer id throws", () => {
+    const input = {
+      ...validModel(),
+      deformers: [makeDeformer("dup"), makeDeformer("dup")],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /deformers\[1\]\.id "dup" collides with a previous deformer id/,
+    );
+  });
+
+  it("(f) deformer id colliding with a part id throws", () => {
+    const input = {
+      ...validModel(),
+      deformers: [makeDeformer("part1")],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /deformers\[0\]\.id "part1" collides with parts\[0\]\.id/,
+    );
+  });
+});
+
+describe("deformers — cross-reference errors", () => {
+  it("(g) dangling part.deformer throws", () => {
+    const input = {
+      ...validModel(),
+      parts: [{ ...validModel().parts[0], deformer: "ghost" }],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /parts\[0\]\.deformer "ghost" is not a declared deformer/,
+    );
+  });
+
+  it("(h) deformer binding referencing unknown parameter throws", () => {
+    const input = {
+      ...validModel(),
+      deformers: [
+        makeDeformer("d0", {
+          bindings: [
+            { parameter: "NoSuchParam", channel: "rotate", from: 0, to: 1 },
+          ],
+        }),
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /"NoSuchParam" is not a declared parameter/,
+    );
+  });
+});
+
+describe("deformers — opacity rejection", () => {
+  it("(i) deformer with transform.opacity throws", () => {
+    const input = {
+      ...validModel(),
+      deformers: [
+        makeDeformer("d0", { transform: { x: 0, y: 0, opacity: 0.5 } }),
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /deformers\[0\]\.transform\.opacity is not supported on a deformer \(matrix-only\)/,
+    );
+  });
+
+  it("(j) deformer binding with channel 'opacity' throws", () => {
+    const input = {
+      ...validModel(),
+      deformers: [
+        makeDeformer("d0", {
+          bindings: [
+            { parameter: "ParamA", channel: "opacity", from: 0, to: 1 },
+          ],
+        }),
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /deformers\[0\]\.bindings\[0\]\.channel "opacity" is not supported on a deformer/,
+    );
+  });
+});

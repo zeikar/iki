@@ -1,6 +1,10 @@
 export {
   IKI_FORMAT_VERSION,
   type IkiBinding,
+  type IkiDeformer,
+  type IkiDeformerBinding,
+  type IkiDeformerTransform,
+  type IkiMatrixChannel,
   type IkiModel,
   type IkiParameter,
   type IkiPart,
