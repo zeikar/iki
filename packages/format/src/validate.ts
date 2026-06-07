@@ -130,12 +130,13 @@ function parseKeyform(
 function parseWarp(
   value: unknown,
   path: string,
-  validParameters: ReadonlySet<string>,
+  paramDescriptors: ReadonlyMap<string, { min: number; max: number }>,
   componentCount: number,
 ): IkiWarp {
   if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
   const parameter = str(value.parameter, `${path}.parameter`);
-  if (!validParameters.has(parameter)) {
+  const descriptor = paramDescriptors.get(parameter);
+  if (!descriptor) {
     throw new IkiFormatError(
       `${path}.parameter "${parameter}" is not a declared parameter`,
     );
@@ -146,6 +147,15 @@ function parseWarp(
   const keyforms = value.keyforms.map((kf, i) =>
     parseKeyform(kf, `${path}.keyforms[${i}]`, componentCount),
   );
+  const { min, max } = descriptor;
+  for (let i = 0; i < keyforms.length; i++) {
+    const v = keyforms[i].value;
+    if (v < min || v > max) {
+      throw new IkiFormatError(
+        `${path}.keyforms[${i}].value ${v} is outside parameter "${parameter}" range [${min},${max}]`,
+      );
+    }
+  }
   for (let i = 1; i < keyforms.length; i++) {
     if (keyforms[i].value <= keyforms[i - 1].value) {
       throw new IkiFormatError(
@@ -368,6 +378,7 @@ function parsePart(
   value: unknown,
   path: string,
   validParameters: ReadonlySet<string>,
+  paramDescriptors: ReadonlyMap<string, { min: number; max: number }>,
   texturesCount: number,
 ): IkiPart {
   if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
@@ -417,7 +428,7 @@ function parsePart(
       throw new IkiFormatError(`${path}.warps requires a mesh`);
     }
     warps = value.warps.map((w, i) =>
-      parseWarp(w, `${path}.warps[${i}]`, validParameters, componentCount),
+      parseWarp(w, `${path}.warps[${i}]`, paramDescriptors, componentCount),
     );
   }
 
@@ -470,11 +481,13 @@ export function parseIkiModel(input: unknown): IkiModel {
   );
 
   const declaredIds = new Set<string>();
+  const paramDescriptors = new Map<string, { min: number; max: number }>();
   for (const param of parameters) {
     if (declaredIds.has(param.id)) {
       throw new IkiFormatError(`duplicate parameter id "${param.id}"`);
     }
     declaredIds.add(param.id);
+    paramDescriptors.set(param.id, { min: param.min, max: param.max });
   }
 
   let textures: IkiTexture[] | undefined;
@@ -488,7 +501,7 @@ export function parseIkiModel(input: unknown): IkiModel {
 
   // Parse parts (deformer field collected here; cross-check after deformers are known)
   const parts = input.parts.map((p, i) =>
-    parsePart(p, `parts[${i}]`, declaredIds, texturesCount),
+    parsePart(p, `parts[${i}]`, declaredIds, paramDescriptors, texturesCount),
   );
 
   // Parse deformers (optional)

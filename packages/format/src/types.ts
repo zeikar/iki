@@ -3,9 +3,10 @@
  *
  * A model is a flat list of drawable {@link IkiPart}s composited back-to-front,
  * plus a list of {@link IkiParameter}s (the controllable knobs) wired to those
- * parts through linear {@link IkiBinding}s. This is deliberately small: it
- * covers what a talking avatar needs (mouth, eyes, head, breath) without the
- * full deformer/warp-mesh system. Mesh deformation is a later format version.
+ * parts through linear {@link IkiBinding}s. Parts may optionally carry a
+ * triangle {@link IkiMesh} with per-vertex UV and per-parameter warp keyforms
+ * ({@link IkiWarp}/{@link IkiKeyform}) — both are part of the v1 contract.
+ * Multi-parameter warps and 2D warp grids are deferred to a later milestone.
  */
 export const IKI_FORMAT_VERSION = 1;
 

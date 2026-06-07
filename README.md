@@ -12,8 +12,8 @@ animates it in WebGL. A host (such as [Charivo](https://github.com/zeikar/chariv
 drives those parameters from lip-sync, gaze, blink, and expressions.
 
 > Status: **early / from scratch.** The runtime renders parameter-driven
-> color quads and atlas-sampled texture parts today. Warp-mesh deformation,
-> the editor, and the AI generator are the milestones ahead.
+> color quads, atlas-sampled texture parts, and warp-mesh deformation today.
+> The editor and the AI generator are the milestones ahead.
 
 ## Why
 
@@ -89,7 +89,7 @@ any host can drive any model without per-model wiring.
    > Atlas authors should add padding / extruded borders between sub-rects to avoid LINEAR-filter bleeding.
 4. **Warp/rotation deformers** — the soft 2.5D head-turn that defines the look
    - **4a. Rotation deformer + pivot + parent hierarchy** — done
-   - **4b. Warp mesh, keyform, per-vertex UV** — pending
+   - **4b. Warp mesh, keyform, per-vertex UV** — done
 5. **Editor** — author parts, meshes, and bindings
 6. **AI generator** — image → segmented parts → auto-rigged `.iki`
 

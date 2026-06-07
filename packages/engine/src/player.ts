@@ -31,7 +31,8 @@ interface PartMesh {
   index: WebGLBuffer;
   indexCount: number;
   rest: Float32Array;
-  scratch: Float32Array;
+  /** Preallocated warp output buffer; only present when `warps` is non-empty. */
+  scratch?: Float32Array;
   warps?: IkiWarp[];
 }
 
@@ -41,7 +42,8 @@ interface PartMesh {
  * v1 scope: parts are solid-color or atlas-sampled textured quads or meshes,
  * transformed each frame by their base transform plus the sum of their parameter
  * bindings. `load()` is async — it decodes and uploads textures before swapping
- * the model in. Warp-mesh deformation is a later milestone (Task 4).
+ * the model in. Mesh parts additionally carry per-vertex UV and optional warp
+ * keyforms, interpolated each frame on the CPU into a dynamic vertex buffer.
  */
 export class IkiPlayer {
   private readonly gl: WebGL2RenderingContext;
@@ -214,10 +216,19 @@ export class IkiPlayer {
 
       // All three buffers allocated — upload data.
       const rest = new Float32Array(mesh.vertices);
-      const scratch = new Float32Array(mesh.vertices.length);
+      // Only allocate scratch and use DYNAMIC_DRAW when this part has warps;
+      // warp-less static meshes never morph and don't need per-frame re-upload.
+      const hasWarps = (part.warps?.length ?? 0) > 0;
+      const scratch = hasWarps
+        ? new Float32Array(mesh.vertices.length)
+        : undefined;
 
       gl.bindBuffer(gl.ARRAY_BUFFER, positionBuf);
-      gl.bufferData(gl.ARRAY_BUFFER, rest, gl.DYNAMIC_DRAW);
+      gl.bufferData(
+        gl.ARRAY_BUFFER,
+        rest,
+        hasWarps ? gl.DYNAMIC_DRAW : gl.STATIC_DRAW,
+      );
 
       gl.bindBuffer(gl.ARRAY_BUFFER, uvBuf);
       gl.bufferData(
@@ -397,9 +408,10 @@ export class IkiPlayer {
         // DYNAMIC_DRAW VBO. Warp-less meshes skip this — their VBO already
         // holds `rest` from load().
         if (pm.warps && pm.warps.length > 0) {
-          applyWarps(pm.rest, pm.warps, this.params, pm.scratch);
+          // scratch is always allocated when warps is non-empty (see load())
+          applyWarps(pm.rest, pm.warps, this.params, pm.scratch!);
           gl.bindBuffer(gl.ARRAY_BUFFER, pm.position);
-          gl.bufferSubData(gl.ARRAY_BUFFER, 0, pm.scratch);
+          gl.bufferSubData(gl.ARRAY_BUFFER, 0, pm.scratch!);
         }
 
         // Position VBO (DYNAMIC_DRAW — morphed for warped parts, rest otherwise).

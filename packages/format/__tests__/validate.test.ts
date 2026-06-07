@@ -1037,4 +1037,54 @@ describe("mesh + warp", () => {
     };
     expect(() => parseIkiModel(input)).toThrow(/warps must be an array/);
   });
+
+  it("(m) keyform value outside parameter range throws outside parameter range", () => {
+    // ParamA is declared min:-1, max:1. A keyform value of 100 is out of range.
+    const outOfRange = {
+      ...validModel(),
+      parts: [
+        {
+          ...validModel().parts[0],
+          mesh: validMesh(),
+          warps: [
+            {
+              parameter: "ParamA",
+              keyforms: [
+                { value: -1, offsets: [0, 0, 0, 0, 0, 0, 0, 0] },
+                {
+                  value: 100,
+                  offsets: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(() => parseIkiModel(outOfRange)).toThrow(
+      /outside parameter .* range/,
+    );
+  });
+
+  it("(m2) keyform values within parameter range still pass validation", () => {
+    const inRange = {
+      ...validModel(),
+      parts: [
+        {
+          ...validModel().parts[0],
+          mesh: validMesh(),
+          warps: [
+            {
+              parameter: "ParamA",
+              keyforms: [
+                { value: -1, offsets: [0, 0, 0, 0, 0, 0, 0, 0] },
+                { value: 1, offsets: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8] },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(() => parseIkiModel(inRange)).not.toThrow();
+  });
 });
