@@ -1088,3 +1088,497 @@ describe("mesh + warp", () => {
     expect(() => parseIkiModel(inRange)).not.toThrow();
   });
 });
+
+// ── Warp deformer tests ────────────────────────────────────────────────────────
+
+/**
+ * Builds a minimal valid warp deformer. cols=2, rows=1 → 3*2=6 points.
+ * Grid: row 0 (top, y=10): x=-10,-0,10; row 1 (bottom, y=-10): x=-10,0,10.
+ * Points flat: [-10,10, 0,10, 10,10, -10,-10, 0,-10, 10,-10]
+ */
+function makeWarpDeformer(
+  id: string,
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const pts = [-10, 10, 0, 10, 10, 10, -10, -10, 0, -10, 10, -10];
+  return {
+    kind: "warp",
+    id,
+    grid: { cols: 2, rows: 1, points: pts },
+    ...overrides,
+  };
+}
+
+/** A valid 3-vertex mesh for warp-child tests. */
+function warpChildMesh() {
+  return {
+    vertices: [0, 0, 1, 0, 0, 1],
+    uvs: [0, 0, 1, 0, 0, 1],
+    indices: [0, 1, 2],
+  };
+}
+
+/** A model with a single warp deformer and a mesh part referencing it. */
+function modelWithWarpDeformer() {
+  return {
+    ...validModel(),
+    deformers: [makeWarpDeformer("faceWarp")],
+    parts: [
+      {
+        ...validModel().parts[0],
+        deformer: "faceWarp",
+        mesh: warpChildMesh(),
+      },
+    ],
+  };
+}
+
+describe("warp deformers — happy path", () => {
+  it("(a) valid warp deformer with a mesh child parses and returns correct structure", () => {
+    const model = parseIkiModel(modelWithWarpDeformer());
+    expect(model.deformers).toHaveLength(1);
+    const wd = model.deformers![0];
+    expect(wd.kind).toBe("warp");
+    expect(wd.id).toBe("faceWarp");
+    if (wd.kind === "warp") {
+      expect(wd.grid.cols).toBe(2);
+      expect(wd.grid.rows).toBe(1);
+      expect(wd.grid.points).toHaveLength(12);
+    }
+    expect(model.parts[0].mesh).toBeDefined();
+    expect(model.parts[0].deformer).toBe("faceWarp");
+  });
+
+  it("(b) warp deformer with optional warps array parses", () => {
+    const input = {
+      ...modelWithWarpDeformer(),
+      deformers: [
+        {
+          ...makeWarpDeformer("faceWarp"),
+          warps: [
+            {
+              parameter: "ParamA",
+              keyforms: [
+                { value: -1, offsets: Array(12).fill(0) },
+                { value: 1, offsets: Array(12).fill(0.5) },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const model = parseIkiModel(input);
+    const wd = model.deformers![0];
+    if (wd.kind === "warp") {
+      expect(wd.warps).toHaveLength(1);
+      expect(wd.warps![0].parameter).toBe("ParamA");
+      expect(wd.warps![0].keyforms).toHaveLength(2);
+    }
+  });
+
+  it("(c) omitted kind parses as matrix (back-compat)", () => {
+    const input = {
+      ...validModel(),
+      deformers: [makeDeformer("head")],
+    };
+    const model = parseIkiModel(input);
+    expect(model.deformers).toHaveLength(1);
+    // kind is undefined for matrix deformers (omitted)
+    expect(model.deformers![0].kind).toBeUndefined();
+  });
+
+  it("(d) matrix deformer parented to matrix parses (existing hierarchy)", () => {
+    const input = {
+      ...validModel(),
+      deformers: [
+        makeDeformer("root"),
+        makeDeformer("child", { parent: "root" }),
+      ],
+    };
+    const model = parseIkiModel(input);
+    expect(model.deformers).toHaveLength(2);
+    expect(model.deformers![1].parent).toBe("root");
+  });
+
+  it("(e) warp deformer parented to a matrix deformer is valid", () => {
+    const input = {
+      ...validModel(),
+      deformers: [
+        makeDeformer("headDeformer"),
+        makeWarpDeformer("faceWarp", { parent: "headDeformer" }),
+      ],
+      parts: [
+        {
+          ...validModel().parts[0],
+          deformer: "faceWarp",
+          mesh: warpChildMesh(),
+        },
+      ],
+    };
+    const model = parseIkiModel(input);
+    expect(model.deformers![1].parent).toBe("headDeformer");
+  });
+});
+
+describe("warp deformers — kind dispatch errors", () => {
+  it("(a) unknown kind throws /is not a known deformer kind/", () => {
+    const input = {
+      ...validModel(),
+      deformers: [{ kind: "bend", id: "d0", pivot: { x: 0, y: 0 } }],
+    };
+    expect(() => parseIkiModel(input)).toThrow(/is not a known deformer kind/);
+  });
+
+  it("(b) explicit kind:'matrix' is treated as matrix deformer", () => {
+    const input = {
+      ...validModel(),
+      deformers: [{ kind: "matrix", id: "d0", pivot: { x: 0, y: 0 } }],
+    };
+    const model = parseIkiModel(input);
+    expect(model.deformers![0].kind).toBe(undefined); // parseDeformer doesn't write kind back
+    // Actually the type is IkiMatrixDeformer with kind?:"matrix" but parseDeformer
+    // returns {id, parent, pivot, transform, bindings} without explicitly setting kind.
+    // The important thing is it didn't throw.
+    expect(model.deformers![0].id).toBe("d0");
+  });
+});
+
+describe("warp deformers — grid validation errors", () => {
+  it("(a) grid.points length mismatch throws /grid\\.points length .* must equal/", () => {
+    const input = {
+      ...modelWithWarpDeformer(),
+      deformers: [
+        {
+          kind: "warp",
+          id: "faceWarp",
+          grid: { cols: 2, rows: 2, points: [0, 0, 1, 0, 2, 0] },
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /grid\.points length .* must equal/,
+    );
+  });
+
+  it("(b) cols not a positive integer throws /must be a positive integer/", () => {
+    const input = {
+      ...modelWithWarpDeformer(),
+      deformers: [
+        {
+          kind: "warp",
+          id: "faceWarp",
+          grid: { cols: 0, rows: 1, points: [] },
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(/must be a positive integer/);
+  });
+
+  it("(b2) rows not a positive integer throws /must be a positive integer/", () => {
+    const input = {
+      ...modelWithWarpDeformer(),
+      deformers: [
+        {
+          kind: "warp",
+          id: "faceWarp",
+          grid: { cols: 2, rows: -1, points: [] },
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(/must be a positive integer/);
+  });
+
+  it("(b3) cols as float throws /must be a positive integer/", () => {
+    const input = {
+      ...modelWithWarpDeformer(),
+      deformers: [
+        {
+          kind: "warp",
+          id: "faceWarp",
+          grid: { cols: 1.5, rows: 1, points: [] },
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(/must be a positive integer/);
+  });
+
+  it("(c) irregular grid — point nudged off its row/col throws /must be a regular axis-aligned grid/", () => {
+    // 2x1 grid but nudge point [1] off its row-0 y slightly
+    const pts = [-10, 10, 0, 9, 10, 10, -10, -10, 0, -10, 10, -10];
+    const input = {
+      ...validModel(),
+      deformers: [
+        {
+          kind: "warp",
+          id: "faceWarp",
+          grid: { cols: 2, rows: 1, points: pts },
+        },
+      ],
+      parts: [
+        {
+          ...validModel().parts[0],
+          deformer: "faceWarp",
+          mesh: warpChildMesh(),
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /must be a regular axis-aligned grid/,
+    );
+  });
+
+  it("(d) reversed x (column 0 rightmost) throws /must be a regular axis-aligned grid/", () => {
+    // x DECREASES by column: col0=10, col1=0, col2=-10
+    const pts = [10, 10, 0, 10, -10, 10, 10, -10, 0, -10, -10, -10];
+    const input = {
+      ...validModel(),
+      deformers: [
+        {
+          kind: "warp",
+          id: "faceWarp",
+          grid: { cols: 2, rows: 1, points: pts },
+        },
+      ],
+      parts: [
+        {
+          ...validModel().parts[0],
+          deformer: "faceWarp",
+          mesh: warpChildMesh(),
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /must be a regular axis-aligned grid/,
+    );
+  });
+
+  it("(e) reversed y (row 0 at bottom, y increasing by row) throws /must be a regular axis-aligned grid/", () => {
+    // y INCREASES by row: row0=-10 (bottom), row1=10 (top)
+    const pts = [-10, -10, 0, -10, 10, -10, -10, 10, 0, 10, 10, 10];
+    const input = {
+      ...validModel(),
+      deformers: [
+        {
+          kind: "warp",
+          id: "faceWarp",
+          grid: { cols: 2, rows: 1, points: pts },
+        },
+      ],
+      parts: [
+        {
+          ...validModel().parts[0],
+          deformer: "faceWarp",
+          mesh: warpChildMesh(),
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /must be a regular axis-aligned grid/,
+    );
+  });
+
+  it("(f) zero-width column (duplicate x) throws /must be a regular axis-aligned grid/", () => {
+    // col0 and col1 have same x=0 → no strictly increasing
+    const pts = [0, 10, 0, 10, 10, 10, 0, -10, 0, -10, 10, -10];
+    const input = {
+      ...validModel(),
+      deformers: [
+        {
+          kind: "warp",
+          id: "faceWarp",
+          grid: { cols: 2, rows: 1, points: pts },
+        },
+      ],
+      parts: [
+        {
+          ...validModel().parts[0],
+          deformer: "faceWarp",
+          mesh: warpChildMesh(),
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /must be a regular axis-aligned grid/,
+    );
+  });
+});
+
+describe("warp deformers — grid warp keyform errors", () => {
+  function modelWithWarpAndKeyform(keyformOverride: Record<string, unknown>) {
+    return {
+      ...validModel(),
+      deformers: [
+        {
+          ...makeWarpDeformer("faceWarp"),
+          warps: [
+            {
+              parameter: "ParamA",
+              keyforms: [keyformOverride],
+            },
+          ],
+        },
+      ],
+      parts: [
+        {
+          ...validModel().parts[0],
+          deformer: "faceWarp",
+          mesh: warpChildMesh(),
+        },
+      ],
+    };
+  }
+
+  it("(a) grid keyform offsets length mismatch throws /offsets length must equal grid\\.points length/", () => {
+    const input = modelWithWarpAndKeyform({ value: 0, offsets: [0, 0] }); // grid has 12 components
+    expect(() => parseIkiModel(input)).toThrow(
+      /offsets length must equal grid\.points length/,
+    );
+  });
+
+  it("(b) grid keyform value outside parameter range throws /outside parameter .* range/", () => {
+    // ParamA is min:-1, max:1; value of 5 is out of range
+    const input = modelWithWarpAndKeyform({
+      value: 5,
+      offsets: Array(12).fill(0),
+    });
+    expect(() => parseIkiModel(input)).toThrow(/outside parameter .* range/);
+  });
+
+  it("(c) grid keyform values not ascending throws /keyforms must be sorted ascending/", () => {
+    const input = {
+      ...validModel(),
+      deformers: [
+        {
+          ...makeWarpDeformer("faceWarp"),
+          warps: [
+            {
+              parameter: "ParamA",
+              keyforms: [
+                { value: 1, offsets: Array(12).fill(0) },
+                { value: -1, offsets: Array(12).fill(0) },
+              ],
+            },
+          ],
+        },
+      ],
+      parts: [
+        {
+          ...validModel().parts[0],
+          deformer: "faceWarp",
+          mesh: warpChildMesh(),
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /keyforms must be sorted ascending/,
+    );
+  });
+});
+
+describe("warp deformers — mesh-required cross-check", () => {
+  it("(a) warp-deformer child without mesh throws /is a warp deformer and requires .*\\.mesh/", () => {
+    const input = {
+      ...validModel(),
+      deformers: [makeWarpDeformer("faceWarp")],
+      parts: [
+        {
+          ...validModel().parts[0],
+          deformer: "faceWarp",
+          // no mesh!
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /is a warp deformer and requires .*\.mesh/,
+    );
+  });
+
+  it("(b) warp-deformer child with mesh does not throw", () => {
+    expect(() => parseIkiModel(modelWithWarpDeformer())).not.toThrow();
+  });
+});
+
+describe("warp deformers — kind-aware parent restrictions", () => {
+  it("(a) warp deformer parented to a warp deformer throws /must be a matrix deformer/", () => {
+    const input = {
+      ...validModel(),
+      deformers: [
+        makeWarpDeformer("warp1"),
+        makeWarpDeformer("warp2", { parent: "warp1" }),
+      ],
+      parts: [
+        {
+          ...validModel().parts[0],
+          deformer: "warp2",
+          mesh: warpChildMesh(),
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(/must be a matrix deformer/);
+  });
+
+  it("(b) matrix deformer parented to a warp deformer throws /matrix deformers cannot be children of a warp deformer/", () => {
+    const input = {
+      ...validModel(),
+      deformers: [
+        makeWarpDeformer("faceWarp"),
+        makeDeformer("jaw", { parent: "faceWarp" }),
+      ],
+      parts: [
+        {
+          ...validModel().parts[0],
+          deformer: "faceWarp",
+          mesh: warpChildMesh(),
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /matrix deformers cannot be children of a warp deformer/,
+    );
+  });
+});
+
+describe("warp deformers — cycle and dangling parent with warp deformer present", () => {
+  it("(a) dangling parent on a warp deformer throws /is not a declared deformer/", () => {
+    const input = {
+      ...validModel(),
+      deformers: [makeWarpDeformer("faceWarp", { parent: "nonexistent" })],
+      parts: [
+        {
+          ...validModel().parts[0],
+          deformer: "faceWarp",
+          mesh: warpChildMesh(),
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(/is not a declared deformer/);
+  });
+
+  it("(b) cycle involving a warp deformer throws /deformers contain a cycle/", () => {
+    const input = {
+      ...validModel(),
+      deformers: [
+        makeDeformer("matA", { parent: "faceWarp" }),
+        makeWarpDeformer("faceWarp", { parent: "matA" }),
+      ],
+      parts: [
+        {
+          ...validModel().parts[0],
+          deformer: "faceWarp",
+          mesh: warpChildMesh(),
+        },
+      ],
+    };
+    // Note: the cycle check fires, but kind-aware check might also fire first.
+    // Either cycle or kind error is acceptable; the cycle path is:
+    // matA -> faceWarp -> matA which creates a cycle detected by topoWalk.
+    // But the kind-aware check: faceWarp (warp) parented to matA (matrix) = ok,
+    // matA (matrix) parented to faceWarp (warp) = forbidden by kind check.
+    // Kind check runs after dangling/self check but before cycle detection? Let's check.
+    // Actually looking at code: kind check runs AFTER cycle detection.
+    // So cycle detection fires first.
+    expect(() => parseIkiModel(input)).toThrow(
+      /deformers contain a cycle|matrix deformers cannot be children of a warp deformer/,
+    );
+  });
+});

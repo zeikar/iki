@@ -3,6 +3,8 @@ import {
   type IkiBinding,
   type IkiDeformer,
   type IkiDeformerBinding,
+  type IkiGridKeyform,
+  type IkiGridWarp,
   type IkiKeyform,
   type IkiMatrixChannel,
   type IkiMatrixDeformer,
@@ -15,6 +17,7 @@ import {
   type IkiTransformChannel,
   type IkiUvRect,
   type IkiWarp,
+  type IkiWarpDeformer,
 } from "./types";
 
 /** Thrown when input does not conform to the `.iki` format. */
@@ -165,6 +168,159 @@ function parseWarp(
     }
   }
   return { parameter, keyforms };
+}
+
+function parseGridKeyform(
+  value: unknown,
+  path: string,
+  pointComponentCount: number,
+): IkiGridKeyform {
+  if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
+  const kfValue = num(value.value, `${path}.value`);
+  const offsets = parseNumberArray(value.offsets, `${path}.offsets`);
+  if (offsets.length !== pointComponentCount) {
+    throw new IkiFormatError(
+      `${path}.offsets length must equal grid.points length`,
+    );
+  }
+  return { value: kfValue, offsets };
+}
+
+function parseGridWarp(
+  value: unknown,
+  path: string,
+  paramDescriptors: ReadonlyMap<string, { min: number; max: number }>,
+  pointComponentCount: number,
+): IkiGridWarp {
+  if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
+  const parameter = str(value.parameter, `${path}.parameter`);
+  const descriptor = paramDescriptors.get(parameter);
+  if (!descriptor) {
+    throw new IkiFormatError(
+      `${path}.parameter "${parameter}" is not a declared parameter`,
+    );
+  }
+  if (!Array.isArray(value.keyforms) || value.keyforms.length === 0) {
+    throw new IkiFormatError(`${path}.keyforms must be a non-empty array`);
+  }
+  const keyforms = value.keyforms.map((kf, i) =>
+    parseGridKeyform(kf, `${path}.keyforms[${i}]`, pointComponentCount),
+  );
+  const { min, max } = descriptor;
+  for (let i = 0; i < keyforms.length; i++) {
+    const v = keyforms[i].value;
+    if (v < min || v > max) {
+      throw new IkiFormatError(
+        `${path}.keyforms[${i}].value ${v} is outside parameter "${parameter}" range [${min},${max}]`,
+      );
+    }
+  }
+  for (let i = 1; i < keyforms.length; i++) {
+    if (keyforms[i].value <= keyforms[i - 1].value) {
+      throw new IkiFormatError(
+        `${path}.keyforms must be sorted ascending by value`,
+      );
+    }
+  }
+  return { parameter, keyforms };
+}
+
+const GRID_REGULARITY_ERROR =
+  "must be a regular axis-aligned grid (row 0 top / largest y, column 0 left / smallest x, strictly ordered, nonzero spacing)";
+
+function checkGridRegularity(
+  points: number[],
+  cols: number,
+  rows: number,
+  path: string,
+): void {
+  const eps = 1e-6;
+  // Derive per-column x and per-row y from row 0 and column 0
+  const colX: number[] = [];
+  for (let c = 0; c <= cols; c++) {
+    colX.push(points[c * 2]);
+  }
+  const rowY: number[] = [];
+  for (let r = 0; r <= rows; r++) {
+    rowY.push(points[r * (cols + 1) * 2 + 1]);
+  }
+  // Column x must strictly increase
+  for (let c = 1; c <= cols; c++) {
+    if (colX[c] <= colX[c - 1]) {
+      throw new IkiFormatError(`${path}.grid.points ${GRID_REGULARITY_ERROR}`);
+    }
+  }
+  // Row y must strictly decrease (row 0 = top = largest y, +y up)
+  for (let r = 1; r <= rows; r++) {
+    if (rowY[r] >= rowY[r - 1]) {
+      throw new IkiFormatError(`${path}.grid.points ${GRID_REGULARITY_ERROR}`);
+    }
+  }
+  // Every point must match its column's x and row's y within epsilon
+  for (let r = 0; r <= rows; r++) {
+    for (let c = 0; c <= cols; c++) {
+      const idx = (r * (cols + 1) + c) * 2;
+      const px = points[idx];
+      const py = points[idx + 1];
+      if (Math.abs(px - colX[c]) > eps || Math.abs(py - rowY[r]) > eps) {
+        throw new IkiFormatError(
+          `${path}.grid.points ${GRID_REGULARITY_ERROR}`,
+        );
+      }
+    }
+  }
+}
+
+function parseWarpDeformer(
+  value: unknown,
+  path: string,
+  paramDescriptors: ReadonlyMap<string, { min: number; max: number }>,
+): IkiWarpDeformer {
+  if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
+  const id = str(value.id, `${path}.id`);
+  const parent =
+    value.parent === undefined
+      ? undefined
+      : str(value.parent, `${path}.parent`);
+
+  const grid = value.grid;
+  if (!isObject(grid)) {
+    throw new IkiFormatError(`${path}.grid must be an object`);
+  }
+
+  const colsRaw = grid.cols;
+  if (!Number.isInteger(colsRaw) || (colsRaw as number) <= 0) {
+    throw new IkiFormatError(`${path}.grid.cols must be a positive integer`);
+  }
+  const cols = colsRaw as number;
+
+  const rowsRaw = grid.rows;
+  if (!Number.isInteger(rowsRaw) || (rowsRaw as number) <= 0) {
+    throw new IkiFormatError(`${path}.grid.rows must be a positive integer`);
+  }
+  const rows = rowsRaw as number;
+
+  const points = parseNumberArray(grid.points, `${path}.grid.points`);
+  const expected = 2 * (cols + 1) * (rows + 1);
+  if (points.length !== expected) {
+    throw new IkiFormatError(
+      `${path}.grid.points length ${points.length} must equal 2*(cols+1)*(rows+1) = ${expected}`,
+    );
+  }
+
+  checkGridRegularity(points, cols, rows, path);
+
+  let warps: IkiWarpDeformer["warps"];
+  if (value.warps !== undefined) {
+    if (!Array.isArray(value.warps)) {
+      throw new IkiFormatError(`${path}.warps must be an array`);
+    }
+    warps = value.warps.map((w, i) =>
+      parseGridWarp(w, `${path}.warps[${i}]`, paramDescriptors, points.length),
+    );
+  }
+
+  return { kind: "warp", id, parent, grid: { cols, rows, points }, warps };
 }
 
 function parseColor(
@@ -511,9 +667,17 @@ export function parseIkiModel(input: unknown): IkiModel {
     if (!Array.isArray(input.deformers)) {
       throw new IkiFormatError("deformers must be an array");
     }
-    deformers = input.deformers.map((d, i) =>
-      parseDeformer(d, `deformers[${i}]`, declaredIds),
-    );
+    deformers = input.deformers.map((d, i) => {
+      const path = `deformers[${i}]`;
+      if (!isObject(d)) throw new IkiFormatError(`${path} must be an object`);
+      const kind = d.kind;
+      if (kind === "warp") return parseWarpDeformer(d, path, paramDescriptors);
+      if (kind === undefined || kind === "matrix")
+        return parseDeformer(d, path, declaredIds);
+      throw new IkiFormatError(
+        `${path}.kind "${kind}" is not a known deformer kind`,
+      );
+    });
   }
 
   // Shared namespace: deformer ids must not collide with each other or part ids
@@ -572,14 +736,53 @@ export function parseIkiModel(input: unknown): IkiModel {
         cur = parentOf.get(cur);
       }
     }
+
+    // Kind-aware parent restrictions: warp->warp and matrix->warp are forbidden.
+    // Only matrix parent -> warp child is allowed (#4c milestone).
+    const deformerKindById = new Map<string, IkiDeformer["kind"]>();
+    for (const d of deformers) {
+      deformerKindById.set(d.id, d.kind);
+    }
+    for (let i = 0; i < deformers.length; i++) {
+      const d = deformers[i];
+      if (d.parent === undefined) continue;
+      const parentKind = deformerKindById.get(d.parent);
+      if (d.kind === "warp" && parentKind === "warp") {
+        throw new IkiFormatError(
+          `deformers[${i}].parent "${d.parent}" must be a matrix deformer (warp deformers cannot be nested under a warp deformer)`,
+        );
+      }
+      if (d.kind !== "warp" && parentKind === "warp") {
+        throw new IkiFormatError(
+          `deformers[${i}].parent "${d.parent}" is a warp deformer; matrix deformers cannot be children of a warp deformer`,
+        );
+      }
+    }
   }
 
-  // Cross-check part.deformer references
+  // Build set of warp-deformer ids for the mesh-required cross-check
+  const warpDeformerIds = new Set<string>();
+  if (deformers) {
+    for (const d of deformers) {
+      if (d.kind === "warp") warpDeformerIds.add(d.id);
+    }
+  }
+
+  // Cross-check part.deformer references (and warp-deformer mesh requirement)
   for (let i = 0; i < parts.length; i++) {
     const ref = parts[i].deformer;
     if (ref !== undefined && !deformerIds.has(ref)) {
       throw new IkiFormatError(
         `parts[${i}].deformer "${ref}" is not a declared deformer`,
+      );
+    }
+    if (
+      ref !== undefined &&
+      warpDeformerIds.has(ref) &&
+      parts[i].mesh === undefined
+    ) {
+      throw new IkiFormatError(
+        `parts[${i}].deformer "${ref}" is a warp deformer and requires parts[${i}].mesh`,
       );
     }
   }
