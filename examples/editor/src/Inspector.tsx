@@ -8,10 +8,10 @@ import {
   type EditTransformChannel,
 } from "@iki/editor-core";
 import type { IkiPart } from "@iki/format";
-import type { CSSProperties } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 
+import { decodeImageFile } from "./atlas-image";
 import { useEditorStore } from "./store";
-import type { DecodedSource } from "./atlas-image";
 
 /**
  * Engine transform defaults (verified in the engine's `deform.ts`). DISPLAYED
@@ -104,18 +104,6 @@ function PartFields({
 }) {
   const id = part.id;
 
-  // Subscribe to atlas state via revision-keyed selector pattern so texture
-  // assignments re-render with the document.
-  const atlasSources = useEditorStore((s) => {
-    void s.revision;
-    return s.atlasSources;
-  });
-  const partAssignments = useEditorStore((s) => {
-    void s.revision;
-    return s.partAssignments;
-  });
-  const assignPartTexture = useEditorStore((s) => s.assignPartTexture);
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <p style={{ margin: 0, fontSize: 13, color: "#e6e6ee", fontWeight: 600 }}>
@@ -180,70 +168,175 @@ function PartFields({
         onCommit={(rgba) => runCommand(new SetPartColor(id, rgba))}
       />
 
-      <TextureField
-        part={part}
-        atlasSources={atlasSources}
-        currentSourceId={partAssignments[id] ?? null}
-        onAssign={(sourceId) => assignPartTexture(id, sourceId)}
-      />
+      <TextureField partId={id} />
     </div>
   );
 }
 
+const errorStyle: CSSProperties = {
+  margin: 0,
+  padding: "8px 10px",
+  background: "#3a1a1a",
+  border: "1px solid #7a2a2a",
+  borderRadius: 4,
+  color: "#f08080",
+  fontSize: 12,
+  wordBreak: "break-word",
+};
+
 /**
- * Texture assignment field. Only shown for quad parts (no `mesh`).
- * For mesh parts, renders a disabled informational note (first line of defense;
- * the store is the second).
+ * Per-part texture drop zone. Renders for ALL parts (quad and mesh).
+ * Single-image: multi-file drops take only the first file.
+ * The store owns ALL bitmap cleanup — this component never calls bitmap.close().
  */
-function TextureField({
-  part,
-  atlasSources,
-  currentSourceId,
-  onAssign,
-}: {
-  part: IkiPart;
-  atlasSources: DecodedSource[];
-  currentSourceId: string | null;
-  onAssign: (sourceId: string | null) => void;
-}) {
-  if (part.mesh !== undefined) {
-    return (
-      <div style={rowStyle}>
-        <span style={labelStyle}>texture</span>
-        <span style={{ fontSize: 11, color: "#6f6f7a", fontStyle: "italic" }}>
-          Texture assignment is for quad parts (mesh UV is 5c).
-        </span>
-      </div>
-    );
+function TextureField({ partId }: { partId: string }) {
+  const currentImage = useEditorStore((s) => {
+    void s.revision;
+    return s.partTextures[partId] ?? null;
+  });
+  const setPartTexture = useEditorStore((s) => s.setPartTexture);
+  const clearPartTexture = useEditorStore((s) => s.clearPartTexture);
+  const atlasError = useEditorStore((s) => s.atlasError);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [decodeError, setDecodeError] = useState<string | null>(null);
+
+  async function handleFile(file: File) {
+    setDecodeError(null);
+    try {
+      const decoded = await decodeImageFile(file);
+      // Store owns the bitmap from here — we never close it on success or failure.
+      setPartTexture(partId, decoded);
+    } catch (err) {
+      // decode rejected — no bitmap exists to close.
+      setDecodeError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  function onFileInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.currentTarget.files;
+    if (files && files.length > 0) {
+      void handleFile(files[0]);
+      // Reset so the same file can be re-selected.
+      e.currentTarget.value = "";
+    }
+  }
+
+  function onDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragOver(true);
+  }
+
+  function onDragLeave() {
+    setDragOver(false);
+  }
+
+  function onDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragOver(false);
+    const files = e.dataTransfer.files;
+    if (files.length === 0) return;
+    // Multi-file drop: take only the first file.
+    void handleFile(files[0]);
   }
 
   return (
-    <label style={rowStyle}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <span style={labelStyle}>texture</span>
-      <select
-        value={currentSourceId ?? ""}
-        onChange={(e) => {
-          const val = e.currentTarget.value;
-          onAssign(val === "" ? null : val);
-        }}
+
+      <p style={{ margin: 0, fontSize: 11, color: "#9a9aa5" }}>
+        Setting a texture replaces the model&apos;s texture table.
+      </p>
+      <p style={{ margin: 0, fontSize: 11, color: "#9a9aa5" }}>
+        Texture changes aren&apos;t undoable yet.
+      </p>
+
+      {/* Drop zone */}
+      <div
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        onClick={() => fileInputRef.current?.click()}
         style={{
-          background: "#101116",
-          border: "1px solid #2a2b33",
+          border: `1px dashed ${dragOver ? "#6a6aff" : "#2a2b33"}`,
           borderRadius: 4,
-          color: "#e6e6ee",
-          padding: "4px 6px",
-          fontSize: 13,
-          maxWidth: 140,
+          padding: "10px 8px",
+          textAlign: "center",
+          cursor: "pointer",
+          background: dragOver ? "#1e1e30" : "transparent",
+          color: "#9a9aa5",
+          fontSize: 12,
+          userSelect: "none",
         }}
       >
-        <option value="">none</option>
-        {atlasSources.map((src) => (
-          <option key={src.id} value={src.id}>
-            {src.name}
-          </option>
-        ))}
-      </select>
-    </label>
+        Drop PNG / WebP or click to browse
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/webp"
+        style={{ display: "none" }}
+        onChange={onFileInputChange}
+      />
+
+      {/* Current image thumbnail/label */}
+      {currentImage !== null && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 1,
+              minWidth: 0,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 12,
+                color: "#e6e6ee",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {currentImage.name}
+            </span>
+            <span style={labelStyle}>
+              {currentImage.width}&times;{currentImage.height}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => clearPartTexture(partId)}
+            style={{
+              flexShrink: 0,
+              padding: "2px 8px",
+              fontSize: 12,
+              background: "#2a1a1a",
+              border: "1px solid #7a2a2a",
+              borderRadius: 4,
+              color: "#f08080",
+              cursor: "pointer",
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* Decode-stage error */}
+      {decodeError && <p style={errorStyle}>{decodeError}</p>}
+      {/* Commit-stage error (from store) */}
+      {atlasError && <p style={errorStyle}>{atlasError}</p>}
+    </div>
   );
 }
 
