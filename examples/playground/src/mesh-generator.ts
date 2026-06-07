@@ -1,4 +1,10 @@
-import type { IkiMesh, IkiUvRect, IkiWarp } from "@iki/format";
+import type {
+  IkiGridWarp,
+  IkiMesh,
+  IkiUvRect,
+  IkiWarp,
+  IkiWarpGrid,
+} from "@iki/format";
 
 /**
  * Generate a regular grid mesh in part LOCAL space (±0.5 unit frame).
@@ -96,6 +102,48 @@ export function bakeHeadTurnWarp(mesh: IkiMesh, parameter: string): IkiWarp {
     for (let i = 0; i < vertexCount; i++) {
       const x = mesh.vertices[i * 2];
       // Clamp x/RADIUS to [-1,1] to keep asin defined even at boundary verts.
+      const alpha = Math.asin(Math.max(-1, Math.min(1, x / RADIUS)));
+      const xPrime = RADIUS * Math.sin(alpha + theta);
+      const dx = xPrime - x;
+      // dy is zero — cylinder bend only deforms horizontal position.
+      offsets.push(dx, 0);
+    }
+
+    return { value: angleDeg, offsets };
+  });
+
+  // keyforms are sorted ascending by construction (ANGLES = [-30, 0, 30]).
+  return { parameter, keyforms };
+}
+
+/**
+ * Formula-bake a head-turn grid warp for ParamAngleX: applies the same
+ * cylinder-bend (asin/sin) as bakeHeadTurnWarp to the grid control points.
+ * Grid points are MODEL space, so RADIUS is in model units (not ±0.5 local).
+ * Center keyform (θ=0) is all-zero. Children auto-bind to the rest grid.
+ */
+export function bakeHeadTurnGridWarp(
+  grid: IkiWarpGrid,
+  parameter: string,
+): IkiGridWarp {
+  // Keyform stops (degrees) match ParamAngleX's −30..30 range.
+  const ANGLES = [-30, 0, 30] as const;
+  // Cylinder radius in MODEL units. The grid spans roughly x ∈ [-260, 260], so
+  // half-width ≈ 260. Use a slightly larger radius so asin stays well clear of
+  // ±1 — mirrors the local version's 0.6 vs 0.5 margin.
+  const halfWidth = (grid.points[grid.cols * 2] - grid.points[0]) / 2;
+  const RADIUS = halfWidth * (0.6 / 0.5); // same margin ratio as bakeHeadTurnWarp
+
+  const pointCount = grid.points.length / 2;
+  const DEG_TO_RAD = Math.PI / 180;
+
+  const keyforms = ANGLES.map((angleDeg) => {
+    const theta = angleDeg * DEG_TO_RAD;
+    const offsets: number[] = [];
+
+    for (let i = 0; i < pointCount; i++) {
+      const x = grid.points[i * 2];
+      // Clamp x/RADIUS to [-1,1] to keep asin defined even at boundary points.
       const alpha = Math.asin(Math.max(-1, Math.min(1, x / RADIUS)));
       const xPrime = RADIUS * Math.sin(alpha + theta);
       const dx = xPrime - x;

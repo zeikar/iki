@@ -1,5 +1,9 @@
-import { StandardParameter, type IkiModel } from "@iki/format";
-import { bakeHeadTurnWarp, generateGridMesh } from "./mesh-generator";
+import {
+  StandardParameter,
+  type IkiModel,
+  type IkiWarpGrid,
+} from "@iki/format";
+import { bakeHeadTurnGridWarp, generateGridMesh } from "./mesh-generator";
 
 /**
  * A hand-authored face built from solid-color quads. Crude on purpose — it
@@ -22,7 +26,48 @@ const ATLAS =
 // Head mesh: 8×8 grid covering the full ±0.5 local unit frame.
 // UV rect spans the whole atlas (head is color-only, no texture is sampled).
 const headMesh = generateGridMesh(8, 8, { x: 0, y: 0, width: 1, height: 1 });
-const headWarp = bakeHeadTurnWarp(headMesh, StandardParameter.AngleX);
+
+// Small meshes for eyes and mouth — 2×2 cells over the full ±0.5 local frame.
+const eyeMesh = generateGridMesh(2, 2, { x: 0, y: 0, width: 1, height: 1 });
+const mouthMesh = generateGridMesh(2, 2, { x: 0, y: 0, width: 1, height: 1 });
+
+/**
+ * Generate (cols+1)*(rows+1) MODEL-space grid control points, row-major.
+ * Row 0 is the TOP (y = maxY); y decreases with row index (+y up).
+ * Column 0 is left (x = minX); x increases with column index.
+ * This ordering satisfies the IkiWarpGrid validator invariant.
+ */
+function generateGridPoints(
+  cols: number,
+  rows: number,
+  minX: number,
+  maxX: number,
+  minY: number,
+  maxY: number,
+): number[] {
+  const pts: number[] = [];
+  for (let row = 0; row <= rows; row++) {
+    const t = row / rows;
+    const y = maxY - t * (maxY - minY); // maxY at row 0, minY at row `rows`
+    for (let col = 0; col <= cols; col++) {
+      const s = col / cols;
+      const x = minX + s * (maxX - minX); // minX at col 0, maxX at col `cols`
+      pts.push(x, y);
+    }
+  }
+  return pts;
+}
+
+// Face warp grid: 4×4 cells (5×5 control points) in MODEL space.
+// Spans roughly the head part's face area: x ∈ [-260, 260], y ∈ [-310, 310].
+const faceGrid: IkiWarpGrid = {
+  cols: 4,
+  rows: 4,
+  points: generateGridPoints(4, 4, -260, 260, -310, 310),
+};
+// Cylinder-bend keyforms for the group warp — curvature lives here only;
+// the rigid turn/translate stays on headDeformer (no double-apply).
+const faceWarp = bakeHeadTurnGridWarp(faceGrid, StandardParameter.AngleX);
 
 export const sampleModel: IkiModel = {
   version: 1,
@@ -88,7 +133,8 @@ export const sampleModel: IkiModel = {
     },
   ],
   // headDeformer rotates/bobs the whole face as one rigid body about the neck pivot.
-  // Parts bound to it must NOT duplicate these bindings (double-apply).
+  // faceWarp is parented to headDeformer: it adds cylinder-bend curvature on top
+  // of the rigid turn. Curvature lives ONLY in faceWarp — no double-apply.
   deformers: [
     {
       id: "headDeformer",
@@ -115,6 +161,13 @@ export const sampleModel: IkiModel = {
         },
       ],
     },
+    {
+      kind: "warp" as const,
+      id: "faceWarp",
+      parent: "headDeformer",
+      grid: faceGrid,
+      warps: [faceWarp],
+    },
   ],
   parts: [
     {
@@ -124,11 +177,9 @@ export const sampleModel: IkiModel = {
       height: 620,
       order: 0,
       transform: { x: 0, y: 0 },
-      deformer: "headDeformer",
+      // faceWarp (child of headDeformer) supplies cylinder-bend; no per-part warp needed.
+      deformer: "faceWarp",
       mesh: headMesh,
-      // bakeHeadTurnWarp adds cylinder-bend deformation; the rigid turn/translate
-      // stays on headDeformer and is NOT duplicated here.
-      warps: [headWarp],
     },
     {
       id: "eyeL",
@@ -137,7 +188,9 @@ export const sampleModel: IkiModel = {
       height: 90,
       order: 2,
       transform: { x: -110, y: 70 },
-      deformer: "headDeformer",
+      // Must carry a mesh because deformer is a warp deformer.
+      deformer: "faceWarp",
+      mesh: eyeMesh,
       bindings: [
         {
           parameter: StandardParameter.EyeOpenLeft,
@@ -166,7 +219,9 @@ export const sampleModel: IkiModel = {
       height: 90,
       order: 2,
       transform: { x: 110, y: 70 },
-      deformer: "headDeformer",
+      // Must carry a mesh because deformer is a warp deformer.
+      deformer: "faceWarp",
+      mesh: eyeMesh,
       bindings: [
         {
           parameter: StandardParameter.EyeOpenRight,
@@ -195,7 +250,9 @@ export const sampleModel: IkiModel = {
       height: 34,
       order: 2,
       transform: { x: 0, y: -150 },
-      deformer: "headDeformer",
+      // Must carry a mesh because deformer is a warp deformer.
+      deformer: "faceWarp",
+      mesh: mouthMesh,
       bindings: [
         {
           parameter: StandardParameter.MouthOpen,
@@ -211,6 +268,9 @@ export const sampleModel: IkiModel = {
         },
       ],
     },
+    // Badges stay on headDeformer (matrix path), NOT faceWarp — they sit outside
+    // the face grid bbox and are implicit textured quads (mesh-required rule only
+    // applies when referencing a warp deformer). They ride the rigid turn fine.
     // Textured badge (untinted) — top-left atlas quadrant = red.
     // UV [0,0, 0.5,0.5] is safely inside the quadrant (no seam bleed).
     {
