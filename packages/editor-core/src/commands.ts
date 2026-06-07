@@ -65,7 +65,8 @@ class FieldCommand<T> implements EditCommand {
 }
 
 /** Edit a part's RGBA fill. The 4-tuple is mutable, so the command clones on
- *  both the store and assign sides — it never retains the caller's or model's
+ *  construction (caller's array), on capture (part's current color), and on
+ *  assign (writing to the part) — it never retains the caller's or model's
  *  array by reference. */
 export class SetPartColor extends FieldCommand<
   [number, number, number, number]
@@ -73,7 +74,7 @@ export class SetPartColor extends FieldCommand<
   constructor(partId: string, rgba: [number, number, number, number]) {
     super(
       partId,
-      rgba,
+      [...rgba] as [number, number, number, number],
       "Set color",
       (part) => [...part.color],
       (part, value) => {
