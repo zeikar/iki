@@ -1,13 +1,15 @@
 import type { IkiPlayer } from "@iki/engine";
 import { useRef } from "react";
 
+import { Inspector } from "./Inspector";
+import { PartsTree } from "./PartsTree";
 import { Preview } from "./Preview";
 import { useReloadPreview } from "./useReloadPreview";
 
 // 3-column shell. App owns the imperative playerRef and calls the single
-// load owner (useReloadPreview) once. Tree (left), inspector (right), and the
-// export button are placeholders wired up in Tasks 7–8; the center preview +
-// initial load + parameter sliders are fully working at this commit.
+// load owner (useReloadPreview) once. Tree (left) + inspector (right) edit the
+// document; the export button is a placeholder wired up in Task 8; the center
+// preview + initial load + parameter sliders are fully working.
 export function App() {
   const playerRef = useRef<IkiPlayer | null>(null);
   useReloadPreview(playerRef);
@@ -20,11 +22,10 @@ export function App() {
           background: "#1c1d24",
           borderRight: "1px solid #2a2b33",
           padding: "16px 12px",
+          overflowY: "auto",
         }}
       >
-        <p style={{ margin: 0, fontSize: 12, color: "#9a9aa5" }}>
-          Part tree (Task 7)
-        </p>
+        <PartsTree />
       </aside>
 
       <Preview playerRef={playerRef} />
@@ -38,11 +39,10 @@ export function App() {
           display: "flex",
           flexDirection: "column",
           gap: 12,
+          overflowY: "auto",
         }}
       >
-        <p style={{ margin: 0, fontSize: 12, color: "#9a9aa5" }}>
-          Inspector (Task 7)
-        </p>
+        <Inspector />
         <button type="button" disabled style={{ marginTop: "auto" }}>
           Export (Task 8)
         </button>
