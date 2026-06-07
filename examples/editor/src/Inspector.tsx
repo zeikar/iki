@@ -11,6 +11,7 @@ import type { IkiPart } from "@iki/format";
 import type { CSSProperties } from "react";
 
 import { useEditorStore } from "./store";
+import type { DecodedSource } from "./atlas-image";
 
 /**
  * Engine transform defaults (verified in the engine's `deform.ts`). DISPLAYED
@@ -103,6 +104,18 @@ function PartFields({
 }) {
   const id = part.id;
 
+  // Subscribe to atlas state via revision-keyed selector pattern so texture
+  // assignments re-render with the document.
+  const atlasSources = useEditorStore((s) => {
+    void s.revision;
+    return s.atlasSources;
+  });
+  const partAssignments = useEditorStore((s) => {
+    void s.revision;
+    return s.partAssignments;
+  });
+  const assignPartTexture = useEditorStore((s) => s.assignPartTexture);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <p style={{ margin: 0, fontSize: 13, color: "#e6e6ee", fontWeight: 600 }}>
@@ -166,7 +179,71 @@ function PartFields({
         color={part.color}
         onCommit={(rgba) => runCommand(new SetPartColor(id, rgba))}
       />
+
+      <TextureField
+        part={part}
+        atlasSources={atlasSources}
+        currentSourceId={partAssignments[id] ?? null}
+        onAssign={(sourceId) => assignPartTexture(id, sourceId)}
+      />
     </div>
+  );
+}
+
+/**
+ * Texture assignment field. Only shown for quad parts (no `mesh`).
+ * For mesh parts, renders a disabled informational note (first line of defense;
+ * the store is the second).
+ */
+function TextureField({
+  part,
+  atlasSources,
+  currentSourceId,
+  onAssign,
+}: {
+  part: IkiPart;
+  atlasSources: DecodedSource[];
+  currentSourceId: string | null;
+  onAssign: (sourceId: string | null) => void;
+}) {
+  if (part.mesh !== undefined) {
+    return (
+      <div style={rowStyle}>
+        <span style={labelStyle}>texture</span>
+        <span style={{ fontSize: 11, color: "#6f6f7a", fontStyle: "italic" }}>
+          Texture assignment is for quad parts (mesh UV is 5c).
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <label style={rowStyle}>
+      <span style={labelStyle}>texture</span>
+      <select
+        value={currentSourceId ?? ""}
+        onChange={(e) => {
+          const val = e.currentTarget.value;
+          onAssign(val === "" ? null : val);
+        }}
+        style={{
+          background: "#101116",
+          border: "1px solid #2a2b33",
+          borderRadius: 4,
+          color: "#e6e6ee",
+          padding: "4px 6px",
+          fontSize: 13,
+          maxWidth: 140,
+        }}
+      >
+        <option value="">none</option>
+        {atlasSources.map((src) => (
+          <option key={src.id} value={src.id}>
+            {src.name}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

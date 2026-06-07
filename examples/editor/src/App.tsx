@@ -2,6 +2,7 @@ import type { IkiPlayer } from "@iki/engine";
 import { IkiFormatError } from "@iki/format";
 import { useRef } from "react";
 
+import { AtlasPanel } from "./AtlasPanel";
 import { Inspector } from "./Inspector";
 import { PartsTree } from "./PartsTree";
 import { Preview } from "./Preview";
@@ -68,6 +69,7 @@ export function App() {
           overflowY: "auto",
         }}
       >
+        <AtlasPanel />
         <Inspector />
         {exportError && (
           <p
