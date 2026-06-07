@@ -26,11 +26,13 @@ drives those parameters from lip-sync, gaze, blink, and expressions.
 
 ## Packages
 
-| Package                                        | What it is                                            |
-| ---------------------------------------------- | ----------------------------------------------------- |
-| [`@iki/format`](./packages/format)             | The `.iki` model schema, types, loader, and validator |
-| [`@iki/engine`](./packages/engine)             | WebGL2 runtime that plays a `.iki` model              |
-| [`examples/playground`](./examples/playground) | Slider-driven demo of a hand-authored model           |
+| Package                                        | What it is                                                                                                                          |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| [`@iki/format`](./packages/format)             | The `.iki` model schema, types, loader, and validator                                                                               |
+| [`@iki/engine`](./packages/engine)             | WebGL2 runtime that plays a `.iki` model                                                                                            |
+| [`@iki/editor-core`](./packages/editor-core)   | DOM-free editing core: EditorDocument, part-edit commands, undo/redo, toIkiModel/serialize round-trip (depends only on @iki/format) |
+| [`examples/playground`](./examples/playground) | Slider-driven demo of a hand-authored model                                                                                         |
+| [`examples/editor`](./examples/editor)         | Private React+Zustand app — loads the sample model, numeric part edit, live IkiPlayer preview, validated .iki export                |
 
 ## Quick start
 

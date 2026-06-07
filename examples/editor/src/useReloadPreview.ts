@@ -35,6 +35,11 @@ export function useReloadPreview(
 
     const store = useEditorStore.getState();
 
+    // Advance the generation BEFORE validation so that an invalid edit
+    // (toIkiModel throws) still supersedes any older in-flight valid load.
+    // Only the no-player guard above is allowed to return without bumping.
+    const generation = ++generationRef.current;
+
     let model;
     try {
       model = store.doc.toIkiModel();
@@ -44,13 +49,10 @@ export function useReloadPreview(
     }
     store.setExportError(null);
 
-    const generation = ++generationRef.current;
     await player.load(model);
 
     // A newer reload (or unmount) superseded us, or the player was replaced
     // by a StrictMode remount — skip the app-side pose-reapply + setLoaded.
-    // Early returns above (export error, no player) intentionally don't bump
-    // the generation — they never reach the await so there is nothing to race.
     if (generation !== generationRef.current) return;
     if (playerRef.current !== player) return;
 
