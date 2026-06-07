@@ -4,6 +4,7 @@ import { ParameterStore } from "@iki/engine";
 import { resolveDeformerWorlds } from "../src/deform";
 import type { Affine } from "../src/affine";
 import {
+  applyWarpToChild,
   bindPointToRestGrid,
   resolveWarpGrids,
   sampleWarpGrid,
@@ -262,5 +263,70 @@ describe("sampleWarpGrid", () => {
     const [sx, sy] = sampleWarpGrid(translated, b);
     expect(sx).toBeCloseTo(x + dx, 4);
     expect(sy).toBeCloseTo(y + dy, 4);
+  });
+});
+
+// --- (g) applyWarpToChild — pure extraction unit tests -----------------------
+
+/** Identity affine: leaves points unchanged. */
+const IDENTITY_AFFINE: Affine = [1, 0, 0, 1, 0, 0];
+
+describe("applyWarpToChild", () => {
+  it("(a) identity partAffine + rest as deformed grid → output equals input local verts", () => {
+    const rest = makeRestGrid();
+    const deformed = asResolved(rest);
+    // Interior point well inside the grid.
+    const localVerts = new Float32Array([-0.5, 0.5, 0.3, -0.7, 0, 0]);
+    const out = new Float32Array(localVerts.length);
+
+    applyWarpToChild(localVerts, IDENTITY_AFFINE, rest, deformed, out);
+
+    for (let i = 0; i < localVerts.length; i++) {
+      expect(out[i]).toBeCloseTo(localVerts[i], 4);
+    }
+  });
+
+  it("(b) translation partAffine + identity deformed grid → output shifted by translation", () => {
+    const rest = makeRestGrid();
+    const deformed = asResolved(rest);
+    const tx = 0.3;
+    const ty = -0.2;
+    // translate(tx, ty) → [1,0,0,1,tx,ty]
+    const translationAffine: Affine = [1, 0, 0, 1, tx, ty];
+    // Choose a local vert such that after translation it stays within the grid.
+    const localVerts = new Float32Array([-0.5, 0.5]);
+    const out = new Float32Array(2);
+
+    applyWarpToChild(localVerts, translationAffine, rest, deformed, out);
+
+    // partAffine transforms local (-0.5, 0.5) → (-0.2, 0.3); then bind+sample
+    // the identity grid returns the same point.
+    expect(out[0]).toBeCloseTo(-0.5 + tx, 4);
+    expect(out[1]).toBeCloseTo(0.5 + ty, 4);
+  });
+
+  it("(c) deformed grid with uniform offset → output reflects the grid displacement", () => {
+    const rest = makeRestGrid();
+    const dx = 2;
+    const dy = -1;
+    // Uniformly shift every control point of the resolved grid.
+    const deformed: ResolvedWarpGrid = {
+      cols: rest.cols,
+      rows: rest.rows,
+      points: Float32Array.from(
+        rest.points.map((v, i) => v + (i % 2 === 0 ? dx : dy)),
+      ),
+    };
+    // Use identity partAffine so vertex passes through unchanged to bind/sample.
+    const localVerts = new Float32Array([-0.5, 0.5, 0, 0]);
+    const out = new Float32Array(localVerts.length);
+
+    applyWarpToChild(localVerts, IDENTITY_AFFINE, rest, deformed, out);
+
+    // Each sampled point should be shifted by (dx, dy).
+    for (let v = 0; v < localVerts.length / 2; v++) {
+      expect(out[v * 2]).toBeCloseTo(localVerts[v * 2] + dx, 4);
+      expect(out[v * 2 + 1]).toBeCloseTo(localVerts[v * 2 + 1] + dy, 4);
+    }
   });
 });

@@ -136,6 +136,32 @@ export function bindPointToRestGrid(
 }
 
 /**
+ * Compute model-space positions for a warp-deformer child's mesh vertices:
+ * transform each LOCAL-space vertex by `partAffine`, rebind to the RAW rest
+ * grid, and bilinear-sample the deformed grid. Writes `out` (length ===
+ * localVerts.length). Affine layout [a,b,c,d,e,f]: x'=a*x+c*y+e, y'=b*x+d*y+f.
+ */
+export function applyWarpToChild(
+  localVerts: Float32Array | number[],
+  partAffine: Affine,
+  restGrid: IkiWarpGrid,
+  deformedGrid: ResolvedWarpGrid,
+  out: Float32Array,
+): void {
+  const n = localVerts.length / 2;
+  for (let v = 0; v < n; v++) {
+    const lx = localVerts[v * 2];
+    const ly = localVerts[v * 2 + 1];
+    const mx = partAffine[0] * lx + partAffine[2] * ly + partAffine[4];
+    const my = partAffine[1] * lx + partAffine[3] * ly + partAffine[5];
+    const binding = bindPointToRestGrid(mx, my, restGrid);
+    const [sx, sy] = sampleWarpGrid(deformedGrid, binding);
+    out[v * 2] = sx;
+    out[v * 2 + 1] = sy;
+  }
+}
+
+/**
  * Bilinear-sample a deformed grid at a binding, returning model-space [x, y].
  * Reads the 4 corner control points of `binding.cell` from `grid.points`, using
  * the SAME row/col convention as `bindPointToRestGrid` (s left→right between

@@ -9,11 +9,7 @@ import { ParameterStore } from "./parameter-store";
 import { multiply, rotate, scale, toMat3, translate } from "./affine";
 import { evaluateTransform, resolveDeformerWorlds } from "./deform";
 import { applyWarps } from "./warp";
-import {
-  bindPointToRestGrid,
-  resolveWarpGrids,
-  sampleWarpGrid,
-} from "./warp-grid";
+import { applyWarpToChild, resolveWarpGrids } from "./warp-grid";
 
 /**
  * Outcome of {@link IkiPlayer.load}: the indices into `model.textures` that
@@ -468,7 +464,6 @@ export class IkiPlayer {
           // THEN parent affine). Never bind against a resolved/deformed grid.
           const warpDef = pm.warpDeformer;
           const grid = warpGrids!.get(warpDef.id)!;
-          const vertexCount = pm.rest.length / 2;
           // 1. part-local mesh warps (#4b) into the local scratch (no-op if none).
           applyWarps(pm.rest, pm.warps, this.params, pm.local!);
           // 2. live part TRS (eye/mouth open etc.), baked into the vertices.
@@ -481,20 +476,15 @@ export class IkiPlayer {
             multiply(translate(trs.x, trs.y), rotate(trs.rotation)),
             scale(part.width * trs.scaleX, part.height * trs.scaleY),
           );
-          for (let v = 0; v < vertexCount; v++) {
-            const lx = pm.local![v * 2];
-            const ly = pm.local![v * 2 + 1];
-            // 2b. point·partAffine — affine.ts layout [a,b,c,d,e,f]:
-            //   x' = a*x + c*y + e;  y' = b*x + d*y + f.
-            const mx = partAffine[0] * lx + partAffine[2] * ly + partAffine[4];
-            const my = partAffine[1] * lx + partAffine[3] * ly + partAffine[5];
-            // 3. rebind to the RAW rest grid (linear, NaN-safe).
-            const binding = bindPointToRestGrid(mx, my, warpDef.grid);
-            // 4. sample the RESOLVED (deformed) grid.
-            const [sx, sy] = sampleWarpGrid(grid, binding);
-            pm.scratch![v * 2] = sx;
-            pm.scratch![v * 2 + 1] = sy;
-          }
+          // 2b+3+4. transform each local vertex by partAffine, rebind to the RAW
+          // rest grid, and sample the RESOLVED (deformed) grid.
+          applyWarpToChild(
+            pm.local!,
+            partAffine,
+            warpDef.grid,
+            grid,
+            pm.scratch!,
+          );
           gl.bindBuffer(gl.ARRAY_BUFFER, pm.position);
           gl.bufferSubData(gl.ARRAY_BUFFER, 0, pm.scratch!);
         } else if (pm.warps && pm.warps.length > 0) {
