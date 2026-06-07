@@ -1,8 +1,19 @@
-import type { IkiModel, IkiParameter, IkiPart, IkiWarp } from "@iki/format";
+import type {
+  IkiModel,
+  IkiParameter,
+  IkiPart,
+  IkiWarp,
+  IkiWarpDeformer,
+} from "@iki/format";
 import { ParameterStore } from "./parameter-store";
 import { multiply, rotate, scale, toMat3, translate } from "./affine";
 import { evaluateTransform, resolveDeformerWorlds } from "./deform";
 import { applyWarps } from "./warp";
+import {
+  bindPointToRestGrid,
+  resolveWarpGrids,
+  sampleWarpGrid,
+} from "./warp-grid";
 
 /**
  * Outcome of {@link IkiPlayer.load}: the indices into `model.textures` that
@@ -34,6 +45,10 @@ interface PartMesh {
   /** Preallocated warp output buffer; only present when `warps` is non-empty. */
   scratch?: Float32Array;
   warps?: IkiWarp[];
+  /** The warp deformer this mesh hangs off, if any (its part.deformer is kind:"warp"). */
+  warpDeformer?: IkiWarpDeformer;
+  /** Local-space scratch (same length as `rest`) for the per-frame warp pipeline. */
+  local?: Float32Array;
 }
 
 /**
@@ -216,10 +231,27 @@ export class IkiPlayer {
 
       // All three buffers allocated — upload data.
       const rest = new Float32Array(mesh.vertices);
-      // Only allocate scratch and use DYNAMIC_DRAW when this part has warps;
-      // warp-less static meshes never morph and don't need per-frame re-upload.
+      // A mesh part whose `deformer` references a kind:"warp" deformer is a warp
+      // child: it morphs every frame (bind→sample against the grid) even with no
+      // part-local warps, so it also needs DYNAMIC_DRAW + scratch + a local buffer.
+      const warpDeformer =
+        part.deformer !== undefined
+          ? model.deformers?.find(
+              (d): d is IkiWarpDeformer =>
+                d.kind === "warp" && d.id === part.deformer,
+            )
+          : undefined;
+      const isWarpChild = warpDeformer !== undefined;
+      // Only allocate scratch and use DYNAMIC_DRAW when this part has warps or is
+      // a warp child; warp-less static meshes never morph and skip per-frame upload.
       const hasWarps = (part.warps?.length ?? 0) > 0;
-      const scratch = hasWarps
+      const dynamic = hasWarps || isWarpChild;
+      const scratch = dynamic
+        ? new Float32Array(mesh.vertices.length)
+        : undefined;
+      // Warp children also need a second scratch for the part-local pipeline
+      // (applyWarps + TRS) before grid binding.
+      const local = isWarpChild
         ? new Float32Array(mesh.vertices.length)
         : undefined;
 
@@ -227,7 +259,7 @@ export class IkiPlayer {
       gl.bufferData(
         gl.ARRAY_BUFFER,
         rest,
-        hasWarps ? gl.DYNAMIC_DRAW : gl.STATIC_DRAW,
+        dynamic ? gl.DYNAMIC_DRAW : gl.STATIC_DRAW,
       );
 
       gl.bindBuffer(gl.ARRAY_BUFFER, uvBuf);
@@ -253,6 +285,8 @@ export class IkiPlayer {
         rest,
         scratch,
         warps: part.warps,
+        warpDeformer,
+        local,
       });
     }
 
@@ -348,6 +382,17 @@ export class IkiPlayer {
         ? resolveDeformerWorlds(this.model.deformers, this.params)
         : undefined;
 
+    // Resolve each warp deformer's deformed control grid for this frame (parent
+    // matrix affine + grid keyforms). Warp-child mesh parts sample these grids
+    // instead of riding the affine dWorld·TRS chain.
+    const warpGrids = this.model.deformers?.some((d) => d.kind === "warp")
+      ? resolveWarpGrids(
+          this.model.deformers,
+          this.params,
+          deformerWorlds ?? new Map(),
+        )
+      : undefined;
+
     for (let index = 0; index < this.parts.length; index++) {
       const part = this.parts[index];
       const texture = part.texture
@@ -357,9 +402,15 @@ export class IkiPlayer {
       if (part.texture && !texture) continue;
 
       const t = this.evaluate(part);
+      // Warp-child mesh parts bypass the affine dWorld·TRS chain entirely: their
+      // vertices are computed by the per-frame grid pipeline below (which bakes
+      // part TRS into model-space positions), so u_matrix carries ONLY clip-scale.
+      const warpChild = this.partMeshes.get(index)?.warpDeformer;
       // clip <- project <- [deformer?] <- translate <- rotate <- scale(size)
       let m: ReturnType<typeof multiply>;
-      if (part.deformer !== undefined) {
+      if (warpChild) {
+        m = scale(clipX, clipY);
+      } else if (part.deformer !== undefined) {
         const dWorld = deformerWorlds!.get(part.deformer);
         if (!dWorld) {
           throw new Error(
@@ -370,11 +421,13 @@ export class IkiPlayer {
           multiply(scale(clipX, clipY), dWorld),
           translate(t.x, t.y),
         );
+        m = multiply(m, rotate(t.rotation));
+        m = multiply(m, scale(part.width * t.scaleX, part.height * t.scaleY));
       } else {
         m = multiply(scale(clipX, clipY), translate(t.x, t.y));
+        m = multiply(m, rotate(t.rotation));
+        m = multiply(m, scale(part.width * t.scaleX, part.height * t.scaleY));
       }
-      m = multiply(m, rotate(t.rotation));
-      m = multiply(m, scale(part.width * t.scaleX, part.height * t.scaleY));
 
       const [r, g, b, a] = part.color;
       gl.uniformMatrix3fv(this.uMatrix, false, toMat3(m));
@@ -407,7 +460,44 @@ export class IkiPlayer {
         // For warped meshes, compute morphed positions and upload to the
         // DYNAMIC_DRAW VBO. Warp-less meshes skip this — their VBO already
         // holds `rest` from load().
-        if (pm.warps && pm.warps.length > 0) {
+        if (pm.warpDeformer) {
+          // --- Warp-deformer (group warp) child pipeline ---
+          // Coordinate invariant (top bug risk): BIND against the RAW rest grid
+          // (warpDeformer.grid — no keyform offsets, no parent affine), SAMPLE
+          // against the RESOLVED grid (resolveWarpGrids output: offsets added,
+          // THEN parent affine). Never bind against a resolved/deformed grid.
+          const warpDef = pm.warpDeformer;
+          const grid = warpGrids!.get(warpDef.id)!;
+          const vertexCount = pm.rest.length / 2;
+          // 1. part-local mesh warps (#4b) into the local scratch (no-op if none).
+          applyWarps(pm.rest, pm.warps, this.params, pm.local!);
+          // 2. live part TRS (eye/mouth open etc.), baked into the vertices.
+          const trs = evaluateTransform(
+            part.transform,
+            part.bindings,
+            this.params,
+          );
+          const partAffine = multiply(
+            multiply(translate(trs.x, trs.y), rotate(trs.rotation)),
+            scale(part.width * trs.scaleX, part.height * trs.scaleY),
+          );
+          for (let v = 0; v < vertexCount; v++) {
+            const lx = pm.local![v * 2];
+            const ly = pm.local![v * 2 + 1];
+            // 2b. point·partAffine — affine.ts layout [a,b,c,d,e,f]:
+            //   x' = a*x + c*y + e;  y' = b*x + d*y + f.
+            const mx = partAffine[0] * lx + partAffine[2] * ly + partAffine[4];
+            const my = partAffine[1] * lx + partAffine[3] * ly + partAffine[5];
+            // 3. rebind to the RAW rest grid (linear, NaN-safe).
+            const binding = bindPointToRestGrid(mx, my, warpDef.grid);
+            // 4. sample the RESOLVED (deformed) grid.
+            const [sx, sy] = sampleWarpGrid(grid, binding);
+            pm.scratch![v * 2] = sx;
+            pm.scratch![v * 2 + 1] = sy;
+          }
+          gl.bindBuffer(gl.ARRAY_BUFFER, pm.position);
+          gl.bufferSubData(gl.ARRAY_BUFFER, 0, pm.scratch!);
+        } else if (pm.warps && pm.warps.length > 0) {
           // scratch is always allocated when warps is non-empty (see load())
           applyWarps(pm.rest, pm.warps, this.params, pm.scratch!);
           gl.bindBuffer(gl.ARRAY_BUFFER, pm.position);
