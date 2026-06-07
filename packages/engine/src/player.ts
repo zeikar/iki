@@ -1,4 +1,4 @@
-import type { IkiModel, IkiParameter, IkiPart } from "@iki/format";
+import type { IkiModel, IkiParameter, IkiPart, IkiWarp } from "@iki/format";
 import { ParameterStore } from "./parameter-store";
 import { multiply, rotate, scale, toMat3, translate } from "./affine";
 import { evaluateTransform, resolveDeformerWorlds } from "./deform";
@@ -14,12 +14,33 @@ export interface IkiLoadResult {
 }
 
 /**
+ * Engine-internal runtime representation of an uploaded mesh.
+ *
+ * `rest` is a copy of the authored vertices (Float32Array for direct GL upload);
+ * `scratch` is a same-length preallocated buffer for per-frame warp output
+ * (Task 4 — this task only sets up the static render path).
+ *
+ * Index winding convention for an implicit-quad fixture: [0,1,2, 2,1,3]
+ * (counter-clockwise from bottom-left). CULL_FACE is disabled, so winding
+ * direction is not enforced, but the Task-5 generator must match this.
+ */
+interface PartMesh {
+  position: WebGLBuffer;
+  uv: WebGLBuffer;
+  index: WebGLBuffer;
+  indexCount: number;
+  rest: Float32Array;
+  scratch: Float32Array;
+  warps?: IkiWarp[];
+}
+
+/**
  * Drives a single `.iki` model on a WebGL2 canvas.
  *
- * v1 scope: parts are solid-color or atlas-sampled textured quads, transformed
- * each frame by their base transform plus the sum of their parameter bindings.
- * `load()` is async — it decodes and uploads textures before swapping the model
- * in. Warp-mesh deformation is a later milestone.
+ * v1 scope: parts are solid-color or atlas-sampled textured quads or meshes,
+ * transformed each frame by their base transform plus the sum of their parameter
+ * bindings. `load()` is async — it decodes and uploads textures before swapping
+ * the model in. Warp-mesh deformation is a later milestone (Task 4).
  */
 export class IkiPlayer {
   private readonly gl: WebGL2RenderingContext;
@@ -31,6 +52,9 @@ export class IkiPlayer {
   private readonly uTex: WebGLUniformLocation;
   private readonly uUvOffset: WebGLUniformLocation;
   private readonly uUvScale: WebGLUniformLocation;
+  private readonly uUseMeshUv: WebGLUniformLocation;
+  private readonly aPos: number;
+  private readonly aUv: number;
 
   private model?: IkiModel;
   private parts: IkiPart[] = [];
@@ -41,6 +65,11 @@ export class IkiPlayer {
   /** Bumped by every `load` and by `destroy`; lets a stale async load bail. */
   private loadGeneration = 0;
   private destroyed = false;
+  /**
+   * Engine-internal mesh buffers, keyed by the part's INDEX in `this.parts`
+   * (NOT by part id — duplicate ids must not swap buffers).
+   */
+  private partMeshes = new Map<number, PartMesh>();
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", {
@@ -57,7 +86,13 @@ export class IkiPlayer {
     this.uTex = getUniform(gl, this.program, "u_tex");
     this.uUvOffset = getUniform(gl, this.program, "u_uvOffset");
     this.uUvScale = getUniform(gl, this.program, "u_uvScale");
-    this.quad = createUnitQuad(gl, this.program);
+    this.uUseMeshUv = getUniform(gl, this.program, "u_useMeshUv");
+    // Fetch attribute locations here so renderFrame can set them explicitly
+    // per draw path (mesh vs quad), rather than hiding the wiring in createUnitQuad.
+    this.aPos = gl.getAttribLocation(this.program, "a_pos");
+    this.aUv = gl.getAttribLocation(this.program, "a_uv");
+
+    this.quad = createUnitQuad(gl);
 
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -75,6 +110,10 @@ export class IkiPlayer {
    * resolves — the returned {@link IkiLoadResult} lists the indices of any
    * textures that failed, so a host can detect and report a partial load. The
    * model is assumed already validated by `@iki/format`.
+   *
+   * Mesh buffer allocation failure IS fatal (unlike per-texture skip) because
+   * textures have an `IkiLoadResult.failedTextures` reporting surface and mesh
+   * buffers have none — there is no partial-mesh concept in the format.
    */
   async load(model: IkiModel): Promise<IkiLoadResult> {
     const { gl } = this;
@@ -129,14 +168,94 @@ export class IkiPlayer {
       return texture;
     });
 
-    // Release the previous model's textures before adopting the new set.
+    // Build the new model's render state into LOCAL variables BEFORE adopting
+    // anything. Do NOT read this.parts here — it still points at the PREVIOUS
+    // model until the adoption swap below; reading it would build buffers for
+    // old parts keyed by the new loop's indices.
+    const nextParts = [...model.parts].sort((a, b) => a.order - b.order);
+    const nextPartMeshes = new Map<number, PartMesh>();
+
+    for (let i = 0; i < nextParts.length; i++) {
+      const part = nextParts[i];
+      if (!part.mesh) continue;
+
+      const { mesh } = part;
+      // Collect buffers as they are created so we can clean up on partial failure.
+      const currentPartBuffers: WebGLBuffer[] = [];
+
+      const positionBuf = gl.createBuffer();
+      if (!positionBuf) {
+        // Nothing created yet for this part — clean up prior parts + textures.
+        deletePartMeshBuffers(gl, nextPartMeshes);
+        deleteUploadedTextures(gl, uploaded);
+        throw new Error("Iki: failed to allocate mesh buffer");
+      }
+      currentPartBuffers.push(positionBuf);
+
+      const uvBuf = gl.createBuffer();
+      if (!uvBuf) {
+        // position VBO created but uv VBO failed — delete position to avoid leak.
+        for (const b of currentPartBuffers) gl.deleteBuffer(b);
+        deletePartMeshBuffers(gl, nextPartMeshes);
+        deleteUploadedTextures(gl, uploaded);
+        throw new Error("Iki: failed to allocate mesh buffer");
+      }
+      currentPartBuffers.push(uvBuf);
+
+      const indexBuf = gl.createBuffer();
+      if (!indexBuf) {
+        // position + uv created but index failed — delete both.
+        for (const b of currentPartBuffers) gl.deleteBuffer(b);
+        deletePartMeshBuffers(gl, nextPartMeshes);
+        deleteUploadedTextures(gl, uploaded);
+        throw new Error("Iki: failed to allocate mesh buffer");
+      }
+
+      // All three buffers allocated — upload data.
+      const rest = new Float32Array(mesh.vertices);
+      const scratch = new Float32Array(mesh.vertices.length);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, positionBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, rest, gl.DYNAMIC_DRAW);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, uvBuf);
+      gl.bufferData(
+        gl.ARRAY_BUFFER,
+        new Float32Array(mesh.uvs),
+        gl.STATIC_DRAW,
+      );
+
+      // Vertex count is validator-capped at 65536, so Uint16 cannot wrap.
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuf);
+      gl.bufferData(
+        gl.ELEMENT_ARRAY_BUFFER,
+        new Uint16Array(mesh.indices),
+        gl.STATIC_DRAW,
+      );
+
+      nextPartMeshes.set(i, {
+        position: positionBuf,
+        uv: uvBuf,
+        index: indexBuf,
+        indexCount: mesh.indices.length,
+        rest,
+        scratch,
+        warps: part.warps,
+      });
+    }
+
+    // Atomic adoption: release the previous model's part-mesh buffers and textures,
+    // then adopt the new model's state in a single block so the render loop
+    // never sees a half-adopted model.
+    deletePartMeshBuffers(gl, this.partMeshes);
     for (const texture of this.textures) {
       if (texture) gl.deleteTexture(texture);
     }
 
     this.model = model;
     this.params = new ParameterStore(model.parameters);
-    this.parts = [...model.parts].sort((a, b) => a.order - b.order);
+    this.parts = nextParts;
+    this.partMeshes = nextPartMeshes;
     this.textures = uploaded;
 
     return {
@@ -180,6 +299,8 @@ export class IkiPlayer {
       if (texture) gl.deleteTexture(texture);
     }
     this.textures = [];
+    deletePartMeshBuffers(gl, this.partMeshes);
+    this.partMeshes = new Map();
     gl.deleteBuffer(this.quad);
     gl.deleteProgram(this.program);
   }
@@ -209,14 +330,14 @@ export class IkiPlayer {
     const clipY = (fit * 2) / height;
 
     gl.useProgram(this.program);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
 
     const deformerWorlds =
       this.model.deformers && this.model.deformers.length > 0
         ? resolveDeformerWorlds(this.model.deformers, this.params)
         : undefined;
 
-    for (const part of this.parts) {
+    for (let index = 0; index < this.parts.length; index++) {
+      const part = this.parts[index];
       const texture = part.texture
         ? this.textures[part.texture.index]
         : undefined;
@@ -259,7 +380,43 @@ export class IkiPlayer {
         gl.uniform1i(this.uUseTexture, 0);
       }
 
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      if (part.mesh) {
+        // --- Mesh draw path ---
+        const pm = this.partMeshes.get(index);
+        if (!pm) {
+          // Impossible after the fatal-allocation rule in load(); throwing rather
+          // than skipping matches the existing unknown-deformer-parent throw in
+          // deform.ts and ensures engine bugs are never silently hidden.
+          throw new Error(`Iki: mesh buffers missing for part "${part.id}"`);
+        }
+
+        gl.uniform1i(this.uUseMeshUv, 1);
+
+        // Position VBO (DYNAMIC_DRAW — Task 4 will write morphed vertices here).
+        gl.bindBuffer(gl.ARRAY_BUFFER, pm.position);
+        gl.enableVertexAttribArray(this.aPos);
+        gl.vertexAttribPointer(this.aPos, 2, gl.FLOAT, false, 0, 0);
+
+        // UV VBO (STATIC_DRAW — mesh UVs are passed straight through, no flip).
+        gl.bindBuffer(gl.ARRAY_BUFFER, pm.uv);
+        gl.enableVertexAttribArray(this.aUv);
+        gl.vertexAttribPointer(this.aUv, 2, gl.FLOAT, false, 0, 0);
+
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, pm.index);
+        gl.drawElements(gl.TRIANGLES, pm.indexCount, gl.UNSIGNED_SHORT, 0);
+      } else {
+        // --- Implicit-quad draw path ---
+        // Disable a_uv so no stale mesh UV buffer from a preceding mesh part is
+        // sourced. The quad shader branch derives UV from a_pos, not a_uv.
+        gl.uniform1i(this.uUseMeshUv, 0);
+        gl.disableVertexAttribArray(this.aUv);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+        gl.enableVertexAttribArray(this.aPos);
+        gl.vertexAttribPointer(this.aPos, 2, gl.FLOAT, false, 0, 0);
+
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      }
     }
   }
 
@@ -272,18 +429,26 @@ export class IkiPlayer {
 // --- WebGL plumbing ---------------------------------------------------------
 const VERTEX_SHADER = `#version 300 es
 in vec2 a_pos;
+in vec2 a_uv;
 uniform mat3 u_matrix;
 uniform vec2 u_uvOffset;
 uniform vec2 u_uvScale;
+uniform bool u_useMeshUv;
 out vec2 v_uv;
 void main() {
-  // a_pos corners are +/-0.5; lift to 0..1 (y-up), then map into the atlas
-  // sub-rect with a single V flip (the only flip in the pipeline).
-  vec2 uvLocal = a_pos + 0.5;
-  v_uv = vec2(
-    u_uvOffset.x + uvLocal.x * u_uvScale.x,
-    u_uvOffset.y + (1.0 - uvLocal.y) * u_uvScale.y
-  );
+  if (u_useMeshUv) {
+    // Mesh path: UVs are already top-left atlas-space; pass straight through,
+    // no flip (the only flip in the pipeline lives in the quad branch below).
+    v_uv = a_uv;
+  } else {
+    // Quad path: a_pos corners are +/-0.5; lift to 0..1 (y-up), then map into
+    // the atlas sub-rect with a single V flip so the result is top-left UVs.
+    vec2 uvLocal = a_pos + 0.5;
+    v_uv = vec2(
+      u_uvOffset.x + uvLocal.x * u_uvScale.x,
+      u_uvOffset.y + (1.0 - uvLocal.y) * u_uvScale.y
+    );
+  }
   vec3 p = u_matrix * vec3(a_pos, 1.0);
   gl_Position = vec4(p.xy, 0.0, 1.0);
 }`;
@@ -319,10 +484,8 @@ async function decodeTexture(source: string): Promise<ImageBitmap | null> {
   });
 }
 
-function createUnitQuad(
-  gl: WebGL2RenderingContext,
-  program: WebGLProgram,
-): WebGLBuffer {
+/** Create the shared unit-quad position VBO (centered, triangle-strip). */
+function createUnitQuad(gl: WebGL2RenderingContext): WebGLBuffer {
   const buffer = gl.createBuffer();
   if (!buffer) throw new Error("failed to allocate quad buffer");
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
@@ -332,10 +495,31 @@ function createUnitQuad(
     new Float32Array([-0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5]),
     gl.STATIC_DRAW,
   );
-  const loc = gl.getAttribLocation(program, "a_pos");
-  gl.enableVertexAttribArray(loc);
-  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  // Attribute pointers are set explicitly in renderFrame per draw path;
+  // createUnitQuad only owns buffer allocation and data upload.
   return buffer;
+}
+
+/** Delete all position/uv/index buffers stored in a PartMesh map. */
+function deletePartMeshBuffers(
+  gl: WebGL2RenderingContext,
+  meshes: Map<number, PartMesh>,
+): void {
+  for (const pm of meshes.values()) {
+    gl.deleteBuffer(pm.position);
+    gl.deleteBuffer(pm.uv);
+    gl.deleteBuffer(pm.index);
+  }
+}
+
+/** Delete all non-null textures from an uploaded texture array. */
+function deleteUploadedTextures(
+  gl: WebGL2RenderingContext,
+  textures: (WebGLTexture | null)[],
+): void {
+  for (const texture of textures) {
+    if (texture) gl.deleteTexture(texture);
+  }
 }
 
 function createProgram(
