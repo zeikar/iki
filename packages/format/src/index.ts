@@ -4,8 +4,11 @@ export {
   type IkiDeformer,
   type IkiDeformerBinding,
   type IkiDeformerTransform,
+  type IkiGridKeyform,
+  type IkiGridWarp,
   type IkiKeyform,
   type IkiMatrixChannel,
+  type IkiMatrixDeformer,
   type IkiMesh,
   type IkiModel,
   type IkiParameter,
@@ -15,6 +18,8 @@ export {
   type IkiTransformChannel,
   type IkiUvRect,
   type IkiWarp,
+  type IkiWarpDeformer,
+  type IkiWarpGrid,
 } from "./types";
 export { StandardParameter, type StandardParameterId } from "./parameters";
 export { IkiFormatError, loadIkiModel, parseIkiModel } from "./validate";

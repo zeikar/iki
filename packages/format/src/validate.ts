@@ -5,6 +5,7 @@ import {
   type IkiDeformerBinding,
   type IkiKeyform,
   type IkiMatrixChannel,
+  type IkiMatrixDeformer,
   type IkiMesh,
   type IkiModel,
   type IkiParameter,
@@ -327,7 +328,7 @@ function parseDeformer(
   value: unknown,
   path: string,
   validParameters: ReadonlySet<string>,
-): IkiDeformer {
+): IkiMatrixDeformer {
   if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
   const id = str(value.id, `${path}.id`);
 
@@ -336,7 +337,7 @@ function parseDeformer(
     throw new IkiFormatError(`${path}.pivot must be an object`);
   }
 
-  let transform: IkiDeformer["transform"];
+  let transform: IkiMatrixDeformer["transform"];
   if (value.transform !== undefined) {
     if (!isObject(value.transform)) {
       throw new IkiFormatError(`${path}.transform must be an object`);

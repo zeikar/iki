@@ -6,7 +6,7 @@
  * parts through linear {@link IkiBinding}s. Parts may optionally carry a
  * triangle {@link IkiMesh} with per-vertex UV and per-parameter warp keyforms
  * ({@link IkiWarp}/{@link IkiKeyform}) — both are part of the v1 contract.
- * Multi-parameter warps and 2D warp grids are deferred to a later milestone.
+ * Multi-parameter warps are deferred; group warp deformers ({@link IkiWarpDeformer}) are part of the v1 contract.
  */
 export const IKI_FORMAT_VERSION = 1;
 
@@ -164,7 +164,8 @@ export interface IkiDeformerBinding {
 }
 
 /** A deformer node in the rig hierarchy; matrix-only (no opacity). */
-export interface IkiDeformer {
+export interface IkiMatrixDeformer {
+  kind?: "matrix";
   id: string;
   /** Id of the parent deformer; omit for a root deformer. */
   parent?: string;
@@ -173,6 +174,63 @@ export interface IkiDeformer {
   transform?: IkiDeformerTransform;
   bindings?: IkiDeformerBinding[];
 }
+
+/**
+ * A 2D control-point grid in MODEL space (origin = canvas center, +y up),
+ * row-major. `cols`/`rows` are CELL counts (same convention as
+ * `generateGridMesh`); there are `(cols+1)*(rows+1)` control points.
+ *
+ * The REST grid MUST be a regular axis-aligned lattice with this EXACT ordering
+ * (the validator enforces it; binding + sampling assume it):
+ *   - column 0 has the smallest x; x strictly INCREASES with column index;
+ *   - row 0 has the largest y (TOP, since +y is up); y strictly DECREASES with
+ *     row index;
+ *   - every cell has nonzero width and height.
+ * Keyforms (`IkiGridWarp`) may then deform this regular rest grid arbitrarily.
+ */
+export interface IkiWarpGrid {
+  cols: number;
+  rows: number;
+  /** Flat `[x0,y0, x1,y1, ...]` of (cols+1)*(rows+1) points, MODEL space. */
+  points: number[];
+}
+
+/** A single authored pose of a warp grid within an {@link IkiGridWarp}. */
+export interface IkiGridKeyform {
+  /** The driving parameter's own-range value (NOT normalized). */
+  value: number;
+  /** Flat per-control-point delta, same length as `grid.points`; ADDED to the rest grid. */
+  offsets: number[];
+}
+
+/**
+ * Per-control-point grid warp driven by one parameter. Same clamp+lerp runtime
+ * semantics as {@link IkiWarp}, but targets grid control points, not mesh vertices.
+ */
+export interface IkiGridWarp {
+  parameter: string;
+  /** Non-empty list of keyforms sorted ascending by `value`. */
+  keyforms: IkiGridKeyform[];
+}
+
+/**
+ * A warp deformer: bends its child parts through `grid`. Children reference it
+ * via `part.deformer` and MUST carry a `mesh`. Its parent (if any) must be a
+ * matrix deformer (validator-enforced) — e.g. a neck-rotation `headDeformer`:
+ * the rigid turn stays on the parent, curvature lives in the grid keyforms.
+ */
+export interface IkiWarpDeformer {
+  kind: "warp";
+  id: string;
+  /** Id of the parent deformer; omit for a root deformer. */
+  parent?: string;
+  grid: IkiWarpGrid;
+  /** Per-parameter grid keyforms applied each frame; optional (rest grid if absent). */
+  warps?: IkiGridWarp[];
+}
+
+/** A deformer node: a rigid matrix deformer (#4a) or a group warp deformer (#4c). */
+export type IkiDeformer = IkiMatrixDeformer | IkiWarpDeformer;
 
 /** A complete `.iki` puppet model. */
 export interface IkiModel {

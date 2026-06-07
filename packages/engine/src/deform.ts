@@ -3,6 +3,7 @@ import type {
   IkiDeformer,
   IkiDeformerBinding,
   IkiDeformerTransform,
+  IkiMatrixDeformer,
   IkiTransform,
 } from "@iki/format";
 import { type Affine, multiply, rotate, scale, translate } from "./affine";
@@ -84,7 +85,10 @@ export function evaluateTransform(
  * Build the local deformer matrix about its pivot:
  *   translate(pivot) · TRS · translate(-pivot)
  */
-function deformerLocalMatrix(d: IkiDeformer, params: ParameterStore): Affine {
+function deformerLocalMatrix(
+  d: IkiMatrixDeformer,
+  params: ParameterStore,
+): Affine {
   const t = evaluateTransform(d.transform, d.bindings, params);
   const trs: Affine = multiply(
     multiply(translate(t.x, t.y), rotate(t.rotation)),
@@ -111,10 +115,19 @@ export function resolveDeformerWorlds(
   deformers: IkiDeformer[],
   params: ParameterStore,
 ): Map<string, Affine> {
-  const byId = new Map<string, IkiDeformer>(deformers.map((d) => [d.id, d]));
+  // Warp deformers are non-affine; filter them out so matrix-only fields
+  // (pivot/transform/bindings) are accessible and warp deformers are never
+  // resolved as matrix deformers (which would produce NaN pivots).
+  // Task 4's resolveWarpGrids handles warp deformers separately.
+  const matrixDeformers = deformers.filter(
+    (d): d is IkiMatrixDeformer => d.kind === "matrix" || d.kind === undefined,
+  );
+  const byId = new Map<string, IkiMatrixDeformer>(
+    matrixDeformers.map((d) => [d.id, d]),
+  );
   const worldById = new Map<string, Affine>();
 
-  function resolve(d: IkiDeformer): Affine {
+  function resolve(d: IkiMatrixDeformer): Affine {
     const cached = worldById.get(d.id);
     if (cached) return cached;
 
@@ -136,7 +149,7 @@ export function resolveDeformerWorlds(
     return world;
   }
 
-  for (const d of deformers) {
+  for (const d of matrixDeformers) {
     resolve(d);
   }
 
