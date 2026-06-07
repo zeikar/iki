@@ -67,7 +67,11 @@ export function renderAtlas(
 
   for (const placement of layout.placements) {
     const src = byId.get(placement.id);
-    if (src === undefined) continue;
+    if (src === undefined) {
+      throw new Error(
+        `renderAtlas: no decoded source for placement "${placement.id}"`,
+      );
+    }
 
     const { bitmap } = src;
     const { x, y, width: w, height: h } = placement;
