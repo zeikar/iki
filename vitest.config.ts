@@ -38,6 +38,10 @@ export default defineConfig({
         find: "@iki/engine",
         replacement: resolvePackage("packages/engine/src/index.ts"),
       },
+      {
+        find: "@iki/editor-core",
+        replacement: resolvePackage("packages/editor-core/src/index.ts"),
+      },
     ],
   },
 });

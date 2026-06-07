@@ -6,7 +6,8 @@
     "baseUrl": ".",
     "paths": {
       "@iki/format": ["packages/format/src/index.ts"],
-      "@iki/engine": ["packages/engine/src/index.ts"]
+      "@iki/engine": ["packages/engine/src/index.ts"],
+      "@iki/editor-core": ["packages/editor-core/src/index.ts"]
     },
     "strict": true,
     "noUnusedLocals": true,
