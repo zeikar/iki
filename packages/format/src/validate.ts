@@ -315,6 +315,15 @@ function parseWarpDeformer(
     if (!Array.isArray(value.warps)) {
       throw new IkiFormatError(`${path}.warps must be an array`);
     }
+    // A warp deformer's grid is driven by at most ONE grid warp in this
+    // milestone. Multi-parameter grid composition (multiple grid drivers blended
+    // additively) is deferred until intentionally designed; reject it here so the
+    // contract does not silently commit to that behavior.
+    if (value.warps.length > 1) {
+      throw new IkiFormatError(
+        `${path}.warps supports at most one grid warp (multi-parameter grid composition is deferred)`,
+      );
+    }
     warps = value.warps.map((w, i) =>
       parseGridWarp(w, `${path}.warps[${i}]`, paramDescriptors, points.length),
     );

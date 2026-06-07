@@ -1473,6 +1473,30 @@ describe("warp deformers — grid warp keyform errors", () => {
       /keyforms must be sorted ascending/,
     );
   });
+
+  it("(d) more than one grid warp throws /at most one grid warp/", () => {
+    const oneWarp = {
+      parameter: "ParamA",
+      keyforms: [{ value: 0, offsets: Array(12).fill(0) }],
+    };
+    const input = {
+      ...validModel(),
+      deformers: [
+        {
+          ...makeWarpDeformer("faceWarp"),
+          warps: [oneWarp, oneWarp],
+        },
+      ],
+      parts: [
+        {
+          ...validModel().parts[0],
+          deformer: "faceWarp",
+          mesh: warpChildMesh(),
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(/at most one grid warp/);
+  });
 });
 
 describe("warp deformers — mesh-required cross-check", () => {

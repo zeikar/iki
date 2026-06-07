@@ -225,7 +225,11 @@ export interface IkiWarpDeformer {
   /** Id of the parent deformer; omit for a root deformer. */
   parent?: string;
   grid: IkiWarpGrid;
-  /** Per-parameter grid keyforms applied each frame; optional (rest grid if absent). */
+  /**
+   * Grid keyforms applied each frame; optional (rest grid if absent). At most ONE
+   * grid warp in this milestone — multi-parameter grid composition is deferred
+   * (validator-enforced).
+   */
   warps?: IkiGridWarp[];
 }
 
