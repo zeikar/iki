@@ -26,13 +26,13 @@ drives those parameters from lip-sync, gaze, blink, and expressions.
 
 ## Packages
 
-| Package                                        | What it is                                                                                                                                                     |
-| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`@iki/format`](./packages/format)             | The `.iki` model schema, types, loader, and validator                                                                                                          |
-| [`@iki/engine`](./packages/engine)             | WebGL2 runtime that plays a `.iki` model                                                                                                                       |
-| [`@iki/editor-core`](./packages/editor-core)   | DOM-free editing core: EditorDocument, part-edit commands, undo/redo, atlas layout/UV helpers, toIkiModel/serialize round-trip (depends only on @iki/format)   |
-| [`examples/playground`](./examples/playground) | Slider-driven demo of a hand-authored model                                                                                                                    |
-| [`examples/editor`](./examples/editor)         | Private React+Zustand app — load sample model, numeric part edit, texture/atlas import + per-part UV assignment, live IkiPlayer preview, validated .iki export |
+| Package                                        | What it is                                                                                                                                                           |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@iki/format`](./packages/format)             | The `.iki` model schema, types, loader, and validator                                                                                                                |
+| [`@iki/engine`](./packages/engine)             | WebGL2 runtime that plays a `.iki` model                                                                                                                             |
+| [`@iki/editor-core`](./packages/editor-core)   | DOM-free editing core: EditorDocument, part-edit commands, undo/redo, atlas layout/UV helpers, toIkiModel/serialize round-trip (depends only on @iki/format)         |
+| [`examples/playground`](./examples/playground) | Slider-driven demo of a hand-authored model                                                                                                                          |
+| [`examples/editor`](./examples/editor)         | Private React+Zustand app — load sample model, numeric part edit, per-part texture drop (quad + mesh, rides the warp), live IkiPlayer preview, validated .iki export |
 
 ## Quick start
 
@@ -95,6 +95,9 @@ any host can drive any model without per-model wiring.
    - **4c. Warp deformer (group warp)** — done
    - **4d. Advanced warp depth** — deferred (revisit when enhancing the look): 2D parameter grids (joint `AngleX`×`AngleY` keyform blend, true Live2D-style) + multi-driver grid composition; Bezier/bicubic smooth warp patches (vs. the current bilinear); nested warp deformers + matrix-under-warp hierarchies; glue / clipping-aware deformation / path deformers; folded-cell detection
 5. **Editor** — author parts, meshes, and bindings
+   - **5a. Load → numeric part edit → live preview → validated export** — done
+   - **5b. Texture/atlas import + per-part UV (quad parts)** — done
+   - **5c. Per-part texturing + per-vertex mesh-UV remap** — done (existing face/eyes/mouth meshes take a per-part texture that rides the warp). Deferred to a later slice: mesh topology editing (triangulation / vertex add-move-delete / quad→mesh) and base-UV persistence across reload.
 6. **AI generator** — image → segmented parts → auto-rigged `.iki`
 
 ## License
