@@ -1,4 +1,5 @@
 import { StandardParameter, type IkiModel } from "@iki/format";
+import { bakeHeadTurnWarp, generateGridMesh } from "./mesh-generator";
 
 /**
  * A hand-authored face built from solid-color quads. Crude on purpose — it
@@ -17,6 +18,11 @@ const LIP: [number, number, number, number] = [0.78, 0.32, 0.36, 1];
 // Top row (red/green) differs from bottom row (blue/yellow) for visible V-flip detection.
 const ATLAS =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAGklEQVR42mP4z8DwH4SRIJoAlA8EDGCMIQAAZhYj3eRg21gAAAAASUVORK5CYII=";
+
+// Head mesh: 8×8 grid covering the full ±0.5 local unit frame.
+// UV rect spans the whole atlas (head is color-only, no texture is sampled).
+const headMesh = generateGridMesh(8, 8, { x: 0, y: 0, width: 1, height: 1 });
+const headWarp = bakeHeadTurnWarp(headMesh, StandardParameter.AngleX);
 
 export const sampleModel: IkiModel = {
   version: 1,
@@ -119,6 +125,10 @@ export const sampleModel: IkiModel = {
       order: 0,
       transform: { x: 0, y: 0 },
       deformer: "headDeformer",
+      mesh: headMesh,
+      // bakeHeadTurnWarp adds cylinder-bend deformation; the rigid turn/translate
+      // stays on headDeformer and is NOT duplicated here.
+      warps: [headWarp],
     },
     {
       id: "eyeL",
@@ -225,6 +235,37 @@ export const sampleModel: IkiModel = {
       transform: { x: 380, y: 380 },
       texture: { index: 0, uv: { x: 0.55, y: 0.55, width: 0.4, height: 0.4 } },
       deformer: "headDeformer",
+    },
+  ],
+};
+
+// ── Textured-mesh UV fixture ────────────────────────────────────────────────
+// A minimal 1×1 grid (2×2 vertices) sampling the TOP-LEFT atlas quadrant
+// (red, UV [0,0,0.5,0.5]). The top row of the atlas is red/green while the
+// bottom is blue/yellow — a V-flip would turn red into blue, making the error
+// immediately visible. No warps: this model exists solely to verify that the
+// engine's mesh UV path uses uvs directly without any flip.
+const testMeshUv = { x: 0.05, y: 0.05, width: 0.4, height: 0.4 };
+const testMesh = generateGridMesh(1, 1, testMeshUv);
+
+export const texturedMeshTestModel: IkiModel = {
+  version: 1,
+  name: "Textured Mesh UV Test",
+  canvas: { width: 400, height: 400 },
+  textures: [{ source: ATLAS }],
+  parameters: [],
+  parts: [
+    {
+      id: "test_part",
+      // White tint — show the atlas color unmodified.
+      color: [1, 1, 1, 1],
+      width: 400,
+      height: 400,
+      order: 0,
+      transform: { x: 0, y: 0 },
+      // texture.index selects the atlas; texture.uv is ignored by the mesh path.
+      texture: { index: 0, uv: testMeshUv },
+      mesh: testMesh,
     },
   ],
 };
