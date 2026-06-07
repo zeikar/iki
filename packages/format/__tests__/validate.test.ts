@@ -685,3 +685,356 @@ describe("non-finite number rejection", () => {
     );
   });
 });
+
+// ── Mesh + warp tests ─────────────────────────────────────────────────────────
+
+/** A valid 4-vertex (2×2 grid split into 2 triangles) mesh. */
+function validMesh() {
+  return {
+    // 4 vertices => 8 components: bottom-left, bottom-right, top-right, top-left
+    vertices: [-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5],
+    uvs: [0, 1, 1, 1, 1, 0, 0, 0],
+    indices: [0, 1, 2, 0, 2, 3],
+  };
+}
+
+/** A model with a part that has a valid mesh and a 2-keyform warp. */
+function modelWithMesh() {
+  return {
+    ...validModel(),
+    parts: [
+      {
+        ...validModel().parts[0],
+        mesh: validMesh(),
+        warps: [
+          {
+            parameter: "ParamA",
+            keyforms: [
+              { value: -1, offsets: [0, 0, 0, 0, 0, 0, 0, 0] },
+              { value: 1, offsets: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8] },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+describe("mesh + warp", () => {
+  it("(a) happy path — part with valid mesh and 2-keyform warp parses and round-trips", () => {
+    const model = parseIkiModel(modelWithMesh());
+    const part = model.parts[0];
+    expect(part.mesh).toBeDefined();
+    expect(part.mesh!.vertices).toEqual([
+      -0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5,
+    ]);
+    expect(part.mesh!.uvs).toEqual([0, 1, 1, 1, 1, 0, 0, 0]);
+    expect(part.mesh!.indices).toEqual([0, 1, 2, 0, 2, 3]);
+    expect(part.warps).toHaveLength(1);
+    expect(part.warps![0].parameter).toBe("ParamA");
+    expect(part.warps![0].keyforms).toHaveLength(2);
+    expect(part.warps![0].keyforms[0].value).toBe(-1);
+    expect(part.warps![0].keyforms[1].offsets).toEqual([
+      0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8,
+    ]);
+  });
+
+  it("(b) back-compat — mesh-less part still validates and mesh/warps are undefined", () => {
+    const model = parseIkiModel(validModel());
+    expect(model.parts[0].mesh).toBeUndefined();
+    expect(model.parts[0].warps).toBeUndefined();
+  });
+
+  it("(c) uvs length !== vertices length throws", () => {
+    const input = {
+      ...validModel(),
+      parts: [
+        {
+          ...validModel().parts[0],
+          mesh: { ...validMesh(), uvs: [0, 1, 1, 1] },
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /uvs length must equal vertices length/,
+    );
+  });
+
+  it("(c2) uvs entry outside 0..1 throws", () => {
+    const input = {
+      ...validModel(),
+      parts: [
+        {
+          ...validModel().parts[0],
+          mesh: { ...validMesh(), uvs: [0, 1, 1, 1, 1, 0, 0, 1.5] },
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /uvs\[7\] must be a number in 0\.\.1/,
+    );
+  });
+
+  it("(d) odd vertices length throws", () => {
+    const input = {
+      ...validModel(),
+      parts: [
+        {
+          ...validModel().parts[0],
+          mesh: { ...validMesh(), vertices: [-0.5, -0.5, 0.5, -0.5, 0.5] },
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /vertices must have an even length \(x,y pairs\)/,
+    );
+  });
+
+  it("(e) indices length not a positive multiple of 3 throws", () => {
+    const notMultiple = {
+      ...validModel(),
+      parts: [
+        { ...validModel().parts[0], mesh: { ...validMesh(), indices: [0, 1] } },
+      ],
+    };
+    expect(() => parseIkiModel(notMultiple)).toThrow(
+      /indices length must be a positive multiple of 3/,
+    );
+
+    const empty = {
+      ...validModel(),
+      parts: [
+        { ...validModel().parts[0], mesh: { ...validMesh(), indices: [] } },
+      ],
+    };
+    expect(() => parseIkiModel(empty)).toThrow(
+      /indices length must be a positive multiple of 3/,
+    );
+  });
+
+  it("(f) out-of-range index throws", () => {
+    const input = {
+      ...validModel(),
+      parts: [
+        {
+          ...validModel().parts[0],
+          mesh: { ...validMesh(), indices: [0, 1, 99] },
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /indices\[2\] 99 is out of range/,
+    );
+  });
+
+  it("(f2) vertexCount > 65536 throws exceeds the 65536-vertex limit", () => {
+    const bigVertexCount = 65537;
+    const vertices = Array.from({ length: bigVertexCount * 2 }, (_, i) =>
+      i % 2 === 0 ? i * 0.000001 : 0,
+    );
+    const uvs = Array.from({ length: bigVertexCount * 2 }, () => 0);
+    const indices = [0, 1, 2];
+    const input = {
+      ...validModel(),
+      parts: [{ ...validModel().parts[0], mesh: { vertices, uvs, indices } }],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /vertices exceeds the 65536-vertex limit/,
+    );
+  });
+
+  it("(g) keyform offsets length !== vertices length throws", () => {
+    const input = {
+      ...validModel(),
+      parts: [
+        {
+          ...validModel().parts[0],
+          mesh: validMesh(),
+          warps: [
+            {
+              parameter: "ParamA",
+              keyforms: [
+                { value: 0, offsets: [0, 0] }, // wrong length (should be 8)
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /offsets length must equal mesh vertices length/,
+    );
+  });
+
+  it("(h) empty keyforms array throws", () => {
+    const input = {
+      ...validModel(),
+      parts: [
+        {
+          ...validModel().parts[0],
+          mesh: validMesh(),
+          warps: [{ parameter: "ParamA", keyforms: [] }],
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /keyforms must be a non-empty array/,
+    );
+  });
+
+  it("(i) descending/equal keyform value throws sorted ascending", () => {
+    const descending = {
+      ...validModel(),
+      parts: [
+        {
+          ...validModel().parts[0],
+          mesh: validMesh(),
+          warps: [
+            {
+              parameter: "ParamA",
+              keyforms: [
+                { value: 1, offsets: [0, 0, 0, 0, 0, 0, 0, 0] },
+                { value: 0, offsets: [0, 0, 0, 0, 0, 0, 0, 0] },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(() => parseIkiModel(descending)).toThrow(
+      /keyforms must be sorted ascending by value/,
+    );
+
+    const equal = {
+      ...validModel(),
+      parts: [
+        {
+          ...validModel().parts[0],
+          mesh: validMesh(),
+          warps: [
+            {
+              parameter: "ParamA",
+              keyforms: [
+                { value: 0, offsets: [0, 0, 0, 0, 0, 0, 0, 0] },
+                { value: 0, offsets: [0, 0, 0, 0, 0, 0, 0, 0] },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(() => parseIkiModel(equal)).toThrow(
+      /keyforms must be sorted ascending by value/,
+    );
+  });
+
+  it("(j) warps without mesh throws requires a mesh", () => {
+    const input = {
+      ...validModel(),
+      parts: [
+        {
+          ...validModel().parts[0],
+          warps: [
+            {
+              parameter: "ParamA",
+              keyforms: [{ value: 0, offsets: [] }],
+            },
+          ],
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(/warps requires a mesh/);
+  });
+
+  it("(k) warp.parameter not declared throws is not a declared parameter", () => {
+    const input = {
+      ...validModel(),
+      parts: [
+        {
+          ...validModel().parts[0],
+          mesh: validMesh(),
+          warps: [
+            {
+              parameter: "NoSuchParam",
+              keyforms: [{ value: 0, offsets: [0, 0, 0, 0, 0, 0, 0, 0] }],
+            },
+          ],
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /"NoSuchParam" is not a declared parameter/,
+    );
+  });
+
+  it("(l) non-finite number in vertices throws finite-number message", () => {
+    const badVertices = {
+      ...validModel(),
+      parts: [
+        {
+          ...validModel().parts[0],
+          mesh: {
+            ...validMesh(),
+            vertices: [-0.5, -0.5, 0.5, NaN, 0.5, 0.5, -0.5, 0.5],
+          },
+        },
+      ],
+    };
+    expect(() => parseIkiModel(badVertices)).toThrow(/must be a finite number/);
+
+    const badUvs = {
+      ...validModel(),
+      parts: [
+        {
+          ...validModel().parts[0],
+          mesh: { ...validMesh(), uvs: [0, 1, 1, Infinity, 1, 0, 0, 0] },
+        },
+      ],
+    };
+    expect(() => parseIkiModel(badUvs)).toThrow(/must be a finite number/);
+
+    const badOffsets = {
+      ...validModel(),
+      parts: [
+        {
+          ...validModel().parts[0],
+          mesh: validMesh(),
+          warps: [
+            {
+              parameter: "ParamA",
+              keyforms: [{ value: 0, offsets: [0, 0, 0, NaN, 0, 0, 0, 0] }],
+            },
+          ],
+        },
+      ],
+    };
+    expect(() => parseIkiModel(badOffsets)).toThrow(/must be a finite number/);
+  });
+
+  it("(f3) non-integer (float) index is rejected", () => {
+    const input = {
+      ...validModel(),
+      parts: [
+        {
+          ...validModel().parts[0],
+          mesh: { ...validMesh(), indices: [0, 1.5, 2] },
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(/is out of range/);
+  });
+
+  it("(warps-non-array) warps that is not an array throws", () => {
+    const input = {
+      ...validModel(),
+      parts: [
+        {
+          ...validModel().parts[0],
+          mesh: validMesh(),
+          warps: 42,
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(/warps must be an array/);
+  });
+});

@@ -3,7 +3,9 @@ import {
   type IkiBinding,
   type IkiDeformer,
   type IkiDeformerBinding,
+  type IkiKeyform,
   type IkiMatrixChannel,
+  type IkiMesh,
   type IkiModel,
   type IkiParameter,
   type IkiPart,
@@ -11,6 +13,7 @@ import {
   type IkiTransform,
   type IkiTransformChannel,
   type IkiUvRect,
+  type IkiWarp,
 } from "./types";
 
 /** Thrown when input does not conform to the `.iki` format. */
@@ -54,6 +57,103 @@ function str(value: unknown, path: string): string {
     throw new IkiFormatError(`${path} must be a non-empty string`);
   }
   return value;
+}
+
+function parseNumberArray(value: unknown, path: string): number[] {
+  if (!Array.isArray(value)) {
+    throw new IkiFormatError(`${path} must be an array`);
+  }
+  return value.map((entry, i) => num(entry, `${path}[${i}]`));
+}
+
+function parseMesh(value: unknown, path: string): IkiMesh {
+  if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
+  const vertices = parseNumberArray(value.vertices, `${path}.vertices`);
+  const uvs = parseNumberArray(value.uvs, `${path}.uvs`);
+  const indices = parseNumberArray(value.indices, `${path}.indices`);
+
+  const componentCount = vertices.length;
+  const vertexCount = componentCount / 2;
+
+  if (componentCount % 2 !== 0) {
+    throw new IkiFormatError(
+      `${path}.vertices must have an even length (x,y pairs)`,
+    );
+  }
+  if (componentCount < 6) {
+    throw new IkiFormatError(
+      `${path}.vertices must describe at least 3 vertices`,
+    );
+  }
+  if (vertexCount > 65536) {
+    throw new IkiFormatError(`${path}.vertices exceeds the 65536-vertex limit`);
+  }
+  if (uvs.length !== componentCount) {
+    throw new IkiFormatError(`${path}.uvs length must equal vertices length`);
+  }
+  for (let i = 0; i < uvs.length; i++) {
+    if (uvs[i] < 0 || uvs[i] > 1) {
+      throw new IkiFormatError(`${path}.uvs[${i}] must be a number in 0..1`);
+    }
+  }
+  if (indices.length === 0 || indices.length % 3 !== 0) {
+    throw new IkiFormatError(
+      `${path}.indices length must be a positive multiple of 3`,
+    );
+  }
+  for (let i = 0; i < indices.length; i++) {
+    const v = indices[i];
+    if (!Number.isInteger(v) || v < 0 || v > vertexCount - 1) {
+      throw new IkiFormatError(`${path}.indices[${i}] ${v} is out of range`);
+    }
+  }
+
+  return { vertices, uvs, indices };
+}
+
+function parseKeyform(
+  value: unknown,
+  path: string,
+  componentCount: number,
+): IkiKeyform {
+  if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
+  const kfValue = num(value.value, `${path}.value`);
+  const offsets = parseNumberArray(value.offsets, `${path}.offsets`);
+  if (offsets.length !== componentCount) {
+    throw new IkiFormatError(
+      `${path}.offsets length must equal mesh vertices length`,
+    );
+  }
+  return { value: kfValue, offsets };
+}
+
+function parseWarp(
+  value: unknown,
+  path: string,
+  validParameters: ReadonlySet<string>,
+  componentCount: number,
+): IkiWarp {
+  if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
+  const parameter = str(value.parameter, `${path}.parameter`);
+  if (!validParameters.has(parameter)) {
+    throw new IkiFormatError(
+      `${path}.parameter "${parameter}" is not a declared parameter`,
+    );
+  }
+  if (!Array.isArray(value.keyforms) || value.keyforms.length === 0) {
+    throw new IkiFormatError(`${path}.keyforms must be a non-empty array`);
+  }
+  const keyforms = value.keyforms.map((kf, i) =>
+    parseKeyform(kf, `${path}.keyforms[${i}]`, componentCount),
+  );
+  for (let i = 1; i < keyforms.length; i++) {
+    if (keyforms[i].value <= keyforms[i - 1].value) {
+      throw new IkiFormatError(
+        `${path}.keyforms must be sorted ascending by value`,
+      );
+    }
+  }
+  return { parameter, keyforms };
 }
 
 function parseColor(
@@ -302,6 +402,25 @@ function parsePart(
     };
   }
 
+  let mesh: IkiPart["mesh"];
+  if (value.mesh !== undefined) {
+    mesh = parseMesh(value.mesh, `${path}.mesh`);
+  }
+  const componentCount = mesh ? mesh.vertices.length : 0;
+
+  let warps: IkiPart["warps"];
+  if (value.warps !== undefined) {
+    if (!Array.isArray(value.warps)) {
+      throw new IkiFormatError(`${path}.warps must be an array`);
+    }
+    if (mesh === undefined) {
+      throw new IkiFormatError(`${path}.warps requires a mesh`);
+    }
+    warps = value.warps.map((w, i) =>
+      parseWarp(w, `${path}.warps[${i}]`, validParameters, componentCount),
+    );
+  }
+
   return {
     id: str(value.id, `${path}.id`),
     color: parseColor(value.color, `${path}.color`),
@@ -317,6 +436,8 @@ function parsePart(
       value.deformer === undefined
         ? undefined
         : str(value.deformer, `${path}.deformer`),
+    mesh,
+    warps,
   };
 }
 
