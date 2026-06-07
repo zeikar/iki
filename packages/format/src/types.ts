@@ -21,6 +21,48 @@ export interface IkiUvRect {
 }
 
 /**
+ * A triangle mesh in part LOCAL space.
+ *
+ * `vertices` and `uvs` are parallel flat arrays: vertex `i` is at
+ * `vertices[2i], vertices[2i+1]` and samples the atlas at `uvs[2i], uvs[2i+1]`.
+ */
+export interface IkiMesh {
+  /** Flat `[x0,y0, x1,y1, ...]` in part LOCAL ±0.5 unit space; the same frame
+   *  the engine already uses so width/height scaling applies downstream. */
+  vertices: number[];
+  /** Flat `[u0,v0, u1,v1, ...]`, 0..1 top-left, same atlas-space normalization
+   *  as {@link IkiUvRect}; used directly with no flip. */
+  uvs: number[];
+  /** Triangle list of indices into `vertices`; length must be a multiple of 3. */
+  indices: number[];
+}
+
+/**
+ * A single authored pose within a {@link IkiWarp}.
+ */
+export interface IkiKeyform {
+  /** The parameter's own-range value this pose is authored at — NOT normalized. */
+  value: number;
+  /** Flat per-vertex delta `[dx0,dy0, dx1,dy1, ...]`, same length and order as
+   *  `mesh.vertices`; ADDED to the rest mesh to produce the deformed positions. */
+  offsets: number[];
+}
+
+/**
+ * Per-vertex warp driven by one parameter.
+ *
+ * At runtime the live parameter value is clamped to `[keyforms[0].value,
+ * keyforms[last].value]` and then linearly interpolated between the bracketing
+ * pair of keyforms.
+ */
+export interface IkiWarp {
+  /** Id of the parameter that drives this warp. */
+  parameter: string;
+  /** Non-empty list of keyforms sorted ascending by `value`. */
+  keyforms: IkiKeyform[];
+}
+
+/**
  * A texture entry in the model's atlas table.
  * v1 validates and accepts `data:image/` URIs only; `source` is a plain string
  * so loosening validation to allow external paths later is a non-breaking addition.
@@ -91,10 +133,19 @@ export interface IkiPart {
   /** Paint order; lower draws first (further back). */
   order: number;
   bindings?: IkiBinding[];
-  /** Texture reference; `index` into {@link IkiModel.textures}; `uv` selects the atlas sub-rect. */
+  /**
+   * Texture reference. `index` selects the atlas texture for BOTH quad and mesh
+   * parts. `uv` drives only IMPLICIT-QUAD parts; a MESH part instead carries
+   * per-vertex UV in `mesh.uvs` and ignores `texture.uv` (the engine ignores
+   * `u_uvOffset`/`u_uvScale` on the mesh path).
+   */
   texture?: { index: number; uv: IkiUvRect };
   /** Id of the deformer this part hangs from. */
   deformer?: string;
+  /** Render as this mesh instead of the implicit unit quad. */
+  mesh?: IkiMesh;
+  /** Per-vertex warp keyforms applied to `mesh` each frame; requires `mesh`. */
+  warps?: IkiWarp[];
 }
 
 /** Matrix-only subset of {@link IkiTransformChannel} — opacity is not representable as a matrix. */
