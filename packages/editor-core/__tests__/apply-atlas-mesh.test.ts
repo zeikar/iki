@@ -213,3 +213,84 @@ describe("applyAtlas mesh — atomicity", () => {
     );
   });
 });
+
+// ── Shared-mesh aliasing regression ──────────────────────────────────────────
+
+describe("applyAtlas mesh — shared mesh object de-aliasing", () => {
+  /** Two mesh parts that share the EXACT SAME mesh object reference, mirroring
+   *  the sample-model pattern where eyeL and eyeR both set `mesh: eyeMesh`. */
+  function sharedMeshModel(): IkiModel {
+    const shared = {
+      vertices: [-0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5],
+      uvs: BASE_UVS.slice(),
+      indices: [0, 1, 2, 2, 1, 3],
+    };
+    return {
+      version: IKI_FORMAT_VERSION,
+      name: "shared-mesh-fixture",
+      canvas: { width: 100, height: 100 },
+      parameters: [],
+      parts: [
+        {
+          id: "part-a",
+          color: [1, 1, 1, 1],
+          width: 50,
+          height: 50,
+          order: 0,
+          transform: { x: 0, y: 0 },
+          mesh: shared,
+        },
+        {
+          id: "part-b",
+          color: [1, 1, 1, 1],
+          width: 50,
+          height: 50,
+          order: 1,
+          transform: { x: 10, y: 0 },
+          mesh: shared,
+        },
+      ],
+    };
+  }
+
+  it("texturing both parts with different rects gives each its OWN remapped uvs (no last-wins)", () => {
+    const doc = new EditorDocument(sharedMeshModel());
+
+    doc.applyAtlas({
+      textures: [{ source: "data:image/png;base64,AA==" }],
+      partTextureAssignments: [
+        { partId: "part-a", uv: RECT },
+        { partId: "part-b", uv: RECT_B },
+      ],
+    });
+
+    const a = doc.findPart("part-a");
+    const b = doc.findPart("part-b");
+
+    expect(a.mesh!.uvs).toEqual(remapMeshUvsToRect(BASE_UVS, RECT));
+    expect(b.mesh!.uvs).toEqual(remapMeshUvsToRect(BASE_UVS, RECT_B));
+    // Each part must own its own mesh object after the op.
+    expect(a.mesh).not.toBe(b.mesh);
+  });
+
+  it("texturing one part, leaving the other unassigned: no cross-contamination", () => {
+    const doc = new EditorDocument(sharedMeshModel());
+
+    doc.applyAtlas({
+      textures: [{ source: "data:image/png;base64,AA==" }],
+      partTextureAssignments: [{ partId: "part-a", uv: RECT }],
+    });
+
+    const a = doc.findPart("part-a");
+    const b = doc.findPart("part-b");
+
+    // Textured part gets remapped uvs + texture.
+    expect(a.mesh!.uvs).toEqual(remapMeshUvsToRect(BASE_UVS, RECT));
+    expect(a.texture).toEqual({ index: 0, uv: RECT });
+    // Unassigned part stays at base uvs and has no texture.
+    expect(b.mesh!.uvs).toEqual(BASE_UVS);
+    expect(b).not.toHaveProperty("texture");
+    // Still de-aliased.
+    expect(a.mesh).not.toBe(b.mesh);
+  });
+});

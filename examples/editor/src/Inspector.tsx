@@ -201,16 +201,28 @@ function TextureField({ partId }: { partId: string }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [decodeError, setDecodeError] = useState<string | null>(null);
+  // Monotonically increasing counter; each handleFile call captures a snapshot
+  // at call start and compares after the async decode to detect stale results.
+  const decodeSeqRef = useRef(0);
 
   async function handleFile(file: File) {
     setDecodeError(null);
+    const seq = ++decodeSeqRef.current;
     try {
       const decoded = await decodeImageFile(file);
+      if (seq !== decodeSeqRef.current) {
+        // A newer file was selected before this decode finished — discard it.
+        // We own this bitmap (never handed to the store), so we close it here.
+        decoded.bitmap.close();
+        return;
+      }
       // Store owns the bitmap from here — we never close it on success or failure.
       setPartTexture(partId, decoded);
     } catch (err) {
       // decode rejected — no bitmap exists to close.
-      setDecodeError(err instanceof Error ? err.message : String(err));
+      if (seq === decodeSeqRef.current) {
+        setDecodeError(err instanceof Error ? err.message : String(err));
+      }
     }
   }
 

@@ -130,12 +130,21 @@ export class EditorDocument {
           uv: { x: uv.x, y: uv.y, width: uv.width, height: uv.height },
         };
         if (part.mesh) {
-          part.mesh.uvs = remapMeshUvsToRect(this.requireBaseUvs(part.id), uv);
+          // Replace the mesh object so each part owns its own uvs array —
+          // de-aliases parts that shared the same mesh object in the input model.
+          part.mesh = {
+            ...part.mesh,
+            uvs: remapMeshUvsToRect(this.requireBaseUvs(part.id), uv),
+          };
         }
       } else {
         delete part.texture;
         if (part.mesh) {
-          part.mesh.uvs = this.requireBaseUvs(part.id).slice();
+          // Same spread here to break aliasing on restore as well.
+          part.mesh = {
+            ...part.mesh,
+            uvs: this.requireBaseUvs(part.id).slice(),
+          };
         }
       }
     }
