@@ -2,6 +2,7 @@ import type { IkiModel, IkiParameter, IkiPart, IkiWarp } from "@iki/format";
 import { ParameterStore } from "./parameter-store";
 import { multiply, rotate, scale, toMat3, translate } from "./affine";
 import { evaluateTransform, resolveDeformerWorlds } from "./deform";
+import { applyWarps } from "./warp";
 
 /**
  * Outcome of {@link IkiPlayer.load}: the indices into `model.textures` that
@@ -392,7 +393,16 @@ export class IkiPlayer {
 
         gl.uniform1i(this.uUseMeshUv, 1);
 
-        // Position VBO (DYNAMIC_DRAW — Task 4 will write morphed vertices here).
+        // For warped meshes, compute morphed positions and upload to the
+        // DYNAMIC_DRAW VBO. Warp-less meshes skip this — their VBO already
+        // holds `rest` from load().
+        if (pm.warps && pm.warps.length > 0) {
+          applyWarps(pm.rest, pm.warps, this.params, pm.scratch);
+          gl.bindBuffer(gl.ARRAY_BUFFER, pm.position);
+          gl.bufferSubData(gl.ARRAY_BUFFER, 0, pm.scratch);
+        }
+
+        // Position VBO (DYNAMIC_DRAW — morphed for warped parts, rest otherwise).
         gl.bindBuffer(gl.ARRAY_BUFFER, pm.position);
         gl.enableVertexAttribArray(this.aPos);
         gl.vertexAttribPointer(this.aPos, 2, gl.FLOAT, false, 0, 0);
