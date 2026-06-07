@@ -1,7 +1,23 @@
 import { parseIkiModel } from "@iki/format";
-import type { IkiModel, IkiPart } from "@iki/format";
+import type { IkiModel, IkiPart, IkiTexture, IkiUvRect } from "@iki/format";
 
 import type { EditCommand } from "./commands";
+
+/**
+ * One part mapped to an imported atlas source. `index` is always 0 because the
+ * atlas is a single page; only the `uv` sub-rectangle varies per part.
+ */
+export interface AtlasAssignment {
+  partId: string;
+  uv: IkiUvRect;
+}
+
+/** Input to {@link EditorDocument.applyAtlas}: the new atlas table plus the
+ *  per-part UV assignments into it. */
+export interface ApplyAtlasInput {
+  textures: IkiTexture[];
+  partTextureAssignments: AtlasAssignment[];
+}
 
 /**
  * In-memory editing session over a single {@link IkiModel}. The model is held
@@ -34,6 +50,84 @@ export class EditorDocument {
       throw new Error(`parts: no part with id "${id}"`);
     }
     return part;
+  }
+
+  /**
+   * Replace the atlas table and rewrite every part's texture reference in a
+   * single atomic step. For every part in `partTextureAssignments` set
+   * `texture = { index: 0, uv }`; CLEAR `texture` (delete the key) on every
+   * other part.
+   *
+   * Deliberately NON-undoable: it does NOT push to or clear the undo/redo
+   * stacks (texture/atlas state is not undoable in 5b — the unified
+   * editor-state superset is deferred to 5d). `canUndo()`/`canRedo()` are
+   * unchanged after a call.
+   *
+   * Validate-all-then-apply: structural input validation and per-partId
+   * resolution both run BEFORE any mutation, so a bad input (wrong shape,
+   * duplicate partId, or unknown partId) throws a plain `Error` and leaves the
+   * model exactly as it was — never a partial application.
+   */
+  applyAtlas(input: ApplyAtlasInput): void {
+    // Step A — structural validation of the input shape.
+    const { texture, assignmentsByPart } = this.normalizeAtlasInput(input);
+
+    // Step B — resolve every partId before mutating anything.
+    const resolved = new Map<IkiPart, IkiUvRect>();
+    for (const [partId, uv] of assignmentsByPart) {
+      resolved.set(this.findPart(partId), uv);
+    }
+
+    // Mutate — only reached when A + B both pass.
+    this.model.textures =
+      texture === undefined ? undefined : [{ source: texture.source }];
+    for (const part of this.model.parts) {
+      const uv = resolved.get(part);
+      if (uv) {
+        part.texture = {
+          index: 0,
+          uv: { x: uv.x, y: uv.y, width: uv.width, height: uv.height },
+        };
+      } else {
+        delete part.texture;
+      }
+    }
+  }
+
+  /**
+   * Validate the structural shape of an {@link ApplyAtlasInput} without
+   * touching the model, returning a known-good `{ texture?, assignmentsByPart }`
+   * for {@link applyAtlas} to resolve and apply.
+   */
+  private normalizeAtlasInput(input: ApplyAtlasInput): {
+    texture?: IkiTexture;
+    assignmentsByPart: Map<string, IkiUvRect>;
+  } {
+    if (input.textures.length > 1) {
+      throw new Error(
+        `applyAtlas: textures must be a single atlas page (got ${input.textures.length})`,
+      );
+    }
+    if (
+      input.partTextureAssignments.length > 0 &&
+      input.textures.length !== 1
+    ) {
+      throw new Error(
+        "applyAtlas: partTextureAssignments require exactly one texture",
+      );
+    }
+
+    const assignmentsByPart = new Map<string, IkiUvRect>();
+    for (const { partId, uv } of input.partTextureAssignments) {
+      if (assignmentsByPart.has(partId)) {
+        throw new Error(
+          `applyAtlas: duplicate partId "${partId}" in partTextureAssignments`,
+        );
+      }
+      assignmentsByPart.set(partId, uv);
+    }
+
+    return { texture: input.textures[0], assignmentsByPart };
   }
 
   /** Apply a command and record it as one undo step. Clears the redo stack. */

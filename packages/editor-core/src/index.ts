@@ -1,4 +1,8 @@
-export { EditorDocument } from "./document";
+export {
+  EditorDocument,
+  type AtlasAssignment,
+  type ApplyAtlasInput,
+} from "./document";
 export {
   SetPartColor,
   SetPartHeight,
