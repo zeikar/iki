@@ -1,3 +1,4 @@
+import { parseIkiModel } from "@iki/format";
 import type { IkiModel, IkiPart } from "@iki/format";
 
 import type { EditCommand } from "./commands";
@@ -64,5 +65,23 @@ export class EditorDocument {
 
   canRedo(): boolean {
     return this.redoStack.length > 0;
+  }
+
+  /**
+   * Validate and export the current working model by running it through
+   * {@link parseIkiModel}. Uses `structuredClone` so the validator's
+   * normalized output cannot alias the working model. Propagates
+   * `IkiFormatError` unchanged on failure — callers surface `.message`.
+   */
+  toIkiModel(): IkiModel {
+    return parseIkiModel(structuredClone(this.model));
+  }
+
+  /**
+   * Pretty-print the validated model as a `.iki` JSON string. Always
+   * validates first — invalid documents never reach a file.
+   */
+  serialize(): string {
+    return JSON.stringify(this.toIkiModel(), null, 2);
   }
 }
