@@ -2,6 +2,7 @@ import { parseIkiModel } from "@iki/format";
 import type { IkiModel, IkiPart, IkiTexture, IkiUvRect } from "@iki/format";
 
 import type { EditCommand } from "./commands";
+import { remapMeshUvsToRect } from "./mesh-uv";
 
 /**
  * One part mapped to an imported atlas source. `index` is always 0 because the
@@ -31,9 +32,22 @@ export class EditorDocument {
   private readonly model: IkiModel;
   private readonly undoStack: EditCommand[] = [];
   private readonly redoStack: EditCommand[] = [];
+  /** Editor-only session state, never serialized; keyed by stable part id. The
+   *  unmodified BASE local uvs of every mesh part, captured once at construction
+   *  so atlas remaps always derive from the original (idempotent). */
+  private readonly baseMeshUvs = new Map<string, number[]>();
 
   constructor(model: IkiModel) {
     this.model = structuredClone(model);
+    // Capture-once base UVs. Scope: assumes the loaded model's mesh parts carry
+    // original LOCAL 0..1 uvs (true for the sample). Restoring base UVs after
+    // reloading an already-textured exported model is out of scope (deferred —
+    // needs project-file persistence).
+    for (const part of this.model.parts) {
+      if (part.mesh) {
+        this.baseMeshUvs.set(part.id, part.mesh.uvs.slice());
+      }
+    }
   }
 
   /** Live reference to the working model — for READ access. Mutate it only
@@ -52,20 +66,37 @@ export class EditorDocument {
     return part;
   }
 
+  /** The construction-captured base UVs for a mesh part. Throws a path-qualified
+   *  plain `Error` if absent. SINGLE accessor for both apply branches — never
+   *  read `baseMeshUvs` with a bare `!` elsewhere. */
+  private requireBaseUvs(partId: string): number[] {
+    const base = this.baseMeshUvs.get(partId);
+    if (!base) {
+      throw new Error(`parts: no base mesh uvs captured for part "${partId}"`);
+    }
+    return base;
+  }
+
   /**
    * Replace the atlas table and rewrite every part's texture reference in a
    * single atomic step. For every part in `partTextureAssignments` set
    * `texture = { index: 0, uv }`; CLEAR `texture` (delete the key) on every
    * other part.
    *
+   * Mesh parts are textured as a MATCHED PAIR: an assigned mesh part also has
+   * its per-vertex `mesh.uvs` remapped (from the construction-captured base)
+   * into the same `uv` rect; an unassigned mesh part has its `mesh.uvs` restored
+   * to that base. Quad parts carry `texture.uv` only and are untouched here.
+   *
    * Deliberately NON-undoable: it does NOT push to or clear the undo/redo
    * stacks (texture/atlas state is not undoable in 5b — the unified
    * editor-state superset is deferred to 5d). `canUndo()`/`canRedo()` are
    * unchanged after a call.
    *
-   * Validate-all-then-apply: structural input validation and per-partId
-   * resolution both run BEFORE any mutation, so a bad input (wrong shape,
-   * duplicate partId, or unknown partId) throws a plain `Error` and leaves the
+   * Validate-all-then-apply: structural input validation, per-partId
+   * resolution, and a base-UV preflight over every mesh part all run BEFORE any
+   * mutation, so a bad input (wrong shape, duplicate partId, unknown partId, or
+   * a mesh part with no captured base) throws a plain `Error` and leaves the
    * model exactly as it was — never a partial application.
    */
   applyAtlas(input: ApplyAtlasInput): void {
@@ -78,7 +109,17 @@ export class EditorDocument {
       resolved.set(this.findPart(partId), uv);
     }
 
-    // Mutate — only reached when A + B both pass.
+    // Step C — preflight base UVs for EVERY mesh part (assigned AND unassigned):
+    // the mutate loop's clear/restore branch also reads the base of unassigned
+    // mesh parts, so this guard must cover them before any write so atomicity
+    // (validate-all-then-apply) holds.
+    for (const part of this.model.parts) {
+      if (part.mesh) {
+        this.requireBaseUvs(part.id);
+      }
+    }
+
+    // Mutate — only reached when A + B + C all pass.
     this.model.textures =
       texture === undefined ? undefined : [{ source: texture.source }];
     for (const part of this.model.parts) {
@@ -88,8 +129,14 @@ export class EditorDocument {
           index: 0,
           uv: { x: uv.x, y: uv.y, width: uv.width, height: uv.height },
         };
+        if (part.mesh) {
+          part.mesh.uvs = remapMeshUvsToRect(this.requireBaseUvs(part.id), uv);
+        }
       } else {
         delete part.texture;
+        if (part.mesh) {
+          part.mesh.uvs = this.requireBaseUvs(part.id).slice();
+        }
       }
     }
   }
