@@ -10,6 +10,7 @@ import {
   SetPartWidth,
 } from "@iki/editor-core";
 
+
 /**
  * A minimal valid IkiModel with two quad parts. No optional fields (textures,
  * bindings, mesh, deformers) so the fixture stays small and the validator passes.
@@ -37,6 +38,68 @@ function fixtureModel(): IkiModel {
         height: 40,
         order: 1,
         transform: { x: -5, y: 5 },
+      },
+    ],
+  };
+}
+
+/**
+ * A minimal valid IkiModel with two matrix deformers and one warp deformer.
+ * Used by the deformer-accessor tests (5e). Must pass parseIkiModel.
+ *
+ * Deformer layout:
+ *   m-root (matrix, pivot 0,0, one binding ParamA→rotate)
+ *   m-child (matrix, parent: m-root, pivot 10,0)
+ *   w       (warp,   parent: m-root, 1×1 grid, warps: [])
+ *
+ * Part "mesh-part" hangs from warp deformer "w" and carries the required mesh.
+ */
+function fixtureModelWithDeformers(): IkiModel {
+  return {
+    version: IKI_FORMAT_VERSION,
+    name: "fixture-deformers",
+    canvas: { width: 100, height: 100 },
+    parameters: [{ id: "ParamA", min: -1, max: 1, default: 0 }],
+    parts: [
+      {
+        id: "mesh-part",
+        color: [1, 1, 1, 1],
+        width: 20,
+        height: 20,
+        order: 0,
+        transform: { x: 0, y: 0 },
+        deformer: "w",
+        // Minimal triangle mesh (3 vertices). uvs must be 0..1.
+        mesh: {
+          vertices: [-10, 10, 10, 10, 0, -10],
+          uvs: [0, 0, 1, 0, 0.5, 1],
+          indices: [0, 1, 2],
+        },
+      },
+    ],
+    deformers: [
+      {
+        id: "m-root",
+        pivot: { x: 0, y: 0 },
+        bindings: [{ parameter: "ParamA", channel: "rotate", from: -6, to: 6 }],
+      },
+      {
+        id: "m-child",
+        parent: "m-root",
+        pivot: { x: 10, y: 0 },
+      },
+      {
+        kind: "warp" as const,
+        id: "w",
+        parent: "m-root",
+        // 1×1 grid → (1+1)*(1+1) = 4 control points.
+        // Row 0 (top) first: [-10,10] [10,10]; row 1 (bottom): [-10,-10] [10,-10]
+        grid: {
+          cols: 1,
+          rows: 1,
+          points: [-10, 10, 10, 10, -10, -10, 10, -10],
+        },
+        warps: [],
       },
     ],
   };
@@ -217,5 +280,48 @@ describe("commands", () => {
     doc.getModel().parts[0].width = 999;
     doc.redo();
     expect(doc.findPart(partId).width).toBe(newWidth);
+  });
+});
+
+// ── Deformer accessors ────────────────────────────────────────────────────────
+
+describe("deformer accessors", () => {
+  it("fixtureModelWithDeformers passes parseIkiModel (sanity)", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    expect(() => doc.toIkiModel()).not.toThrow();
+  });
+
+  it("findMatrixDeformer returns the matrix deformer for a known id", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    const d = doc.findMatrixDeformer("m-root");
+    expect(d.id).toBe("m-root");
+    expect(d.kind).toBeUndefined();
+    expect(d.bindings).toHaveLength(1);
+  });
+
+  it("findMatrixDeformer throws when the id belongs to a warp deformer", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    expect(() => doc.findMatrixDeformer("w")).toThrow(
+      /deformers: no matrix deformer/,
+    );
+  });
+
+  it("findMatrixDeformer throws when the id is unknown", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    expect(() => doc.findMatrixDeformer("nope")).toThrow(
+      /deformers: no matrix deformer/,
+    );
+  });
+
+  it("findDeformer returns a warp deformer by id", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    const d = doc.findDeformer("w");
+    expect(d.id).toBe("w");
+    expect(d.kind).toBe("warp");
+  });
+
+  it("findDeformer throws when the id is unknown", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    expect(() => doc.findDeformer("nope")).toThrow(/no deformer with id/);
   });
 });

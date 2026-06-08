@@ -1,5 +1,7 @@
 import { parseIkiModel } from "@iki/format";
 import type {
+  IkiDeformer,
+  IkiMatrixDeformer,
   IkiModel,
   IkiPart,
   IkiTexture,
@@ -79,6 +81,29 @@ export class EditorDocument {
     const deformer = this.model.deformers?.find((d) => d.id === id);
     if (!deformer || deformer.kind !== "warp") {
       throw new Error(`deformers: no warp deformer with id "${id}"`);
+    }
+    return deformer;
+  }
+
+  /** Resolve a matrix deformer by stable id. Throws a path-qualified plain
+   *  `Error` if no deformer matches the id or the match is a warp deformer
+   *  (`kind === "warp"`). A `kind` of `"matrix"` or `undefined` is a matrix
+   *  deformer. READ/mutate-through accessor, consistent with {@link findPart}. */
+  findMatrixDeformer(id: string): IkiMatrixDeformer {
+    const deformer = this.model.deformers?.find((d) => d.id === id);
+    if (!deformer || deformer.kind === "warp") {
+      throw new Error(`deformers: no matrix deformer with id "${id}"`);
+    }
+    return deformer;
+  }
+
+  /** Resolve any deformer (matrix or warp) by stable id. Throws a
+   *  path-qualified plain `Error` if no deformer matches the id.
+   *  READ/mutate-through accessor, consistent with {@link findPart}. */
+  findDeformer(id: string): IkiDeformer {
+    const deformer = this.model.deformers?.find((d) => d.id === id);
+    if (!deformer) {
+      throw new Error(`deformers: no deformer with id "${id}"`);
     }
     return deformer;
   }
