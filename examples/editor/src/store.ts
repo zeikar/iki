@@ -154,8 +154,10 @@ export const useEditorStore = create<EditorState>((set, get) => {
       get().doc.redo();
       set((s) => ({ revision: s.revision + 1 }));
     },
-    select: (partId) => set({ selectedPartId: partId, selectedDeformerId: null }),
-    selectDeformer: (id) => set({ selectedDeformerId: id, selectedPartId: null }),
+    select: (partId) =>
+      set({ selectedPartId: partId, selectedDeformerId: null }),
+    selectDeformer: (id) =>
+      set({ selectedDeformerId: id, selectedPartId: null }),
     setParam: (id, value) =>
       set((s) => ({ params: { ...s.params, [id]: value } })),
     setExportError: (msg) => set({ exportError: msg }),
