@@ -1,6 +1,7 @@
 import { IkiPlayer } from "@iki/engine";
 import { useEffect, useRef, type MutableRefObject } from "react";
 
+import { GridOverlay } from "./GridOverlay";
 import { useEditorStore } from "./store";
 
 interface PreviewProps {
@@ -15,6 +16,8 @@ interface PreviewProps {
  */
 export function Preview({ playerRef }: PreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const gridEditMode = useEditorStore((s) => s.gridEditMode);
+  const setGridEditMode = useEditorStore((s) => s.setGridEditMode);
 
   useEffect(() => {
     // Exactly ONE player per effect run, destroyed in this run's cleanup.
@@ -42,11 +45,37 @@ export function Preview({ playerRef }: PreviewProps) {
         minWidth: 0,
       }}
     >
+      {/* Controls bar above the preview canvas */}
+      <div
+        style={{
+          padding: "6px 12px",
+          borderBottom: "1px solid #2a2b33",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <label
+          style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+        >
+          <input
+            type="checkbox"
+            checked={gridEditMode}
+            onChange={(e) => setGridEditMode(e.currentTarget.checked)}
+          />
+          <span style={{ fontSize: 12, color: "#9a9aa5" }}>Edit grid</span>
+        </label>
+      </div>
+
       <div style={{ flex: 1, display: "grid", placeItems: "center" }}>
-        <canvas
-          ref={canvasRef}
-          style={{ width: "100%", height: "100%", display: "block" }}
-        />
+        {/* position:relative container so the overlay can sit absolutely over the canvas */}
+        <div style={{ position: "relative", width: "100%", height: "100%" }}>
+          <canvas
+            ref={canvasRef}
+            style={{ width: "100%", height: "100%", display: "block" }}
+          />
+          {gridEditMode && <GridOverlay canvasRef={canvasRef} />}
+        </div>
       </div>
       <ParamSliders playerRef={playerRef} />
     </main>

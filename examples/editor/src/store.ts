@@ -33,6 +33,8 @@ interface EditorState {
   revision: number;
   /** True after the first successful `player.load()` (set by useReloadPreview). */
   loaded: boolean;
+  /** Editor-only UI toggle: when true, the grid-edit overlay mounts over the preview. */
+  gridEditMode: boolean;
 
   /**
    * Editor-only per-part texture side-table — NEVER serialized. One optional
@@ -53,6 +55,7 @@ interface EditorState {
   setExportError: (msg: string | null) => void;
   setAtlasError: (msg: string | null) => void;
   setLoaded: () => void;
+  setGridEditMode: (on: boolean) => void;
 
   setPartTexture: (partId: string, decoded: DecodedSource) => void;
   clearPartTexture: (partId: string) => void;
@@ -125,6 +128,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     exportError: null,
     revision: 0,
     loaded: false,
+    gridEditMode: false,
     partTextures: {},
     atlasError: null,
 
@@ -146,6 +150,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     setExportError: (msg) => set({ exportError: msg }),
     setAtlasError: (msg) => set({ atlasError: msg }),
     setLoaded: () => set({ loaded: true }),
+    setGridEditMode: (on) => set({ gridEditMode: on }),
 
     setPartTexture: (partId, decoded) => {
       // Validate VISIBLY before deriving — never a silent no-op.
