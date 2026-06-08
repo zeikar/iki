@@ -26,9 +26,12 @@ function toAtlasSource(s: DecodedSource): AtlasSource {
 interface EditorState {
   doc: EditorDocument;
   selectedPartId: string | null;
+  selectedDeformerId: string | null;
   /** Live parameter pose, mirrored from the sliders (survives reloads — Task 7). */
   params: Record<string, number>;
   exportError: string | null;
+  /** Visible banner for failed (validate-throwing) commands. Cleared on success. */
+  editError: string | null;
   /** Bumped on every edit/undo/redo to drive tree/inspector re-renders. */
   revision: number;
   /** True after the first successful `player.load()` (set by useReloadPreview). */
@@ -51,6 +54,7 @@ interface EditorState {
   undo: () => void;
   redo: () => void;
   select: (partId: string | null) => void;
+  selectDeformer: (id: string | null) => void;
   setParam: (id: string, value: number) => void;
   setExportError: (msg: string | null) => void;
   setAtlasError: (msg: string | null) => void;
@@ -124,8 +128,10 @@ export const useEditorStore = create<EditorState>((set, get) => {
   return {
     doc: new EditorDocument(sampleModel),
     selectedPartId: null,
+    selectedDeformerId: null,
     params: {},
     exportError: null,
+    editError: null,
     revision: 0,
     loaded: false,
     gridEditMode: false,
@@ -133,8 +139,12 @@ export const useEditorStore = create<EditorState>((set, get) => {
     atlasError: null,
 
     runCommand: (cmd) => {
-      get().doc.execute(cmd);
-      set((s) => ({ revision: s.revision + 1 }));
+      try {
+        get().doc.execute(cmd);
+        set((s) => ({ revision: s.revision + 1, editError: null }));
+      } catch (e) {
+        set({ editError: e instanceof Error ? e.message : String(e) });
+      }
     },
     undo: () => {
       get().doc.undo();
@@ -144,7 +154,8 @@ export const useEditorStore = create<EditorState>((set, get) => {
       get().doc.redo();
       set((s) => ({ revision: s.revision + 1 }));
     },
-    select: (partId) => set({ selectedPartId: partId }),
+    select: (partId) => set({ selectedPartId: partId, selectedDeformerId: null }),
+    selectDeformer: (id) => set({ selectedDeformerId: id, selectedPartId: null }),
     setParam: (id, value) =>
       set((s) => ({ params: { ...s.params, [id]: value } })),
     setExportError: (msg) => set({ exportError: msg }),
