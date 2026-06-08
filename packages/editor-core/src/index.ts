@@ -27,3 +27,4 @@ export {
   type AtlasPlacement,
   type AtlasLayout,
 } from "./atlas";
+export { validateDeformerReparent, validatePartAttach } from "./reparent";
