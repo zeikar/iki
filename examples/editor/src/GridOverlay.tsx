@@ -1,11 +1,9 @@
-import { interpolateGridOffsets } from "@iki/editor-core";
 import {
-  type Affine,
-  multiply,
-  rotate,
-  scale,
-  translate,
-} from "@iki/engine";
+  CaptureGridKeyform,
+  computeGridOffsets,
+  interpolateGridOffsets,
+} from "@iki/editor-core";
+import { type Affine, multiply, rotate, scale, translate } from "@iki/engine";
 import type {
   IkiDeformerBinding,
   IkiMatrixDeformer,
@@ -41,7 +39,9 @@ function headDeformerAffine(
   let sx = base?.scaleX ?? 1;
   let sy = base?.scaleY ?? 1;
 
-  for (const binding of (deformer.bindings as IkiDeformerBinding[] | undefined) ?? []) {
+  for (const binding of (deformer.bindings as
+    | IkiDeformerBinding[]
+    | undefined) ?? []) {
     const descriptor = parameters.find((p) => p.id === binding.parameter);
     if (!descriptor) continue;
     const raw = params[binding.parameter] ?? descriptor.default;
@@ -145,7 +145,9 @@ export function invertAffinePoint(
   const [a, b, c, d, e, f] = affine;
   const det = a * d - b * c;
   if (Math.abs(det) < 1e-10) {
-    throw new Error("invertAffinePoint: non-invertible affine (degenerate scale)");
+    throw new Error(
+      "invertAffinePoint: non-invertible affine (degenerate scale)",
+    );
   }
   const invA = d / det;
   const invB = -b / det;
@@ -165,12 +167,23 @@ interface GridOverlayProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
 
+/** Live drag state for a single in-flight handle drag. */
+interface DragState {
+  /** Index into the grid's control-point array (0-based). */
+  index: number;
+  /** Current dragged handle position in overlay-local CSS px. */
+  sx: number;
+  sy: number;
+}
+
 export function GridOverlay({ canvasRef }: GridOverlayProps) {
   // revision-keyed subscription mirrors the Inspector pattern
   const { model, params } = useEditorStore((s) => {
     void s.revision;
     return { model: s.doc.getModel(), params: s.params };
   });
+  const runCommand = useEditorStore((s) => s.runCommand);
+  const setExportError = useEditorStore((s) => s.setExportError);
 
   // Track canvas client size so handles stay aligned after layout changes.
   const [canvasSize, setCanvasSize] = useState<{
@@ -178,6 +191,12 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
     height: number;
   } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+
+  // Live drag state: null when no drag in progress.
+  const [drag, setDrag] = useState<DragState | null>(null);
+  // Ref-based flag set synchronously in onPointerDown so onPointerMove never
+  // misses the first event due to a stale closure over `drag`.
+  const draggingRef = useRef(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -209,8 +228,7 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
 
   const headDeformer = deformers.find(
     (d): d is IkiMatrixDeformer =>
-      (d.kind === "matrix" || d.kind === undefined) &&
-      d.id === faceWarp.parent,
+      (d.kind === "matrix" || d.kind === undefined) && d.id === faceWarp.parent,
   );
 
   // Compute parent affine (identity if no parent deformer).
@@ -222,26 +240,33 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
   // Resolve AngleX for grid offset interpolation.
   const angleXParamId = faceWarp.warps?.[0]?.parameter;
   let interpolatedOffsets: number[];
+  let safeAngleXValue = 0;
   const warps = faceWarp.warps;
   if (!warps || warps.length === 0 || !angleXParamId) {
     // No warps — draw rest grid (all-zero offsets).
     interpolatedOffsets = new Array(faceWarp.grid.points.length).fill(0);
   } else {
     const descriptor = model.parameters.find((p) => p.id === angleXParamId);
-    let angleXValue = 0;
     if (descriptor) {
       const raw = params[angleXParamId] ?? descriptor.default;
-      angleXValue = Math.max(descriptor.min, Math.min(descriptor.max, raw));
+      safeAngleXValue = Math.max(descriptor.min, Math.min(descriptor.max, raw));
     }
-    interpolatedOffsets = interpolateGridOffsets(warps[0].keyforms, angleXValue);
+    interpolatedOffsets = interpolateGridOffsets(
+      warps[0].keyforms,
+      safeAngleXValue,
+    );
   }
 
   // corrupted keyform → draw rest grid, not NaN handles
   const safeOffsets =
     interpolatedOffsets.length === faceWarp.grid.points.length
       ? interpolatedOffsets
-      : new Array(faceWarp.grid.points.length).fill(0) as number[];
-  const deformed = deformedGridPoints(faceWarp.grid.points, safeOffsets, affine);
+      : (new Array(faceWarp.grid.points.length).fill(0) as number[]);
+  const deformed = deformedGridPoints(
+    faceWarp.grid.points,
+    safeOffsets,
+    affine,
+  );
 
   const { width: clientWidth, height: clientHeight } = canvasSize;
   const { width: modelW, height: modelH } = model.canvas;
@@ -250,7 +275,14 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
   const screenPts: { sx: number; sy: number }[] = [];
   for (let i = 0; i < deformed.length; i += 2) {
     screenPts.push(
-      modelToScreen(deformed[i], deformed[i + 1], clientWidth, clientHeight, modelW, modelH),
+      modelToScreen(
+        deformed[i],
+        deformed[i + 1],
+        clientWidth,
+        clientHeight,
+        modelW,
+        modelH,
+      ),
     );
   }
 
@@ -258,7 +290,15 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
   const rows = faceWarp.grid.rows;
 
   // Build grid line segments: horizontal (along rows) + vertical (along cols).
-  const lines: { x1: number; y1: number; x2: number; y2: number; row: number; col: number; dir: "h" | "v" }[] = [];
+  const lines: {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    row: number;
+    col: number;
+    dir: "h" | "v";
+  }[] = [];
   for (let row = 0; row <= rows; row++) {
     for (let col = 0; col < cols; col++) {
       const i = row * (cols + 1) + col;
@@ -290,6 +330,119 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Pointer drag handlers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Shared teardown: resets drag state and releases pointer capture.
+   * Called from pointerup (success or error) and pointercancel/lostpointercapture.
+   */
+  function endDrag(e: React.PointerEvent<SVGCircleElement>) {
+    draggingRef.current = false;
+    setDrag(null);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // lostpointercapture already released it; cancel/up may double-release — both safe to ignore.
+    }
+  }
+
+  function onPointerDown(
+    e: React.PointerEvent<SVGCircleElement>,
+    index: number,
+  ) {
+    e.preventDefault();
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    draggingRef.current = true;
+    setDrag({ index, sx, sy });
+  }
+
+  function onPointerMove(e: React.PointerEvent<SVGCircleElement>) {
+    if (!draggingRef.current) return;
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    // Update ONLY local drag preview — no doc mutation, no reload.
+    setDrag((prev) => (prev === null ? null : { ...prev, sx, sy }));
+  }
+
+  function onPointerUp(e: React.PointerEvent<SVGCircleElement>) {
+    // Safe to read drag from closure: pointer capture serialises events, so by pointerup the setDrag from pointerdown/move has flushed.
+    if (drag === null) return;
+    try {
+      const rect = svgRef.current?.getBoundingClientRect();
+      if (!rect) throw new Error("GridOverlay: SVG ref not available on drop");
+      // faceWarp guaranteed non-null by the early return above.
+
+      // Verify the driving parameter descriptor is present before capturing.
+      if (
+        angleXParamId &&
+        !model.parameters.find((p) => p.id === angleXParamId)
+      ) {
+        throw new Error(
+          `Cannot capture keyform: parameter "${angleXParamId}" is not declared`,
+        );
+      }
+
+      // Convert overlay-local px → model space → rest frame.
+      const { mx, my } = screenToModel(
+        drag.sx,
+        drag.sy,
+        clientWidth,
+        clientHeight,
+        modelW,
+        modelH,
+      );
+      // invertAffinePoint throws on non-invertible affine.
+      const restTarget = invertAffinePoint(affine, mx, my);
+
+      // Assemble full rest-frame target array: non-dragged = rest_i + interpolatedOffset_i.
+      // faceWarp! — guaranteed non-null by the early return above.
+      const restPoints = faceWarp!.grid.points;
+      const restFrameDraggedPoints: number[] = [];
+      for (let i = 0; i < restPoints.length; i += 2) {
+        const ptIndex = i / 2;
+        if (ptIndex === drag.index) {
+          restFrameDraggedPoints.push(restTarget.x, restTarget.y);
+        } else {
+          restFrameDraggedPoints.push(
+            restPoints[i] + safeOffsets[i],
+            restPoints[i + 1] + safeOffsets[i + 1],
+          );
+        }
+      }
+
+      const offsets = computeGridOffsets(restPoints, restFrameDraggedPoints);
+      runCommand(new CaptureGridKeyform("faceWarp", safeAngleXValue, offsets));
+      // Clear any prior grid-capture error on success.
+      setExportError(null);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : String(err));
+      // No keyform written — abort capture.
+    } finally {
+      endDrag(e);
+    }
+  }
+
+  function onPointerCancel(e: React.PointerEvent<SVGCircleElement>) {
+    // Discard in-progress drag without committing a keyform.
+    endDrag(e);
+  }
+
+  // Apply live drag preview: replace the dragged handle's screen position.
+  const displayPts = screenPts.map((pt, idx) => {
+    if (drag !== null && drag.index === idx) {
+      return { sx: drag.sx, sy: drag.sy };
+    }
+    return pt;
+  });
+
   return (
     <svg
       ref={svgRef}
@@ -314,15 +467,25 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
           strokeWidth={1}
         />
       ))}
-      {screenPts.map((pt, idx) => (
+      {displayPts.map((pt, idx) => (
         <circle
           key={`p-${idx}`}
           cx={pt.sx}
           cy={pt.sy}
           r={4}
-          fill="rgba(100,180,255,0.85)"
+          fill={
+            drag?.index === idx
+              ? "rgba(255,220,80,0.95)"
+              : "rgba(100,180,255,0.85)"
+          }
           stroke="rgba(255,255,255,0.7)"
           strokeWidth={1}
+          style={{ pointerEvents: "auto", cursor: "grab" }}
+          onPointerDown={(e) => onPointerDown(e, idx)}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerCancel}
+          onLostPointerCapture={onPointerCancel}
         />
       ))}
     </svg>
