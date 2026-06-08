@@ -222,11 +222,16 @@ interface DragState {
 }
 
 export function GridOverlay({ canvasRef }: GridOverlayProps) {
-  // revision-keyed subscription mirrors the Inspector pattern
-  const { model, params } = useEditorStore((s) => {
-    void s.revision;
-    return { model: s.doc.getModel(), params: s.params };
-  });
+  // revision-keyed subscription mirrors the Inspector pattern: single-value
+  // selectors only. Returning a fresh `{ model, params }` object from one
+  // selector makes useSyncExternalStore see a new snapshot every render → an
+  // infinite update loop. `revision` (a number) re-renders on in-place model
+  // edits; `params` (a new ref per setParam) re-renders on slider changes.
+  const doc = useEditorStore((s) => s.doc);
+  const params = useEditorStore((s) => s.params);
+  const revision = useEditorStore((s) => s.revision);
+  void revision;
+  const model = doc.getModel();
   const runCommand = useEditorStore((s) => s.runCommand);
   const setExportError = useEditorStore((s) => s.setExportError);
 
