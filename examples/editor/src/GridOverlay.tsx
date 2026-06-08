@@ -19,15 +19,13 @@ import { useEditorStore } from "./store";
 // ---------------------------------------------------------------------------
 
 /**
- * Mirror engine's `evaluateTransform` + `deformerLocalMatrix` using the PUBLIC
- * affine helpers from `@iki/engine`. Starts from `deformer.transform ?? identity`,
- * then adds each binding's contribution, then composes:
+ * Compute the LOCAL affine for a single matrix deformer:
  *   translate(pivot) · TRS · translate(-pivot)
  *
  * Safe param reads: every binding resolves via `params[id] ?? descriptor.default`,
  * clamped to `[min,max]`. Normalization: max===min → 0.
  */
-function headDeformerAffine(
+function deformerLocalAffine(
   deformer: IkiMatrixDeformer,
   params: Record<string, number>,
   parameters: IkiParameter[],
@@ -76,6 +74,53 @@ function headDeformerAffine(
   );
   const { x: px, y: py } = deformer.pivot;
   return multiply(multiply(translate(px, py), trs), translate(-px, -py));
+}
+
+/**
+ * Compute the world-space affine for a matrix deformer by composing the FULL
+ * ancestor chain, mirroring the engine's `resolveDeformerWorlds`.
+ *
+ *   world = parentWorld · localAffine
+ *
+ * Guards against cyclic/self parent references (bounded walk) so a malformed
+ * model can't infinite-loop. Returns identity for an absent deformer id.
+ */
+function matrixWorldAffine(
+  deformerId: string | undefined,
+  deformers: IkiMatrixDeformer[],
+  params: Record<string, number>,
+  parameters: IkiParameter[],
+): Affine {
+  const IDENTITY: Affine = [1, 0, 0, 1, 0, 0];
+  if (deformerId === undefined) return IDENTITY;
+
+  const byId = new Map<string, IkiMatrixDeformer>(
+    deformers.map((d) => [d.id, d]),
+  );
+  const cache = new Map<string, Affine>();
+
+  function resolve(id: string, visited: Set<string>): Affine {
+    const cached = cache.get(id);
+    if (cached) return cached;
+
+    // Cycle guard: if we've already started resolving this id in this chain, bail.
+    if (visited.has(id)) return IDENTITY;
+    visited.add(id);
+
+    const deformer = byId.get(id);
+    if (!deformer) return IDENTITY;
+
+    const local = deformerLocalAffine(deformer, params, parameters);
+    const world =
+      deformer.parent === undefined
+        ? local
+        : multiply(resolve(deformer.parent, new Set(visited)), local);
+
+    cache.set(id, world);
+    return world;
+  }
+
+  return resolve(deformerId, new Set());
 }
 
 /**
@@ -194,9 +239,10 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
 
   // Live drag state: null when no drag in progress.
   const [drag, setDrag] = useState<DragState | null>(null);
-  // Ref-based flag set synchronously in onPointerDown so onPointerMove never
-  // misses the first event due to a stale closure over `drag`.
-  const draggingRef = useRef(false);
+  // Ref-based drag info set synchronously in onPointerDown so onPointerMove and
+  // onPointerUp never depend on possibly-stale React state for the index or drag
+  // liveness check. null when no drag is in progress.
+  const draggingRef = useRef<{ index: number } | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -226,16 +272,18 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
   );
   if (!faceWarp) return null;
 
-  const headDeformer = deformers.find(
-    (d): d is IkiMatrixDeformer =>
-      (d.kind === "matrix" || d.kind === undefined) && d.id === faceWarp.parent,
+  // All matrix deformers (warp deformers have no pivot/TRS so they are excluded).
+  const matrixDeformers = deformers.filter(
+    (d): d is IkiMatrixDeformer => d.kind === "matrix" || d.kind === undefined,
   );
 
-  // Compute parent affine (identity if no parent deformer).
-  const affine: Affine =
-    headDeformer !== undefined
-      ? headDeformerAffine(headDeformer, params, model.parameters)
-      : [1, 0, 0, 1, 0, 0];
+  // Compute parent world affine by composing the FULL ancestor chain.
+  const affine: Affine = matrixWorldAffine(
+    faceWarp.parent,
+    matrixDeformers,
+    params,
+    model.parameters,
+  );
 
   // Resolve AngleX for grid offset interpolation.
   const angleXParamId = faceWarp.warps?.[0]?.parameter;
@@ -289,7 +337,15 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
   const cols = faceWarp.grid.cols;
   const rows = faceWarp.grid.rows;
 
-  // Build grid line segments: horizontal (along rows) + vertical (along cols).
+  // Apply live drag preview before building lines so lines track the dragged handle.
+  const displayPts = screenPts.map((pt, idx) => {
+    if (drag !== null && drag.index === idx) {
+      return { sx: drag.sx, sy: drag.sy };
+    }
+    return pt;
+  });
+
+  // Build grid line segments from displayPts so drag deformation is previewed live.
   const lines: {
     x1: number;
     y1: number;
@@ -304,10 +360,10 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
       const i = row * (cols + 1) + col;
       const j = i + 1;
       lines.push({
-        x1: screenPts[i].sx,
-        y1: screenPts[i].sy,
-        x2: screenPts[j].sx,
-        y2: screenPts[j].sy,
+        x1: displayPts[i].sx,
+        y1: displayPts[i].sy,
+        x2: displayPts[j].sx,
+        y2: displayPts[j].sy,
         row,
         col,
         dir: "h",
@@ -319,10 +375,10 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
       const i = row * (cols + 1) + col;
       const j = i + (cols + 1);
       lines.push({
-        x1: screenPts[i].sx,
-        y1: screenPts[i].sy,
-        x2: screenPts[j].sx,
-        y2: screenPts[j].sy,
+        x1: displayPts[i].sx,
+        y1: displayPts[i].sy,
+        x2: displayPts[j].sx,
+        y2: displayPts[j].sy,
         row,
         col,
         dir: "v",
@@ -339,7 +395,7 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
    * Called from pointerup (success or error) and pointercancel/lostpointercapture.
    */
   function endDrag(e: React.PointerEvent<SVGCircleElement>) {
-    draggingRef.current = false;
+    draggingRef.current = null;
     setDrag(null);
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -358,12 +414,12 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
     e.currentTarget.setPointerCapture(e.pointerId);
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
-    draggingRef.current = true;
+    draggingRef.current = { index };
     setDrag({ index, sx, sy });
   }
 
   function onPointerMove(e: React.PointerEvent<SVGCircleElement>) {
-    if (!draggingRef.current) return;
+    if (draggingRef.current === null) return;
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect) return;
     const sx = e.clientX - rect.left;
@@ -373,8 +429,9 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
   }
 
   function onPointerUp(e: React.PointerEvent<SVGCircleElement>) {
-    // Safe to read drag from closure: pointer capture serialises events, so by pointerup the setDrag from pointerdown/move has flushed.
-    if (drag === null) return;
+    // Use the synchronous ref for the drag index — never stale React state.
+    const activeDrag = draggingRef.current;
+    if (activeDrag === null) return;
     try {
       const rect = svgRef.current?.getBoundingClientRect();
       if (!rect) throw new Error("GridOverlay: SVG ref not available on drop");
@@ -390,10 +447,15 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
         );
       }
 
+      // Derive drop position from the event's OWN coordinates, not from
+      // React state (which may be one pointermove behind due to batching).
+      const dropSx = e.clientX - rect.left;
+      const dropSy = e.clientY - rect.top;
+
       // Convert overlay-local px → model space → rest frame.
       const { mx, my } = screenToModel(
-        drag.sx,
-        drag.sy,
+        dropSx,
+        dropSy,
         clientWidth,
         clientHeight,
         modelW,
@@ -408,7 +470,7 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
       const restFrameDraggedPoints: number[] = [];
       for (let i = 0; i < restPoints.length; i += 2) {
         const ptIndex = i / 2;
-        if (ptIndex === drag.index) {
+        if (ptIndex === activeDrag.index) {
           restFrameDraggedPoints.push(restTarget.x, restTarget.y);
         } else {
           restFrameDraggedPoints.push(
@@ -434,14 +496,6 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
     // Discard in-progress drag without committing a keyform.
     endDrag(e);
   }
-
-  // Apply live drag preview: replace the dragged handle's screen position.
-  const displayPts = screenPts.map((pt, idx) => {
-    if (drag !== null && drag.index === idx) {
-      return { sx: drag.sx, sy: drag.sy };
-    }
-    return pt;
-  });
 
   return (
     <svg
