@@ -1,6 +1,7 @@
-import type { IkiPart } from "@iki/format";
+import type { IkiGridKeyform, IkiPart } from "@iki/format";
 
 import type { EditorDocument } from "./document";
+import { upsertGridKeyform } from "./grid-keyform";
 
 /**
  * One invertible edit. The document is passed IN at apply/invert time — a
@@ -152,5 +153,79 @@ export class SetPartTransform extends FieldCommand<number | undefined> {
         }
       },
     );
+  }
+}
+
+/**
+ * Capture the warp deformer's grid as one keyform at the driving parameter
+ * `value`, upserting `offsets` into `warps[0].keyforms`. The 4-tuple-style
+ * mutable `offsets` array is cloned on construction so a later caller mutation
+ * cannot corrupt apply/redo (mirrors {@link SetPartColor}).
+ *
+ * `apply` validates BEFORE mutating: the deformer must have a grid warp, the
+ * offsets length must equal `grid.points.length`, and `value` must lie within
+ * the driving parameter's declared `[min,max]` (fail fast, before
+ * `parseIkiModel` would reject it). Prior keyforms are deep-copied once on the
+ * first `apply` (capture-once like {@link FieldCommand}); `invert` restores
+ * that deep copy so re-apply after undo never aliases.
+ */
+export class CaptureGridKeyform implements EditCommand {
+  readonly label = "Capture grid keyform";
+  private readonly offsets: number[];
+  private captured = false;
+  private prevKeyforms!: IkiGridKeyform[];
+
+  constructor(
+    private readonly deformerId: string,
+    private readonly value: number,
+    offsets: number[],
+  ) {
+    this.offsets = [...offsets];
+  }
+
+  apply(doc: EditorDocument): void {
+    const deformer = doc.findWarpDeformer(this.deformerId);
+    const warp = deformer.warps?.[0];
+    if (!warp) {
+      throw new Error(
+        `deformers."${this.deformerId}".warps: no grid warp to capture into`,
+      );
+    }
+    if (this.offsets.length !== deformer.grid.points.length) {
+      throw new Error(
+        `deformers."${this.deformerId}".warps[0].keyforms.offsets length ${this.offsets.length} must equal grid.points length ${deformer.grid.points.length}`,
+      );
+    }
+    const param = doc
+      .getModel()
+      .parameters.find((p) => p.id === warp.parameter);
+    if (!param) {
+      throw new Error(
+        `deformers."${this.deformerId}".warps[0].parameter "${warp.parameter}" is not a declared parameter`,
+      );
+    }
+    if (this.value < param.min || this.value > param.max) {
+      throw new Error(
+        `deformers."${this.deformerId}".warps[0].keyforms.value ${this.value} is outside parameter "${warp.parameter}" range [${param.min},${param.max}]`,
+      );
+    }
+
+    if (!this.captured) {
+      this.prevKeyforms = structuredClone(warp.keyforms);
+      this.captured = true;
+    }
+    warp.keyforms = upsertGridKeyform(warp.keyforms, this.value, [
+      ...this.offsets,
+    ]);
+  }
+
+  invert(doc: EditorDocument): void {
+    const warp = doc.findWarpDeformer(this.deformerId).warps?.[0];
+    if (!warp) {
+      throw new Error(
+        `deformers."${this.deformerId}".warps: no grid warp to restore into`,
+      );
+    }
+    warp.keyforms = structuredClone(this.prevKeyforms);
   }
 }

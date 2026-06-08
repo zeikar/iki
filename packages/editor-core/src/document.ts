@@ -1,5 +1,11 @@
 import { parseIkiModel } from "@iki/format";
-import type { IkiModel, IkiPart, IkiTexture, IkiUvRect } from "@iki/format";
+import type {
+  IkiModel,
+  IkiPart,
+  IkiTexture,
+  IkiUvRect,
+  IkiWarpDeformer,
+} from "@iki/format";
 
 import type { EditCommand } from "./commands";
 import { remapMeshUvsToRect } from "./mesh-uv";
@@ -64,6 +70,17 @@ export class EditorDocument {
       throw new Error(`parts: no part with id "${id}"`);
     }
     return part;
+  }
+
+  /** Resolve a warp deformer by stable id. Throws a path-qualified plain
+   *  `Error` if no deformer matches the id or the match is not a warp deformer.
+   *  READ/mutate-through accessor, consistent with {@link findPart}. */
+  findWarpDeformer(id: string): IkiWarpDeformer {
+    const deformer = this.model.deformers?.find((d) => d.id === id);
+    if (!deformer || deformer.kind !== "warp") {
+      throw new Error(`deformers: no warp deformer with id "${id}"`);
+    }
+    return deformer;
   }
 
   /** The construction-captured base UVs for a mesh part. Throws a path-qualified

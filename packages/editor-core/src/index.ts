@@ -4,6 +4,7 @@ export {
   type ApplyAtlasInput,
 } from "./document";
 export {
+  CaptureGridKeyform,
   SetPartColor,
   SetPartHeight,
   SetPartOrder,
@@ -12,6 +13,11 @@ export {
   type EditCommand,
   type EditTransformChannel,
 } from "./commands";
+export {
+  computeGridOffsets,
+  interpolateGridOffsets,
+  upsertGridKeyform,
+} from "./grid-keyform";
 export {
   packAtlas,
   uvRectFor,
