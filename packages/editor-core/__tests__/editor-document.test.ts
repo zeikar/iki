@@ -3,6 +3,7 @@ import { IKI_FORMAT_VERSION, IkiFormatError } from "@iki/format";
 import type { IkiModel } from "@iki/format";
 import {
   EditorDocument,
+  SetDeformerBindings,
   SetDeformerPivotX,
   SetDeformerPivotY,
   SetDeformerTransform,
@@ -441,6 +442,113 @@ describe("deformer commands", () => {
       x: 0,
       y: 0,
       rotation: 45,
+    });
+  });
+});
+
+// ── SetDeformerBindings ───────────────────────────────────────────────────────
+
+describe("SetDeformerBindings", () => {
+  it("add a binding to m-child (originally no bindings) — present after apply, undo removes the key, redo re-adds", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    // m-child has no bindings in the fixture
+    expect(doc.findMatrixDeformer("m-child").bindings).toBeUndefined();
+
+    const newBinding = { parameter: "ParamA", channel: "rotate" as const, from: -10, to: 10 };
+    doc.execute(new SetDeformerBindings("m-child", [newBinding]));
+
+    const afterApply = doc.findMatrixDeformer("m-child").bindings;
+    expect(afterApply).toHaveLength(1);
+    expect(afterApply![0]).toEqual({ parameter: "ParamA", channel: "rotate", from: -10, to: 10 });
+
+    // Undo must remove the key entirely (absent, not empty array)
+    doc.undo();
+    expect(doc.findMatrixDeformer("m-child").bindings).toBeUndefined();
+    expect(doc.findMatrixDeformer("m-child")).not.toHaveProperty("bindings");
+
+    // Redo re-adds the binding
+    doc.redo();
+    expect(doc.findMatrixDeformer("m-child").bindings).toHaveLength(1);
+    expect(doc.findMatrixDeformer("m-child").bindings![0]).toEqual({
+      parameter: "ParamA", channel: "rotate", from: -10, to: 10,
+    });
+  });
+
+  it("edit m-root's existing ParamA/rotate binding from/to — applied, undo restores { from: -6, to: 6 }", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    // m-root starts with [{ parameter: "ParamA", channel: "rotate", from: -6, to: 6 }]
+    expect(doc.findMatrixDeformer("m-root").bindings![0]).toEqual({
+      parameter: "ParamA", channel: "rotate", from: -6, to: 6,
+    });
+
+    doc.execute(new SetDeformerBindings("m-root", [
+      { parameter: "ParamA", channel: "rotate" as const, from: -30, to: 30 },
+    ]));
+    expect(doc.findMatrixDeformer("m-root").bindings![0]).toEqual({
+      parameter: "ParamA", channel: "rotate", from: -30, to: 30,
+    });
+
+    doc.undo();
+    expect(doc.findMatrixDeformer("m-root").bindings).toHaveLength(1);
+    expect(doc.findMatrixDeformer("m-root").bindings![0]).toEqual({
+      parameter: "ParamA", channel: "rotate", from: -6, to: 6,
+    });
+
+    doc.redo();
+    expect(doc.findMatrixDeformer("m-root").bindings![0]).toEqual({
+      parameter: "ParamA", channel: "rotate", from: -30, to: 30,
+    });
+  });
+
+  it("remove the only binding on m-root (pass []) — bindings key absent, undo restores it", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+
+    doc.execute(new SetDeformerBindings("m-root", []));
+    // delete-on-empty: the key must be absent, not an empty array
+    expect(doc.findMatrixDeformer("m-root")).not.toHaveProperty("bindings");
+
+    doc.undo();
+    expect(doc.findMatrixDeformer("m-root").bindings).toHaveLength(1);
+    expect(doc.findMatrixDeformer("m-root").bindings![0]).toEqual({
+      parameter: "ParamA", channel: "rotate", from: -6, to: 6,
+    });
+
+    doc.redo();
+    expect(doc.findMatrixDeformer("m-root")).not.toHaveProperty("bindings");
+  });
+
+  it("construction deep-copy: mutating the passed array and binding object after execute does not corrupt the deformer", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    const binding = { parameter: "ParamA", channel: "rotate" as const, from: -10, to: 10 };
+    const arr = [binding];
+
+    doc.execute(new SetDeformerBindings("m-child", arr));
+
+    // Mutate the caller's array and object AFTER execute
+    arr.push({ parameter: "ParamA", channel: "translateX" as const, from: 0, to: 1 });
+    binding.from = -999;
+    binding.to = 999;
+
+    // The deformer's bindings must still reflect the intended values, not the mutations
+    const stored = doc.findMatrixDeformer("m-child").bindings!;
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toEqual({ parameter: "ParamA", channel: "rotate", from: -10, to: 10 });
+  });
+
+  it("capture-once + no-alias-on-invert: undo, mutate model bindings, redo yields the intended array", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    const intended = [{ parameter: "ParamA", channel: "rotate" as const, from: -20, to: 20 }];
+
+    doc.execute(new SetDeformerBindings("m-root", intended));
+    doc.undo();
+
+    // Dirty the model's bindings directly between undo and redo
+    doc.findMatrixDeformer("m-root").bindings![0].from = 999;
+
+    doc.redo();
+    // Redo must re-apply the originally-intended value, not the dirty value
+    expect(doc.findMatrixDeformer("m-root").bindings![0]).toEqual({
+      parameter: "ParamA", channel: "rotate", from: -20, to: 20,
     });
   });
 });

@@ -5,6 +5,7 @@ export {
 } from "./document";
 export {
   CaptureGridKeyform,
+  SetDeformerBindings,
   SetDeformerPivotX,
   SetDeformerPivotY,
   SetDeformerTransform,

@@ -1,4 +1,5 @@
 import type {
+  IkiDeformerBinding,
   IkiDeformerTransform,
   IkiGridKeyform,
   IkiMatrixDeformer,
@@ -354,6 +355,62 @@ export class SetDeformerTransform implements EditCommand {
       // Assign a fresh clone — never alias the captured object so repeated
       // undo/redo cycles cannot corrupt the saved prior value.
       deformer.transform = { ...this.prevTransform };
+    }
+  }
+}
+
+/**
+ * Replace a matrix deformer's `bindings` array wholesale. A single command
+ * covers add, edit, and remove (pass the desired final array; pass `[]` to
+ * remove all). Mirrors {@link CaptureGridKeyform}'s deep-copy discipline:
+ * clone-on-construction, capture-once, fresh deep copy on invert.
+ *
+ * Each {@link IkiDeformerBinding} is a flat object so a per-element spread
+ * `{ ...b }` is a sufficient deep copy.
+ */
+export class SetDeformerBindings implements EditCommand {
+  readonly label = "Set deformer bindings";
+  private readonly bindings: IkiDeformerBinding[];
+  private captured = false;
+  private prevBindings!: IkiDeformerBinding[] | undefined;
+
+  constructor(
+    private readonly deformerId: string,
+    bindings: IkiDeformerBinding[],
+  ) {
+    // Clone the caller's array on construction — prevents post-execute mutation
+    // of the caller's array from corrupting apply/redo.
+    this.bindings = bindings.map((b) => ({ ...b }));
+  }
+
+  apply(doc: EditorDocument): void {
+    const deformer = doc.findMatrixDeformer(this.deformerId);
+    if (!this.captured) {
+      // Preserve the original absent-vs-empty distinction.
+      this.prevBindings =
+        deformer.bindings === undefined
+          ? undefined
+          : deformer.bindings.map((b) => ({ ...b }));
+      this.captured = true;
+    }
+    if (this.bindings.length > 0) {
+      // Assign a fresh deep copy — model must never alias the command's stored array.
+      deformer.bindings = this.bindings.map((b) => ({ ...b }));
+    } else {
+      // Delete the key on empty: keeps the model shape minimal and correctly
+      // represents "no bindings" as an absent key rather than an empty array.
+      delete deformer.bindings;
+    }
+  }
+
+  invert(doc: EditorDocument): void {
+    const deformer = doc.findMatrixDeformer(this.deformerId);
+    if (this.prevBindings === undefined) {
+      delete deformer.bindings;
+    } else {
+      // Assign a fresh deep copy — never alias the captured array so re-apply
+      // after undo cannot corrupt the saved prior value.
+      deformer.bindings = this.prevBindings.map((b) => ({ ...b }));
     }
   }
 }
