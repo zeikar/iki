@@ -1,8 +1,8 @@
 import { useEditorStore } from "./store";
 
 /**
- * Read-only, selectable list of the document's parts plus a read-only list of
- * its deformers (for hierarchy context — deformers are not editable in 5a).
+ * Read-only, selectable list of the document's parts plus a selectable list of
+ * its deformers (selectable and editable as of 5e).
  *
  * The {@link EditorDocument} is mutable and lives outside React's structural
  * sharing, so the live model is re-read via `doc.getModel()` inside a
@@ -12,6 +12,8 @@ import { useEditorStore } from "./store";
 export function PartsTree() {
   const selectedPartId = useEditorStore((s) => s.selectedPartId);
   const select = useEditorStore((s) => s.select);
+  const selectedDeformerId = useEditorStore((s) => s.selectedDeformerId);
+  const selectDeformer = useEditorStore((s) => s.selectDeformer);
   // `revision` is read only to subscribe — the model is mutated in place.
   const model = useEditorStore((s) => {
     void s.revision;
@@ -63,24 +65,36 @@ export function PartsTree() {
             Deformers
           </p>
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-            {deformers.map((deformer) => (
-              <li
-                key={deformer.id}
-                style={{
-                  padding: "6px 8px",
-                  fontSize: 13,
-                  color: "#9a9aa5",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: 8,
-                }}
-              >
-                <span>{deformer.id}</span>
-                <span style={{ color: "#6f6f7a" }}>
-                  {deformer.kind ?? "matrix"}
-                </span>
-              </li>
-            ))}
+            {deformers.map((deformer) => {
+              const selected = deformer.id === selectedDeformerId;
+              return (
+                <li key={deformer.id}>
+                  <button
+                    type="button"
+                    onClick={() => selectDeformer(deformer.id)}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 8,
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "6px 8px",
+                      border: "none",
+                      borderRadius: 4,
+                      cursor: "pointer",
+                      fontSize: 13,
+                      background: selected ? "#3a3d4d" : "transparent",
+                      color: selected ? "#fff" : "#c8c8d0",
+                    }}
+                  >
+                    <span>{deformer.id}</span>
+                    <span style={{ color: "#6f6f7a" }}>
+                      {deformer.kind ?? "matrix"}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
