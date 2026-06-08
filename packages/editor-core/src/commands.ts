@@ -1,4 +1,9 @@
-import type { IkiGridKeyform, IkiPart } from "@iki/format";
+import type {
+  IkiDeformerTransform,
+  IkiGridKeyform,
+  IkiMatrixDeformer,
+  IkiPart,
+} from "@iki/format";
 
 import type { EditorDocument } from "./document";
 import { upsertGridKeyform } from "./grid-keyform";
@@ -227,5 +232,128 @@ export class CaptureGridKeyform implements EditCommand {
       );
     }
     warp.keyforms = structuredClone(this.prevKeyforms);
+  }
+}
+
+/**
+ * Generic single-field command targeting a matrix deformer, mirroring
+ * {@link FieldCommand} but resolving via `doc.findMatrixDeformer` instead of
+ * `doc.findPart`. Capture-once on first `apply`; restore on `invert`.
+ */
+class DeformerFieldCommand<T> implements EditCommand {
+  readonly label: string;
+  private captured = false;
+  private prevValue!: T;
+
+  constructor(
+    private readonly deformerId: string,
+    private readonly newValue: T,
+    label: string,
+    private readonly get: (deformer: IkiMatrixDeformer) => T,
+    private readonly set: (deformer: IkiMatrixDeformer, value: T) => void,
+  ) {
+    this.label = label;
+  }
+
+  apply(doc: EditorDocument): void {
+    const deformer = doc.findMatrixDeformer(this.deformerId);
+    if (!this.captured) {
+      this.prevValue = this.get(deformer);
+      this.captured = true;
+    }
+    this.set(deformer, this.newValue);
+  }
+
+  invert(doc: EditorDocument): void {
+    const deformer = doc.findMatrixDeformer(this.deformerId);
+    this.set(deformer, this.prevValue);
+  }
+}
+
+/** Edit a matrix deformer's pivot x. */
+export class SetDeformerPivotX extends DeformerFieldCommand<number> {
+  constructor(deformerId: string, value: number) {
+    super(
+      deformerId,
+      value,
+      "Set pivot x",
+      (d) => d.pivot.x,
+      (d, v) => {
+        d.pivot.x = v;
+      },
+    );
+  }
+}
+
+/** Edit a matrix deformer's pivot y. */
+export class SetDeformerPivotY extends DeformerFieldCommand<number> {
+  constructor(deformerId: string, value: number) {
+    super(
+      deformerId,
+      value,
+      "Set pivot y",
+      (d) => d.pivot.y,
+      (d, v) => {
+        d.pivot.y = v;
+      },
+    );
+  }
+}
+
+/** Channels of {@link IkiDeformerTransform} this editor can edit. */
+export type DeformerTransformChannel = "x" | "y" | "rotation" | "scaleX" | "scaleY";
+
+/**
+ * Edit one channel of a matrix deformer's base transform. Because
+ * {@link IkiDeformerTransform} REQUIRES finite `x` and `y`, this command
+ * captures and restores the WHOLE prior `transform` object (present or absent)
+ * rather than a single channel, so undo can delete the transform when it did
+ * not previously exist, and redo never produces a partial object missing `x`/`y`.
+ *
+ * When no `transform` is present on the deformer, `apply` creates one from
+ * the identity base `{ x: 0, y: 0 }` — the minimal valid shape the validator
+ * accepts — then writes the edited channel. For example, editing `rotation`
+ * on a transform-less deformer yields `{ x: 0, y: 0, rotation: <value> }`.
+ */
+export class SetDeformerTransform implements EditCommand {
+  readonly label = "Set deformer transform";
+  private captured = false;
+  private prevTransform!: IkiDeformerTransform | undefined;
+
+  constructor(
+    private readonly deformerId: string,
+    private readonly channel: DeformerTransformChannel,
+    private readonly value: number,
+  ) {}
+
+  apply(doc: EditorDocument): void {
+    const deformer = doc.findMatrixDeformer(this.deformerId);
+    if (!this.captured) {
+      // Shallow clone is sufficient — IkiDeformerTransform is a flat number map.
+      this.prevTransform =
+        deformer.transform === undefined
+          ? undefined
+          : { ...deformer.transform };
+      this.captured = true;
+    }
+    // Start from the existing transform or the identity base. The identity base
+    // is { x: 0, y: 0 } because the validator unconditionally requires finite
+    // x and y whenever a transform object is present.
+    const next: IkiDeformerTransform = {
+      ...(deformer.transform ?? { x: 0, y: 0 }),
+    };
+    next[this.channel] = this.value;
+    deformer.transform = next;
+  }
+
+  invert(doc: EditorDocument): void {
+    const deformer = doc.findMatrixDeformer(this.deformerId);
+    if (this.prevTransform === undefined) {
+      delete deformer.transform;
+    } else {
+      // Assign a fresh clone — never alias the captured object so repeated
+      // undo/redo cycles cannot corrupt the saved prior value.
+      deformer.transform = { ...this.prevTransform };
+    }
   }
 }

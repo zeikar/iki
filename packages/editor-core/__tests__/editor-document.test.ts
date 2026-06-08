@@ -3,6 +3,9 @@ import { IKI_FORMAT_VERSION, IkiFormatError } from "@iki/format";
 import type { IkiModel } from "@iki/format";
 import {
   EditorDocument,
+  SetDeformerPivotX,
+  SetDeformerPivotY,
+  SetDeformerTransform,
   SetPartColor,
   SetPartHeight,
   SetPartOrder,
@@ -323,5 +326,121 @@ describe("deformer accessors", () => {
   it("findDeformer throws when the id is unknown", () => {
     const doc = new EditorDocument(fixtureModelWithDeformers());
     expect(() => doc.findDeformer("nope")).toThrow(/no deformer with id/);
+  });
+});
+
+// ── Deformer pivot/transform commands ────────────────────────────────────────
+
+describe("deformer commands", () => {
+  // m-root in the fixture has pivot { x: 0, y: 0 } and NO transform — confirmed
+  // by reading fixtureModelWithDeformers above.
+
+  it("SetDeformerPivotX — apply/undo/redo restores prior pivot.x", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    const original = doc.findMatrixDeformer("m-root").pivot.x; // 0
+
+    doc.execute(new SetDeformerPivotX("m-root", 99));
+    expect(doc.findMatrixDeformer("m-root").pivot.x).toBe(99);
+    expect(doc.canUndo()).toBe(true);
+
+    doc.undo();
+    expect(doc.findMatrixDeformer("m-root").pivot.x).toBe(original);
+    expect(doc.canRedo()).toBe(true);
+
+    doc.redo();
+    expect(doc.findMatrixDeformer("m-root").pivot.x).toBe(99);
+  });
+
+  it("SetDeformerPivotY — apply/undo/redo restores prior pivot.y", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    const original = doc.findMatrixDeformer("m-root").pivot.y; // 0
+
+    doc.execute(new SetDeformerPivotY("m-root", 55));
+    expect(doc.findMatrixDeformer("m-root").pivot.y).toBe(55);
+
+    doc.undo();
+    expect(doc.findMatrixDeformer("m-root").pivot.y).toBe(original);
+
+    doc.redo();
+    expect(doc.findMatrixDeformer("m-root").pivot.y).toBe(55);
+  });
+
+  it("SetDeformerTransform — rotation on a deformer with NO transform produces { x:0, y:0, rotation:45 }", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    // Confirm m-root starts with no transform
+    expect(doc.findMatrixDeformer("m-root").transform).toBeUndefined();
+
+    doc.execute(new SetDeformerTransform("m-root", "rotation", 45));
+    expect(doc.findMatrixDeformer("m-root").transform).toEqual({
+      x: 0,
+      y: 0,
+      rotation: 45,
+    });
+
+    // Undo must restore transform === undefined
+    doc.undo();
+    expect(doc.findMatrixDeformer("m-root").transform).toBeUndefined();
+
+    // Redo re-applies
+    doc.redo();
+    expect(doc.findMatrixDeformer("m-root").transform).toEqual({
+      x: 0,
+      y: 0,
+      rotation: 45,
+    });
+  });
+
+  it("SetDeformerTransform — editing scaleX on a deformer that already has transform preserves x/y", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    // m-child has no transform in the fixture; install one directly so we can
+    // test the "existing transform" branch.
+    const mChild = doc.findMatrixDeformer("m-child");
+    mChild.transform = { x: 10, y: 20 };
+
+    const scaleVal = 2.5;
+    doc.execute(new SetDeformerTransform("m-child", "scaleX", scaleVal));
+    expect(doc.findMatrixDeformer("m-child").transform).toEqual({
+      x: 10,
+      y: 20,
+      scaleX: scaleVal,
+    });
+
+    // Undo restores the exact prior { x: 10, y: 20 } (no scaleX)
+    doc.undo();
+    expect(doc.findMatrixDeformer("m-child").transform).toEqual({
+      x: 10,
+      y: 20,
+    });
+
+    doc.redo();
+    expect(doc.findMatrixDeformer("m-child").transform).toEqual({
+      x: 10,
+      y: 20,
+      scaleX: scaleVal,
+    });
+  });
+
+  it("SetDeformerTransform — exported model after rotation-only edit passes toIkiModel", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    doc.execute(new SetDeformerTransform("m-root", "rotation", 30));
+    expect(() => doc.toIkiModel()).not.toThrow();
+  });
+
+  it("SetDeformerTransform — capture-once: redo yields the original captured new value even if model is dirtied between undo/redo", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+
+    doc.execute(new SetDeformerTransform("m-root", "rotation", 45));
+    doc.undo();
+
+    // Dirty pivot.x via getModel() — this should not affect the captured new value
+    doc.findMatrixDeformer("m-root").pivot.x = 999;
+
+    doc.redo();
+    // The captured new transform (rotation:45) must be re-applied regardless
+    expect(doc.findMatrixDeformer("m-root").transform).toEqual({
+      x: 0,
+      y: 0,
+      rotation: 45,
+    });
   });
 });

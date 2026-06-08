@@ -5,11 +5,15 @@ export {
 } from "./document";
 export {
   CaptureGridKeyform,
+  SetDeformerPivotX,
+  SetDeformerPivotY,
+  SetDeformerTransform,
   SetPartColor,
   SetPartHeight,
   SetPartOrder,
   SetPartTransform,
   SetPartWidth,
+  type DeformerTransformChannel,
   type EditCommand,
   type EditTransformChannel,
 } from "./commands";
