@@ -272,12 +272,6 @@ function DeformerPanel({
           <span style={labelStyle}>kind</span>
           <span style={{ fontSize: 13, color: "#e6e6ee" }}>warp</span>
         </div>
-        <div style={rowStyle}>
-          <span style={labelStyle}>parent</span>
-          <span style={{ fontSize: 13, color: "#e6e6ee" }}>
-            {deformer.parent ?? "(none / root)"}
-          </span>
-        </div>
         <ParentDropdown
           deformer={deformer}
           model={model}
