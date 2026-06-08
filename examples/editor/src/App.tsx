@@ -29,6 +29,7 @@ export function App() {
   const doc = useEditorStore((s) => s.doc);
   const exportError = useEditorStore((s) => s.exportError);
   const setExportError = useEditorStore((s) => s.setExportError);
+  const editError = useEditorStore((s) => s.editError);
 
   function handleExport() {
     try {
@@ -69,6 +70,22 @@ export function App() {
         }}
       >
         <Inspector />
+        {editError && (
+          <p
+            style={{
+              margin: 0,
+              padding: "8px 10px",
+              background: "#3a1a1a",
+              border: "1px solid #7a2a2a",
+              borderRadius: 4,
+              color: "#f08080",
+              fontSize: 12,
+              wordBreak: "break-word",
+            }}
+          >
+            {editError}
+          </p>
+        )}
         {exportError && (
           <p
             style={{

@@ -1,13 +1,27 @@
 import {
+  SetDeformerBindings,
+  SetDeformerParent,
+  SetDeformerPivotX,
+  SetDeformerPivotY,
+  SetDeformerTransform,
   SetPartColor,
+  SetPartDeformer,
   SetPartHeight,
   SetPartOrder,
   SetPartTransform,
   SetPartWidth,
+  type DeformerTransformChannel,
   type EditCommand,
   type EditTransformChannel,
 } from "@iki/editor-core";
-import type { IkiPart } from "@iki/format";
+import type {
+  IkiDeformer,
+  IkiDeformerBinding,
+  IkiMatrixChannel,
+  IkiMatrixDeformer,
+  IkiModel,
+  IkiPart,
+} from "@iki/format";
 import { useRef, useState, type CSSProperties } from "react";
 
 import { decodeImageFile } from "./atlas-image";
@@ -30,6 +44,28 @@ const TRANSFORM_DEFAULTS: Record<EditTransformChannel, number> = {
   opacity: 1,
 };
 
+/**
+ * Engine transform defaults for a matrix deformer (same as parts minus opacity,
+ * which a matrix cannot represent). DISPLAYED when the deformer omits an
+ * OPTIONAL channel; a `SetDeformerTransform` command is only dispatched on edit.
+ */
+const DEFORMER_TRANSFORM_DEFAULTS: Record<DeformerTransformChannel, number> = {
+  x: 0,
+  y: 0,
+  rotation: 0,
+  scaleX: 1,
+  scaleY: 1,
+};
+
+/** The five matrix-channel binding literals, in display order. */
+const MATRIX_CHANNELS: IkiMatrixChannel[] = [
+  "translateX",
+  "translateY",
+  "rotate",
+  "scaleX",
+  "scaleY",
+];
+
 const inputStyle: CSSProperties = {
   width: 80,
   background: "#101116",
@@ -49,6 +85,15 @@ const rowStyle: CSSProperties = {
 
 const labelStyle: CSSProperties = { fontSize: 12, color: "#9a9aa5" };
 
+const selectStyle: CSSProperties = {
+  background: "#101116",
+  border: "1px solid #2a2b33",
+  borderRadius: 4,
+  color: "#e6e6ee",
+  padding: "4px 6px",
+  fontSize: 13,
+};
+
 /**
  * Numeric property panel for the selected part's lean-5a fields. Each edit
  * dispatches the matching editor-core command through the store, which mutates
@@ -56,6 +101,7 @@ const labelStyle: CSSProperties = { fontSize: 12, color: "#9a9aa5" };
  */
 export function Inspector() {
   const selectedPartId = useEditorStore((s) => s.selectedPartId);
+  const selectedDeformerId = useEditorStore((s) => s.selectedDeformerId);
   const runCommand = useEditorStore((s) => s.runCommand);
   const undo = useEditorStore((s) => s.undo);
   const redo = useEditorStore((s) => s.redo);
@@ -66,6 +112,16 @@ export function Inspector() {
       ? (s.doc.getModel().parts.find((p) => p.id === s.selectedPartId) ?? null)
       : null;
   });
+  // NEW 5e deformer path: subscribe to `doc` + scalar `revision` separately and
+  // read the live model in the RENDER BODY. A selector returning the live model
+  // (a stable reference after in-place edits) would not re-render on a revision
+  // bump, and one returning a fresh object would infinite-loop useSyncExternalStore.
+  const doc = useEditorStore((s) => s.doc);
+  const revision = useEditorStore((s) => s.revision);
+  void revision;
+  const model = doc.getModel();
+  const deformer =
+    model.deformers?.find((d) => d.id === selectedDeformerId) ?? null;
   const canUndo = useEditorStore((s) => {
     void s.revision;
     return s.doc.canUndo();
@@ -86,10 +142,20 @@ export function Inspector() {
         </button>
       </div>
 
-      {!selectedPartId || !part ? (
-        <p style={labelStyle}>Select a part to edit.</p>
+      {selectedDeformerId ? (
+        deformer ? (
+          <DeformerPanel
+            deformer={deformer}
+            model={model}
+            runCommand={runCommand}
+          />
+        ) : (
+          <p style={labelStyle}>Select a part or deformer to edit.</p>
+        )
+      ) : selectedPartId && part ? (
+        <PartFields part={part} model={model} runCommand={runCommand} />
       ) : (
-        <PartFields part={part} runCommand={runCommand} />
+        <p style={labelStyle}>Select a part or deformer to edit.</p>
       )}
     </div>
   );
@@ -97,9 +163,11 @@ export function Inspector() {
 
 function PartFields({
   part,
+  model,
   runCommand,
 }: {
   part: IkiPart;
+  model: IkiModel;
   runCommand: (cmd: EditCommand) => void;
 }) {
   const id = part.id;
@@ -109,6 +177,8 @@ function PartFields({
       <p style={{ margin: 0, fontSize: 13, color: "#e6e6ee", fontWeight: 600 }}>
         {id}
       </p>
+
+      <AttachDropdown part={part} model={model} runCommand={runCommand} />
 
       <NumberField
         label="width"
@@ -170,6 +240,352 @@ function PartFields({
 
       <TextureField partId={id} />
     </div>
+  );
+}
+
+/**
+ * Property panel for the selected deformer. A WARP deformer is read-only here
+ * (its grid is authored via the grid-edit overlay) so it shows only its kind +
+ * parent. A MATRIX deformer exposes its pivot, base transform, bindings, and
+ * parent as live editable fields.
+ */
+function DeformerPanel({
+  deformer,
+  model,
+  runCommand,
+}: {
+  deformer: IkiDeformer;
+  model: IkiModel;
+  runCommand: (cmd: EditCommand) => void;
+}) {
+  const id = deformer.id;
+
+  if (deformer.kind === "warp") {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <p
+          style={{ margin: 0, fontSize: 13, color: "#e6e6ee", fontWeight: 600 }}
+        >
+          {id}
+        </p>
+        <div style={rowStyle}>
+          <span style={labelStyle}>kind</span>
+          <span style={{ fontSize: 13, color: "#e6e6ee" }}>warp</span>
+        </div>
+        <div style={rowStyle}>
+          <span style={labelStyle}>parent</span>
+          <span style={{ fontSize: 13, color: "#e6e6ee" }}>
+            {deformer.parent ?? "(none / root)"}
+          </span>
+        </div>
+        <ParentDropdown
+          deformer={deformer}
+          model={model}
+          runCommand={runCommand}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <p style={{ margin: 0, fontSize: 13, color: "#e6e6ee", fontWeight: 600 }}>
+        {id}
+      </p>
+
+      <NumberField
+        label="pivot.x"
+        value={deformer.pivot.x}
+        onCommit={(v) => runCommand(new SetDeformerPivotX(id, v))}
+      />
+      <NumberField
+        label="pivot.y"
+        value={deformer.pivot.y}
+        onCommit={(v) => runCommand(new SetDeformerPivotY(id, v))}
+      />
+
+      <DeformerTransformField
+        label="x"
+        channel="x"
+        deformer={deformer}
+        runCommand={runCommand}
+      />
+      <DeformerTransformField
+        label="y"
+        channel="y"
+        deformer={deformer}
+        runCommand={runCommand}
+      />
+      <DeformerTransformField
+        label="rotation"
+        channel="rotation"
+        deformer={deformer}
+        runCommand={runCommand}
+      />
+      <DeformerTransformField
+        label="scaleX"
+        channel="scaleX"
+        deformer={deformer}
+        runCommand={runCommand}
+      />
+      <DeformerTransformField
+        label="scaleY"
+        channel="scaleY"
+        deformer={deformer}
+        runCommand={runCommand}
+      />
+
+      <BindingsEditor
+        deformer={deformer}
+        model={model}
+        runCommand={runCommand}
+      />
+
+      <ParentDropdown
+        deformer={deformer}
+        model={model}
+        runCommand={runCommand}
+      />
+    </div>
+  );
+}
+
+/**
+ * One transform channel of a matrix deformer. Mirrors {@link TransformField}:
+ * an absent OPTIONAL channel displays the engine default but only WRITES (via
+ * `SetDeformerTransform`) when the user edits.
+ */
+function DeformerTransformField({
+  label,
+  channel,
+  deformer,
+  runCommand,
+}: {
+  label: string;
+  channel: DeformerTransformChannel;
+  deformer: IkiMatrixDeformer;
+  runCommand: (cmd: EditCommand) => void;
+}) {
+  const raw = deformer.transform?.[channel];
+  const display =
+    raw === undefined ? DEFORMER_TRANSFORM_DEFAULTS[channel] : raw;
+  return (
+    <NumberField
+      label={label}
+      value={display}
+      onCommit={(v) =>
+        runCommand(new SetDeformerTransform(deformer.id, channel, v))
+      }
+    />
+  );
+}
+
+/**
+ * Editor for a matrix deformer's parameter bindings. Add/edit/remove each
+ * compute the next bindings array (clone-then-replace) and dispatch a single
+ * `SetDeformerBindings` so every change is one undoable step.
+ */
+function BindingsEditor({
+  deformer,
+  model,
+  runCommand,
+}: {
+  deformer: IkiMatrixDeformer;
+  model: IkiModel;
+  runCommand: (cmd: EditCommand) => void;
+}) {
+  const id = deformer.id;
+  const bindings = deformer.bindings ?? [];
+  const hasParams = model.parameters.length > 0;
+
+  const commit = (next: IkiDeformerBinding[]) =>
+    runCommand(new SetDeformerBindings(id, next));
+
+  const replaceRow = (
+    index: number,
+    patch: Partial<IkiDeformerBinding>,
+  ): IkiDeformerBinding[] =>
+    bindings.map((b, i) => (i === index ? { ...b, ...patch } : { ...b }));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <span style={labelStyle}>bindings</span>
+
+      {bindings.map((binding, index) => (
+        <div
+          key={index}
+          style={{ display: "flex", flexDirection: "column", gap: 4 }}
+        >
+          <div style={{ display: "flex", gap: 6 }}>
+            <select
+              value={binding.parameter}
+              onChange={(e) =>
+                commit(replaceRow(index, { parameter: e.currentTarget.value }))
+              }
+              style={{ ...selectStyle, flex: 1, minWidth: 0 }}
+            >
+              {model.parameters.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.id}
+                </option>
+              ))}
+            </select>
+            <select
+              value={binding.channel}
+              onChange={(e) =>
+                commit(
+                  replaceRow(index, {
+                    channel: e.currentTarget.value as IkiMatrixChannel,
+                  }),
+                )
+              }
+              style={{ ...selectStyle, flex: 1, minWidth: 0 }}
+            >
+              {MATRIX_CHANNELS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <NumberField
+              label="from"
+              value={binding.from}
+              onCommit={(v) => commit(replaceRow(index, { from: v }))}
+            />
+            <NumberField
+              label="to"
+              value={binding.to}
+              onCommit={(v) => commit(replaceRow(index, { to: v }))}
+            />
+            <button
+              type="button"
+              onClick={() =>
+                commit(
+                  bindings.filter((_, i) => i !== index).map((b) => ({ ...b })),
+                )
+              }
+              style={{
+                padding: "2px 8px",
+                fontSize: 12,
+                background: "#2a1a1a",
+                border: "1px solid #7a2a2a",
+                borderRadius: 4,
+                color: "#f08080",
+                cursor: "pointer",
+              }}
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+      ))}
+
+      <button
+        type="button"
+        disabled={!hasParams}
+        onClick={() =>
+          commit([
+            ...bindings.map((b) => ({ ...b })),
+            {
+              parameter: model.parameters[0].id,
+              channel: "rotate",
+              from: 0,
+              to: 0,
+            },
+          ])
+        }
+        style={{ alignSelf: "flex-start", padding: "2px 8px", fontSize: 12 }}
+      >
+        Add binding
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Parent picker for a deformer. Options are "(none / root)" plus every MATRIX
+ * deformer except this one. Warp deformers can't be parents (validator rule),
+ * and self is excluded. Cycle-creating picks ARE still offered — the
+ * `SetDeformerParent` validator rejects them, surfacing via `editError`;
+ * pre-filtering all cycles here is extra logic the lean slice doesn't need.
+ */
+function ParentDropdown({
+  deformer,
+  model,
+  runCommand,
+}: {
+  deformer: IkiDeformer;
+  model: IkiModel;
+  runCommand: (cmd: EditCommand) => void;
+}) {
+  const candidates = (model.deformers ?? []).filter(
+    (d) => d.id !== deformer.id && d.kind !== "warp",
+  );
+  return (
+    <label style={rowStyle}>
+      <span style={labelStyle}>parent</span>
+      <select
+        value={deformer.parent ?? ""}
+        onChange={(e) => {
+          const value = e.currentTarget.value;
+          runCommand(
+            new SetDeformerParent(
+              deformer.id,
+              value === "" ? undefined : value,
+            ),
+          );
+        }}
+        style={selectStyle}
+      >
+        <option value="">(none / root)</option>
+        {candidates.map((d) => (
+          <option key={d.id} value={d.id}>
+            {d.id}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/**
+ * Attach picker for a part. Options are "(none)" plus EVERY deformer (matrix and
+ * warp). Attaching a meshless part to a warp deformer is rejected by the
+ * `SetPartDeformer` validator, surfacing via `editError`.
+ */
+function AttachDropdown({
+  part,
+  model,
+  runCommand,
+}: {
+  part: IkiPart;
+  model: IkiModel;
+  runCommand: (cmd: EditCommand) => void;
+}) {
+  const deformers = model.deformers ?? [];
+  return (
+    <label style={rowStyle}>
+      <span style={labelStyle}>deformer</span>
+      <select
+        value={part.deformer ?? ""}
+        onChange={(e) => {
+          const value = e.currentTarget.value;
+          runCommand(
+            new SetPartDeformer(part.id, value === "" ? undefined : value),
+          );
+        }}
+        style={selectStyle}
+      >
+        <option value="">(none)</option>
+        {deformers.map((d) => (
+          <option key={d.id} value={d.id}>
+            {d.id}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
