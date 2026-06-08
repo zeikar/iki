@@ -4,16 +4,17 @@ import type { IkiModel } from "@iki/format";
 import {
   EditorDocument,
   SetDeformerBindings,
+  SetDeformerParent,
   SetDeformerPivotX,
   SetDeformerPivotY,
   SetDeformerTransform,
   SetPartColor,
+  SetPartDeformer,
   SetPartHeight,
   SetPartOrder,
   SetPartTransform,
   SetPartWidth,
 } from "@iki/editor-core";
-
 
 /**
  * A minimal valid IkiModel with two quad parts. No optional fields (textures,
@@ -454,12 +455,22 @@ describe("SetDeformerBindings", () => {
     // m-child has no bindings in the fixture
     expect(doc.findMatrixDeformer("m-child").bindings).toBeUndefined();
 
-    const newBinding = { parameter: "ParamA", channel: "rotate" as const, from: -10, to: 10 };
+    const newBinding = {
+      parameter: "ParamA",
+      channel: "rotate" as const,
+      from: -10,
+      to: 10,
+    };
     doc.execute(new SetDeformerBindings("m-child", [newBinding]));
 
     const afterApply = doc.findMatrixDeformer("m-child").bindings;
     expect(afterApply).toHaveLength(1);
-    expect(afterApply![0]).toEqual({ parameter: "ParamA", channel: "rotate", from: -10, to: 10 });
+    expect(afterApply![0]).toEqual({
+      parameter: "ParamA",
+      channel: "rotate",
+      from: -10,
+      to: 10,
+    });
 
     // Undo must remove the key entirely (absent, not empty array)
     doc.undo();
@@ -470,7 +481,10 @@ describe("SetDeformerBindings", () => {
     doc.redo();
     expect(doc.findMatrixDeformer("m-child").bindings).toHaveLength(1);
     expect(doc.findMatrixDeformer("m-child").bindings![0]).toEqual({
-      parameter: "ParamA", channel: "rotate", from: -10, to: 10,
+      parameter: "ParamA",
+      channel: "rotate",
+      from: -10,
+      to: 10,
     });
   });
 
@@ -478,25 +492,39 @@ describe("SetDeformerBindings", () => {
     const doc = new EditorDocument(fixtureModelWithDeformers());
     // m-root starts with [{ parameter: "ParamA", channel: "rotate", from: -6, to: 6 }]
     expect(doc.findMatrixDeformer("m-root").bindings![0]).toEqual({
-      parameter: "ParamA", channel: "rotate", from: -6, to: 6,
+      parameter: "ParamA",
+      channel: "rotate",
+      from: -6,
+      to: 6,
     });
 
-    doc.execute(new SetDeformerBindings("m-root", [
-      { parameter: "ParamA", channel: "rotate" as const, from: -30, to: 30 },
-    ]));
+    doc.execute(
+      new SetDeformerBindings("m-root", [
+        { parameter: "ParamA", channel: "rotate" as const, from: -30, to: 30 },
+      ]),
+    );
     expect(doc.findMatrixDeformer("m-root").bindings![0]).toEqual({
-      parameter: "ParamA", channel: "rotate", from: -30, to: 30,
+      parameter: "ParamA",
+      channel: "rotate",
+      from: -30,
+      to: 30,
     });
 
     doc.undo();
     expect(doc.findMatrixDeformer("m-root").bindings).toHaveLength(1);
     expect(doc.findMatrixDeformer("m-root").bindings![0]).toEqual({
-      parameter: "ParamA", channel: "rotate", from: -6, to: 6,
+      parameter: "ParamA",
+      channel: "rotate",
+      from: -6,
+      to: 6,
     });
 
     doc.redo();
     expect(doc.findMatrixDeformer("m-root").bindings![0]).toEqual({
-      parameter: "ParamA", channel: "rotate", from: -30, to: 30,
+      parameter: "ParamA",
+      channel: "rotate",
+      from: -30,
+      to: 30,
     });
   });
 
@@ -510,7 +538,10 @@ describe("SetDeformerBindings", () => {
     doc.undo();
     expect(doc.findMatrixDeformer("m-root").bindings).toHaveLength(1);
     expect(doc.findMatrixDeformer("m-root").bindings![0]).toEqual({
-      parameter: "ParamA", channel: "rotate", from: -6, to: 6,
+      parameter: "ParamA",
+      channel: "rotate",
+      from: -6,
+      to: 6,
     });
 
     doc.redo();
@@ -519,25 +550,42 @@ describe("SetDeformerBindings", () => {
 
   it("construction deep-copy: mutating the passed array and binding object after execute does not corrupt the deformer", () => {
     const doc = new EditorDocument(fixtureModelWithDeformers());
-    const binding = { parameter: "ParamA", channel: "rotate" as const, from: -10, to: 10 };
+    const binding = {
+      parameter: "ParamA",
+      channel: "rotate" as const,
+      from: -10,
+      to: 10,
+    };
     const arr = [binding];
 
     doc.execute(new SetDeformerBindings("m-child", arr));
 
     // Mutate the caller's array and object AFTER execute
-    arr.push({ parameter: "ParamA", channel: "translateX" as const, from: 0, to: 1 });
+    arr.push({
+      parameter: "ParamA",
+      channel: "translateX" as const,
+      from: 0,
+      to: 1,
+    });
     binding.from = -999;
     binding.to = 999;
 
     // The deformer's bindings must still reflect the intended values, not the mutations
     const stored = doc.findMatrixDeformer("m-child").bindings!;
     expect(stored).toHaveLength(1);
-    expect(stored[0]).toEqual({ parameter: "ParamA", channel: "rotate", from: -10, to: 10 });
+    expect(stored[0]).toEqual({
+      parameter: "ParamA",
+      channel: "rotate",
+      from: -10,
+      to: 10,
+    });
   });
 
   it("capture-once + no-alias-on-invert: undo, mutate model bindings, redo yields the intended array", () => {
     const doc = new EditorDocument(fixtureModelWithDeformers());
-    const intended = [{ parameter: "ParamA", channel: "rotate" as const, from: -20, to: 20 }];
+    const intended = [
+      { parameter: "ParamA", channel: "rotate" as const, from: -20, to: 20 },
+    ];
 
     doc.execute(new SetDeformerBindings("m-root", intended));
     doc.undo();
@@ -548,7 +596,188 @@ describe("SetDeformerBindings", () => {
     doc.redo();
     // Redo must re-apply the originally-intended value, not the dirty value
     expect(doc.findMatrixDeformer("m-root").bindings![0]).toEqual({
-      parameter: "ParamA", channel: "rotate", from: -20, to: 20,
+      parameter: "ParamA",
+      channel: "rotate",
+      from: -20,
+      to: 20,
     });
+  });
+});
+
+// ── SetDeformerParent ─────────────────────────────────────────────────────────
+
+describe("SetDeformerParent", () => {
+  it("detach m-child from m-root (newParentId=undefined) — parent key absent after apply, undo restores parent=m-root, redo re-detaches", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    // m-child starts with parent === "m-root"
+    expect(doc.findDeformer("m-child").parent).toBe("m-root");
+
+    doc.execute(new SetDeformerParent("m-child", undefined));
+
+    // After apply: parent key must be absent (not just undefined)
+    const afterApply = doc.findDeformer("m-child");
+    expect(Object.prototype.hasOwnProperty.call(afterApply, "parent")).toBe(
+      false,
+    );
+    expect(doc.canUndo()).toBe(true);
+
+    // Undo restores parent === "m-root"
+    doc.undo();
+    const afterUndo = doc.findDeformer("m-child");
+    expect(afterUndo.parent).toBe("m-root");
+    expect(Object.prototype.hasOwnProperty.call(afterUndo, "parent")).toBe(
+      true,
+    );
+    expect(doc.canRedo()).toBe(true);
+
+    // Redo re-detaches
+    doc.redo();
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        doc.findDeformer("m-child"),
+        "parent",
+      ),
+    ).toBe(false);
+  });
+
+  it("meaningful matrix→matrix reparent: detach m-child from m-root first, then reparent back — exercises a real parent CHANGE from absent to present", () => {
+    // Strategy: start fresh, use SetDeformerParent("m-child", undefined) to make
+    // m-child a root deformer (no parent), then use SetDeformerParent("m-child", "m-root")
+    // to assign a new parent. This is a REAL parent change: absent → "m-root".
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+
+    // Step 1: detach m-child to root
+    doc.execute(new SetDeformerParent("m-child", undefined));
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        doc.findDeformer("m-child"),
+        "parent",
+      ),
+    ).toBe(false);
+
+    // Step 2: reparent m-child to m-root (absent → present, real parent change)
+    doc.execute(new SetDeformerParent("m-child", "m-root"));
+    expect(doc.findDeformer("m-child").parent).toBe("m-root");
+
+    // Undo step 2: back to absent parent
+    doc.undo();
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        doc.findDeformer("m-child"),
+        "parent",
+      ),
+    ).toBe(false);
+
+    // Redo step 2: re-root under m-root
+    doc.redo();
+    expect(doc.findDeformer("m-child").parent).toBe("m-root");
+  });
+
+  it("INVALID: cycle — SetDeformerParent(m-root, m-child) creates a cycle — throws, model unchanged, canUndo()===false", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    // m-root has no parent; m-child.parent === m-root. Making m-root's parent m-child creates a cycle.
+    const mRootBefore = doc.findDeformer("m-root").parent;
+
+    expect(() =>
+      doc.execute(new SetDeformerParent("m-root", "m-child")),
+    ).toThrow();
+    // Model unchanged
+    expect(doc.findDeformer("m-root").parent).toBe(mRootBefore);
+    // Nothing was pushed — validate-first threw before execute could push
+    expect(doc.canUndo()).toBe(false);
+  });
+
+  it("INVALID: warp deformer as parent — SetDeformerParent(m-child, w) — throws, model unchanged, canUndo()===false", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    const prevParent = doc.findDeformer("m-child").parent; // "m-root"
+
+    expect(() => doc.execute(new SetDeformerParent("m-child", "w"))).toThrow();
+    // Model unchanged
+    expect(doc.findDeformer("m-child").parent).toBe(prevParent);
+    expect(doc.canUndo()).toBe(false);
+  });
+});
+
+// ── SetPartDeformer ───────────────────────────────────────────────────────────
+
+describe("SetPartDeformer", () => {
+  it("attach mesh-part to m-root (matrix deformer) — apply/undo/redo; undo restores original deformer=w", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    // mesh-part starts with deformer === "w"
+    expect(doc.findPart("mesh-part").deformer).toBe("w");
+
+    doc.execute(new SetPartDeformer("mesh-part", "m-root"));
+    expect(doc.findPart("mesh-part").deformer).toBe("m-root");
+    expect(doc.canUndo()).toBe(true);
+
+    // Undo restores deformer === "w" (the ORIGINAL value, not just any value)
+    doc.undo();
+    const afterUndo = doc.findPart("mesh-part");
+    expect(afterUndo.deformer).toBe("w");
+    expect(Object.prototype.hasOwnProperty.call(afterUndo, "deformer")).toBe(
+      true,
+    );
+    expect(doc.canRedo()).toBe(true);
+
+    // Redo re-attaches to m-root
+    doc.redo();
+    expect(doc.findPart("mesh-part").deformer).toBe("m-root");
+  });
+
+  it("detach mesh-part (newDeformerId=undefined) — deformer key absent after apply, undo restores deformer=w exactly", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+
+    doc.execute(new SetPartDeformer("mesh-part", undefined));
+
+    // After detach: key must be absent
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        doc.findPart("mesh-part"),
+        "deformer",
+      ),
+    ).toBe(false);
+
+    // Undo restores the ORIGINAL value/presence exactly
+    doc.undo();
+    const afterUndo = doc.findPart("mesh-part");
+    expect(afterUndo.deformer).toBe("w");
+    expect(Object.prototype.hasOwnProperty.call(afterUndo, "deformer")).toBe(
+      true,
+    );
+
+    doc.redo();
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        doc.findPart("mesh-part"),
+        "deformer",
+      ),
+    ).toBe(false);
+  });
+
+  it("INVALID: meshless part → warp deformer — throws, part.deformer unchanged, canUndo()===false", () => {
+    // Add a meshless part to the model to test this case.
+    const model = fixtureModelWithDeformers();
+    model.parts.push({
+      id: "no-mesh",
+      color: [0, 0, 1, 1],
+      width: 10,
+      height: 10,
+      order: 1,
+      transform: { x: 0, y: 0 },
+    });
+    const doc = new EditorDocument(model);
+
+    // no-mesh has no deformer initially
+    expect(
+      Object.prototype.hasOwnProperty.call(doc.findPart("no-mesh"), "deformer"),
+    ).toBe(false);
+
+    // Attaching a meshless part to the warp deformer "w" must fail
+    expect(() => doc.execute(new SetPartDeformer("no-mesh", "w"))).toThrow();
+    // Model unchanged — deformer key still absent
+    expect(
+      Object.prototype.hasOwnProperty.call(doc.findPart("no-mesh"), "deformer"),
+    ).toBe(false);
+    expect(doc.canUndo()).toBe(false);
   });
 });

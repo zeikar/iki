@@ -6,10 +6,12 @@ export {
 export {
   CaptureGridKeyform,
   SetDeformerBindings,
+  SetDeformerParent,
   SetDeformerPivotX,
   SetDeformerPivotY,
   SetDeformerTransform,
   SetPartColor,
+  SetPartDeformer,
   SetPartHeight,
   SetPartOrder,
   SetPartTransform,

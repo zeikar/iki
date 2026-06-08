@@ -8,6 +8,7 @@ import type {
 
 import type { EditorDocument } from "./document";
 import { upsertGridKeyform } from "./grid-keyform";
+import { validateDeformerReparent, validatePartAttach } from "./reparent";
 
 /**
  * One invertible edit. The document is passed IN at apply/invert time — a
@@ -302,7 +303,12 @@ export class SetDeformerPivotY extends DeformerFieldCommand<number> {
 }
 
 /** Channels of {@link IkiDeformerTransform} this editor can edit. */
-export type DeformerTransformChannel = "x" | "y" | "rotation" | "scaleX" | "scaleY";
+export type DeformerTransformChannel =
+  | "x"
+  | "y"
+  | "rotation"
+  | "scaleX"
+  | "scaleY";
 
 /**
  * Edit one channel of a matrix deformer's base transform. Because
@@ -411,6 +417,115 @@ export class SetDeformerBindings implements EditCommand {
       // Assign a fresh deep copy — never alias the captured array so re-apply
       // after undo cannot corrupt the saved prior value.
       deformer.bindings = this.prevBindings.map((b) => ({ ...b }));
+    }
+  }
+}
+
+/**
+ * Reparent a deformer (matrix or warp) under a new parent, or promote it to
+ * root (`newParentId === undefined`). Calls {@link validateDeformerReparent}
+ * FIRST so invalid reparents (cycles, warp parent, unknown id) throw before any
+ * capture or mutation — a throwing apply leaves the model and undo stack
+ * untouched.
+ *
+ * Absent-vs-present distinction: captures both the prior `parent` value AND
+ * whether the key was present on the object, so `invert` can delete the key
+ * (restore "absent") rather than blindly assigning `undefined`.
+ */
+export class SetDeformerParent implements EditCommand {
+  readonly label = "Set deformer parent";
+  private captured = false;
+  private prevParent: string | undefined = undefined;
+  private prevHadParent = false;
+
+  constructor(
+    private readonly deformerId: string,
+    private readonly newParentId: string | undefined,
+  ) {}
+
+  apply(doc: EditorDocument): void {
+    // Validate FIRST — throws before capture/mutate on any violation.
+    validateDeformerReparent(
+      doc.getModel().deformers ?? [],
+      this.deformerId,
+      this.newParentId,
+    );
+    const deformer = doc.findDeformer(this.deformerId);
+    if (!this.captured) {
+      this.prevHadParent = Object.prototype.hasOwnProperty.call(
+        deformer,
+        "parent",
+      );
+      this.prevParent = deformer.parent;
+      this.captured = true;
+    }
+    if (this.newParentId !== undefined) {
+      deformer.parent = this.newParentId;
+    } else {
+      delete deformer.parent;
+    }
+  }
+
+  invert(doc: EditorDocument): void {
+    const deformer = doc.findDeformer(this.deformerId);
+    if (this.prevHadParent) {
+      deformer.parent = this.prevParent;
+    } else {
+      delete deformer.parent;
+    }
+  }
+}
+
+/**
+ * Attach a part to a deformer, or detach it (`newDeformerId === undefined`).
+ * Calls {@link validatePartAttach} FIRST so invalid attachments (warp without
+ * mesh, unknown ids) throw before any capture or mutation.
+ *
+ * Absent-vs-present distinction mirrors {@link SetDeformerParent}: captures
+ * both the prior `deformer` value and whether the key was present, so `invert`
+ * can delete the key rather than assigning `undefined`.
+ */
+export class SetPartDeformer implements EditCommand {
+  readonly label = "Set part deformer";
+  private captured = false;
+  private prevDeformer: string | undefined = undefined;
+  private prevHadDeformer = false;
+
+  constructor(
+    private readonly partId: string,
+    private readonly newDeformerId: string | undefined,
+  ) {}
+
+  apply(doc: EditorDocument): void {
+    // Validate FIRST — throws before capture/mutate on any violation.
+    validatePartAttach(
+      doc.getModel().deformers ?? [],
+      this.partId,
+      doc.getModel().parts,
+      this.newDeformerId,
+    );
+    const part = doc.findPart(this.partId);
+    if (!this.captured) {
+      this.prevHadDeformer = Object.prototype.hasOwnProperty.call(
+        part,
+        "deformer",
+      );
+      this.prevDeformer = part.deformer;
+      this.captured = true;
+    }
+    if (this.newDeformerId !== undefined) {
+      part.deformer = this.newDeformerId;
+    } else {
+      delete part.deformer;
+    }
+  }
+
+  invert(doc: EditorDocument): void {
+    const part = doc.findPart(this.partId);
+    if (this.prevHadDeformer) {
+      part.deformer = this.prevDeformer;
+    } else {
+      delete part.deformer;
     }
   }
 }

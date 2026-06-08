@@ -21,7 +21,11 @@ const deformers: IkiDeformer[] = [
     kind: "warp",
     id: "W",
     parent: "A",
-    grid: { cols: 2, rows: 2, points: [0, 0, 1, 0, 2, 0, 0, 1, 1, 1, 2, 1, 0, 2, 1, 2, 2, 2] },
+    grid: {
+      cols: 2,
+      rows: 2,
+      points: [0, 0, 1, 0, 2, 0, 0, 1, 1, 1, 2, 1, 0, 2, 1, 2, 2, 2],
+    },
   },
 ];
 
@@ -60,7 +64,9 @@ describe("validateDeformerReparent", () => {
   });
 
   it("reparent to undefined (root) does not throw", () => {
-    expect(() => validateDeformerReparent(deformers, "B", undefined)).not.toThrow();
+    expect(() =>
+      validateDeformerReparent(deformers, "B", undefined),
+    ).not.toThrow();
   });
 
   it("self-reference A→A throws /self-reference/", () => {
@@ -118,7 +124,9 @@ describe("validatePartAttach", () => {
   });
 
   it("p→undefined does not throw", () => {
-    expect(() => validatePartAttach(deformers, "p", parts, undefined)).not.toThrow();
+    expect(() =>
+      validatePartAttach(deformers, "p", parts, undefined),
+    ).not.toThrow();
   });
 
   it("unknown part throws /no part with id/", () => {
