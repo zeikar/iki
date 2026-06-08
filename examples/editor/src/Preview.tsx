@@ -56,7 +56,12 @@ export function Preview({ playerRef }: PreviewProps) {
         }}
       >
         <label
-          style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            cursor: "pointer",
+          }}
         >
           <input
             type="checkbox"

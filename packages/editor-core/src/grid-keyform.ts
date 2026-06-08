@@ -83,7 +83,10 @@ export function upsertGridKeyform(
   value: number,
   offsets: number[],
 ): IkiGridKeyform[] {
-  const result = keyforms.map((kf) => ({ value: kf.value, offsets: kf.offsets }));
+  const result = keyforms.map((kf) => ({
+    value: kf.value,
+    offsets: kf.offsets,
+  }));
   const existing = result.findIndex((kf) => kf.value === value);
   if (existing !== -1) {
     result[existing] = { value, offsets: [...offsets] };

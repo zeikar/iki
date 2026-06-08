@@ -160,7 +160,11 @@ function warpModel(): IkiModel {
         kind: "warp",
         id: "faceWarp",
         // 1×1 grid: row 0 top (largest y), column 0 left (smallest x).
-        grid: { cols: 1, rows: 1, points: [-20, 20, 20, 20, -20, -20, 20, -20] },
+        grid: {
+          cols: 1,
+          rows: 1,
+          points: [-20, 20, 20, 20, -20, -20, 20, -20],
+        },
         warps: [
           {
             parameter: "faceAngleX",
