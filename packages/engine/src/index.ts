@@ -8,3 +8,4 @@ export {
   toMat3,
   translate,
 } from "./affine";
+export { IdleMotion } from "./idle-motion";
