@@ -4,6 +4,8 @@ import { defineConfig } from "vite";
 // Resolve workspace packages to their source so editing the engine or format
 // hot-reloads here instantly — no rebuild step while developing.
 export default defineConfig({
+  // main.ts uses top-level await; vite's default es2020 target rejects it.
+  build: { target: "es2022" },
   resolve: {
     alias: {
       "@iki/engine": fileURLToPath(
