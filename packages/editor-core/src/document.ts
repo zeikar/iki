@@ -1,10 +1,12 @@
 import { parseIkiModel } from "@iki/format";
 import type {
   IkiDeformer,
+  IkiDeformerTransform,
   IkiMatrixDeformer,
   IkiModel,
   IkiPart,
   IkiTexture,
+  IkiTransform,
   IkiUvRect,
   IkiWarpDeformer,
 } from "@iki/format";
@@ -289,6 +291,51 @@ export class EditorDocument {
     }
 
     return { texture: input.textures[0], assignmentsByPart };
+  }
+
+  /**
+   * Overwrite a part's whole transform with a fresh copy of `transform`.
+   * Replacing the whole object (rather than individual channels) preserves any
+   * optional keys already absent from the incoming value.
+   *
+   * Deliberately NON-undoable — used ONLY for the editor's transient capture
+   * pose. Does NOT push to or clear undoStack/redoStack (sibling to
+   * {@link applyAtlas}'s non-undoable boundary). The caller is responsible for
+   * restoring the exact prior snapshot when the capture pose ends.
+   *
+   * `IkiTransform` is a flat number map, so a shallow spread is a sufficient
+   * deep copy — no aliasing of the caller's object remains.
+   */
+  setPartTransformEphemeral(partId: string, transform: IkiTransform): void {
+    const part = this.findPart(partId);
+    part.transform = { ...transform };
+  }
+
+  /**
+   * Overwrite a matrix deformer's optional transform with a fresh copy, or
+   * delete it when `transform` is `undefined`.
+   * `undefined` deletes the key, restoring the deformer to the same state as
+   * one that never had a transform (absent-vs-present matters for downstream
+   * renderers).
+   *
+   * Deliberately NON-undoable — used ONLY for the editor's transient capture
+   * pose. Does NOT push to or clear undoStack/redoStack (sibling to
+   * {@link applyAtlas}'s non-undoable boundary). The caller is responsible for
+   * restoring the exact prior snapshot when the capture pose ends.
+   *
+   * `IkiDeformerTransform` is a flat number map, so a shallow spread is a
+   * sufficient deep copy — no aliasing of the caller's object remains.
+   */
+  setDeformerTransformEphemeral(
+    deformerId: string,
+    transform: IkiDeformerTransform | undefined,
+  ): void {
+    const deformer = this.findMatrixDeformer(deformerId);
+    if (transform === undefined) {
+      delete deformer.transform;
+    } else {
+      deformer.transform = { ...transform };
+    }
   }
 
   /** Apply a command and record it as one undo step. Clears the redo stack. */
