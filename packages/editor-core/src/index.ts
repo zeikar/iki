@@ -14,6 +14,7 @@ export {
   SetDeformerPivotX,
   SetDeformerPivotY,
   SetDeformerTransform,
+  SetPartBindings,
   SetPartColor,
   SetPartDeformer,
   SetPartHeight,
@@ -24,6 +25,7 @@ export {
   type EditCommand,
   type EditTransformChannel,
 } from "./commands";
+export { captureBindingEndpoint } from "./binding-capture";
 export {
   computeGridOffsets,
   interpolateGridOffsets,

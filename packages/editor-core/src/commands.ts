@@ -1,4 +1,5 @@
 import type {
+  IkiBinding,
   IkiDeformer,
   IkiDeformerBinding,
   IkiDeformerTransform,
@@ -7,7 +8,7 @@ import type {
   IkiModel,
   IkiPart,
 } from "@iki/format";
-import { parseIkiModel } from "@iki/format";
+import { IKI_FORMAT_VERSION, parseIkiModel } from "@iki/format";
 
 import type { EditorDocument } from "./document";
 import { upsertGridKeyform } from "./grid-keyform";
@@ -738,6 +739,103 @@ export class DeleteDeformer implements EditCommand {
       0,
       structuredClone(this.removed),
     );
+  }
+}
+
+/**
+ * Replace a part's `bindings` array wholesale. A single command covers add,
+ * edit, and remove (pass the desired final array; pass `[]` to remove all).
+ * Mirrors {@link SetDeformerBindings}'s deep-copy and absent-vs-empty discipline:
+ * clone-on-construction, capture-once, fresh deep copy on every assign/invert.
+ *
+ * Each {@link IkiBinding} is a flat object, so a per-element spread `{ ...b }`
+ * is a sufficient deep copy.
+ *
+ * Validates the WRITTEN bindings against the declared parameters via a narrow
+ * synthetic {@link parseIkiModel} candidate (so unrelated in-flight invalid
+ * editor state — e.g. a NaN width on another part — cannot false-reject a
+ * binding edit). Validation runs BEFORE any mutation; on failure the model and
+ * undo stack are left untouched.
+ *
+ * Empty bindings → omit the `bindings` key on the candidate AND delete
+ * `part.bindings` on apply (keeps the model shape minimal; represents "no
+ * bindings" as an absent key rather than an empty array).
+ */
+export class SetPartBindings implements EditCommand {
+  readonly label = "Set part bindings";
+  private readonly bindings: IkiBinding[];
+  private captured = false;
+  private prevBindings!: IkiBinding[] | undefined;
+
+  constructor(
+    private readonly partId: string,
+    bindings: IkiBinding[],
+  ) {
+    // Clone the caller's array on construction — prevents post-execute mutation
+    // of the caller's array from corrupting apply/redo.
+    this.bindings = bindings.map((b) => ({ ...b }));
+  }
+
+  apply(doc: EditorDocument): void {
+    // Build a narrow synthetic candidate carrying only the validation-relevant
+    // context. A full structuredClone(doc.getModel()) is deliberately avoided
+    // because unrelated parts may carry NaN in-flight values (e.g. from
+    // NumberField.valueAsNumber), which would cause false-positive validation
+    // failures. The synthetic model is the minimal shape parseIkiModel accepts.
+    const candidatePart: Record<string, unknown> = {
+      id: "_",
+      color: [0, 0, 0, 1],
+      width: 1,
+      height: 1,
+      transform: { x: 0, y: 0 },
+      order: 0,
+    };
+    // Omit the bindings key entirely when empty — "no bindings" is represented
+    // as key absence; an empty array is not a valid value in the format contract.
+    if (this.bindings.length > 0) {
+      candidatePart.bindings = this.bindings.map((b) => ({ ...b }));
+    }
+    const candidate = {
+      version: IKI_FORMAT_VERSION,
+      name: "_",
+      canvas: { width: 1, height: 1 },
+      parameters: doc.getModel().parameters,
+      parts: [candidatePart],
+    };
+    // Propagate IkiFormatError unchanged — validation before any mutation.
+    parseIkiModel(candidate);
+
+    // Resolution after validation so an unknown partId throws with a
+    // path-qualified message (findPart throws) but only after the bindings
+    // themselves are confirmed structurally valid.
+    const part = doc.findPart(this.partId);
+    if (!this.captured) {
+      // Preserve the original absent-vs-empty distinction.
+      this.prevBindings =
+        part.bindings === undefined
+          ? undefined
+          : part.bindings.map((b) => ({ ...b }));
+      this.captured = true;
+    }
+    if (this.bindings.length > 0) {
+      // Assign a fresh deep copy — model must never alias the command's stored array.
+      part.bindings = this.bindings.map((b) => ({ ...b }));
+    } else {
+      // Delete the key on empty: keeps the model shape minimal and correctly
+      // represents "no bindings" as an absent key rather than an empty array.
+      delete part.bindings;
+    }
+  }
+
+  invert(doc: EditorDocument): void {
+    const part = doc.findPart(this.partId);
+    if (this.prevBindings === undefined) {
+      delete part.bindings;
+    } else {
+      // Assign a fresh deep copy — never alias the captured array so re-apply
+      // after undo cannot corrupt the saved prior value.
+      part.bindings = this.prevBindings.map((b) => ({ ...b }));
+    }
   }
 }
 
