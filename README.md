@@ -86,6 +86,7 @@ any host can drive any model without per-model wiring.
 ## Roadmap
 
 1. **Format + runtime** (parameter-driven color quads) — done
+   - **Idle motion** — host-agnostic `IdleMotion` driver (auto-blink / breath / gaze drift) shipped by the engine, consumed by the playground and the editor preview — done
 2. **Charivo adapter** — `@charivo/render-iki` implementing the renderer contract
 3. **Textures** — atlas + UV-rect texture sampling, `color` as tint multiplier — done
    > Atlas authors should add padding / extruded borders between sub-rects to avoid LINEAR-filter bleeding.
