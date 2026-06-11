@@ -5,6 +5,7 @@ import type {
   IkiDeformerTransform,
   IkiGridKeyform,
   IkiMatrixDeformer,
+  IkiMesh,
   IkiModel,
   IkiPart,
 } from "@iki/format";
@@ -12,6 +13,7 @@ import { IKI_FORMAT_VERSION, IkiFormatError, parseIkiModel } from "@iki/format";
 
 import type { EditorDocument } from "./document";
 import { upsertGridKeyform } from "./grid-keyform";
+import { remapMeshUvsToRect } from "./mesh-uv";
 import {
   validateDeformerDelete,
   validateDeformerReparent,
@@ -902,5 +904,173 @@ export class SetPartDeformer implements EditCommand {
     } else {
       delete part.deformer;
     }
+  }
+}
+
+/**
+ * Return true if the deformer identified by `deformerId` exists in the model
+ * and has `kind === "warp"`. Used by SetPartMesh to detect warp-deformer
+ * attachment without importing reparent.ts internals.
+ */
+function isWarpDeformer(model: IkiModel, deformerId: string): boolean {
+  const d = (model.deformers ?? []).find((x) => x.id === deformerId);
+  return d?.kind === "warp";
+}
+
+/**
+ * Add, regenerate, or remove the triangle mesh on a part.
+ *
+ * - `mesh !== undefined` → add or replace the mesh, registering the
+ *   unit-square base UVs in the side-table so {@link EditorDocument.applyAtlas}
+ *   can remap them later.
+ * - `mesh === undefined` → delete `part.mesh` and remove the side-table entry.
+ *
+ * Fails fast (BEFORE any mutation) on warp-topology violations:
+ *   - REMOVE while `part.warps` is present (even empty) or the part is
+ *     attached to a warp deformer — the format rejects any `warps` key once
+ *     the mesh is gone.
+ *   - ADD/REPLACE while `part.warps` has authored offsets (`length > 0`) —
+ *     regenerating the mesh invalidates offset positions silently; the user
+ *     must remove the warps first.
+ *
+ * The remove guard checks PRESENCE of `part.warps` (not length) while the
+ * add/replace guard checks LENGTH > 0. This asymmetry is intentional: the
+ * format allows `warps: []` only when a mesh exists, so any present key
+ * (even empty) would become invalid after mesh removal; but replacing a mesh
+ * under an empty `warps: []` is harmless because there are no authored offsets.
+ */
+export class SetPartMesh implements EditCommand {
+  readonly label = "Set part mesh";
+  private readonly mesh: IkiMesh | undefined;
+  private captured = false;
+  private prevHadMesh = false;
+  private prevMesh: IkiMesh | undefined;
+  private prevBaseMeshUvs: number[] | undefined;
+
+  constructor(
+    private readonly partId: string,
+    mesh: IkiMesh | undefined,
+  ) {
+    // Clone on construction — prevents caller mutation from corrupting apply/redo.
+    this.mesh = mesh === undefined ? undefined : structuredClone(mesh);
+  }
+
+  apply(doc: EditorDocument): void {
+    // (a) Resolve the live part up front — unlike SetPartBindings, which resolves
+    //     after parseIkiModel, we need the live part here because the warp-topology
+    //     guards at step (c) inspect part.warps / part.deformer before any mutation.
+    const part = doc.findPart(this.partId);
+
+    // (b) Structural validation — only needed when adding or replacing a mesh.
+    //     Build a NARROW synthetic candidate carrying only the new mesh so that
+    //     unrelated in-flight parts with NaN values cannot cause false failures.
+    if (this.mesh !== undefined) {
+      const candidatePart = {
+        id: "_",
+        color: [0, 0, 0, 1],
+        width: 1,
+        height: 1,
+        transform: { x: 0, y: 0 },
+        order: 0,
+        mesh: structuredClone(this.mesh),
+      };
+      const candidate = {
+        version: IKI_FORMAT_VERSION,
+        name: "_",
+        canvas: { width: 1, height: 1 },
+        parameters: doc.getModel().parameters,
+        parts: [candidatePart],
+      };
+      try {
+        parseIkiModel(candidate);
+      } catch (e) {
+        if (e instanceof IkiFormatError) {
+          throw new IkiFormatError(
+            e.message.replace(/^parts\[0\]/, `parts."${this.partId}"`),
+          );
+        }
+        throw e;
+      }
+    }
+
+    // (c) Warp-topology fail-fast — BEFORE any mutation, after structural validation.
+    //     The two paths key on DIFFERENT predicates; this asymmetry is intentional
+    //     (see class JSDoc above).
+    const attachedToWarp =
+      part.deformer !== undefined &&
+      isWarpDeformer(doc.getModel(), part.deformer);
+
+    if (this.mesh === undefined) {
+      // REMOVE: guard on warps PRESENCE (even empty) OR warp-deformer attachment.
+      // The format rejects ANY present `warps` key once the mesh is gone, so even
+      // an empty array would make toIkiModel() throw.
+      if (part.warps !== undefined || attachedToWarp) {
+        throw new IkiFormatError(
+          `parts."${this.partId}": cannot remove mesh — part has warps or is attached to a warp deformer; remove its warps / detach from the warp deformer first`,
+        );
+      }
+    } else {
+      // ADD/REPLACE: guard on authored offsets (length > 0). An empty warps: []
+      // has no offsets to invalidate, so replacing the mesh under it is harmless.
+      if ((part.warps?.length ?? 0) > 0) {
+        throw new IkiFormatError(
+          `parts."${this.partId}": cannot regenerate mesh — part has warps whose offsets are bound to the current rest mesh; remove its warps first`,
+        );
+      }
+    }
+
+    // (d) Mutate + side-table maintenance.
+
+    // (i) Single first-apply capture block — captures BOTH prevMesh and
+    //     prevBaseMeshUvs together, BEFORE any mutation. captureBaseMeshUvs has
+    //     a side effect (registers current mesh.uvs); step (iii) overwrites it.
+    if (!this.captured) {
+      this.prevHadMesh = part.mesh !== undefined;
+      this.prevMesh = part.mesh ? structuredClone(part.mesh) : undefined;
+      this.prevBaseMeshUvs = doc.captureBaseMeshUvs(this.partId);
+      this.captured = true;
+    }
+    // Redo: do NOT re-capture (would clobber the saved prior). The mutation
+    // below is fully reconstructable from this.mesh + this.partId.
+
+    // (ii) Apply the model mutation.
+    if (this.mesh !== undefined) {
+      // Compute stored UVs: if the part has an active texture, remap the
+      // unit-square base UVs into the texture's atlas sub-rectangle.
+      const storedUvs =
+        part.texture !== undefined
+          ? remapMeshUvsToRect(this.mesh.uvs, part.texture.uv)
+          : this.mesh.uvs.slice();
+      part.mesh = {
+        vertices: this.mesh.vertices.slice(),
+        uvs: storedUvs,
+        indices: this.mesh.indices.slice(),
+      };
+    } else {
+      delete part.mesh;
+    }
+
+    // (iii) Re-register the side-table to the correct final state, overwriting
+    //       the (i) read's incidental re-registration. Write ONLY via
+    //       restoreBaseMeshUvs — never via a new setBaseMeshUvs API.
+    if (this.mesh !== undefined) {
+      // Register the UNIT-SQUARE base (not the texture-remapped storedUvs) so
+      // applyAtlas can always derive correct atlas-space UVs from the base.
+      doc.restoreBaseMeshUvs(this.partId, this.mesh.uvs.slice());
+    } else {
+      doc.restoreBaseMeshUvs(this.partId, undefined);
+    }
+  }
+
+  invert(doc: EditorDocument): void {
+    const part = doc.findPart(this.partId);
+    // Restore the mesh exactly, preserving the absent-vs-present distinction.
+    if (this.prevHadMesh) {
+      part.mesh = structuredClone(this.prevMesh!);
+    } else {
+      delete part.mesh;
+    }
+    // Restore the side-table to the exact prior state.
+    doc.restoreBaseMeshUvs(this.partId, this.prevBaseMeshUvs);
   }
 }

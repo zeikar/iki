@@ -17,6 +17,7 @@ export {
   SetPartBindings,
   SetPartColor,
   SetPartDeformer,
+  SetPartMesh,
   SetPartHeight,
   SetPartOrder,
   SetPartTransform,
