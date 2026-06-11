@@ -134,15 +134,30 @@ startIdle();
 // .claude/skills/iki-visual-test). Stripped from production builds: in a vite
 // build `import.meta.env.DEV` is false, so window.__iki is never attached.
 if (import.meta.env.DEV) {
+  // Stop the idle loop (and reflect that in the checkbox) so Playwright callers
+  // get a deterministic frame — idle rAF would overwrite setParam/reset results
+  // before nextFrame() settles. Human-facing default-on behavior is unchanged.
+  function pauseIdleForDevOp(): void {
+    stopIdle();
+    idleCheckbox.checked = false;
+  }
+
   window.__iki = {
     player,
     getParams: () => player.getParameters(),
-    setParam: mirrorParam,
+    setParam: (id: string, value: number) => {
+      pauseIdleForDevOp();
+      mirrorParam(id, value);
+    },
     reset: () => {
+      pauseIdleForDevOp();
       for (const param of player.getParameters())
         mirrorParam(param.id, param.default);
     },
-    load: (rawModel: unknown) => loadModel(rawModel),
+    load: (rawModel: unknown) => {
+      pauseIdleForDevOp();
+      return loadModel(rawModel);
+    },
     nextFrame: () =>
       new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),

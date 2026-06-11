@@ -36,12 +36,11 @@ function blinkEnvelope(phase: number): number {
 
 /** Pick a random point within a disk of `radius` using the injected rng. */
 function randomInDisk(rng: () => number, radius: number): [number, number] {
-  // Rejection sample: try until inside the disk (≥ 78 % acceptance, fast).
-  for (;;) {
-    const x = (rng() * 2 - 1) * radius;
-    const y = (rng() * 2 - 1) * radius;
-    if (x * x + y * y <= radius * radius) return [x, y];
-  }
+  // Polar sampling: bounded, no rejection loop, safe with any [0,1) rng.
+  // r = sqrt(u) gives uniform area distribution; θ spans the full circle.
+  const r = Math.sqrt(rng()) * radius;
+  const theta = rng() * 2 * Math.PI;
+  return [r * Math.cos(theta), r * Math.sin(theta)];
 }
 
 // --- Public API ---------------------------------------------------------------
