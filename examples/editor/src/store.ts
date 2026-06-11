@@ -6,10 +6,12 @@ import {
   DeletePart,
   SetPartBindings,
   SetDeformerBindings,
+  SetPartMesh,
   captureBindingEndpoint,
   createDefaultMatrixDeformer,
   createDefaultPart,
   createDefaultWarpDeformer,
+  createGridMesh,
   packAtlas,
   uvRectFor,
   type AtlasSource,
@@ -162,6 +164,11 @@ interface EditorState {
   addMatrixDeformer: () => void;
   /** Add a new default warp deformer and select it. */
   addWarpDeformer: () => void;
+  /** Replace the part's mesh with a grid of the given dimensions, or surface a range
+   *  error as editError when cols/rows are out of range. */
+  setPartGridMesh: (partId: string, cols: number, rows: number) => void;
+  /** Remove the mesh from a part (SetPartMesh with undefined). */
+  removePartMesh: (partId: string) => void;
   /** Delete the part by id, clearing the selection. Refused if the part has any texture
    *  (imported OR model-committed). Clear it first: clearPartTexture for an imported
    *  image; clearModelTexture for a model-committed texture. Both are non-undoable. */
@@ -528,6 +535,27 @@ export const useEditorStore = create<EditorState>((set, get) => {
       } catch (e) {
         set({ editError: e instanceof Error ? e.message : String(e) });
       }
+    },
+
+    setPartGridMesh: (partId, cols, rows) => {
+      clearCapture();
+      // createGridMesh can throw a plain range Error OUTSIDE the command, so it
+      // must be caught here rather than delegated to runCommand (which only wraps
+      // doc.execute). One try/catch covers both the factory call and the execute.
+      try {
+        const mesh = createGridMesh(cols, rows);
+        get().doc.execute(new SetPartMesh(partId, mesh));
+        set((s) => ({ revision: s.revision + 1, editError: null }));
+      } catch (e) {
+        set({ editError: e instanceof Error ? e.message : String(e) });
+      }
+    },
+
+    removePartMesh: (partId) => {
+      // runCommand already calls clearCapture() internally, but we call it
+      // explicitly first to mirror the pattern of other actions and be explicit.
+      clearCapture();
+      get().runCommand(new SetPartMesh(partId, undefined));
     },
 
     setPartTexture: (partId, decoded) => {
