@@ -107,6 +107,28 @@ const selectStyle: CSSProperties = {
   fontSize: 13,
 };
 
+const smallBtnStyle: CSSProperties = {
+  alignSelf: "flex-start",
+  padding: "2px 8px",
+  fontSize: 12,
+  background: "#1e1e2a",
+  border: "1px solid #3a3b47",
+  borderRadius: 4,
+  color: "#e6e6ee",
+  cursor: "pointer",
+};
+
+const removeBtnStyle: CSSProperties = {
+  alignSelf: "flex-start",
+  padding: "2px 8px",
+  fontSize: 12,
+  background: "#2a1a1a",
+  border: "1px solid #7a2a2a",
+  borderRadius: 4,
+  color: "#f08080",
+  cursor: "pointer",
+};
+
 /**
  * Numeric property panel for the selected part's lean-5a fields. Each edit
  * dispatches the matching editor-core command through the store, which mutates
@@ -262,6 +284,8 @@ function PartFields({
       />
 
       <PartBindingsEditor part={part} model={model} runCommand={runCommand} />
+
+      <MeshField part={part} />
 
       <TextureField partId={id} />
 
@@ -910,6 +934,80 @@ const errorStyle: CSSProperties = {
   fontSize: 12,
   wordBreak: "break-word",
 };
+
+/**
+ * Grid-mesh controls for a part. Shows cols/rows inputs and "Add Grid Mesh"
+ * when the part has no mesh; shows vertex/triangle counts plus cols/rows inputs
+ * and "Regenerate" / "Remove Mesh" buttons when a mesh is present.
+ * Errors (range, warp-coupling) surface via the store's editError banner.
+ */
+function MeshField({ part }: { part: IkiPart }) {
+  const setPartGridMesh = useEditorStore((s) => s.setPartGridMesh);
+  const removePartMesh = useEditorStore((s) => s.removePartMesh);
+  const [cols, setCols] = useState(4);
+  const [rows, setRows] = useState(4);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <span style={labelStyle}>mesh</span>
+
+      {part.mesh !== undefined && (
+        <span style={labelStyle}>
+          {part.mesh.vertices.length / 2} vertices,{" "}
+          {part.mesh.indices.length / 3} triangles
+        </span>
+      )}
+
+      <label style={rowStyle}>
+        <span style={labelStyle}>cols</span>
+        <input
+          type="number"
+          min={1}
+          value={cols}
+          onChange={(e) => setCols(e.currentTarget.valueAsNumber)}
+          style={inputStyle}
+        />
+      </label>
+      <label style={rowStyle}>
+        <span style={labelStyle}>rows</span>
+        <input
+          type="number"
+          min={1}
+          value={rows}
+          onChange={(e) => setRows(e.currentTarget.valueAsNumber)}
+          style={inputStyle}
+        />
+      </label>
+
+      {part.mesh === undefined ? (
+        <button
+          type="button"
+          onClick={() => setPartGridMesh(part.id, cols, rows)}
+          style={smallBtnStyle}
+        >
+          Add Grid Mesh
+        </button>
+      ) : (
+        <div style={{ display: "flex", gap: 6 }}>
+          <button
+            type="button"
+            onClick={() => setPartGridMesh(part.id, cols, rows)}
+            style={smallBtnStyle}
+          >
+            Regenerate
+          </button>
+          <button
+            type="button"
+            onClick={() => removePartMesh(part.id)}
+            style={removeBtnStyle}
+          >
+            Remove Mesh
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Per-part texture drop zone. Renders for ALL parts (quad and mesh).
