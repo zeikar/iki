@@ -75,6 +75,42 @@ export function validateDeformerReparent(
 }
 
 /**
+ * Validate that deleting `deformerId` is safe. Throws when the deformer does
+ * not exist, when another deformer is parented to it (must be reparented or
+ * detached first), or when a part is attached to it (must be detached first).
+ *
+ * Note: there is no validatePartDelete — nothing in the model contract
+ * references a part by id, so deleting a part cannot create dangling refs.
+ */
+export function validateDeformerDelete(
+  deformers: IkiDeformer[],
+  parts: IkiPart[],
+  deformerId: string,
+): void {
+  // (1) Target deformer must exist.
+  const target = deformers.find((d) => d.id === deformerId);
+  if (target === undefined) {
+    throw new Error(`deformers: no deformer with id "${deformerId}"`);
+  }
+
+  // (2) No other deformer may be parented to it.
+  const childDeformer = deformers.find((d) => d.parent === deformerId);
+  if (childDeformer !== undefined) {
+    throw new Error(
+      `deformers."${deformerId}": cannot delete — deformer "${childDeformer.id}" is parented to it; reparent or detach it first`,
+    );
+  }
+
+  // (3) No part may be attached to it.
+  const attachedPart = parts.find((p) => p.deformer === deformerId);
+  if (attachedPart !== undefined) {
+    throw new Error(
+      `deformers."${deformerId}": cannot delete — part "${attachedPart.id}" is attached to it; detach it first`,
+    );
+  }
+}
+
+/**
  * Validate that attaching part `partId` to deformer `newDeformerId` is valid.
  * Pass `newDeformerId === undefined` to detach (always legal).
  * Checks: part existence, undeclared deformer, and mesh-required-for-warp.
