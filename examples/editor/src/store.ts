@@ -4,6 +4,9 @@ import {
   AddPart,
   DeleteDeformer,
   DeletePart,
+  SetPartBindings,
+  SetDeformerBindings,
+  captureBindingEndpoint,
   createDefaultMatrixDeformer,
   createDefaultPart,
   createDefaultWarpDeformer,
@@ -12,7 +15,16 @@ import {
   type AtlasSource,
   type AtlasAssignment,
   type EditCommand,
+  type EditTransformChannel,
+  type DeformerTransformChannel,
 } from "@iki/editor-core";
+import type {
+  IkiTransform,
+  IkiDeformerTransform,
+  IkiTransformChannel,
+  IkiBinding,
+  IkiDeformerBinding,
+} from "@iki/format";
 import { create } from "zustand";
 
 import { renderAtlas, type DecodedSource } from "./atlas-image";
@@ -20,6 +32,41 @@ import { sampleModel } from "./sample-model";
 
 function toAtlasSource(s: DecodedSource): AtlasSource {
   return { id: s.id, width: s.width, height: s.height };
+}
+
+/**
+ * Maps IkiTransformChannel (binding vocabulary) → keyof IkiTransform (transform
+ * field name). Used ONLY by captureEndpoint to read the posed/rest value from a
+ * transform object via the binding's channel.
+ */
+const CHANNEL_TO_FIELD: Record<IkiTransformChannel, keyof IkiTransform> = {
+  translateX: "x",
+  translateY: "y",
+  rotate: "rotation",
+  scaleX: "scaleX",
+  scaleY: "scaleY",
+  opacity: "opacity",
+};
+
+/**
+ * Read a transform field value applying engine defaults when the field is
+ * absent. `transform` may be `undefined` (absent deformer transform → all
+ * defaults). Defaults: x/y → 0, rotation → 0, scaleX/scaleY → 1, opacity → 1.
+ */
+function baseChannelValue(
+  transform: IkiTransform | IkiDeformerTransform | undefined,
+  field: keyof IkiTransform,
+): number {
+  if (transform === undefined) {
+    return field === "scaleX" || field === "scaleY" || field === "opacity"
+      ? 1
+      : 0;
+  }
+  const raw = (transform as IkiTransform)[field];
+  if (raw !== undefined) return raw;
+  return field === "scaleX" || field === "scaleY" || field === "opacity"
+    ? 1
+    : 0;
 }
 
 /**
@@ -71,6 +118,27 @@ interface EditorState {
   /** Visible banner for atlas-operation failures. */
   atlasError: string | null;
 
+  /**
+   * Editor-only ephemeral capture session state — NEVER serialized. Non-null
+   * while the user is posing for a binding endpoint capture. The base transform
+   * is restored to `restTransform` on exit so the authored base is unchanged
+   * after capture; the motion lives in the committed binding from/to values.
+   *
+   * `restTransform === undefined` means a deformer that had no transform before
+   * capture began (distinct from `capture === null` which means no session).
+   * Each endpoint carries `value` (committed number) and `captured` (whether the
+   * user captured it this session — drives status text + no-op-commit skip).
+   * `value` is initialised from the row's current from/to so an uncaptured
+   * endpoint is preserved on commit.
+   */
+  capture: {
+    target: { kind: "part" | "deformer"; id: string };
+    rowIndex: number;
+    restTransform: IkiTransform | IkiDeformerTransform | undefined;
+    from: { value: number; captured: boolean };
+    to: { value: number; captured: boolean };
+  } | null;
+
   runCommand: (cmd: EditCommand) => void;
   undo: () => void;
   redo: () => void;
@@ -101,6 +169,44 @@ interface EditorState {
    *  Mirrors clearPartTexture's non-undoable boundary but skips atlas re-pack
    *  (no imported side-table entry to rebuild from). */
   clearModelTexture: (partId: string) => void;
+
+  /** Abandon any active capture session, restoring the ephemeral base. */
+  abandonCapture: () => void;
+  /**
+   * Enter a new capture session for the given target and binding row. If a
+   * session is already active it is abandoned first (restoring the prior base).
+   * Switching rows = calling enterCapture(target, newRowIndex).
+   */
+  enterCapture: (
+    target: { kind: "part" | "deformer"; id: string },
+    rowIndex: number,
+  ) => void;
+  /**
+   * Apply a transform pose during capture. `channel` is a transform-field key
+   * (EditTransformChannel | DeformerTransformChannel) written directly onto the
+   * ephemeral transform. No-op when capture === null.
+   */
+  poseCapture: (
+    channel: EditTransformChannel | DeformerTransformChannel,
+    value: number,
+  ) => void;
+  /**
+   * Capture the current posed value as the "from" or "to" endpoint. Sets
+   * editError on degenerate cases (out-of-range row, opacity-zero base,
+   * non-finite result).
+   */
+  captureEndpoint: (endpoint: "from" | "to") => void;
+  /**
+   * Commit the captured endpoints as a binding row update, restore the ephemeral
+   * base, and clear the session. No-op skip (restore+clear without undo step)
+   * when neither endpoint was captured this session.
+   */
+  commitCapture: () => void;
+  /**
+   * Abandon any active capture session before export. App's handleExport calls
+   * this before doc.serialize() so the capture pose never reaches the file.
+   */
+  prepareForExport: () => void;
 }
 
 export const useEditorStore = create<EditorState>((set, get) => {
@@ -194,6 +300,38 @@ export const useEditorStore = create<EditorState>((set, get) => {
     return pruned;
   };
 
+  /**
+   * Restore the ephemeral base transform to the snapshot taken at enterCapture,
+   * then clear the capture session. This is the SINGLE restore+clear path —
+   * every abandonment (explicit, implicit on runCommand, selection change, etc.)
+   * routes through here so the model is always left in a authored-base state
+   * after a capture session ends without commit.
+   *
+   * General rule: any store action that mutates/reloads the doc while NOT part
+   * of the capture flow MUST abandon an active capture session first via
+   * clearCapture(). The capture-flow actions are exempt: poseCapture,
+   * captureEndpoint, commitCapture, abandonCapture, enterCapture.
+   */
+  const clearCapture = (): void => {
+    const capture = get().capture;
+    if (capture === null) return;
+    const { target, restTransform } = capture;
+    if (target.kind === "part") {
+      // restTransform is always IkiTransform for parts (never undefined).
+      get().doc.setPartTransformEphemeral(
+        target.id,
+        restTransform as IkiTransform,
+      );
+    } else {
+      // undefined is valid: deformer had no transform before capture began.
+      get().doc.setDeformerTransformEphemeral(
+        target.id,
+        restTransform as IkiDeformerTransform | undefined,
+      );
+    }
+    set((s) => ({ capture: null, revision: s.revision + 1, editError: null }));
+  };
+
   return {
     doc: new EditorDocument(sampleModel),
     selectedPartId: null,
@@ -206,8 +344,12 @@ export const useEditorStore = create<EditorState>((set, get) => {
     gridEditMode: false,
     partTextures: {},
     atlasError: null,
+    capture: null,
 
     runCommand: (cmd) => {
+      // Any ordinary editor command abandons an active capture session first —
+      // the capture pose must never be present when a new undo step is recorded.
+      if (get().capture !== null) clearCapture();
       try {
         get().doc.execute(cmd);
         set((s) => ({ revision: s.revision + 1, editError: null }));
@@ -216,6 +358,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
       }
     },
     undo: () => {
+      clearCapture();
       get().doc.undo();
       const liveIds = new Set(
         get()
@@ -229,6 +372,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
       }));
     },
     redo: () => {
+      clearCapture();
       get().doc.redo();
       const liveIds = new Set(
         get()
@@ -241,14 +385,18 @@ export const useEditorStore = create<EditorState>((set, get) => {
         partTextures: prunePartTextures(s.partTextures, liveIds),
       }));
     },
-    select: (partId) =>
+    select: (partId) => {
+      clearCapture();
       set({
         selectedPartId: partId,
         selectedDeformerId: null,
         editError: null,
-      }),
-    selectDeformer: (id) =>
-      set({ selectedDeformerId: id, selectedPartId: null, editError: null }),
+      });
+    },
+    selectDeformer: (id) => {
+      clearCapture();
+      set({ selectedDeformerId: id, selectedPartId: null, editError: null });
+    },
     setParam: (id, value) =>
       set((s) => ({ params: { ...s.params, [id]: value } })),
     setExportError: (msg) => set({ exportError: msg }),
@@ -257,6 +405,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     setGridEditMode: (on) => set({ gridEditMode: on }),
 
     addPart: () => {
+      clearCapture();
       const part = createDefaultPart(get().doc.getModel());
       const newId = part.id;
       try {
@@ -273,6 +422,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     },
 
     addMatrixDeformer: () => {
+      clearCapture();
       const deformer = createDefaultMatrixDeformer(get().doc.getModel());
       const newId = deformer.id;
       try {
@@ -289,6 +439,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     },
 
     addWarpDeformer: () => {
+      clearCapture();
       const deformer = createDefaultWarpDeformer(get().doc.getModel());
       const newId = deformer.id;
       try {
@@ -305,6 +456,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     },
 
     deletePart: (id) => {
+      clearCapture();
       // UX pre-check: refuse with a friendly message before constructing a throwing
       // command. DeletePart.apply enforces the same texture guard at the editor-core
       // boundary, so this check is belt-and-suspenders — the real invariant lives in
@@ -336,6 +488,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     },
 
     deleteDeformer: (id) => {
+      clearCapture();
       try {
         get().doc.execute(new DeleteDeformer(id));
         set((s) => ({
@@ -350,6 +503,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     },
 
     setPartTexture: (partId, decoded) => {
+      clearCapture();
       // Validate VISIBLY before deriving — never a silent no-op.
       const part = get()
         .doc.getModel()
@@ -375,6 +529,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     },
 
     clearPartTexture: (partId) => {
+      clearCapture();
       const removed = get().partTextures[partId];
       const { [partId]: _omit, ...rest } = get().partTextures;
       const ok = commitAtlas(rest);
@@ -384,12 +539,236 @@ export const useEditorStore = create<EditorState>((set, get) => {
     },
 
     clearModelTexture: (partId) => {
+      clearCapture();
       try {
         get().doc.clearPartTextureRef(partId);
         set((s) => ({ revision: s.revision + 1, editError: null }));
       } catch (e) {
         set({ editError: e instanceof Error ? e.message : String(e) });
       }
+    },
+
+    abandonCapture: () => {
+      clearCapture();
+    },
+
+    enterCapture: (target, rowIndex) => {
+      // Always abandon any active session first — row-switch safety, ensures
+      // a new row never inherits a prior row's ephemeral pose.
+      clearCapture();
+
+      const { id, kind } = target;
+      let base: IkiTransform | IkiDeformerTransform | undefined;
+      let currentBindings: IkiBinding[] | IkiDeformerBinding[] | undefined;
+
+      if (kind === "part") {
+        const part = get()
+          .doc.getModel()
+          .parts.find((p) => p.id === id);
+        base = part?.transform;
+        currentBindings = part?.bindings;
+      } else {
+        const deformer = get().doc.findMatrixDeformer(id);
+        // Preserve undefined for absent deformer transform — do NOT clone undefined.
+        base = deformer.transform;
+        currentBindings = deformer.bindings;
+      }
+
+      // Fresh snapshot; preserve undefined for absent deformer transform.
+      const restTransform =
+        base !== undefined ? structuredClone(base) : undefined;
+
+      // Read current from/to from the row; default 0 if row or array is missing.
+      const row = currentBindings?.[rowIndex];
+      const rowFrom = row?.from ?? 0;
+      const rowTo = row?.to ?? 0;
+
+      set({
+        capture: {
+          target,
+          rowIndex,
+          restTransform,
+          from: { value: rowFrom, captured: false },
+          to: { value: rowTo, captured: false },
+        },
+      });
+      // No revision bump: entering doesn't change the doc; clearCapture above
+      // already bumped if it restored a prior base.
+    },
+
+    poseCapture: (channel, value) => {
+      const { capture } = get();
+      if (capture === null) return;
+      const { target } = capture;
+      const { id, kind } = target;
+      if (kind === "part") {
+        const part = get()
+          .doc.getModel()
+          .parts.find((p) => p.id === id);
+        const next: IkiTransform = {
+          ...(part?.transform ?? { x: 0, y: 0 }),
+          [channel]: value,
+        };
+        get().doc.setPartTransformEphemeral(id, next);
+      } else {
+        const deformer = get().doc.findMatrixDeformer(id);
+        const next: IkiDeformerTransform = {
+          ...(deformer.transform ?? { x: 0, y: 0 }),
+          [channel]: value,
+        };
+        get().doc.setDeformerTransformEphemeral(id, next);
+      }
+      set((s) => ({ revision: s.revision + 1 }));
+    },
+
+    captureEndpoint: (endpoint) => {
+      const { capture } = get();
+      if (capture === null) {
+        set({ editError: "No active capture session" });
+        return;
+      }
+      const { target, rowIndex } = capture;
+      const { id, kind } = target;
+
+      // Resolve the binding row from the LIVE target bindings.
+      let binding: IkiBinding | IkiDeformerBinding | undefined;
+      if (kind === "part") {
+        binding = get()
+          .doc.getModel()
+          .parts.find((p) => p.id === id)?.bindings?.[rowIndex];
+      } else {
+        binding = get().doc.findMatrixDeformer(id).bindings?.[rowIndex];
+      }
+      if (binding === undefined) {
+        set({
+          editError: `captureEndpoint: binding row ${rowIndex} is out of range`,
+        });
+        return;
+      }
+
+      const channel = binding.channel as IkiTransformChannel;
+      const field = CHANNEL_TO_FIELD[channel];
+
+      const restValue = baseChannelValue(capture.restTransform, field);
+
+      // Read the live base transform for the posed value.
+      let liveTransform: IkiTransform | IkiDeformerTransform | undefined;
+      if (kind === "part") {
+        liveTransform = get()
+          .doc.getModel()
+          .parts.find((p) => p.id === id)?.transform;
+      } else {
+        liveTransform = get().doc.findMatrixDeformer(id).transform;
+      }
+      const posedValue = baseChannelValue(liveTransform, field);
+
+      // Opacity-zero guard: cannot capture multiplicatively with a zero base.
+      if (channel === "opacity" && restValue === 0) {
+        set({
+          editError:
+            "Cannot capture opacity: base opacity is 0 (set a non-zero base opacity first)",
+        });
+        return;
+      }
+
+      const value = captureBindingEndpoint(channel, restValue, posedValue);
+
+      // Finite guard: non-finite results cannot be stored in the model.
+      if (!Number.isFinite(value)) {
+        set({
+          editError: `Cannot capture: pose a finite ${channel} value first`,
+        });
+        return;
+      }
+
+      set((s) => ({
+        capture: {
+          ...s.capture!,
+          [endpoint]: { value, captured: true },
+        },
+        editError: null,
+      }));
+    },
+
+    commitCapture: () => {
+      const { capture } = get();
+      if (capture === null) return;
+
+      // No-op skip: if neither endpoint was captured this session, abandon
+      // without creating an undo step.
+      if (!capture.from.captured && !capture.to.captured) {
+        clearCapture();
+        return;
+      }
+
+      const { target, rowIndex } = capture;
+      const { id, kind } = target;
+
+      // Build the next bindings array: clone current rows, patch the row at rowIndex.
+      let currentBindings: IkiBinding[] | IkiDeformerBinding[];
+      if (kind === "part") {
+        currentBindings = [
+          ...(get()
+            .doc.getModel()
+            .parts.find((p) => p.id === id)?.bindings ?? []),
+        ];
+      } else {
+        currentBindings = [
+          ...(get().doc.findMatrixDeformer(id).bindings ?? []),
+        ];
+      }
+
+      const existingRow = currentBindings[rowIndex];
+      if (existingRow === undefined) {
+        set({
+          editError: `commitCapture: binding row ${rowIndex} is out of range`,
+        });
+        return;
+      }
+
+      const nextRow = {
+        ...existingRow,
+        from: capture.from.value,
+        to: capture.to.value,
+      };
+      const next = currentBindings.slice() as IkiBinding[] &
+        IkiDeformerBinding[];
+      (next as (IkiBinding | IkiDeformerBinding)[])[rowIndex] = nextRow;
+
+      // commitCapture has its OWN try/catch — does NOT use runCommand.
+      try {
+        if (kind === "part") {
+          get().doc.execute(new SetPartBindings(id, next as IkiBinding[]));
+        } else {
+          get().doc.execute(
+            new SetDeformerBindings(id, next as IkiDeformerBinding[]),
+          );
+        }
+      } catch (e) {
+        // On throw: session stays active so the user can retry.
+        set({ editError: e instanceof Error ? e.message : String(e) });
+        return;
+      }
+
+      // Commit succeeded: restore the ephemeral base, then single revision bump + clear.
+      const { restTransform } = capture;
+      if (kind === "part") {
+        get().doc.setPartTransformEphemeral(id, restTransform as IkiTransform);
+      } else {
+        get().doc.setDeformerTransformEphemeral(
+          id,
+          restTransform as IkiDeformerTransform | undefined,
+        );
+      }
+      set((s) => ({
+        revision: s.revision + 1,
+        editError: null,
+        capture: null,
+      }));
+    },
+
+    prepareForExport: () => {
+      clearCapture();
     },
   };
 });
