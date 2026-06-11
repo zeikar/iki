@@ -4,6 +4,7 @@ import {
   SetDeformerPivotX,
   SetDeformerPivotY,
   SetDeformerTransform,
+  SetPartBindings,
   SetPartColor,
   SetPartDeformer,
   SetPartHeight,
@@ -15,12 +16,14 @@ import {
   type EditTransformChannel,
 } from "@iki/editor-core";
 import type {
+  IkiBinding,
   IkiDeformer,
   IkiDeformerBinding,
   IkiMatrixChannel,
   IkiMatrixDeformer,
   IkiModel,
   IkiPart,
+  IkiTransformChannel,
 } from "@iki/format";
 import { useRef, useState, type CSSProperties } from "react";
 
@@ -64,6 +67,16 @@ const MATRIX_CHANNELS: IkiMatrixChannel[] = [
   "rotate",
   "scaleX",
   "scaleY",
+];
+
+/** The six part-channel binding literals, in display order. */
+const PART_CHANNELS: IkiTransformChannel[] = [
+  "translateX",
+  "translateY",
+  "rotate",
+  "scaleX",
+  "scaleY",
+  "opacity",
 ];
 
 const inputStyle: CSSProperties = {
@@ -248,6 +261,8 @@ function PartFields({
         onCommit={(rgba) => runCommand(new SetPartColor(id, rgba))}
       />
 
+      <PartBindingsEditor part={part} model={model} runCommand={runCommand} />
+
       <TextureField partId={id} />
 
       <button
@@ -409,7 +424,8 @@ function DeformerPanel({
 /**
  * One transform channel of a matrix deformer. Mirrors {@link TransformField}:
  * an absent OPTIONAL channel displays the engine default but only WRITES (via
- * `SetDeformerTransform`) when the user edits.
+ * `SetDeformerTransform`) when the user edits. While a capture session targets
+ * this deformer, `onCommit` routes to `poseCapture` instead.
  */
 function DeformerTransformField({
   label,
@@ -422,6 +438,13 @@ function DeformerTransformField({
   deformer: IkiMatrixDeformer;
   runCommand: (cmd: EditCommand) => void;
 }) {
+  const deformerId = deformer.id;
+  const isCapturing = useEditorStore(
+    (s) =>
+      s.capture?.target.kind === "deformer" &&
+      s.capture.target.id === deformerId,
+  );
+  const poseCapture = useEditorStore((s) => s.poseCapture);
   const raw = deformer.transform?.[channel];
   const display =
     raw === undefined ? DEFORMER_TRANSFORM_DEFAULTS[channel] : raw;
@@ -429,10 +452,241 @@ function DeformerTransformField({
     <NumberField
       label={label}
       value={display}
-      onCommit={(v) =>
-        runCommand(new SetDeformerTransform(deformer.id, channel, v))
-      }
+      onCommit={(v) => {
+        if (isCapturing) {
+          poseCapture(channel, v);
+        } else {
+          runCommand(new SetDeformerTransform(deformerId, channel, v));
+        }
+      }}
     />
+  );
+}
+
+/**
+ * Per-row capture session controls. Renders "Bind capture" when no session
+ * is active for this row, and the full from/to/Done/Abandon controls when
+ * this row IS the active capture target. Each selector returns a scalar (no
+ * object literals) to avoid the infinite-render bug from 5d.
+ */
+function CaptureControls({
+  kind,
+  id,
+  rowIndex,
+}: {
+  kind: "part" | "deformer";
+  id: string;
+  rowIndex: number;
+}) {
+  const isCapturingThisRow = useEditorStore(
+    (s) =>
+      s.capture?.target.kind === kind &&
+      s.capture.target.id === id &&
+      s.capture.rowIndex === rowIndex,
+  );
+  const fromCaptured = useEditorStore((s) => s.capture?.from.captured ?? false);
+  const toCaptured = useEditorStore((s) => s.capture?.to.captured ?? false);
+  const enterCapture = useEditorStore((s) => s.enterCapture);
+  const commitCapture = useEditorStore((s) => s.commitCapture);
+  const abandonCapture = useEditorStore((s) => s.abandonCapture);
+  const captureEndpoint = useEditorStore((s) => s.captureEndpoint);
+
+  const mutedBtnStyle: CSSProperties = {
+    padding: "2px 8px",
+    fontSize: 11,
+    background: "#1e1e2a",
+    border: "1px solid #3a3b47",
+    borderRadius: 4,
+    color: "#9a9aa5",
+    cursor: "pointer",
+  };
+
+  if (!isCapturingThisRow) {
+    return (
+      <button
+        type="button"
+        onClick={() => enterCapture({ kind, id }, rowIndex)}
+        style={mutedBtnStyle}
+      >
+        Bind capture
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <span style={{ ...labelStyle, fontStyle: "italic" }}>
+        Capturing — from {fromCaptured ? "✓" : "—"} / to{" "}
+        {toCaptured ? "✓" : "—"}
+      </span>
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+        <button
+          type="button"
+          onClick={() => captureEndpoint("from")}
+          style={mutedBtnStyle}
+        >
+          Capture from (@min)
+        </button>
+        <button
+          type="button"
+          onClick={() => captureEndpoint("to")}
+          style={mutedBtnStyle}
+        >
+          Capture to (@max)
+        </button>
+      </div>
+      <div style={{ display: "flex", gap: 4 }}>
+        <button
+          type="button"
+          onClick={() => commitCapture()}
+          style={{
+            ...mutedBtnStyle,
+            background: "#1a2a1a",
+            border: "1px solid #3a6a3a",
+            color: "#80c880",
+          }}
+        >
+          Done
+        </button>
+        <button
+          type="button"
+          onClick={() => abandonCapture()}
+          style={{
+            ...mutedBtnStyle,
+            background: "#2a1a1a",
+            border: "1px solid #7a2a2a",
+            color: "#f08080",
+          }}
+        >
+          Abandon
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Editor for a part's parameter bindings. Add/edit/remove each compute the
+ * next bindings array and dispatch a single `SetPartBindings` so every change
+ * is one undoable step.
+ */
+function PartBindingsEditor({
+  part,
+  model,
+  runCommand,
+}: {
+  part: IkiPart;
+  model: IkiModel;
+  runCommand: (cmd: EditCommand) => void;
+}) {
+  const id = part.id;
+  const bindings = part.bindings ?? [];
+  const hasParams = model.parameters.length > 0;
+
+  const commit = (next: IkiBinding[]) =>
+    runCommand(new SetPartBindings(id, next));
+
+  const replaceRow = (
+    index: number,
+    patch: Partial<IkiBinding>,
+  ): IkiBinding[] =>
+    bindings.map((b, i) => (i === index ? { ...b, ...patch } : { ...b }));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <span style={labelStyle}>bindings</span>
+
+      {bindings.map((binding, index) => (
+        <div
+          key={index}
+          style={{ display: "flex", flexDirection: "column", gap: 4 }}
+        >
+          <div style={{ display: "flex", gap: 6 }}>
+            <select
+              value={binding.parameter}
+              onChange={(e) =>
+                commit(replaceRow(index, { parameter: e.currentTarget.value }))
+              }
+              style={{ ...selectStyle, flex: 1, minWidth: 0 }}
+            >
+              {model.parameters.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.id}
+                </option>
+              ))}
+            </select>
+            <select
+              value={binding.channel}
+              onChange={(e) =>
+                commit(
+                  replaceRow(index, {
+                    channel: e.currentTarget.value as IkiTransformChannel,
+                  }),
+                )
+              }
+              style={{ ...selectStyle, flex: 1, minWidth: 0 }}
+            >
+              {PART_CHANNELS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <NumberField
+              label="from"
+              value={binding.from}
+              onCommit={(v) => commit(replaceRow(index, { from: v }))}
+            />
+            <NumberField
+              label="to"
+              value={binding.to}
+              onCommit={(v) => commit(replaceRow(index, { to: v }))}
+            />
+            <button
+              type="button"
+              onClick={() =>
+                commit(
+                  bindings.filter((_, i) => i !== index).map((b) => ({ ...b })),
+                )
+              }
+              style={{
+                padding: "2px 8px",
+                fontSize: 12,
+                background: "#2a1a1a",
+                border: "1px solid #7a2a2a",
+                borderRadius: 4,
+                color: "#f08080",
+                cursor: "pointer",
+              }}
+            >
+              Remove
+            </button>
+          </div>
+          <CaptureControls kind="part" id={id} rowIndex={index} />
+        </div>
+      ))}
+
+      <button
+        type="button"
+        disabled={!hasParams}
+        onClick={() =>
+          commit([
+            ...bindings.map((b) => ({ ...b })),
+            {
+              parameter: model.parameters[0].id,
+              channel: "rotate",
+              from: 0,
+              to: 0,
+            },
+          ])
+        }
+        style={{ alignSelf: "flex-start", padding: "2px 8px", fontSize: 12 }}
+      >
+        Add binding
+      </button>
+    </div>
   );
 }
 
@@ -535,6 +789,7 @@ function BindingsEditor({
               Remove
             </button>
           </div>
+          <CaptureControls kind="deformer" id={id} rowIndex={index} />
         </div>
       ))}
 
@@ -864,7 +1119,8 @@ function TextureField({ partId }: { partId: string }) {
 /**
  * One transform channel. For an OPTIONAL channel that is `undefined`, displays
  * the engine default but only WRITES when the user edits (dispatching
- * `SetPartTransform`).
+ * `SetPartTransform`). While a capture session targets this part, `onCommit`
+ * routes to `poseCapture` instead so the ephemeral pose drives the model.
  */
 function TransformField({
   label,
@@ -877,13 +1133,24 @@ function TransformField({
   part: IkiPart;
   runCommand: (cmd: EditCommand) => void;
 }) {
+  const partId = part.id;
+  const isCapturing = useEditorStore(
+    (s) => s.capture?.target.kind === "part" && s.capture.target.id === partId,
+  );
+  const poseCapture = useEditorStore((s) => s.poseCapture);
   const raw = part.transform[channel];
   const display = raw === undefined ? TRANSFORM_DEFAULTS[channel] : raw;
   return (
     <NumberField
       label={label}
       value={display}
-      onCommit={(v) => runCommand(new SetPartTransform(part.id, channel, v))}
+      onCommit={(v) => {
+        if (isCapturing) {
+          poseCapture(channel, v);
+        } else {
+          runCommand(new SetPartTransform(partId, channel, v));
+        }
+      }}
     />
   );
 }

@@ -33,6 +33,7 @@ export function App() {
 
   function handleExport() {
     try {
+      useEditorStore.getState().prepareForExport();
       const json = doc.serialize();
       downloadIki(`${doc.getModel().name}.iki`, json);
       setExportError(null);
