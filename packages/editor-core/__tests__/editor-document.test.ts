@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { IKI_FORMAT_VERSION, IkiFormatError } from "@iki/format";
-import type { IkiModel } from "@iki/format";
+import type { IkiModel, IkiTransformChannel } from "@iki/format";
 import {
   EditorDocument,
   SetDeformerBindings,
@@ -8,6 +8,7 @@ import {
   SetDeformerPivotX,
   SetDeformerPivotY,
   SetDeformerTransform,
+  SetPartBindings,
   SetPartColor,
   SetPartDeformer,
   SetPartHeight,
@@ -694,6 +695,252 @@ describe("SetDeformerParent", () => {
     expect(() => doc.execute(new SetDeformerParent("m-child", "w"))).toThrow();
     // Model unchanged
     expect(doc.findDeformer("m-child").parent).toBe(prevParent);
+    expect(doc.canUndo()).toBe(false);
+  });
+});
+
+// ── SetPartBindings ───────────────────────────────────────────────────────────
+
+describe("SetPartBindings", () => {
+  it("apply/undo/redo — translateX binding on part-a (no prior bindings)", () => {
+    const doc = new EditorDocument(fixtureModel());
+    // part-a has no bindings in the fixture
+    expect(doc.findPart("part-a")).not.toHaveProperty("bindings");
+
+    doc.execute(
+      new SetPartBindings("part-a", [
+        { parameter: "ParamA", channel: "translateX", from: -5, to: 5 },
+      ]),
+    );
+    const afterApply = doc.findPart("part-a").bindings;
+    expect(afterApply).toHaveLength(1);
+    expect(afterApply![0]).toEqual({
+      parameter: "ParamA",
+      channel: "translateX",
+      from: -5,
+      to: 5,
+    });
+
+    // Undo must remove the key entirely (absent, not empty array)
+    doc.undo();
+    expect(
+      doc.getModel().parts.find((p) => p.id === "part-a"),
+    ).not.toHaveProperty("bindings");
+
+    // Redo re-adds the binding
+    doc.redo();
+    expect(doc.findPart("part-a").bindings).toHaveLength(1);
+    expect(doc.findPart("part-a").bindings![0]).toEqual({
+      parameter: "ParamA",
+      channel: "translateX",
+      from: -5,
+      to: 5,
+    });
+  });
+
+  it("opacity channel round-trips through toIkiModel without throwing", () => {
+    const doc = new EditorDocument(fixtureModel());
+    doc.execute(
+      new SetPartBindings("part-a", [
+        { parameter: "ParamA", channel: "opacity", from: 0, to: 1 },
+      ]),
+    );
+    expect(() => doc.toIkiModel()).not.toThrow();
+  });
+
+  it("absent-vs-empty: SetPartBindings(part-a, []) deletes the key; undo restores prior absent state", () => {
+    const doc = new EditorDocument(fixtureModel());
+    // part-a starts with no bindings
+    expect(doc.findPart("part-a")).not.toHaveProperty("bindings");
+
+    doc.execute(new SetPartBindings("part-a", []));
+    // delete-on-empty: key must be absent, not an empty array
+    expect(doc.findPart("part-a")).not.toHaveProperty("bindings");
+
+    // Undo restores the prior absent state
+    doc.undo();
+    expect(doc.findPart("part-a")).not.toHaveProperty("bindings");
+  });
+
+  it("construction deep-copy: mutating the passed array/objects after construction does not corrupt the stored bindings", () => {
+    const doc = new EditorDocument(fixtureModel());
+    const binding = {
+      parameter: "ParamA",
+      channel: "translateX" as const,
+      from: -5,
+      to: 5,
+    };
+    const arr = [binding];
+
+    const cmd = new SetPartBindings("part-a", arr);
+
+    // Mutate AFTER construction but BEFORE execute
+    arr.push({
+      parameter: "ParamA",
+      channel: "opacity" as const,
+      from: 0,
+      to: 1,
+    });
+    binding.from = -999;
+    binding.to = 999;
+
+    doc.execute(cmd);
+    const stored = doc.findPart("part-a").bindings!;
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toEqual({
+      parameter: "ParamA",
+      channel: "translateX",
+      from: -5,
+      to: 5,
+    });
+  });
+
+  it("capture-once / no-alias-on-invert: redo after undo + model dirty yields the intended bindings", () => {
+    const doc = new EditorDocument(fixtureModel());
+    const intended = [
+      { parameter: "ParamA", channel: "translateX" as const, from: -1, to: 1 },
+    ];
+
+    doc.execute(new SetPartBindings("part-a", intended));
+    doc.undo();
+
+    // Dirty the model between undo and redo — redo must still yield the intended value
+    // part-a has no bindings after undo, so we add a dirty state via getModel()
+    const part = doc.getModel().parts.find((p) => p.id === "part-a")!;
+    part.bindings = [
+      { parameter: "ParamA", channel: "opacity" as const, from: 0, to: 0 },
+    ];
+
+    doc.redo();
+    expect(doc.findPart("part-a").bindings).toHaveLength(1);
+    expect(doc.findPart("part-a").bindings![0]).toEqual({
+      parameter: "ParamA",
+      channel: "translateX",
+      from: -1,
+      to: 1,
+    });
+  });
+
+  it("narrow-candidate fail-fast: undeclared parameter → execute throws IkiFormatError; part-a.bindings absent; canUndo()===false", () => {
+    const doc = new EditorDocument(fixtureModel());
+    expect(() =>
+      doc.execute(
+        new SetPartBindings("part-a", [
+          { parameter: "Nope", channel: "translateX", from: 0, to: 1 },
+        ]),
+      ),
+    ).toThrow(IkiFormatError);
+    expect(doc.findPart("part-a")).not.toHaveProperty("bindings");
+    expect(doc.canUndo()).toBe(false);
+  });
+
+  it("narrow-candidate fail-fast: invalid channel → execute throws; model + canUndo() untouched", () => {
+    const doc = new EditorDocument(fixtureModel());
+    expect(() =>
+      doc.execute(
+        new SetPartBindings("part-a", [
+          {
+            parameter: "ParamA",
+            channel: "bogusChannel" as IkiTransformChannel,
+            from: 0,
+            to: 1,
+          },
+        ]),
+      ),
+    ).toThrow(IkiFormatError);
+    expect(doc.findPart("part-a")).not.toHaveProperty("bindings");
+    expect(doc.canUndo()).toBe(false);
+  });
+
+  it("ISOLATION: corrupt an unrelated part's width to NaN; a VALID SetPartBindings on part-a still succeeds", () => {
+    const doc = new EditorDocument(fixtureModel());
+    // Corrupt part-b (an unrelated part) with an invalid width
+    doc.getModel().parts.find((p) => p.id === "part-b")!.width = NaN;
+
+    // A valid binding op on part-a should NOT be rejected due to part-b's invalid state
+    expect(() =>
+      doc.execute(
+        new SetPartBindings("part-a", [
+          { parameter: "ParamA", channel: "translateX", from: -1, to: 1 },
+        ]),
+      ),
+    ).not.toThrow();
+
+    expect(doc.findPart("part-a").bindings).toHaveLength(1);
+    expect(doc.findPart("part-a").bindings![0]).toEqual({
+      parameter: "ParamA",
+      channel: "translateX",
+      from: -1,
+      to: 1,
+    });
+  });
+
+  it("toIkiModel() passes after a valid binding op on an otherwise-clean fixtureModel()", () => {
+    const doc = new EditorDocument(fixtureModel());
+    doc.execute(
+      new SetPartBindings("part-a", [
+        { parameter: "ParamA", channel: "scaleX", from: 0.5, to: 2 },
+      ]),
+    );
+    expect(() => doc.toIkiModel()).not.toThrow();
+  });
+});
+
+// ── Ephemeral transform methods ───────────────────────────────────────────────
+
+describe("ephemeral transform methods", () => {
+  it("setPartTransformEphemeral replaces the whole transform; canUndo/canRedo remain false; restoring the snapshot restores the original shape", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    // mesh-part starts with transform { x: 0, y: 0 } — no rotation or other optional keys
+    const original = { ...doc.findPart("mesh-part").transform };
+    expect(original).not.toHaveProperty("rotation");
+
+    // Apply an ephemeral transform
+    doc.setPartTransformEphemeral("mesh-part", { x: 99, y: 77 });
+    expect(doc.findPart("mesh-part").transform).toEqual({ x: 99, y: 77 });
+    expect(doc.canUndo()).toBe(false);
+    expect(doc.canRedo()).toBe(false);
+
+    // Restore by passing back the captured snapshot
+    doc.setPartTransformEphemeral("mesh-part", original);
+    const restored = doc.findPart("mesh-part").transform;
+    expect(restored).toEqual({ x: 0, y: 0 });
+    // Optional keys that were absent should still be absent after restore
+    expect(restored).not.toHaveProperty("rotation");
+    expect(restored).not.toHaveProperty("scaleX");
+    expect(restored).not.toHaveProperty("opacity");
+  });
+
+  it("setDeformerTransformEphemeral sets and then deletes the transform key (m-child has no transform in fixture)", () => {
+    const doc = new EditorDocument(fixtureModelWithDeformers());
+    // m-child has no transform in the fixture
+    expect(doc.findMatrixDeformer("m-child").transform).toBeUndefined();
+
+    // Set a transform
+    doc.setDeformerTransformEphemeral("m-child", { x: 5, y: 6 });
+    expect(doc.findMatrixDeformer("m-child").transform).toEqual({ x: 5, y: 6 });
+    expect(doc.canUndo()).toBe(false);
+
+    // Pass undefined to delete the key
+    doc.setDeformerTransformEphemeral("m-child", undefined);
+    expect(doc.findMatrixDeformer("m-child")).not.toHaveProperty("transform");
+    expect(doc.canUndo()).toBe(false);
+  });
+
+  it("redo-stack preservation: ephemeral setter does not touch undo or redo stacks", () => {
+    const doc = new EditorDocument(fixtureModel());
+
+    // Build up a redo entry: execute a real command then undo it
+    doc.execute(new SetPartWidth("part-a", 200));
+    doc.undo();
+    expect(doc.canRedo()).toBe(true);
+    expect(doc.canUndo()).toBe(false);
+
+    // Call an ephemeral setter
+    doc.setPartTransformEphemeral("part-a", { x: 0, y: 0, rotation: 45 });
+
+    // Both stacks must be unchanged
+    expect(doc.canRedo()).toBe(true);
     expect(doc.canUndo()).toBe(false);
   });
 });
