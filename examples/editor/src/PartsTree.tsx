@@ -1,4 +1,16 @@
+import { type CSSProperties } from "react";
+
 import { useEditorStore } from "./store";
+
+const addButtonStyle: CSSProperties = {
+  background: "#2a2b33",
+  color: "#c8c8d0",
+  fontSize: 12,
+  borderRadius: 4,
+  padding: "4px 8px",
+  border: "none",
+  cursor: "pointer",
+};
 
 /**
  * Read-only, selectable list of the document's parts plus a selectable list of
@@ -14,6 +26,9 @@ export function PartsTree() {
   const select = useEditorStore((s) => s.select);
   const selectedDeformerId = useEditorStore((s) => s.selectedDeformerId);
   const selectDeformer = useEditorStore((s) => s.selectDeformer);
+  const addPart = useEditorStore((s) => s.addPart);
+  const addMatrixDeformer = useEditorStore((s) => s.addMatrixDeformer);
+  const addWarpDeformer = useEditorStore((s) => s.addWarpDeformer);
   // `revision` is read only to subscribe — the model is mutated in place.
   const model = useEditorStore((s) => {
     void s.revision;
@@ -57,6 +72,25 @@ export function PartsTree() {
             );
           })}
         </ul>
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <button type="button" onClick={addPart} style={addButtonStyle}>
+            + Part
+          </button>
+          <button
+            type="button"
+            onClick={addMatrixDeformer}
+            style={addButtonStyle}
+          >
+            + Matrix
+          </button>
+          <button
+            type="button"
+            onClick={addWarpDeformer}
+            style={addButtonStyle}
+          >
+            + Warp
+          </button>
+        </div>
       </div>
 
       {deformers.length > 0 && (
