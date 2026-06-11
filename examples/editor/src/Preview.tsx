@@ -1,8 +1,19 @@
-import { IkiPlayer } from "@iki/engine";
-import { useEffect, useRef, type MutableRefObject } from "react";
+import { IkiPlayer, IdleMotion } from "@iki/engine";
+import { StandardParameter } from "@iki/format";
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
 
 import { GridOverlay } from "./GridOverlay";
 import { useEditorStore } from "./store";
+
+// The five "life" parameters the idle driver writes. Restore touches only ids
+// the loaded model actually declares.
+const IDLE_PARAM_IDS = [
+  StandardParameter.EyeOpenLeft,
+  StandardParameter.EyeOpenRight,
+  StandardParameter.Breath,
+  StandardParameter.EyeballX,
+  StandardParameter.EyeballY,
+] as const;
 
 interface PreviewProps {
   playerRef: MutableRefObject<IkiPlayer | null>;
@@ -18,6 +29,9 @@ export function Preview({ playerRef }: PreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gridEditMode = useEditorStore((s) => s.gridEditMode);
   const setGridEditMode = useEditorStore((s) => s.setGridEditMode);
+  // Idle is ephemeral PREVIEW state — never the store. It drives the player
+  // directly and must leave authoring `params` untouched.
+  const [idleOn, setIdleOn] = useState(false);
 
   useEffect(() => {
     // Exactly ONE player per effect run, destroyed in this run's cleanup.
@@ -34,6 +48,39 @@ export function Preview({ playerRef }: PreviewProps) {
       if (playerRef.current === player) playerRef.current = null;
     };
   }, [playerRef]);
+
+  // Entering grid-edit forces idle off — grid dragging needs a stable pose.
+  useEffect(() => {
+    if (gridEditMode) setIdleOn(false);
+  }, [gridEditMode]);
+
+  // Idle loop, owned entirely by the preview. Never writes the store: the loop
+  // calls `player.setParameter` directly, and cleanup restores the authored
+  // pose by reading `params` imperatively (no `params` subscription so slider
+  // edits don't re-arm this effect).
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!idleOn || gridEditMode || !player) return;
+
+    const idle = new IdleMotion(player.setParameter.bind(player));
+    let frame = requestAnimationFrame(function tick() {
+      idle.update(performance.now());
+      frame = requestAnimationFrame(tick);
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+      // Restore the authored pose on the SAME player the loop drove. Only touch
+      // ids the loaded model declares — never `.default` on an absent descriptor.
+      const descriptors = new Map(player.getParameters().map((p) => [p.id, p]));
+      const { params } = useEditorStore.getState();
+      for (const id of IDLE_PARAM_IDS) {
+        if (descriptors.has(id)) {
+          player.setParameter(id, params[id] ?? descriptors.get(id)!.default);
+        }
+      }
+    };
+  }, [idleOn, gridEditMode, playerRef]);
 
   return (
     <main
@@ -69,6 +116,22 @@ export function Preview({ playerRef }: PreviewProps) {
             onChange={(e) => setGridEditMode(e.currentTarget.checked)}
           />
           <span style={{ fontSize: 12, color: "#9a9aa5" }}>Edit grid</span>
+        </label>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={idleOn}
+            disabled={gridEditMode}
+            onChange={(e) => setIdleOn(e.currentTarget.checked)}
+          />
+          <span style={{ fontSize: 12, color: "#9a9aa5" }}>Idle</span>
         </label>
       </div>
 
