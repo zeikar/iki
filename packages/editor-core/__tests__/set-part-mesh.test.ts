@@ -311,9 +311,9 @@ describe("SetPartMesh warp fail-fast", () => {
     const before = JSON.stringify(doc.toIkiModel());
     const undoBefore = doc.canUndo();
 
-    expect(() =>
-      doc.execute(new SetPartMesh("warp-part", undefined)),
-    ).toThrow(IkiFormatError);
+    expect(() => doc.execute(new SetPartMesh("warp-part", undefined))).toThrow(
+      IkiFormatError,
+    );
 
     expect(JSON.stringify(doc.toIkiModel())).toBe(before);
     expect(doc.canUndo()).toBe(undoBefore);
@@ -324,9 +324,9 @@ describe("SetPartMesh warp fail-fast", () => {
     const before = JSON.stringify(doc.toIkiModel());
     const undoBefore = doc.canUndo();
 
-    expect(() =>
-      doc.execute(new SetPartMesh("ep", undefined)),
-    ).toThrow(IkiFormatError);
+    expect(() => doc.execute(new SetPartMesh("ep", undefined))).toThrow(
+      IkiFormatError,
+    );
 
     expect(JSON.stringify(doc.toIkiModel())).toBe(before);
     expect(doc.canUndo()).toBe(undoBefore);
@@ -375,9 +375,9 @@ describe("attach-to-warp gate", () => {
     doc.execute(new AddDeformer(warp));
 
     // Attach meshless part → must throw "requires a mesh"
-    expect(() =>
-      doc.execute(new SetPartDeformer(partId, warp.id)),
-    ).toThrow(/requires a mesh/);
+    expect(() => doc.execute(new SetPartDeformer(partId, warp.id))).toThrow(
+      /requires a mesh/,
+    );
 
     // Give the part a mesh
     doc.execute(new SetPartMesh(partId, createGridMesh(2, 2)));
@@ -395,7 +395,7 @@ describe("attach-to-warp gate", () => {
 // ── 6. path rewrite on degenerate candidate ───────────────────────────────────
 
 describe("SetPartMesh path rewrite on degenerate candidate", () => {
-  it("degenerate mesh (< 3 vertices) throws IkiFormatError with parts.\"part-a\" in message", () => {
+  it('degenerate mesh (< 3 vertices) throws IkiFormatError with parts."part-a" in message', () => {
     const doc = new EditorDocument(meshlessModel());
     const before = JSON.stringify(doc.toIkiModel());
     const undoBefore = doc.canUndo();
@@ -403,7 +403,11 @@ describe("SetPartMesh path rewrite on degenerate candidate", () => {
     let caughtError: unknown;
     try {
       doc.execute(
-        new SetPartMesh("part-a", { vertices: [0, 0], uvs: [0, 0], indices: [] }),
+        new SetPartMesh("part-a", {
+          vertices: [0, 0],
+          uvs: [0, 0],
+          indices: [],
+        }),
       );
     } catch (e) {
       caughtError = e;
