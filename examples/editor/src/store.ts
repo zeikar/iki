@@ -137,6 +137,12 @@ interface EditorState {
     restTransform: IkiTransform | IkiDeformerTransform | undefined;
     from: { value: number; captured: boolean };
     to: { value: number; captured: boolean };
+    /**
+     * Immutable snapshot of the row's from/to at the moment capture began.
+     * Used by clearCapture/commitCapture to restore the original binding so
+     * abandoning or committing does not corrupt the pre-capture values.
+     */
+    rowRest: { from: number; to: number };
   } | null;
 
   runCommand: (cmd: EditCommand) => void;
@@ -315,14 +321,36 @@ export const useEditorStore = create<EditorState>((set, get) => {
   const clearCapture = (): void => {
     const capture = get().capture;
     if (capture === null) return;
-    const { target, restTransform } = capture;
+    const { target, restTransform, rowIndex, rowRest } = capture;
+
+    // Restore the captured row's binding to its pre-capture values BEFORE
+    // restoring the base transform, so any renderer that reads both during
+    // the revision bump sees a fully consistent authored state.
     if (target.kind === "part") {
+      const liveBindings: IkiBinding[] = [
+        ...(get()
+          .doc.getModel()
+          .parts.find((p) => p.id === target.id)?.bindings ?? []),
+      ];
+      const row = liveBindings[rowIndex];
+      if (row !== undefined) {
+        liveBindings[rowIndex] = { ...row, from: rowRest.from, to: rowRest.to };
+      }
+      get().doc.setPartBindingsEphemeral(target.id, liveBindings);
       // restTransform is always IkiTransform for parts (never undefined).
       get().doc.setPartTransformEphemeral(
         target.id,
         restTransform as IkiTransform,
       );
     } else {
+      const liveBindings: IkiDeformerBinding[] = [
+        ...(get().doc.findMatrixDeformer(target.id).bindings ?? []),
+      ];
+      const row = liveBindings[rowIndex];
+      if (row !== undefined) {
+        liveBindings[rowIndex] = { ...row, from: rowRest.from, to: rowRest.to };
+      }
+      get().doc.setDeformerBindingsEphemeral(target.id, liveBindings);
       // undefined is valid: deformer had no transform before capture began.
       get().doc.setDeformerTransformEphemeral(
         target.id,
@@ -590,10 +618,34 @@ export const useEditorStore = create<EditorState>((set, get) => {
           restTransform,
           from: { value: rowFrom, captured: false },
           to: { value: rowTo, captured: false },
+          rowRest: { from: rowFrom, to: rowTo },
         },
       });
-      // No revision bump: entering doesn't change the doc; clearCapture above
-      // already bumped if it restored a prior base.
+
+      // Zero the captured row's contribution so the preview reflects base-only
+      // during posing. Without this, an existing non-zero binding is still
+      // summed into the deformed result while the user poses the base transform,
+      // causing captureEndpoint to record a value that diverges from the pose.
+      if (row !== undefined) {
+        // Multiplicative identity for opacity is 1 (×1 = no change); additive
+        // identity for all other channels is 0 (+0 = no change).
+        const neutral =
+          row.channel === "opacity" ? { from: 1, to: 1 } : { from: 0, to: 0 };
+        const neutralized = [
+          ...(currentBindings as (IkiBinding | IkiDeformerBinding)[]),
+        ];
+        neutralized[rowIndex] = { ...row, ...neutral };
+        if (kind === "part") {
+          get().doc.setPartBindingsEphemeral(id, neutralized as IkiBinding[]);
+        } else {
+          get().doc.setDeformerBindingsEphemeral(
+            id,
+            neutralized as IkiDeformerBinding[],
+          );
+        }
+        // Bump revision so the preview reloads with the zeroed row.
+        set((s) => ({ revision: s.revision + 1 }));
+      }
     },
 
     poseCapture: (channel, value) => {
@@ -701,8 +753,42 @@ export const useEditorStore = create<EditorState>((set, get) => {
         return;
       }
 
-      const { target, rowIndex } = capture;
+      const { target, rowIndex, rowRest } = capture;
       const { id, kind } = target;
+
+      // Un-zero the captured row back to its ORIGINAL from/to BEFORE reading
+      // the live bindings for the command. This ensures the command's prevBindings
+      // snapshot (captured on first apply) records the original values, so Undo
+      // restores {from: rowRest.from, to: rowRest.to} rather than {from: 0, to: 0}.
+      if (kind === "part") {
+        const liveForRestore: IkiBinding[] = [
+          ...(get()
+            .doc.getModel()
+            .parts.find((p) => p.id === id)?.bindings ?? []),
+        ];
+        const restoreRow = liveForRestore[rowIndex];
+        if (restoreRow !== undefined) {
+          liveForRestore[rowIndex] = {
+            ...restoreRow,
+            from: rowRest.from,
+            to: rowRest.to,
+          };
+          get().doc.setPartBindingsEphemeral(id, liveForRestore);
+        }
+      } else {
+        const liveForRestore: IkiDeformerBinding[] = [
+          ...(get().doc.findMatrixDeformer(id).bindings ?? []),
+        ];
+        const restoreRow = liveForRestore[rowIndex];
+        if (restoreRow !== undefined) {
+          liveForRestore[rowIndex] = {
+            ...restoreRow,
+            from: rowRest.from,
+            to: rowRest.to,
+          };
+          get().doc.setDeformerBindingsEphemeral(id, liveForRestore);
+        }
+      }
 
       // Build the next bindings array: clone current rows, patch the row at rowIndex.
       let currentBindings: IkiBinding[] | IkiDeformerBinding[];

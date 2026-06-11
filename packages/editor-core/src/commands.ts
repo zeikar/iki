@@ -8,7 +8,7 @@ import type {
   IkiModel,
   IkiPart,
 } from "@iki/format";
-import { IKI_FORMAT_VERSION, parseIkiModel } from "@iki/format";
+import { IKI_FORMAT_VERSION, IkiFormatError, parseIkiModel } from "@iki/format";
 
 import type { EditorDocument } from "./document";
 import { upsertGridKeyform } from "./grid-keyform";
@@ -802,8 +802,20 @@ export class SetPartBindings implements EditCommand {
       parameters: doc.getModel().parameters,
       parts: [candidatePart],
     };
-    // Propagate IkiFormatError unchanged — validation before any mutation.
-    parseIkiModel(candidate);
+    // Validation before any mutation. The synthetic candidate always places the
+    // part at parts[0], so the validator emits paths like "parts[0].bindings[i]".
+    // Rewrite that prefix to name the real target so the surfaced error is
+    // actionable ("parts."part-a".bindings[i]" rather than "parts[0].bindings[i]").
+    try {
+      parseIkiModel(candidate);
+    } catch (e) {
+      if (e instanceof IkiFormatError) {
+        throw new IkiFormatError(
+          e.message.replace(/^parts\[0\]/, `parts."${this.partId}"`),
+        );
+      }
+      throw e;
+    }
 
     // Resolution after validation so an unknown partId throws with a
     // path-qualified message (findPart throws) but only after the bindings

@@ -1,6 +1,8 @@
 import { parseIkiModel } from "@iki/format";
 import type {
+  IkiBinding,
   IkiDeformer,
+  IkiDeformerBinding,
   IkiDeformerTransform,
   IkiMatrixDeformer,
   IkiModel,
@@ -335,6 +337,47 @@ export class EditorDocument {
       delete deformer.transform;
     } else {
       deformer.transform = { ...transform };
+    }
+  }
+
+  /**
+   * Overwrite a part's whole bindings array with a fresh deep copy, or delete
+   * the key when `bindings` is empty.
+   *
+   * Deliberately NON-undoable — used ONLY for the editor's transient capture
+   * neutralization (zeroing the row being recaptured so the preview reflects
+   * base-only during posing). Does NOT push to or clear undoStack/redoStack.
+   * The caller is responsible for restoring the original bindings when the
+   * capture session ends.
+   */
+  setPartBindingsEphemeral(partId: string, bindings: IkiBinding[]): void {
+    const part = this.findPart(partId);
+    if (bindings.length > 0) {
+      part.bindings = bindings.map((b) => ({ ...b }));
+    } else {
+      delete part.bindings;
+    }
+  }
+
+  /**
+   * Overwrite a matrix deformer's whole bindings array with a fresh deep copy,
+   * or delete the key when `bindings` is empty.
+   *
+   * Deliberately NON-undoable — used ONLY for the editor's transient capture
+   * neutralization (zeroing the row being recaptured so the preview reflects
+   * base-only during posing). Does NOT push to or clear undoStack/redoStack.
+   * The caller is responsible for restoring the original bindings when the
+   * capture session ends.
+   */
+  setDeformerBindingsEphemeral(
+    deformerId: string,
+    bindings: IkiDeformerBinding[],
+  ): void {
+    const deformer = this.findMatrixDeformer(deformerId);
+    if (bindings.length > 0) {
+      deformer.bindings = bindings.map((b) => ({ ...b }));
+    } else {
+      delete deformer.bindings;
     }
   }
 

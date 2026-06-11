@@ -945,6 +945,162 @@ describe("ephemeral transform methods", () => {
   });
 });
 
+// ── Ephemeral bindings methods ────────────────────────────────────────────────
+
+describe("ephemeral bindings methods", () => {
+  it("setPartBindingsEphemeral: set neutralizes a row; canUndo/canRedo unchanged; restoring rowRest values via set round-trips the original", () => {
+    const doc = new EditorDocument(fixtureModel());
+    // Start with a known binding on part-a.
+    doc.execute(
+      new SetPartBindings("part-a", [
+        { parameter: "ParamA", channel: "translateX", from: -50, to: 50 },
+      ]),
+    );
+    expect(doc.canUndo()).toBe(true);
+    expect(doc.canRedo()).toBe(false);
+
+    // Neutralize (zero) the row ephemerally — simulates enterCapture.
+    doc.setPartBindingsEphemeral("part-a", [
+      { parameter: "ParamA", channel: "translateX", from: 0, to: 0 },
+    ]);
+    expect(doc.findPart("part-a").bindings![0]).toEqual({
+      parameter: "ParamA",
+      channel: "translateX",
+      from: 0,
+      to: 0,
+    });
+    // Undo/redo stacks must be unaffected.
+    expect(doc.canUndo()).toBe(true);
+    expect(doc.canRedo()).toBe(false);
+
+    // Restore the original values — simulates clearCapture restoring rowRest.
+    doc.setPartBindingsEphemeral("part-a", [
+      { parameter: "ParamA", channel: "translateX", from: -50, to: 50 },
+    ]);
+    expect(doc.findPart("part-a").bindings![0]).toEqual({
+      parameter: "ParamA",
+      channel: "translateX",
+      from: -50,
+      to: 50,
+    });
+    expect(doc.canUndo()).toBe(true);
+    expect(doc.canRedo()).toBe(false);
+  });
+
+  it("setPartBindingsEphemeral: empty array deletes the bindings key", () => {
+    const doc = new EditorDocument(fixtureModel());
+    doc.execute(
+      new SetPartBindings("part-a", [
+        { parameter: "ParamA", channel: "scaleX", from: 0.5, to: 2 },
+      ]),
+    );
+    expect(doc.findPart("part-a")).toHaveProperty("bindings");
+
+    doc.setPartBindingsEphemeral("part-a", []);
+    expect(doc.findPart("part-a")).not.toHaveProperty("bindings");
+    expect(doc.canUndo()).toBe(true);
+  });
+
+  it("recapture round-trip: SetPartBindings replaces original binding; Undo restores original from/to", () => {
+    const doc = new EditorDocument(fixtureModel());
+
+    // Establish initial binding {from:-50, to:50}.
+    doc.execute(
+      new SetPartBindings("part-a", [
+        { parameter: "ParamA", channel: "translateX", from: -50, to: 50 },
+      ]),
+    );
+    expect(doc.canUndo()).toBe(true);
+
+    // Simulate enterCapture: zero the row ephemerally.
+    doc.setPartBindingsEphemeral("part-a", [
+      { parameter: "ParamA", channel: "translateX", from: 0, to: 0 },
+    ]);
+
+    // Simulate commitCapture: restore original before executing the command so
+    // the command's prevBindings snapshot sees {from:-50, to:50}.
+    doc.setPartBindingsEphemeral("part-a", [
+      { parameter: "ParamA", channel: "translateX", from: -50, to: 50 },
+    ]);
+
+    // Execute the undoable command with new captured values.
+    doc.execute(
+      new SetPartBindings("part-a", [
+        { parameter: "ParamA", channel: "translateX", from: -30, to: 80 },
+      ]),
+    );
+    expect(doc.findPart("part-a").bindings![0]).toEqual({
+      parameter: "ParamA",
+      channel: "translateX",
+      from: -30,
+      to: 80,
+    });
+
+    // Undo must restore the ORIGINAL {from:-50, to:50}, not the zeroed row.
+    doc.undo();
+    expect(doc.findPart("part-a").bindings![0]).toEqual({
+      parameter: "ParamA",
+      channel: "translateX",
+      from: -50,
+      to: 50,
+    });
+    expect(doc.canRedo()).toBe(true);
+  });
+
+  it("opacity recapture round-trip: neutralize with ×1, commit new values, Undo restores original", () => {
+    const doc = new EditorDocument(fixtureModel());
+
+    // Establish initial opacity binding {from:0.2, to:1}.
+    doc.execute(
+      new SetPartBindings("part-a", [
+        { parameter: "ParamA", channel: "opacity", from: 0.2, to: 1 },
+      ]),
+    );
+    expect(doc.canUndo()).toBe(true);
+
+    // Simulate enterCapture for opacity: neutralize with ×1 identity (not 0).
+    // Using from:0/to:0 would make the part invisible in the preview (opacity×0=0).
+    doc.setPartBindingsEphemeral("part-a", [
+      { parameter: "ParamA", channel: "opacity", from: 1, to: 1 },
+    ]);
+    // The ×1 row leaves the preview unaffected by this binding (identity).
+    expect(doc.findPart("part-a").bindings![0]).toMatchObject({
+      from: 1,
+      to: 1,
+    });
+    expect(doc.canUndo()).toBe(true);
+    expect(doc.canRedo()).toBe(false);
+
+    // Simulate commitCapture: restore original so the command snapshot sees {from:0.2, to:1}.
+    doc.setPartBindingsEphemeral("part-a", [
+      { parameter: "ParamA", channel: "opacity", from: 0.2, to: 1 },
+    ]);
+
+    // Execute the undoable command with new captured values.
+    doc.execute(
+      new SetPartBindings("part-a", [
+        { parameter: "ParamA", channel: "opacity", from: 0.5, to: 0.8 },
+      ]),
+    );
+    expect(doc.findPart("part-a").bindings![0]).toEqual({
+      parameter: "ParamA",
+      channel: "opacity",
+      from: 0.5,
+      to: 0.8,
+    });
+
+    // Undo must restore the ORIGINAL {from:0.2, to:1}, not the neutralized ×1 row.
+    doc.undo();
+    expect(doc.findPart("part-a").bindings![0]).toEqual({
+      parameter: "ParamA",
+      channel: "opacity",
+      from: 0.2,
+      to: 1,
+    });
+    expect(doc.canRedo()).toBe(true);
+  });
+});
+
 // ── SetPartDeformer ───────────────────────────────────────────────────────────
 
 describe("SetPartDeformer", () => {
