@@ -122,6 +122,8 @@ export function Inspector() {
   const model = doc.getModel();
   const deformer =
     model.deformers?.find((d) => d.id === selectedDeformerId) ?? null;
+  const deletePart = useEditorStore((s) => s.deletePart);
+  const deleteDeformer = useEditorStore((s) => s.deleteDeformer);
   const canUndo = useEditorStore((s) => {
     void s.revision;
     return s.doc.canUndo();
@@ -148,12 +150,18 @@ export function Inspector() {
             deformer={deformer}
             model={model}
             runCommand={runCommand}
+            deleteDeformer={deleteDeformer}
           />
         ) : (
           <p style={labelStyle}>Select a part or deformer to edit.</p>
         )
       ) : selectedPartId && part ? (
-        <PartFields part={part} model={model} runCommand={runCommand} />
+        <PartFields
+          part={part}
+          model={model}
+          runCommand={runCommand}
+          deletePart={deletePart}
+        />
       ) : (
         <p style={labelStyle}>Select a part or deformer to edit.</p>
       )}
@@ -165,10 +173,12 @@ function PartFields({
   part,
   model,
   runCommand,
+  deletePart,
 }: {
   part: IkiPart;
   model: IkiModel;
   runCommand: (cmd: EditCommand) => void;
+  deletePart: (id: string) => void;
 }) {
   const id = part.id;
 
@@ -239,6 +249,23 @@ function PartFields({
       />
 
       <TextureField partId={id} />
+
+      <button
+        type="button"
+        onClick={() => deletePart(id)}
+        style={{
+          alignSelf: "flex-start",
+          padding: "2px 8px",
+          fontSize: 12,
+          background: "#2a1a1a",
+          border: "1px solid #7a2a2a",
+          borderRadius: 4,
+          color: "#f08080",
+          cursor: "pointer",
+        }}
+      >
+        Delete
+      </button>
     </div>
   );
 }
@@ -253,10 +280,12 @@ function DeformerPanel({
   deformer,
   model,
   runCommand,
+  deleteDeformer,
 }: {
   deformer: IkiDeformer;
   model: IkiModel;
   runCommand: (cmd: EditCommand) => void;
+  deleteDeformer: (id: string) => void;
 }) {
   const id = deformer.id;
 
@@ -277,6 +306,22 @@ function DeformerPanel({
           model={model}
           runCommand={runCommand}
         />
+        <button
+          type="button"
+          onClick={() => deleteDeformer(id)}
+          style={{
+            alignSelf: "flex-start",
+            padding: "2px 8px",
+            fontSize: 12,
+            background: "#2a1a1a",
+            border: "1px solid #7a2a2a",
+            borderRadius: 4,
+            color: "#f08080",
+            cursor: "pointer",
+          }}
+        >
+          Delete
+        </button>
       </div>
     );
   }
@@ -340,6 +385,23 @@ function DeformerPanel({
         model={model}
         runCommand={runCommand}
       />
+
+      <button
+        type="button"
+        onClick={() => deleteDeformer(id)}
+        style={{
+          alignSelf: "flex-start",
+          padding: "2px 8px",
+          fontSize: 12,
+          background: "#2a1a1a",
+          border: "1px solid #7a2a2a",
+          borderRadius: 4,
+          color: "#f08080",
+          cursor: "pointer",
+        }}
+      >
+        Delete
+      </button>
     </div>
   );
 }
