@@ -58,9 +58,14 @@ interface EditorState {
    * are pruned (bitmap closed, key removed). Consequence (accepted): undoing an
    * AddPart for a textured part DROPS that editor-only texture; redoing brings
    * the part back UNTEXTURED (the command's original snapshot) — the side-table
-   * never claims a texture the model lacks. Model-only committed textures (e.g.
-   * the sample badges) are allowed and unaffected. Removed elsewhere only by the
+   * never claims a texture the model lacks. Removed elsewhere only by the
    * live-part paths: clearPartTexture / setPartTexture replace.
+   *
+   * NOTE: deletePart refuses ANY textured part (imported OR model-committed).
+   * Clear it first: imported side-table textures via clearPartTexture (re-packs
+   * atlas from partTextures); model-committed textures with no side-table entry
+   * (e.g. loaded badges) via clearModelTexture (delegates to
+   * doc.clearPartTextureRef; no atlas re-pack needed). Both paths are non-undoable.
    */
   partTextures: Record<string, DecodedSource>;
   /** Visible banner for atlas-operation failures. */
@@ -83,13 +88,19 @@ interface EditorState {
   addMatrixDeformer: () => void;
   /** Add a new default warp deformer and select it. */
   addWarpDeformer: () => void;
-  /** Delete the part by id, clearing the selection. Refused if the part has an imported texture. */
+  /** Delete the part by id, clearing the selection. Refused if the part has any texture
+   *  (imported OR model-committed). Clear it first: clearPartTexture for an imported
+   *  image; clearModelTexture for a model-committed texture. Both are non-undoable. */
   deletePart: (id: string) => void;
   /** Delete the deformer by id, clearing the selection. */
   deleteDeformer: (id: string) => void;
 
   setPartTexture: (partId: string, decoded: DecodedSource) => void;
   clearPartTexture: (partId: string) => void;
+  /** Non-undoably clear a model-committed texture reference (no imported image).
+   *  Mirrors clearPartTexture's non-undoable boundary but skips atlas re-pack
+   *  (no imported side-table entry to rebuild from). */
+  clearModelTexture: (partId: string) => void;
 }
 
 export const useEditorStore = create<EditorState>((set, get) => {
@@ -294,14 +305,20 @@ export const useEditorStore = create<EditorState>((set, get) => {
     },
 
     deletePart: (id) => {
-      // Refuse if the part carries an imported texture: deleting it here would
-      // force an immediate bitmap close to keep the subset invariant, silently
-      // destroying the imported texture despite the model command being undoable.
-      // Refusing keeps it lossless — clear the texture first, then delete.
-      // (The prune sweep in undo/redo covers those directions, which cannot refuse.)
-      if (get().partTextures[id] !== undefined) {
+      // UX pre-check: refuse with a friendly message before constructing a throwing
+      // command. DeletePart.apply enforces the same texture guard at the editor-core
+      // boundary, so this check is belt-and-suspenders — the real invariant lives in
+      // the command. Both clear paths are NON-undoable: clearPartTexture for imported
+      // images; clearModelTexture for model-committed textures. The prune sweep in
+      // undo/redo covers those directions, which cannot refuse.
+      const hasImportedTexture = get().partTextures[id] !== undefined;
+      const liveModelPart = get()
+        .doc.getModel()
+        .parts.find((p) => p.id === id);
+      const hasModelTexture = liveModelPart?.texture !== undefined;
+      if (hasImportedTexture || hasModelTexture) {
         set({
-          editError: `Cannot delete part "${id}" while it has an imported texture — clear the part's texture first.`,
+          editError: `Cannot delete part "${id}" while it has a texture — clear the part's texture first.`,
         });
         return;
       }
@@ -364,6 +381,15 @@ export const useEditorStore = create<EditorState>((set, get) => {
       // Close the removed bitmap ONLY after a successful commit, so a failed
       // commit rolls back with the bitmap still valid for the live state.
       if (ok && removed !== undefined) removed.bitmap.close();
+    },
+
+    clearModelTexture: (partId) => {
+      try {
+        get().doc.clearPartTextureRef(partId);
+        set((s) => ({ revision: s.revision + 1, editError: null }));
+      } catch (e) {
+        set({ editError: e instanceof Error ? e.message : String(e) });
+      }
     },
   };
 });

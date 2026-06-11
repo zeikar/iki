@@ -508,13 +508,17 @@ export class SetDeformerParent implements EditCommand {
  * (bad color tuple, missing required fields, id collision with a deformer)
  * throws an `IkiFormatError` and leaves the model untouched.
  *
- * Because addition has no prior-value to capture, `invert` simply removes the
- * part by id (the reverse of `apply`'s push). Unlike the FieldCommand pattern,
- * no capture-once guard is needed.
+ * Captures the prior base-UV entry for the part's id on the FIRST apply so
+ * invert can restore the exact pre-add state. This guards the id-reuse hazard:
+ * DeletePart(X) → AddPart(X′, different mesh) → undo(add) → undo(delete) —
+ * without restore, X's constructor-captured base would be gone, causing
+ * applyAtlas to fail when X is restored by the undo of the delete.
  */
 export class AddPart implements EditCommand {
   readonly label = "Add part";
   private readonly part: IkiPart;
+  private captured = false;
+  private prevBaseMeshUvs: number[] | undefined = undefined;
 
   constructor(part: IkiPart) {
     // Clone on construction — prevents caller mutation from corrupting apply/redo.
@@ -544,12 +548,24 @@ export class AddPart implements EditCommand {
     // (c) All checks pass — mutate the real model with a fresh clone so the
     //     model never aliases the command's stored part.
     doc.getModel().parts.push(structuredClone(this.part));
+
+    // Register base mesh UVs so applyAtlas can remap this part. Capture the
+    // prior entry on the FIRST apply only — redo must NOT re-capture or it
+    // would clobber the saved prior and make invert unable to restore correctly.
+    const prev = doc.captureBaseMeshUvs(this.part.id);
+    if (!this.captured) {
+      this.prevBaseMeshUvs = prev;
+      this.captured = true;
+    }
   }
 
   invert(doc: EditorDocument): void {
     const parts = doc.getModel().parts;
     const i = parts.findIndex((p) => p.id === this.part.id);
     if (i !== -1) parts.splice(i, 1);
+    // Restore the exact prior base-UV state so a constructor-captured entry for
+    // a deleted part with this id survives the undo of the add.
+    doc.restoreBaseMeshUvs(this.part.id, this.prevBaseMeshUvs);
   }
 }
 
@@ -630,6 +646,16 @@ export class AddDeformer implements EditCommand {
  * No `parseIkiModel` pre-check is needed: removing an element from an already-
  * valid model cannot introduce a structural violation. Nothing in the model
  * contract references a part by id, so there are no dangling-ref hazards.
+ *
+ * Texture-reference safety (editor-core invariant): `apply` refuses to delete a
+ * part that still carries `part.texture`. Texture/atlas state is non-undoable
+ * per the 5b boundary; clear the texture first via
+ * {@link EditorDocument.clearPartTextureRef} (model-committed) or
+ * {@link EditorDocument.applyAtlas} with no assignment (imported) — both are
+ * non-undoable. By the time a part is deletable it carries no texture, so
+ * `invert` can never restore a stale texture index that would render the wrong
+ * atlas region after a later atlas repack. No transactional atlas capture is
+ * needed in this command.
  */
 export class DeletePart implements EditCommand {
   readonly label = "Delete part";
@@ -642,6 +668,16 @@ export class DeletePart implements EditCommand {
   apply(doc: EditorDocument): void {
     // Validate FIRST — throws with path-qualified message if unknown.
     const part = doc.findPart(this.partId);
+
+    // Texture guard — enforced at the editor-core boundary so public callers
+    // cannot bypass it (the example store adds a friendly pre-check, but this
+    // is the real invariant). Throw before any capture or mutation.
+    if (part.texture !== undefined) {
+      throw new Error(
+        `parts."${this.partId}": cannot delete — part has a texture reference; clear its texture first`,
+      );
+    }
+
     const parts = doc.getModel().parts;
     const i = parts.indexOf(part);
     if (!this.captured) {
@@ -653,8 +689,9 @@ export class DeletePart implements EditCommand {
   }
 
   invert(doc: EditorDocument): void {
-    // Restore at the original slot — exact deep restore including bindings,
-    // mesh, warps, and texture.
+    // Restore at the original slot — exact deep restore including bindings and
+    // mesh. No texture key is present (apply enforced that invariant before
+    // capture), so the snapshot is always atlas-safe on restore.
     doc.getModel().parts.splice(this.index, 0, structuredClone(this.removed));
   }
 }

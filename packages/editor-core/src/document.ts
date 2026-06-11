@@ -108,6 +108,48 @@ export class EditorDocument {
     return deformer;
   }
 
+  /**
+   * Record the base mesh UVs for a part inserted AFTER construction (e.g. by
+   * {@link AddPart}). Returns the PRIOR entry for that id (or `undefined` if
+   * none existed) so the caller can restore it on undo. No-op for meshless
+   * parts (returns `undefined`). Must be called by any command that pushes a
+   * mesh part into the model so the part joins the constructor-captured base-UV
+   * side state required by {@link applyAtlas}.
+   *
+   * The returned prior value is what {@link restoreBaseMeshUvs} expects on
+   * undo — pass it verbatim. Hazard guarded: DeletePart(X) → AddPart(X′) →
+   * undo(add) → undo(delete); without restore, X's constructor-captured entry
+   * would be permanently gone after undo of the add, causing applyAtlas to
+   * fail when X is restored.
+   */
+  captureBaseMeshUvs(partId: string): number[] | undefined {
+    const prev = this.baseMeshUvs.get(partId);
+    const part = this.model.parts.find((p) => p.id === partId);
+    if (part?.mesh) {
+      this.baseMeshUvs.set(partId, part.mesh.uvs.slice());
+    }
+    return prev;
+  }
+
+  /**
+   * Restore the base-UV side state to exactly what it was before a
+   * {@link captureBaseMeshUvs} call. Called from {@link AddPart.invert}:
+   * pass the value returned by captureBaseMeshUvs on first apply.
+   * - `prev` is `number[]` → sets the entry (restores a prior mesh's base).
+   * - `prev` is `undefined` → deletes the entry (no entry existed before the
+   *   add, so a later different-mesh part reusing the id must not inherit this
+   *   one's base).
+   * DeletePart does NOT call this — the entry persists across delete/undo so
+   * the restored part still has its base available for applyAtlas.
+   */
+  restoreBaseMeshUvs(partId: string, prev: number[] | undefined): void {
+    if (prev !== undefined) {
+      this.baseMeshUvs.set(partId, prev);
+    } else {
+      this.baseMeshUvs.delete(partId);
+    }
+  }
+
   /** The construction-captured base UVs for a mesh part. Throws a path-qualified
    *  plain `Error` if absent. SINGLE accessor for both apply branches — never
    *  read `baseMeshUvs` with a bare `!` elsewhere. */
@@ -190,6 +232,27 @@ export class EditorDocument {
         }
       }
     }
+  }
+
+  /**
+   * Clear a model-committed texture reference from a single part. Deliberately
+   * NON-undoable, matching {@link applyAtlas} — texture/atlas state is not in
+   * the undo model (unified editor-state is deferred). Does NOT push to or
+   * clear the undo/redo stacks. Does NOT touch `mesh.uvs` — atlas-space UVs on
+   * an untextured mesh are inert for color rendering; a later atlas import
+   * remaps from the base UVs anyway.
+   *
+   * This is the single consistent texture/atlas undo boundary: by the time a
+   * part is deletable (no texture), its DeletePart snapshot carries no texture
+   * reference, so no stale index can resurface on undo after a later atlas
+   * repack.
+   *
+   * Throws a path-qualified plain `Error` (NOT `IkiFormatError`) if the part
+   * id is unknown — same contract as {@link findPart}.
+   */
+  clearPartTextureRef(partId: string): void {
+    const part = this.findPart(partId);
+    delete part.texture;
   }
 
   /**

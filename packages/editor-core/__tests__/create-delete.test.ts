@@ -323,7 +323,16 @@ describe("DeletePart deep restore", () => {
   it("target absent after delete, fully restored after undo, absent again after redo; clone-safe", () => {
     const doc = new EditorDocument(structuredClone(richModel()));
     const targetId = "rich-part";
+    // Clear the committed texture first (non-undoable) so DeletePart's texture
+    // guard passes. Snapshot AFTER the clear — undo restores to this state.
+    doc.clearPartTextureRef(targetId);
     const before = snap(doc);
+
+    // Confirm the cleared part still has mesh + bindings (deep-restore coverage)
+    const beforePart = before.parts.find((p) => p.id === targetId)!;
+    expect(beforePart.mesh).toBeDefined();
+    expect(beforePart.bindings).toBeDefined();
+    expect(beforePart).not.toHaveProperty("texture");
 
     doc.execute(new DeletePart(targetId));
 
@@ -332,7 +341,7 @@ describe("DeletePart deep restore", () => {
     expect(doc.getModel().parts.find((p) => p.id === targetId)).toBeUndefined();
     expect(() => doc.toIkiModel()).not.toThrow();
 
-    // After undo: full deep equality with snapshot
+    // After undo: full deep equality with post-clear snapshot (mesh + bindings restored)
     doc.undo();
     expect(doc.getModel()).toEqual(before);
     expect(() => doc.toIkiModel()).not.toThrow();
@@ -347,14 +356,57 @@ describe("DeletePart deep restore", () => {
     restored.color = [0, 0, 0, 0]; // corrupt
     doc.redo();
     doc.undo();
-    // The re-restored part must equal the original snapshot's part
+    // The re-restored part must equal the post-clear snapshot's part
     const reRestored = doc.getModel().parts.find((p) => p.id === targetId)!;
     const snapPart = before.parts.find((p) => p.id === targetId)!;
     expect(reRestored).toEqual(snapPart);
   });
 });
 
-// ── 9. DeleteDeformer fail-fast (child deformer) ──────────────────────────────
+// ── 9. DeletePart texture guard ───────────────────────────────────────────────
+
+describe("DeletePart texture guard", () => {
+  it("throws with path-qualified message on a textured part; model unchanged, canUndo false", () => {
+    // richModel "rich-part" has a committed texture — delete must be refused
+    const doc = new EditorDocument(richModel());
+    const before = snap(doc);
+
+    expect(() => doc.execute(new DeletePart("rich-part"))).toThrow(
+      /parts\."rich-part": cannot delete — part has a texture reference/,
+    );
+    expect(doc.canUndo()).toBe(false);
+    expect(doc.getModel()).toEqual(before);
+    expect(() => doc.toIkiModel()).not.toThrow();
+  });
+
+  it("clearPartTextureRef → DeletePart → applyAtlas(empty) → undo: restores textureless part, no stale ref", () => {
+    // Regression: public caller sequence that previously could leave a stale texture
+    // ref after undo. After the guard, undo can only restore a texture-free snapshot.
+    const doc = new EditorDocument(richModel());
+
+    // Clear the texture (non-undoable) — now part is deletable
+    doc.clearPartTextureRef("rich-part");
+    expect(doc.findPart("rich-part")).not.toHaveProperty("texture");
+
+    // Delete the part
+    doc.execute(new DeletePart("rich-part"));
+    expect(
+      doc.getModel().parts.find((p) => p.id === "rich-part"),
+    ).toBeUndefined();
+
+    // Non-undoable atlas change: clear the whole atlas
+    doc.applyAtlas({ textures: [], partTextureAssignments: [] });
+    expect(doc.getModel().textures).toBeUndefined();
+
+    // Undo the delete — part is restored WITHOUT a texture reference
+    doc.undo();
+    const restored = doc.findPart("rich-part");
+    expect(restored).not.toHaveProperty("texture");
+    expect(() => doc.toIkiModel()).not.toThrow();
+  });
+});
+
+// ── 10. DeleteDeformer fail-fast (child deformer) ─────────────────────────────
 
 describe("DeleteDeformer fail-fast (child)", () => {
   it("throws naming the child id when a deformer is parented to the target; model unchanged, canUndo false", () => {
@@ -379,7 +431,7 @@ describe("DeleteDeformer fail-fast (child)", () => {
   });
 });
 
-// ── 10. DeleteDeformer fail-fast (attached part) ──────────────────────────────
+// ── 11. DeleteDeformer fail-fast (attached part) ──────────────────────────────
 
 describe("DeleteDeformer fail-fast (attached part)", () => {
   it("throws naming the part id when a part is attached to the target; model unchanged", () => {
@@ -413,7 +465,7 @@ describe("DeleteDeformer fail-fast (attached part)", () => {
   });
 });
 
-// ── 11. DeleteDeformer happy path (leaf deformer) ─────────────────────────────
+// ── 12. DeleteDeformer happy path (leaf deformer) ─────────────────────────────
 
 describe("DeleteDeformer happy path", () => {
   it("leaf deformer deleted, undo restores deep equality, redo removes again; toIkiModel() passes", () => {
@@ -458,7 +510,7 @@ describe("DeleteDeformer happy path", () => {
   });
 });
 
-// ── 12. Unique-id generation via public factories ─────────────────────────────
+// ── 13. Unique-id generation via public factories ─────────────────────────────
 
 describe("unique-id generation", () => {
   it("createDefaultPart generates sequentially suffixed ids; cross-namespace with deformer id", () => {
@@ -502,7 +554,149 @@ describe("unique-id generation", () => {
   });
 });
 
-// ── 13. warp factory standalone ───────────────────────────────────────────────
+// ── 14. AddPart mesh part + applyAtlas integration ───────────────────────────
+
+const TINY_UV = { x: 0.1, y: 0.1, width: 0.4, height: 0.4 };
+
+/**
+ * Model with one quad part and no mesh parts — mesh part will be added by the
+ * test so it starts life via AddPart (not the constructor).
+ */
+function meshlessBase(): IkiModel {
+  return {
+    version: IKI_FORMAT_VERSION,
+    name: "meshless-base",
+    canvas: { width: 500, height: 500 },
+    parameters: [],
+    parts: [
+      {
+        id: "quad",
+        color: [1, 1, 1, 1],
+        width: 100,
+        height: 100,
+        transform: { x: 0, y: 0 },
+        order: 0,
+      },
+    ],
+  };
+}
+
+describe("AddPart mesh + applyAtlas", () => {
+  it("AddPart of a mesh part then applyAtlas does NOT throw and remaps uvs", () => {
+    const doc = new EditorDocument(meshlessBase());
+
+    const meshPart = createDefaultPart(doc.getModel());
+    meshPart.mesh = {
+      vertices: [-0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5],
+      uvs: [0, 0, 1, 0, 0, 1, 1, 1],
+      indices: [0, 1, 2, 2, 1, 3],
+    };
+    doc.execute(new AddPart(meshPart));
+
+    // applyAtlas must succeed — captureBaseMeshUvs was called on AddPart.apply
+    expect(() =>
+      doc.applyAtlas({
+        textures: [{ source: TINY_PNG }],
+        partTextureAssignments: [{ partId: meshPart.id, uv: TINY_UV }],
+      }),
+    ).not.toThrow();
+
+    // Confirm the part got its texture and remapped UVs
+    const added = doc.findPart(meshPart.id);
+    expect(added.texture).toEqual({ index: 0, uv: TINY_UV });
+    expect(added.mesh!.uvs).not.toEqual([0, 0, 1, 0, 0, 1, 1, 1]);
+  });
+
+  it("after undo of AddPart, applyAtlas over remaining parts still works", () => {
+    const doc = new EditorDocument(meshlessBase());
+
+    const meshPart = createDefaultPart(doc.getModel());
+    meshPart.mesh = {
+      vertices: [-0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5],
+      uvs: [0, 0, 1, 0, 0, 1, 1, 1],
+      indices: [0, 1, 2, 2, 1, 3],
+    };
+    doc.execute(new AddPart(meshPart));
+
+    // Undo the AddPart — restoreBaseMeshUvs clears the entry (no prior existed)
+    doc.undo();
+
+    // Only "quad" remains, which has no mesh — empty atlas is the valid call
+    expect(() =>
+      doc.applyAtlas({ textures: [], partTextureAssignments: [] }),
+    ).not.toThrow();
+  });
+
+  // ── 14. AddPart id-reuse base-UV restore ─────────────────────────────────────
+  it("id-reuse undo hazard: DeletePart(X) → AddPart(X′) → undo(add) → undo(delete) → applyAtlas uses X's original base", () => {
+    // richModel has "rich-part" with a mesh — its base UVs are constructor-captured
+    const doc = new EditorDocument(richModel());
+    const originalBaseUvs = [0, 0, 0.5, 0, 0.5, 0.5, 0, 0.5]; // from richModel fixture
+
+    // Step 1: clear texture first (non-undoable), then delete
+    doc.clearPartTextureRef("rich-part");
+    doc.execute(new DeletePart("rich-part"));
+    expect(
+      doc.getModel().parts.find((p) => p.id === "rich-part"),
+    ).toBeUndefined();
+
+    // Step 2: add a DIFFERENT mesh part reusing the same id (different UVs)
+    const replacement = createDefaultPart(doc.getModel());
+    replacement.id = "rich-part"; // force id collision intentionally via fixture
+    // Remove id collision with existing parts first — the fixture has "plain" only now
+    replacement.id = "rich-part";
+    replacement.mesh = {
+      vertices: [-1, -1, 1, -1, -1, 1, 1, 1],
+      uvs: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8], // different from original
+      indices: [0, 1, 2, 0, 2, 3],
+    };
+    doc.execute(new AddPart(replacement));
+
+    // Step 3: undo the add — restoreBaseMeshUvs must restore the original entry
+    doc.undo();
+
+    // Step 4: undo the delete — "rich-part" is restored with its original mesh
+    doc.undo();
+    const restored = doc.getModel().parts.find((p) => p.id === "rich-part");
+    expect(restored).toBeDefined();
+    expect(restored!.mesh).toBeDefined();
+
+    // Step 5: applyAtlas must NOT throw — original base must still be in the map
+    expect(() =>
+      doc.applyAtlas({
+        textures: [{ source: TINY_PNG }],
+        partTextureAssignments: [{ partId: "rich-part", uv: TINY_UV }],
+      }),
+    ).not.toThrow();
+
+    // Confirm uvs were remapped from X's ORIGINAL base (not the replacement's)
+    const part = doc.findPart("rich-part");
+    expect(part.texture).toEqual({ index: 0, uv: TINY_UV });
+    // The mesh uvs should NOT equal the original static base (they are remapped)
+    expect(part.mesh!.uvs).not.toEqual(originalBaseUvs);
+  });
+});
+
+// ── 16. clearPartTextureRef ───────────────────────────────────────────────────
+
+describe("clearPartTextureRef", () => {
+  it("clears committed texture non-undoably: texture absent, toIkiModel passes, canUndo unchanged", () => {
+    // richModel has "rich-part" with a committed texture; give it a prior undo
+    // entry to confirm clearPartTextureRef does NOT push to the undo stack.
+    const doc = new EditorDocument(richModel());
+    doc.execute(new AddPart(createDefaultPart(doc.getModel())));
+    const canUndoBefore = doc.canUndo(); // true — AddPart is on the stack
+
+    doc.clearPartTextureRef("rich-part");
+
+    expect(doc.findPart("rich-part")).not.toHaveProperty("texture");
+    expect(() => doc.toIkiModel()).not.toThrow();
+    // No undo entry created — stack depth unchanged
+    expect(doc.canUndo()).toBe(canUndoBefore);
+  });
+});
+
+// ── 17. warp factory standalone ───────────────────────────────────────────────
 
 describe("createDefaultWarpDeformer standalone", () => {
   it("a model containing only the factory's output passes parseIkiModel", () => {

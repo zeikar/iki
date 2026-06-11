@@ -660,14 +660,26 @@ const errorStyle: CSSProperties = {
  * Per-part texture drop zone. Renders for ALL parts (quad and mesh).
  * Single-image: multi-file drops take only the first file.
  * The store owns ALL bitmap cleanup — this component never calls bitmap.close().
+ *
+ * Clear paths (both non-undoable, consistent with the atlas layer):
+ * - Imported side-table image present → clearPartTexture (atlas re-pack).
+ * - No imported image but model-committed texture present → clearModelTexture
+ *   (calls doc.clearPartTextureRef; no atlas re-pack needed).
  */
 function TextureField({ partId }: { partId: string }) {
   const currentImage = useEditorStore((s) => {
     void s.revision;
     return s.partTextures[partId] ?? null;
   });
+  const hasModelTexture = useEditorStore((s) => {
+    void s.revision;
+    return (
+      s.doc.getModel().parts.find((p) => p.id === partId)?.texture !== undefined
+    );
+  });
   const setPartTexture = useEditorStore((s) => s.setPartTexture);
   const clearPartTexture = useEditorStore((s) => s.clearPartTexture);
+  const clearModelTexture = useEditorStore((s) => s.clearModelTexture);
   const atlasError = useEditorStore((s) => s.atlasError);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -764,7 +776,7 @@ function TextureField({ partId }: { partId: string }) {
         onChange={onFileInputChange}
       />
 
-      {/* Current image thumbnail/label */}
+      {/* Current image thumbnail/label — imported side-table image */}
       {currentImage !== null && (
         <div
           style={{
@@ -800,6 +812,31 @@ function TextureField({ partId }: { partId: string }) {
           <button
             type="button"
             onClick={() => clearPartTexture(partId)}
+            style={{
+              flexShrink: 0,
+              padding: "2px 8px",
+              fontSize: 12,
+              background: "#2a1a1a",
+              border: "1px solid #7a2a2a",
+              borderRadius: 4,
+              color: "#f08080",
+              cursor: "pointer",
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* Clear button for model-committed texture (no imported image) */}
+      {currentImage === null && hasModelTexture && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 12, color: "#9a9aa5" }}>
+            Model texture assigned
+          </span>
+          <button
+            type="button"
+            onClick={() => clearModelTexture(partId)}
             style={{
               flexShrink: 0,
               padding: "2px 8px",
