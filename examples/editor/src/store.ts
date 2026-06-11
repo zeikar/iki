@@ -552,9 +552,6 @@ export const useEditorStore = create<EditorState>((set, get) => {
     },
 
     removePartMesh: (partId) => {
-      // runCommand already calls clearCapture() internally, but we call it
-      // explicitly first to mirror the pattern of other actions and be explicit.
-      clearCapture();
       get().runCommand(new SetPartMesh(partId, undefined));
     },
 

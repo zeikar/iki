@@ -392,7 +392,55 @@ describe("attach-to-warp gate", () => {
   });
 });
 
-// ── 6. path rewrite on degenerate candidate ───────────────────────────────────
+// ── 6. undo rebuilds uvs against CURRENT texture rect (post-applyAtlas) ──────
+
+describe("SetPartMesh undo rebuilds uvs from base against current texture rect", () => {
+  it("undo after a second applyAtlas uses R2 rect, not stale R1 uvs", () => {
+    const doc = new EditorDocument(meshlessModel());
+    const partId = "part-a";
+
+    // Give the part a mesh
+    doc.execute(new SetPartMesh(partId, createGridMesh(2, 2)));
+
+    // applyAtlas with rect R1
+    const R1 = { x: 0.1, y: 0.1, width: 0.4, height: 0.4 };
+    doc.applyAtlas({
+      textures: [{ source: TINY_PNG }],
+      partTextureAssignments: [{ partId, uv: R1 }],
+    });
+
+    // Regenerate mesh (captures prevMesh with R1-remapped uvs, prevBaseMeshUvs = unit-square)
+    doc.execute(new SetPartMesh(partId, createGridMesh(3, 3)));
+
+    // applyAtlas with rect R2 (non-undoable, does not clear undo stack)
+    const R2 = { x: 0.5, y: 0.5, width: 0.3, height: 0.3 };
+    doc.applyAtlas({
+      textures: [{ source: TINY_PNG }],
+      partTextureAssignments: [{ partId, uv: R2 }],
+    });
+
+    // Undo the regenerate — must restore mesh uvs against R2, NOT stale R1
+    doc.undo();
+
+    const part = doc.getModel().parts.find((p) => p.id === partId)!;
+    expect(part.mesh).toBeDefined();
+    expect(part.texture?.uv).toEqual(R2);
+
+    // The unit-square base for a 2×2 grid; remapMeshUvsToRect derives expected uvs
+    const mesh2x2 = createGridMesh(2, 2);
+    const expectedUvs: number[] = [];
+    for (let i = 0; i < mesh2x2.uvs.length; i += 2) {
+      expectedUvs.push(R2.x + mesh2x2.uvs[i] * R2.width);
+      expectedUvs.push(R2.y + mesh2x2.uvs[i + 1] * R2.height);
+    }
+    expect(part.mesh!.uvs).toEqual(expectedUvs);
+
+    // Model must still be valid
+    expect(() => parseIkiModel(doc.toIkiModel())).not.toThrow();
+  });
+});
+
+// ── 7. path rewrite on degenerate candidate ───────────────────────────────────
 
 describe("SetPartMesh path rewrite on degenerate candidate", () => {
   it('degenerate mesh (< 3 vertices) throws IkiFormatError with parts."part-a" in message', () => {

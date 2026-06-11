@@ -1064,13 +1064,34 @@ export class SetPartMesh implements EditCommand {
 
   invert(doc: EditorDocument): void {
     const part = doc.findPart(this.partId);
-    // Restore the mesh exactly, preserving the absent-vs-present distinction.
+    // Restore the mesh, preserving the absent-vs-present distinction.
+    // applyAtlas (and texture changes generally) are NON-undoable and do NOT
+    // clear the undo stack. So by the time undo() is called, part.texture may
+    // have been changed by a later applyAtlas that this command never saw. To
+    // avoid restoring stale texture-space UVs, rebuild uvs from the captured
+    // unit-square base against the CURRENT texture rect rather than trusting
+    // prevMesh.uvs verbatim.
     if (this.prevHadMesh) {
-      part.mesh = structuredClone(this.prevMesh!);
+      // A mesh part ALWAYS has a registered unit-square base under the invariant
+      // (applyAtlas preflights requireBaseUvs for every mesh part). If the base is
+      // absent here the side-table invariant is broken — fail fast rather than
+      // silently restoring stale texture-space uvs that would corrupt rendering.
+      if (this.prevBaseMeshUvs === undefined) {
+        throw new Error(
+          `parts."${this.partId}": cannot invert SetPartMesh — no base mesh uvs captured for a mesh part (broken side-table invariant)`,
+        );
+      }
+      const restored = structuredClone(this.prevMesh!);
+      // Remap the unit-square base into the current texture rect (if any).
+      restored.uvs =
+        part.texture !== undefined
+          ? remapMeshUvsToRect(this.prevBaseMeshUvs, part.texture.uv)
+          : this.prevBaseMeshUvs.slice();
+      part.mesh = restored;
     } else {
       delete part.mesh;
     }
-    // Restore the side-table to the exact prior state.
+    // Restore the side-table to the exact prior state (unit-square base).
     doc.restoreBaseMeshUvs(this.partId, this.prevBaseMeshUvs);
   }
 }
