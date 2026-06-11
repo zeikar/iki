@@ -1,5 +1,12 @@
 import {
   EditorDocument,
+  AddDeformer,
+  AddPart,
+  DeleteDeformer,
+  DeletePart,
+  createDefaultMatrixDeformer,
+  createDefaultPart,
+  createDefaultWarpDeformer,
   packAtlas,
   uvRectFor,
   type AtlasSource,
@@ -45,6 +52,15 @@ interface EditorState {
    * (textures + per-part UVs) via {@link EditorDocument.applyAtlas}; this holds
    * the source material the editor needs to re-pack on the next op. The packed
    * layout + data URI are NOT stored (recomputed on each operation).
+   *
+   * DEFINITIVE subset invariant: keys are ALWAYS a subset of live part ids —
+   * no dormant state. On every undo/redo, entries whose part no longer exists
+   * are pruned (bitmap closed, key removed). Consequence (accepted): undoing an
+   * AddPart for a textured part DROPS that editor-only texture; redoing brings
+   * the part back UNTEXTURED (the command's original snapshot) — the side-table
+   * never claims a texture the model lacks. Model-only committed textures (e.g.
+   * the sample badges) are allowed and unaffected. Removed elsewhere only by the
+   * live-part paths: clearPartTexture / setPartTexture replace.
    */
   partTextures: Record<string, DecodedSource>;
   /** Visible banner for atlas-operation failures. */
@@ -60,6 +76,17 @@ interface EditorState {
   setAtlasError: (msg: string | null) => void;
   setLoaded: () => void;
   setGridEditMode: (on: boolean) => void;
+
+  /** Add a new default part and select it. */
+  addPart: () => void;
+  /** Add a new default matrix deformer and select it. */
+  addMatrixDeformer: () => void;
+  /** Add a new default warp deformer and select it. */
+  addWarpDeformer: () => void;
+  /** Delete the part by id, clearing the selection. Refused if the part has an imported texture. */
+  deletePart: (id: string) => void;
+  /** Delete the deformer by id, clearing the selection. */
+  deleteDeformer: (id: string) => void;
 
   setPartTexture: (partId: string, decoded: DecodedSource) => void;
   clearPartTexture: (partId: string) => void;
@@ -125,6 +152,37 @@ export const useEditorStore = create<EditorState>((set, get) => {
     return true;
   };
 
+  /**
+   * Return a NEW partTextures table containing only the entries whose partId is
+   * still in `liveIds`, closing the bitmap of every pruned entry.
+   *
+   * Called after every undo/redo (BOTH directions) to enforce the subset
+   * invariant: partTextures keys must always be a subset of live part ids.
+   * The undo of an AddPart (or redo of a DeletePart) removes a part, so its
+   * side-table entry must be pruned rather than left as dormant state that could
+   * later resurrect with a stale id. Texture ops are non-undoable, so the sweep
+   * must run on both undo and redo paths.
+   *
+   * Does NOT call commitAtlas — that would repack and re-render the atlas, which
+   * is unnecessary here (the pruned part is gone; the remaining entries are
+   * already committed). The atlas may retain an unreferenced stale region after
+   * a prune; that is accepted and harmless (a later atlas op re-packs).
+   */
+  const prunePartTextures = (
+    partTextures: Record<string, DecodedSource>,
+    liveIds: Set<string>,
+  ): Record<string, DecodedSource> => {
+    const pruned: Record<string, DecodedSource> = {};
+    for (const [partId, decoded] of Object.entries(partTextures)) {
+      if (liveIds.has(partId)) {
+        pruned[partId] = decoded;
+      } else {
+        decoded.bitmap.close();
+      }
+    }
+    return pruned;
+  };
+
   return {
     doc: new EditorDocument(sampleModel),
     selectedPartId: null,
@@ -148,11 +206,29 @@ export const useEditorStore = create<EditorState>((set, get) => {
     },
     undo: () => {
       get().doc.undo();
-      set((s) => ({ revision: s.revision + 1, editError: null }));
+      const liveIds = new Set(
+        get()
+          .doc.getModel()
+          .parts.map((p) => p.id),
+      );
+      set((s) => ({
+        revision: s.revision + 1,
+        editError: null,
+        partTextures: prunePartTextures(s.partTextures, liveIds),
+      }));
     },
     redo: () => {
       get().doc.redo();
-      set((s) => ({ revision: s.revision + 1, editError: null }));
+      const liveIds = new Set(
+        get()
+          .doc.getModel()
+          .parts.map((p) => p.id),
+      );
+      set((s) => ({
+        revision: s.revision + 1,
+        editError: null,
+        partTextures: prunePartTextures(s.partTextures, liveIds),
+      }));
     },
     select: (partId) =>
       set({
@@ -168,6 +244,93 @@ export const useEditorStore = create<EditorState>((set, get) => {
     setAtlasError: (msg) => set({ atlasError: msg }),
     setLoaded: () => set({ loaded: true }),
     setGridEditMode: (on) => set({ gridEditMode: on }),
+
+    addPart: () => {
+      const part = createDefaultPart(get().doc.getModel());
+      const newId = part.id;
+      try {
+        get().doc.execute(new AddPart(part));
+        set((s) => ({
+          revision: s.revision + 1,
+          editError: null,
+          selectedPartId: newId,
+          selectedDeformerId: null,
+        }));
+      } catch (e) {
+        set({ editError: e instanceof Error ? e.message : String(e) });
+      }
+    },
+
+    addMatrixDeformer: () => {
+      const deformer = createDefaultMatrixDeformer(get().doc.getModel());
+      const newId = deformer.id;
+      try {
+        get().doc.execute(new AddDeformer(deformer));
+        set((s) => ({
+          revision: s.revision + 1,
+          editError: null,
+          selectedDeformerId: newId,
+          selectedPartId: null,
+        }));
+      } catch (e) {
+        set({ editError: e instanceof Error ? e.message : String(e) });
+      }
+    },
+
+    addWarpDeformer: () => {
+      const deformer = createDefaultWarpDeformer(get().doc.getModel());
+      const newId = deformer.id;
+      try {
+        get().doc.execute(new AddDeformer(deformer));
+        set((s) => ({
+          revision: s.revision + 1,
+          editError: null,
+          selectedDeformerId: newId,
+          selectedPartId: null,
+        }));
+      } catch (e) {
+        set({ editError: e instanceof Error ? e.message : String(e) });
+      }
+    },
+
+    deletePart: (id) => {
+      // Refuse if the part carries an imported texture: deleting it here would
+      // force an immediate bitmap close to keep the subset invariant, silently
+      // destroying the imported texture despite the model command being undoable.
+      // Refusing keeps it lossless — clear the texture first, then delete.
+      // (The prune sweep in undo/redo covers those directions, which cannot refuse.)
+      if (get().partTextures[id] !== undefined) {
+        set({
+          editError: `Cannot delete part "${id}" while it has an imported texture — clear the part's texture first.`,
+        });
+        return;
+      }
+      try {
+        get().doc.execute(new DeletePart(id));
+        set((s) => ({
+          revision: s.revision + 1,
+          editError: null,
+          selectedPartId: null,
+          selectedDeformerId: null,
+        }));
+      } catch (e) {
+        set({ editError: e instanceof Error ? e.message : String(e) });
+      }
+    },
+
+    deleteDeformer: (id) => {
+      try {
+        get().doc.execute(new DeleteDeformer(id));
+        set((s) => ({
+          revision: s.revision + 1,
+          editError: null,
+          selectedPartId: null,
+          selectedDeformerId: null,
+        }));
+      } catch (e) {
+        set({ editError: e instanceof Error ? e.message : String(e) });
+      }
+    },
 
     setPartTexture: (partId, decoded) => {
       // Validate VISIBLY before deriving — never a silent no-op.
