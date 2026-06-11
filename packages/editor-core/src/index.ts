@@ -35,3 +35,8 @@ export {
   type AtlasLayout,
 } from "./atlas";
 export { validateDeformerReparent, validatePartAttach } from "./reparent";
+export {
+  createDefaultPart,
+  createDefaultMatrixDeformer,
+  createDefaultWarpDeformer,
+} from "./factories";
