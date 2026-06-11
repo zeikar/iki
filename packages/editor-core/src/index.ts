@@ -49,4 +49,5 @@ export {
   createDefaultPart,
   createDefaultMatrixDeformer,
   createDefaultWarpDeformer,
+  createGridMesh,
 } from "./factories";

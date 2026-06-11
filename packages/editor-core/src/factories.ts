@@ -1,5 +1,6 @@
 import type {
   IkiMatrixDeformer,
+  IkiMesh,
   IkiModel,
   IkiPart,
   IkiWarpDeformer,
@@ -108,6 +109,78 @@ export function createDefaultMatrixDeformer(
     id: generateUniqueId(model, "deformer"),
     pivot: { x: 0, y: 0 },
   };
+}
+
+/**
+ * Create a regular grid mesh in part LOCAL space (±0.5 unit frame).
+ *
+ * Vertices span x ∈ [-0.5, 0.5] and y ∈ [-0.5, 0.5] (+y up, engine convention).
+ * Row 0 is the TOP of the grid (y = +0.5); row index increases downward.
+ * UVs are unit-square base coordinates: u = col/cols (0..1 left→right),
+ * v = row/rows (0..1 top→bottom). The top row maps to v=0 because v and y
+ * run in opposite directions — keeps textures upright without a post-flip.
+ * The UV-to-texture remap (atlas rect) is applied later in SetPartMesh, not here.
+ *
+ * Index winding per cell: [BL, BR, TL] then [TL, BR, TR], matching the engine's
+ * implicit-quad convention (see examples/editor/src/mesh-generator.ts).
+ *
+ * Bounds are validated BEFORE any array allocation because this factory runs
+ * before SetPartMesh's parseIkiModel — an unbounded count would freeze the
+ * editor before the format-level 65536 limit is ever reached.
+ */
+export function createGridMesh(cols: number, rows: number): IkiMesh {
+  // Guard: cols/rows must be integers ≥1 and the vertex count must fit within
+  // the format limit of 65536 vertices (packages/format/src/validate.ts parseMesh).
+  if (
+    !Number.isInteger(cols) ||
+    cols < 1 ||
+    !Number.isInteger(rows) ||
+    rows < 1 ||
+    (cols + 1) * (rows + 1) > 65536
+  ) {
+    throw new Error(
+      "createGridMesh: cols and rows must be integers >= 1 with (cols+1)*(rows+1) <= 65536",
+    );
+  }
+
+  const colVerts = cols + 1;
+  const rowVerts = rows + 1;
+
+  const vertices: number[] = [];
+  const uvs: number[] = [];
+
+  // Row 0 is TOP (y = +0.5). Row `rows` is BOTTOM (y = -0.5).
+  // Column 0 is left (x = -0.5). Column `cols` is right (x = +0.5).
+  for (let row = 0; row < rowVerts; row++) {
+    const t = row / rows;
+    const y = 0.5 - t; // +0.5 at row 0, -0.5 at row `rows`
+    const v = t; // 0 at top row, 1 at bottom row
+
+    for (let col = 0; col < colVerts; col++) {
+      const s = col / cols;
+      const x = -0.5 + s; // -0.5 at col 0, +0.5 at col `cols`
+      const u = s; // 0 at left col, 1 at right col
+
+      vertices.push(x, y);
+      uvs.push(u, v);
+    }
+  }
+
+  // Two triangles per cell: [BL, BR, TL] then [TL, BR, TR].
+  const indices: number[] = [];
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const tl = row * colVerts + col;
+      const tr = row * colVerts + col + 1;
+      const bl = (row + 1) * colVerts + col;
+      const br = (row + 1) * colVerts + col + 1;
+
+      indices.push(bl, br, tl);
+      indices.push(tl, br, tr);
+    }
+  }
+
+  return { vertices, uvs, indices };
 }
 
 /**
