@@ -1,14 +1,40 @@
 import type {
+  IkiDeformer,
   IkiDeformerBinding,
   IkiDeformerTransform,
   IkiGridKeyform,
   IkiMatrixDeformer,
+  IkiModel,
   IkiPart,
 } from "@iki/format";
+import { parseIkiModel } from "@iki/format";
 
 import type { EditorDocument } from "./document";
 import { upsertGridKeyform } from "./grid-keyform";
-import { validateDeformerReparent, validatePartAttach } from "./reparent";
+import {
+  validateDeformerDelete,
+  validateDeformerReparent,
+  validatePartAttach,
+} from "./reparent";
+
+/**
+ * Scan the id-flat namespace (parts first, then deformers) and return which
+ * array already holds `id`, or `undefined` if the id is free. Parts and
+ * deformers share a single flat id namespace, so both arrays must be checked
+ * to produce a source-qualified collision message.
+ */
+function findIdCollision(
+  model: IkiModel,
+  id: string,
+): "part" | "deformer" | undefined {
+  for (const p of model.parts) {
+    if (p.id === id) return "part";
+  }
+  for (const d of model.deformers ?? []) {
+    if (d.id === id) return "deformer";
+  }
+  return undefined;
+}
 
 /**
  * One invertible edit. The document is passed IN at apply/invert time — a
@@ -473,6 +499,208 @@ export class SetDeformerParent implements EditCommand {
     } else {
       delete deformer.parent;
     }
+  }
+}
+
+/**
+ * Add a new part to the model. Validates the candidate model with
+ * {@link parseIkiModel} BEFORE mutating, so a structurally invalid part
+ * (bad color tuple, missing required fields, id collision with a deformer)
+ * throws an `IkiFormatError` and leaves the model untouched.
+ *
+ * Because addition has no prior-value to capture, `invert` simply removes the
+ * part by id (the reverse of `apply`'s push). Unlike the FieldCommand pattern,
+ * no capture-once guard is needed.
+ */
+export class AddPart implements EditCommand {
+  readonly label = "Add part";
+  private readonly part: IkiPart;
+
+  constructor(part: IkiPart) {
+    // Clone on construction — prevents caller mutation from corrupting apply/redo.
+    this.part = structuredClone(part);
+  }
+
+  apply(doc: EditorDocument): void {
+    // (a) Cheap id-uniqueness pre-check with a source-qualified message.
+    const hit = findIdCollision(doc.getModel(), this.part.id);
+    if (hit === "part") {
+      throw new Error(
+        `parts: id "${this.part.id}" collides with an existing part id`,
+      );
+    }
+    if (hit === "deformer") {
+      throw new Error(
+        `parts: id "${this.part.id}" collides with an existing deformer id`,
+      );
+    }
+
+    // (b) Full structural validation on a candidate clone — propagate
+    //     IkiFormatError unchanged so the caller gets a path-qualified message.
+    const candidate = structuredClone(doc.getModel());
+    candidate.parts.push(structuredClone(this.part));
+    parseIkiModel(candidate);
+
+    // (c) All checks pass — mutate the real model with a fresh clone so the
+    //     model never aliases the command's stored part.
+    doc.getModel().parts.push(structuredClone(this.part));
+  }
+
+  invert(doc: EditorDocument): void {
+    const parts = doc.getModel().parts;
+    const i = parts.findIndex((p) => p.id === this.part.id);
+    if (i !== -1) parts.splice(i, 1);
+  }
+}
+
+/**
+ * Add a new deformer (matrix or warp) to the model. Validates the candidate
+ * model with {@link parseIkiModel} BEFORE mutating — this enforces the warp
+ * rest-grid invariant, points length, pivot, parent, and bindings without
+ * hand-rolling partial checks. Mirrors {@link AddPart} but also tracks whether
+ * `model.deformers` was absent before the first apply, so `invert` can restore
+ * the exact key-absence state (mirrors {@link SetDeformerBindings}).
+ */
+export class AddDeformer implements EditCommand {
+  readonly label = "Add deformer";
+  private readonly deformer: IkiDeformer;
+  private captured = false;
+  private prevDeformersAbsent = false;
+
+  constructor(deformer: IkiDeformer) {
+    // Clone on construction — prevents caller mutation from corrupting apply/redo.
+    this.deformer = structuredClone(deformer);
+  }
+
+  apply(doc: EditorDocument): void {
+    const model = doc.getModel();
+
+    // (a) Cheap id-uniqueness pre-check with a source-qualified message.
+    const hit = findIdCollision(model, this.deformer.id);
+    if (hit === "deformer") {
+      throw new Error(
+        `deformers: id "${this.deformer.id}" collides with an existing deformer id`,
+      );
+    }
+    if (hit === "part") {
+      throw new Error(
+        `deformers: id "${this.deformer.id}" collides with an existing part id`,
+      );
+    }
+
+    // (b) Full structural validation on a candidate clone.
+    const candidate = structuredClone(model);
+    candidate.deformers = [
+      ...(candidate.deformers ?? []),
+      structuredClone(this.deformer),
+    ];
+    parseIkiModel(candidate);
+
+    // (c) All checks pass — capture-once, then mutate.
+    if (!this.captured) {
+      this.prevDeformersAbsent = model.deformers === undefined;
+      this.captured = true;
+    }
+    if (model.deformers === undefined) {
+      model.deformers = [];
+    }
+    model.deformers.push(structuredClone(this.deformer));
+  }
+
+  invert(doc: EditorDocument): void {
+    const model = doc.getModel();
+    const arr = model.deformers;
+    if (!arr) return;
+    const i = arr.findIndex((d) => d.id === this.deformer.id);
+    if (i !== -1) arr.splice(i, 1);
+    // Restore the absent-vs-present distinction. If deformers did not exist
+    // before apply, delete the key once the array is empty again.
+    if (this.prevDeformersAbsent && arr.length === 0) {
+      delete model.deformers;
+    }
+  }
+}
+
+/**
+ * Delete a part by id, preserving its original array slot so `invert` restores
+ * it at the same position. Slot position is cosmetic (the renderer uses the
+ * `order` field for paint ordering), but restoring the index keeps undo
+ * visually predictable.
+ *
+ * No `parseIkiModel` pre-check is needed: removing an element from an already-
+ * valid model cannot introduce a structural violation. Nothing in the model
+ * contract references a part by id, so there are no dangling-ref hazards.
+ */
+export class DeletePart implements EditCommand {
+  readonly label = "Delete part";
+  private captured = false;
+  private removed!: IkiPart;
+  private index!: number;
+
+  constructor(private readonly partId: string) {}
+
+  apply(doc: EditorDocument): void {
+    // Validate FIRST — throws with path-qualified message if unknown.
+    const part = doc.findPart(this.partId);
+    const parts = doc.getModel().parts;
+    const i = parts.indexOf(part);
+    if (!this.captured) {
+      this.removed = structuredClone(part);
+      this.index = i;
+      this.captured = true;
+    }
+    parts.splice(i, 1);
+  }
+
+  invert(doc: EditorDocument): void {
+    // Restore at the original slot — exact deep restore including bindings,
+    // mesh, warps, and texture.
+    doc.getModel().parts.splice(this.index, 0, structuredClone(this.removed));
+  }
+}
+
+/**
+ * Delete a deformer by id. Calls {@link validateDeformerDelete} FIRST so the
+ * delete is refused when other deformers are parented to it or parts are still
+ * attached — enforcing the same referential safety as {@link SetDeformerParent}
+ * and {@link SetPartDeformer}.
+ *
+ * `invert` re-inserts the deformer at its original index. The `??=` on
+ * `model.deformers` is defensive — a deformer existed to delete so the array is
+ * guaranteed present, but avoids a runtime crash if the model is in an
+ * unexpected state.
+ */
+export class DeleteDeformer implements EditCommand {
+  readonly label = "Delete deformer";
+  private captured = false;
+  private removed!: IkiDeformer;
+  private index!: number;
+
+  constructor(private readonly deformerId: string) {}
+
+  apply(doc: EditorDocument): void {
+    const model = doc.getModel();
+    // Validate FIRST — throws before capture/mutate on any referential violation.
+    validateDeformerDelete(model.deformers ?? [], model.parts, this.deformerId);
+    // validateDeformerDelete guarantees the deformer (and thus the array) exists.
+    const arr = model.deformers!;
+    const i = arr.findIndex((d) => d.id === this.deformerId);
+    if (!this.captured) {
+      this.removed = structuredClone(arr[i]);
+      this.index = i;
+      this.captured = true;
+    }
+    arr.splice(i, 1);
+  }
+
+  invert(doc: EditorDocument): void {
+    // Re-insert at the original slot. `??=` is defensive — deformers must
+    // already be present given a deformer existed to delete.
+    (doc.getModel().deformers ??= []).splice(
+      this.index,
+      0,
+      structuredClone(this.removed),
+    );
   }
 }
 

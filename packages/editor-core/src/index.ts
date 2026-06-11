@@ -4,7 +4,11 @@ export {
   type ApplyAtlasInput,
 } from "./document";
 export {
+  AddDeformer,
+  AddPart,
   CaptureGridKeyform,
+  DeleteDeformer,
+  DeletePart,
   SetDeformerBindings,
   SetDeformerParent,
   SetDeformerPivotX,
