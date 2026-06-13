@@ -331,6 +331,43 @@ export class SetDeformerPivotY extends DeformerFieldCommand<number> {
   }
 }
 
+/**
+ * Set a matrix deformer's pivot x and y atomically (one drag = one undo step).
+ * {@link SetDeformerPivotX} and {@link SetDeformerPivotY} remain for the
+ * Inspector's single-axis number inputs.
+ */
+export class SetDeformerPivot implements EditCommand {
+  readonly label = "Set pivot";
+  private captured = false;
+  private prevPivot!: { x: number; y: number };
+  private readonly pivot: { x: number; y: number };
+
+  constructor(
+    private readonly deformerId: string,
+    pivot: { x: number; y: number },
+  ) {
+    // Fresh clone so a caller mutating their arg after construction cannot
+    // corrupt apply/redo.
+    this.pivot = { x: pivot.x, y: pivot.y };
+  }
+
+  apply(doc: EditorDocument): void {
+    const deformer = doc.findMatrixDeformer(this.deformerId);
+    if (!this.captured) {
+      this.prevPivot = { x: deformer.pivot.x, y: deformer.pivot.y };
+      this.captured = true;
+    }
+    deformer.pivot = { x: this.pivot.x, y: this.pivot.y };
+  }
+
+  invert(doc: EditorDocument): void {
+    const deformer = doc.findMatrixDeformer(this.deformerId);
+    // Fresh clone — never alias the captured object so repeated undo/redo
+    // cycles cannot corrupt the saved prior value.
+    deformer.pivot = { x: this.prevPivot.x, y: this.prevPivot.y };
+  }
+}
+
 /** Channels of {@link IkiDeformerTransform} this editor can edit. */
 export type DeformerTransformChannel =
   | "x"

@@ -11,6 +11,7 @@ export {
   DeletePart,
   SetDeformerBindings,
   SetDeformerParent,
+  SetDeformerPivot,
   SetDeformerPivotX,
   SetDeformerPivotY,
   SetDeformerTransform,
