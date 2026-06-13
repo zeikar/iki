@@ -62,3 +62,245 @@ export function compositeLayerPixels(
 
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Header guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads the fixed 26-byte PSD/PSB file header from a raw ArrayBuffer.
+ * All multi-byte fields are big-endian (per the PSD spec).
+ *
+ * Offsets (verified against ag-psd psdReader.js):
+ *   0–3   signature (ASCII "8BPS")
+ *   4–5   version uint16  (1 = PSD, 2 = PSB)
+ *   6–11  reserved (skipped)
+ *   12–13 channels uint16
+ *   14–17 height uint32
+ *   18–21 width uint32
+ *   22–23 bitsPerChannel uint16
+ *   24–25 colorMode uint16
+ */
+export function parsePsdHeader(buffer: ArrayBuffer): {
+  version: number;
+  channels: number;
+  width: number;
+  height: number;
+  bitsPerChannel: number;
+  colorMode: number;
+} {
+  if (buffer.byteLength < 26) {
+    throw new Error(
+      `psd import: file too small to be a valid PSD (${buffer.byteLength} bytes, need >= 26)`,
+    );
+  }
+
+  const view = new DataView(buffer);
+
+  // Signature: bytes 0–3 must be ASCII "8BPS"
+  const sig = String.fromCharCode(
+    view.getUint8(0),
+    view.getUint8(1),
+    view.getUint8(2),
+    view.getUint8(3),
+  );
+  if (sig !== "8BPS") {
+    throw new Error(`psd import: not a PSD file (bad signature "${sig}")`);
+  }
+
+  return {
+    version: view.getUint16(4, false),
+    channels: view.getUint16(12, false),
+    height: view.getUint32(14, false),
+    width: view.getUint32(18, false),
+    bitsPerChannel: view.getUint16(22, false),
+    colorMode: view.getUint16(24, false),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Document validation
+// ---------------------------------------------------------------------------
+
+/**
+ * 64 MP ≈ 8192×8192. Bounds transient RGBA memory during import. This is a
+ * deliberate safety budget, not a format limit — ag-psd supports larger files.
+ */
+export const MAX_PSD_MEGAPIXELS = 64;
+
+// ColorMode enum names for human-readable error messages.
+const COLOR_MODE_NAMES: Record<number, string> = {
+  0: "Bitmap",
+  1: "Grayscale",
+  2: "Indexed",
+  3: "RGB",
+  4: "CMYK",
+  7: "Multichannel",
+  8: "Duotone",
+  9: "Lab",
+};
+
+/**
+ * Validates a parsed PSD header against the constraints this import path
+ * supports. Throws a descriptive error for any unsupported document property.
+ */
+export function validatePsdHeader(header: {
+  version: number;
+  width: number;
+  height: number;
+  bitsPerChannel: number;
+  colorMode: number;
+}): void {
+  if (header.version !== 1) {
+    throw new Error(
+      `psd import: document: unsupported PSD version ${header.version}; PSB (version 2) is not supported`,
+    );
+  }
+
+  if (header.colorMode !== 3) {
+    const modeName = COLOR_MODE_NAMES[header.colorMode];
+    const modeLabel = modeName !== undefined ? `${modeName} (${header.colorMode})` : String(header.colorMode);
+    throw new Error(
+      `psd import: document: unsupported color mode ${modeLabel}; only RGB is supported`,
+    );
+  }
+
+  if (header.bitsPerChannel !== 8) {
+    throw new Error(
+      `psd import: document: unsupported bit depth ${header.bitsPerChannel}; only 8-bit is supported`,
+    );
+  }
+
+  if (header.width * header.height > MAX_PSD_MEGAPIXELS * 1_000_000) {
+    throw new Error(
+      `psd import: document: ${header.width}x${header.height} exceeds the ${MAX_PSD_MEGAPIXELS} megapixel limit`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Layer selection
+// ---------------------------------------------------------------------------
+
+/**
+ * Structural mirror of ag-psd's Layer interface, limited to the fields this
+ * import path inspects. Using the full 4-member PixelArray union is required
+ * so that real ag-psd Layer objects are assignable here — TypeScript does not
+ * narrow imageData.data based on the header's bitsPerChannel guard.
+ * The 8-bit narrowing happens later inside the Task 3 DOM wrapper.
+ */
+export interface PsdLayerLike {
+  name?: string;
+  left?: number;
+  top?: number;
+  right?: number;
+  bottom?: number;
+  hidden?: boolean;
+  opacity?: number;
+  blendMode?: string;
+  clipping?: boolean;
+  children?: PsdLayerLike[];
+  imageData?: {
+    data: Uint8ClampedArray | Uint8Array | Uint16Array | Float32Array;
+    width: number;
+    height: number;
+  };
+  // Special-layer markers (LayerAdditionalInfo subset)
+  effects?: unknown;
+  text?: unknown;
+  vectorFill?: unknown;
+  vectorStroke?: unknown;
+  vectorMask?: unknown;
+  vectorOrigination?: unknown;
+  adjustment?: unknown;
+  placedLayer?: unknown;
+  sectionDivider?: unknown;
+}
+
+/**
+ * Iterates top-level PSD layers and returns only those that are importable as
+ * plain raster layers. Throws on the first unsupported layer encountered.
+ *
+ * Groups, hidden layers, clipping masks, non-normal blend modes, partial
+ * opacity, and all special layer types are rejected. Duplicate names are NOT
+ * deduped here — that responsibility belongs to the downstream parseLayerRoles.
+ */
+export function selectImportableLayers(
+  children: PsdLayerLike[],
+): { name: string; layer: PsdLayerLike }[] {
+  const result: { name: string; layer: PsdLayerLike }[] = [];
+
+  for (const layer of children) {
+    const rawName = layer.name ?? "";
+    const label = rawName.length > 0 ? `"${rawName}"` : '"(unnamed)"';
+
+    // Groups / folders
+    if (layer.children !== undefined) {
+      throw new Error(
+        `psd import: layer ${label}: groups/folders are not supported in this slice`,
+      );
+    }
+
+    if (layer.hidden === true) {
+      throw new Error(`psd import: layer ${label}: hidden layers are not supported`);
+    }
+
+    if (layer.clipping === true) {
+      throw new Error(`psd import: layer ${label}: clipping layers are not supported`);
+    }
+
+    if (
+      layer.blendMode !== undefined &&
+      layer.blendMode !== "normal"
+    ) {
+      throw new Error(
+        `psd import: layer ${label}: unsupported blend mode "${layer.blendMode}"; only normal is supported`,
+      );
+    }
+
+    if (layer.opacity !== undefined && layer.opacity !== 1) {
+      throw new Error(
+        `psd import: layer ${label}: unsupported opacity ${layer.opacity}; only fully-opaque layers are supported`,
+      );
+    }
+
+    // Special-layer markers — checked explicitly so a text layer WITH cached
+    // imageData is still rejected via its marker, not allowed through.
+    if (layer.text) {
+      throw new Error(`psd import: layer ${label}: text layers are not supported`);
+    }
+    if (layer.placedLayer) {
+      throw new Error(`psd import: layer ${label}: smart-object layers are not supported`);
+    }
+    if (layer.vectorFill || layer.vectorStroke || layer.vectorMask || layer.vectorOrigination) {
+      throw new Error(`psd import: layer ${label}: vector/shape layers are not supported`);
+    }
+    if (layer.adjustment) {
+      throw new Error(`psd import: layer ${label}: adjustment layers are not supported`);
+    }
+    if (layer.effects) {
+      throw new Error(`psd import: layer ${label}: layer effects are not supported`);
+    }
+    if (layer.sectionDivider) {
+      throw new Error(
+        `psd import: layer ${label}: groups/folders are not supported in this slice`,
+      );
+    }
+
+    // Must have actual pixel data
+    if (
+      !layer.imageData ||
+      layer.imageData.width === 0 ||
+      layer.imageData.height === 0
+    ) {
+      throw new Error(
+        `psd import: layer ${label}: is not a raster layer (no pixel data)`,
+      );
+    }
+
+    const name = rawName.length > 0 ? rawName : "(unnamed)";
+    result.push({ name, layer });
+  }
+
+  return result;
+}
