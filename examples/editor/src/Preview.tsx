@@ -3,6 +3,7 @@ import { StandardParameter } from "@iki/format";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 
 import { GridOverlay } from "./GridOverlay";
+import { PivotOverlay } from "./PivotOverlay";
 import { useEditorStore } from "./store";
 
 // The five "life" parameters the idle driver writes. Restore touches only ids
@@ -29,6 +30,8 @@ export function Preview({ playerRef }: PreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gridEditMode = useEditorStore((s) => s.gridEditMode);
   const setGridEditMode = useEditorStore((s) => s.setGridEditMode);
+  const selectedDeformerId = useEditorStore((s) => s.selectedDeformerId);
+  const doc = useEditorStore((s) => s.doc);
   // Idle is ephemeral PREVIEW state — never the store. It drives the player
   // directly and must leave authoring `params` untouched.
   const [idleOn, setIdleOn] = useState(false);
@@ -49,10 +52,18 @@ export function Preview({ playerRef }: PreviewProps) {
     };
   }, [playerRef]);
 
-  // Entering grid-edit forces idle off — grid dragging needs a stable pose.
+  // Entering grid-edit OR selecting a matrix deformer forces idle off — both
+  // need a stable pose (grid dragging; pivot handle must align with canvas).
+  // Warp deformer selection does NOT disable idle: PivotOverlay no-ops for warp.
   useEffect(() => {
-    if (gridEditMode) setIdleOn(false);
-  }, [gridEditMode]);
+    if (gridEditMode) {
+      setIdleOn(false);
+      return;
+    }
+    const d = doc.getModel().deformers?.find((x) => x.id === selectedDeformerId);
+    const isMatrix = d !== undefined && (d.kind === "matrix" || d.kind === undefined);
+    if (isMatrix) setIdleOn(false);
+  }, [gridEditMode, selectedDeformerId, doc]);
 
   // Idle loop, owned entirely by the preview. Never writes the store: the loop
   // calls `player.setParameter` directly, and cleanup restores the authored
@@ -143,6 +154,9 @@ export function Preview({ playerRef }: PreviewProps) {
             style={{ width: "100%", height: "100%", display: "block" }}
           />
           {gridEditMode && <GridOverlay canvasRef={canvasRef} />}
+          {!gridEditMode && !idleOn && selectedDeformerId !== null && (
+            <PivotOverlay canvasRef={canvasRef} />
+          )}
         </div>
       </div>
       <ParamSliders playerRef={playerRef} />
