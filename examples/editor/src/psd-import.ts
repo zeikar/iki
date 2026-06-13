@@ -3,6 +3,8 @@
 // full-document-sized canvas so buildLayerInputs' equal-canvas-size check passes
 // and the layer's position is preserved in the output bitmap.
 
+import { readPsd } from "ag-psd";
+
 /**
  * Composites a single PSD layer's pixel data onto a blank full-document canvas.
  *
@@ -303,4 +305,104 @@ export function selectImportableLayers(
   }
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// DOM wrapper — requires createImageBitmap (browser/worker only, not Node)
+// ---------------------------------------------------------------------------
+
+/**
+ * Decodes a PSD File into an array of {fileName, bitmap} entries, one per
+ * importable raster layer. The return shape is the same as the PNG path so
+ * the caller (buildLayerInputs) can treat both sources identically.
+ *
+ * Two try/catch layers:
+ *   INNER (per-layer loop) — closes any bitmaps already accumulated in `out`
+ *     before rethrowing, so a failure on layer N never leaks bitmaps 1..N-1.
+ *   OUTER (whole body) — adds the "psd import: " prefix to any raw throw from
+ *     readPsd / new ImageData / createImageBitmap / file.arrayBuffer() that
+ *     didn't originate inside this file. Already-prefixed messages pass through
+ *     unchanged (inner rethrows and header-guard errors both carry the prefix).
+ *
+ * No bitmap is ever returned to the caller on a partial failure; the caller
+ * takes ownership of the array only if the function resolves successfully.
+ */
+export async function decodePsdLayers(
+  file: File,
+): Promise<{ fileName: string; bitmap: ImageBitmap }[]> {
+  try {
+    const buffer = await file.arrayBuffer();
+
+    // Header guard runs BEFORE ag-psd decodes any layer pixels; this rejects
+    // bad signature / PSB / non-RGB / non-8-bit / oversize cheaply upfront.
+    const header = parsePsdHeader(buffer);
+    validatePsdHeader(header);
+
+    const psd = readPsd(buffer, {
+      useImageData: true,
+      skipCompositeImageData: true,
+      skipThumbnail: true,
+      skipLinkedFilesData: true,
+    });
+
+    const selected = selectImportableLayers(psd.children ?? []);
+    if (selected.length === 0) {
+      throw new Error("psd import: no importable raster layers found");
+    }
+
+    const out: { fileName: string; bitmap: ImageBitmap }[] = [];
+
+    try {
+      for (const { name, layer } of selected) {
+        const { data, width, height } = layer.imageData!;
+        const left = layer.left ?? 0;
+        const top = layer.top ?? 0;
+
+        // Narrow to 8-bit pixel arrays. The header guard already rejected
+        // non-8-bit documents, but ag-psd's type for imageData.data is a
+        // 4-member union; this explicit check keeps Uint16Array/Float32Array
+        // out of the compositor and acts as the narrowing TypeScript needs.
+        if (!(data instanceof Uint8ClampedArray) && !(data instanceof Uint8Array)) {
+          throw new Error(`psd import: layer "${name}": unsupported pixel data type`);
+        }
+
+        const full = compositeLayerPixels(data, width, height, left, top, psd.width, psd.height);
+        // compositeLayerPixels always allocates with new Uint8ClampedArray(), so
+        // its buffer is always a plain ArrayBuffer. Cast away SharedArrayBuffer
+        // from the union so the ImageData constructor overload resolves. The
+        // re-wrap (not just the cast) is required because compositeLayerPixels
+        // returns Uint8ClampedArray<ArrayBufferLike>, while ImageData's array
+        // overload needs Uint8ClampedArray<ArrayBuffer> — do NOT simplify this to
+        // `new ImageData(full, …)` or the typecheck breaks.
+        const imageData = new ImageData(
+          new Uint8ClampedArray(full.buffer as ArrayBuffer, full.byteOffset, full.length),
+          psd.width,
+          psd.height,
+        );
+        const bitmap = await createImageBitmap(imageData, {
+          premultiplyAlpha: "none",
+          imageOrientation: "none",
+        });
+        out.push({ fileName: name, bitmap });
+      }
+    } catch (e) {
+      // Inner catch: close all bitmaps accumulated so far before rethrowing.
+      // The outer catch will handle prefix-preservation.
+      for (const r of out) {
+        r.bitmap.close();
+      }
+      throw e;
+    }
+
+    return out;
+  } catch (e) {
+    // Outer catch: add "psd import: " prefix to raw third-party throws.
+    // Already-prefixed errors (header guard, selectImportableLayers, inner
+    // loop's typed throws) pass through unchanged.
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.startsWith("psd import:")) {
+      throw e;
+    }
+    throw new Error(`psd import: ${msg}`);
+  }
 }
