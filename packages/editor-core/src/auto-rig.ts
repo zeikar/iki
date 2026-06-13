@@ -1,9 +1,19 @@
 /**
- * Role table, role parsing, and bbox→transform math for the AI auto-rig
- * generator. All pure functions — no DOM, no canvas, no crypto.randomUUID.
+ * Role table, role parsing, bbox→transform math, and model assembly for the
+ * AI auto-rig generator. All pure functions — no DOM, no canvas, no
+ * crypto.randomUUID.
  *
  * L/R = CHARACTER frame: *_L is the character's left = screen right.
  */
+
+import {
+  IKI_FORMAT_VERSION,
+  StandardParameter,
+  parseIkiModel,
+  type IkiMesh,
+  type IkiModel,
+  type IkiPart,
+} from "@iki/format";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -110,7 +120,10 @@ export function normalizeRole(raw: string): string {
   // Lowercase, then collapse hyphens/spaces → underscores
   const collapsed = noExt.toLowerCase().replace(/[-\s]+/g, "_");
   // Uppercase trailing _l / _r side suffix
-  const sided = collapsed.replace(/_([lr])$/, (_, s: string) => `_${s.toUpperCase()}`);
+  const sided = collapsed.replace(
+    /_([lr])$/,
+    (_, s: string) => `_${s.toUpperCase()}`,
+  );
   // Alias map
   return ALIAS_MAP[sided] ?? sided;
 }
@@ -202,11 +215,370 @@ export function bboxToTransform(
   partLabel?: string,
 ): { x: number; y: number } {
   if (bbox.w <= 0 || bbox.h <= 0) {
-    throw new Error(
-      `auto-rig: empty bbox for ${partLabel ?? "layer"}`,
-    );
+    throw new Error(`auto-rig: empty bbox for ${partLabel ?? "layer"}`);
   }
   const x = bbox.x + bbox.w / 2 - canvasW / 2;
   const y = canvasH / 2 - (bbox.y + bbox.h / 2); // flip: image +y-down → model +y-up
   return { x, y };
+}
+
+// ── validateLayerInputs ───────────────────────────────────────────────────────
+
+/**
+ * Validate a LayerInput array before assembly. Called first inside
+ * `generateIkiFromLayerSet` — the public API validates before deriving anything.
+ *
+ * Checks (in order):
+ *   1. Non-empty layer list.
+ *   2. Unknown/duplicate/required role contract via `assertRoleSet` (single home).
+ *   3. Non-positive bbox.w, bbox.h, cropW, cropH per layer.
+ *   4. Per-layer canvas size vs. the supplied `canvas` argument.
+ *      Matching every layer to the `canvas` arg inherently guarantees all layers
+ *      agree with each other — no separate peer-comparison loop is needed.
+ *
+ * Validates `layer.role` DIRECTLY (not via fileName). A caller could supply
+ * `fileName:"face.png"` with `role:"bad_role"` — a filename check would miss it.
+ *
+ * Throws a plain `Error` with a path-qualified message on the first violation.
+ */
+export function validateLayerInputs(
+  layers: LayerInput[],
+  canvas: { width: number; height: number },
+): void {
+  if (layers.length === 0) {
+    throw new Error("auto-rig: validateLayerInputs: layers must not be empty");
+  }
+
+  // Unknown / duplicate / required — single home for this contract
+  assertRoleSet(layers.map((l) => l.role));
+
+  for (const layer of layers) {
+    const { role, bbox, cropW, cropH, canvasW, canvasH } = layer;
+    if (bbox.w <= 0) {
+      throw new Error(
+        `auto-rig: validateLayerInputs: role "${role}" has non-positive bbox.w (${bbox.w})`,
+      );
+    }
+    if (bbox.h <= 0) {
+      throw new Error(
+        `auto-rig: validateLayerInputs: role "${role}" has non-positive bbox.h (${bbox.h})`,
+      );
+    }
+    if (cropW <= 0) {
+      throw new Error(
+        `auto-rig: validateLayerInputs: role "${role}" has non-positive cropW (${cropW})`,
+      );
+    }
+    if (cropH <= 0) {
+      throw new Error(
+        `auto-rig: validateLayerInputs: role "${role}" has non-positive cropH (${cropH})`,
+      );
+    }
+    if (canvasW !== canvas.width || canvasH !== canvas.height) {
+      throw new Error(
+        `auto-rig: validateLayerInputs: role "${role}" canvas size (${canvasW}×${canvasH}) does not match canvas arg (${canvas.width}×${canvas.height})`,
+      );
+    }
+  }
+}
+
+// ── generateGridPoints ────────────────────────────────────────────────────────
+
+/**
+ * Generate the flat `[x0,y0, x1,y1, …]` rest-grid control points for a
+ * regular axis-aligned lattice with `(cols+1)*(rows+1)` points, row-major.
+ *
+ * Row 0 is the TOP (y = maxY); y strictly decreases with row index.
+ * Column 0 is left (x = minX); x strictly increases with column index.
+ * This ordering satisfies `checkGridRegularity` in the format validator.
+ *
+ * Local copy — do NOT import the private `generateRegularGridPoints` from
+ * factories.ts; that helper is private to editor-core's factory layer.
+ */
+export function generateGridPoints(
+  cols: number,
+  rows: number,
+  minX: number,
+  maxX: number,
+  minY: number,
+  maxY: number,
+): number[] {
+  const pts: number[] = [];
+  for (let row = 0; row <= rows; row++) {
+    const t = row / rows;
+    const y = maxY - t * (maxY - minY); // maxY at row 0, minY at row `rows`
+    for (let col = 0; col <= cols; col++) {
+      const s = col / cols;
+      const x = minX + s * (maxX - minX); // minX at col 0, maxX at col `cols`
+      pts.push(x, y);
+    }
+  }
+  return pts;
+}
+
+// ── createPixelGridMesh ───────────────────────────────────────────────────────
+
+/**
+ * Create a regular grid mesh in PIXEL space, with the local origin at the
+ * crop center (matching the `feature(...)` convention in sample-model.ts).
+ *
+ * Callers set `part.width=1, part.height=1` so the engine's scale pipeline is
+ * bypassed — the pixel coordinates ARE the final geometry, positioned only by
+ * `part.transform`. scaleX/scaleY bindings then scale about each part's own
+ * center without an additional unit-to-pixel conversion step.
+ *
+ * Vertices span x ∈ [-w/2, w/2] and y ∈ [-h/2, h/2] (+y up, engine convention).
+ * Row 0 is the TOP of the grid (y = +h/2); row index increases downward.
+ *
+ * UVs are base unit-square coordinates: u = col/cols (0..1 left→right),
+ * v = row/rows (0..1 top→bottom). Top row maps to v=0 (v and y run in
+ * opposite directions — keeps textures upright). Atlas remapping is the
+ * caller's responsibility (e.g. applyAtlas), not done here.
+ *
+ * Index winding per cell: [BL, BR, TL] then [TL, BR, TR] — same as
+ * `createGridMesh` in factories.ts so the engine's implicit-quad convention
+ * is preserved.
+ */
+export function createPixelGridMesh(
+  cols: number,
+  rows: number,
+  w: number,
+  h: number,
+): IkiMesh {
+  const colVerts = cols + 1;
+  const rowVerts = rows + 1;
+
+  const vertices: number[] = [];
+  const uvs: number[] = [];
+
+  // Row 0 = TOP (y = +h/2). Row `rows` = BOTTOM (y = -h/2).
+  // Col 0 = left (x = -w/2). Col `cols` = right (x = +w/2).
+  for (let row = 0; row < rowVerts; row++) {
+    const t = row / rows;
+    const y = h / 2 - t * h; // +h/2 at row 0, -h/2 at row `rows`
+    const v = t; // 0 at top, 1 at bottom
+
+    for (let col = 0; col < colVerts; col++) {
+      const s = col / cols;
+      const x = -w / 2 + s * w; // -w/2 at col 0, +w/2 at col `cols`
+      const u = s; // 0 at left, 1 at right
+
+      vertices.push(x, y);
+      uvs.push(u, v);
+    }
+  }
+
+  // Two triangles per cell: [BL, BR, TL] then [TL, BR, TR]
+  const indices: number[] = [];
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const tl = row * colVerts + col;
+      const tr = row * colVerts + col + 1;
+      const bl = (row + 1) * colVerts + col;
+      const br = (row + 1) * colVerts + col + 1;
+
+      indices.push(bl, br, tl);
+      indices.push(tl, br, tr);
+    }
+  }
+
+  return { vertices, uvs, indices };
+}
+
+// ── generateIkiFromLayerSet ───────────────────────────────────────────────────
+
+/**
+ * First-pass auto-rig: given decoded layer inputs and the shared canvas size,
+ * produce a valid IkiModel ready for parseIkiModel.
+ *
+ * Scope of this first pass:
+ *   - Validate all inputs before deriving anything.
+ *   - Place parts at source-derived positions (bboxToTransform, unshifted).
+ *   - Emit the 8 standard parameters verbatim (same ids/ranges as sample-model.ts).
+ *   - Build minimal-valid headDeformer (matrix) and faceWarp (warp, 4×4) deformers.
+ *   - Mesh parts (spec.mesh===true) → width:1, height:1, pixel grid mesh 4×4.
+ *   - Static parts (spec.mesh===false) → width:cropW, height:cropH, no mesh.
+ *   - Part ids equal the role string (deterministic, no crypto.randomUUID).
+ *   - Return parseIkiModel(structuredClone(model)) — every caller gets a
+ *     validated model; bad assembly fails loudly.
+ *
+ * Full grid pivot, bake, and parameter bindings are added in Task 3.
+ */
+export function generateIkiFromLayerSet(
+  layers: LayerInput[],
+  canvas: { width: number; height: number },
+): IkiModel {
+  // Validate first — never derive anything from unchecked input.
+  validateLayerInputs(layers, canvas);
+
+  // ── Standard parameters — verbatim from sample-model.ts ──────────────────
+  const parameters = [
+    {
+      id: StandardParameter.MouthOpen,
+      name: "Mouth Open",
+      min: 0,
+      max: 1,
+      default: 0,
+    },
+    {
+      id: StandardParameter.MouthForm,
+      name: "Mouth Form",
+      min: -1,
+      max: 1,
+      default: 0,
+    },
+    {
+      id: StandardParameter.EyeOpenLeft,
+      name: "Eye L",
+      min: 0,
+      max: 1,
+      default: 1,
+    },
+    {
+      id: StandardParameter.EyeOpenRight,
+      name: "Eye R",
+      min: 0,
+      max: 1,
+      default: 1,
+    },
+    {
+      id: StandardParameter.EyeballX,
+      name: "Gaze X",
+      min: -1,
+      max: 1,
+      default: 0,
+    },
+    {
+      id: StandardParameter.EyeballY,
+      name: "Gaze Y",
+      min: -1,
+      max: 1,
+      default: 0,
+    },
+    {
+      id: StandardParameter.AngleX,
+      name: "Head Angle",
+      min: -30,
+      max: 30,
+      default: 0,
+    },
+    {
+      id: StandardParameter.Breath,
+      name: "Breath",
+      min: 0,
+      max: 1,
+      default: 0,
+    },
+  ];
+
+  // ── Compute faceWarp grid bounds ──────────────────────────────────────────
+  // Collect all faceWarp-assigned layers so the warp grid spans a generous
+  // box that encloses all children. Warp children require a mesh — all
+  // faceWarp-assigned roles in ROLE_TABLE have spec.mesh===true.
+  const faceWarpLayers = layers.filter(
+    (l) => ROLE_TABLE[l.role].deformer === "faceWarp",
+  );
+
+  // If for some reason no faceWarp layers exist, fall back to a generous box.
+  let gridMinX = -canvas.width / 2;
+  let gridMaxX = canvas.width / 2;
+  let gridMinY = -canvas.height / 2;
+  let gridMaxY = canvas.height / 2;
+
+  if (faceWarpLayers.length > 0) {
+    const transforms = faceWarpLayers.map((l) =>
+      bboxToTransform(l.bbox, l.canvasW, l.canvasH, l.role),
+    );
+    const halfWs = faceWarpLayers.map((l) => l.cropW / 2);
+    const halfHs = faceWarpLayers.map((l) => l.cropH / 2);
+
+    // Compute tight bbox in model space, then add a 20% margin.
+    const tightMinX = Math.min(...transforms.map((t, i) => t.x - halfWs[i]));
+    const tightMaxX = Math.max(...transforms.map((t, i) => t.x + halfWs[i]));
+    const tightMinY = Math.min(...transforms.map((t, i) => t.y - halfHs[i]));
+    const tightMaxY = Math.max(...transforms.map((t, i) => t.y + halfHs[i]));
+
+    const marginX = (tightMaxX - tightMinX) * 0.2;
+    const marginY = (tightMaxY - tightMinY) * 0.2;
+    gridMinX = tightMinX - marginX;
+    gridMaxX = tightMaxX + marginX;
+    gridMinY = tightMinY - marginY;
+    gridMaxY = tightMaxY + marginY;
+  }
+
+  // ── Deformers ─────────────────────────────────────────────────────────────
+  const deformers = [
+    // headDeformer: rigid matrix; no bindings in this first pass
+    {
+      id: "headDeformer",
+      pivot: { x: 0, y: 0 },
+    },
+    // faceWarp: warp child of headDeformer; grid spans all faceWarp children
+    // Task 3 replaces: real union grid + center-relative bake
+    {
+      kind: "warp" as const,
+      id: "faceWarp",
+      parent: "headDeformer",
+      grid: {
+        cols: 4,
+        rows: 4,
+        points: generateGridPoints(
+          4,
+          4,
+          gridMinX,
+          gridMaxX,
+          gridMinY,
+          gridMaxY,
+        ),
+      },
+    },
+  ];
+
+  // ── Parts ─────────────────────────────────────────────────────────────────
+  const parts: IkiPart[] = layers.map((layer) => {
+    const { role, bbox, cropW, cropH, canvasW, canvasH } = layer;
+    const spec = ROLE_TABLE[role];
+    const t = bboxToTransform(bbox, canvasW, canvasH, role);
+
+    if (spec.mesh) {
+      // Warp-deformer child: width:1, height:1 with a pixel grid mesh centered
+      // at the crop center. The engine applies the part transform to position it.
+      return {
+        id: role,
+        color: [1, 1, 1, 1] as [number, number, number, number],
+        width: 1,
+        height: 1,
+        order: spec.order,
+        transform: t,
+        deformer: spec.deformer,
+        mesh: createPixelGridMesh(4, 4, cropW, cropH),
+      };
+    } else {
+      // Static quad: no mesh, sized to the crop. Placed on headDeformer.
+      return {
+        id: role,
+        color: [1, 1, 1, 1] as [number, number, number, number],
+        width: cropW,
+        height: cropH,
+        order: spec.order,
+        transform: t,
+        deformer: spec.deformer,
+      };
+    }
+  });
+
+  const model = {
+    version: IKI_FORMAT_VERSION,
+    name: "Auto-Rigged Model",
+    canvas: { width: canvas.width, height: canvas.height },
+    textures: [],
+    parameters,
+    deformers,
+    parts,
+  };
+
+  // Gate: run through parseIkiModel so bad assembly fails loudly at the source.
+  // structuredClone prevents the validator's normalizing output from aliasing
+  // the local object, and ensures the returned model is fully independent.
+  return parseIkiModel(structuredClone(model));
 }
