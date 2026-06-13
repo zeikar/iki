@@ -11,14 +11,21 @@ export interface DecodedSource {
 /**
  * Decode a PNG or WebP File into a DecodedSource with a stable random id.
  * Throws if the file type is not image/png or image/webp.
+ *
+ * Pass `options` to control premultiplication/orientation (e.g. the auto-rig
+ * path uses `{ premultiplyAlpha:"none", imageOrientation:"none" }` for
+ * deterministic alpha scanning).
  */
-export async function decodeImageFile(file: File): Promise<DecodedSource> {
+export async function decodeImageFile(
+  file: File,
+  options?: ImageBitmapOptions,
+): Promise<DecodedSource> {
   if (file.type !== "image/png" && file.type !== "image/webp") {
     throw new Error(
       `decodeImageFile: unsupported type "${file.type}"; only image/png and image/webp are accepted`,
     );
   }
-  const bitmap = await createImageBitmap(file);
+  const bitmap = await createImageBitmap(file, options);
   return {
     id: crypto.randomUUID(),
     name: file.name,
