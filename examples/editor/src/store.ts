@@ -12,13 +12,16 @@ import {
   createDefaultPart,
   createDefaultWarpDeformer,
   createGridMesh,
+  generateIkiFromLayerSet,
   packAtlas,
   uvRectFor,
+  type AtlasPlacement,
   type AtlasSource,
   type AtlasAssignment,
   type EditCommand,
   type EditTransformChannel,
   type DeformerTransformChannel,
+  type LayerInput,
 } from "@iki/editor-core";
 import type {
   IkiTransform,
@@ -29,7 +32,8 @@ import type {
 } from "@iki/format";
 import { create } from "zustand";
 
-import { renderAtlas, type DecodedSource } from "./atlas-image";
+import { decodeImageFile, renderAtlas, type DecodedSource } from "./atlas-image";
+import { buildLayerInputs, cropBitmap } from "./auto-rig-image";
 import { sampleModel } from "./sample-model";
 
 function toAtlasSource(s: DecodedSource): AtlasSource {
@@ -119,6 +123,8 @@ interface EditorState {
   partTextures: Record<string, DecodedSource>;
   /** Visible banner for atlas-operation failures. */
   atlasError: string | null;
+  /** Visible banner for auto-rig import failures. */
+  generatorError: string | null;
 
   /**
    * Editor-only ephemeral capture session state — NEVER serialized. Non-null
@@ -155,6 +161,7 @@ interface EditorState {
   setParam: (id: string, value: number) => void;
   setExportError: (msg: string | null) => void;
   setAtlasError: (msg: string | null) => void;
+  setGeneratorError: (msg: string | null) => void;
   setLoaded: () => void;
   setGridEditMode: (on: boolean) => void;
 
@@ -182,6 +189,14 @@ interface EditorState {
    *  Mirrors clearPartTexture's non-undoable boundary but skips atlas re-pack
    *  (no imported side-table entry to rebuild from). */
   clearModelTexture: (partId: string) => void;
+
+  /**
+   * Import a set of PNG layer files as a new auto-rigged EditorDocument.
+   * Fail-fast: sets generatorError and returns on empty input or non-PNG files.
+   * On success atomically replaces doc + partTextures and resets all banners.
+   * On failure sets generatorError; existing doc is untouched.
+   */
+  importLayerSet: (files: File[]) => Promise<void>;
 
   /** Abandon any active capture session, restoring the ephemeral base. */
   abandonCapture: () => void;
@@ -379,6 +394,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     gridEditMode: false,
     partTextures: {},
     atlasError: null,
+    generatorError: null,
     capture: null,
 
     runCommand: (cmd) => {
@@ -436,6 +452,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
       set((s) => ({ params: { ...s.params, [id]: value } })),
     setExportError: (msg) => set({ exportError: msg }),
     setAtlasError: (msg) => set({ atlasError: msg }),
+    setGeneratorError: (msg) => set({ generatorError: msg }),
     setLoaded: () => set({ loaded: true }),
     setGridEditMode: (on) => set({ gridEditMode: on }),
 
@@ -598,6 +615,169 @@ export const useEditorStore = create<EditorState>((set, get) => {
         set((s) => ({ revision: s.revision + 1, editError: null }));
       } catch (e) {
         set({ editError: e instanceof Error ? e.message : String(e) });
+      }
+    },
+
+    importLayerSet: async (files) => {
+      // Fail-fast: boundary checks before any decode.
+      if (files.length === 0) {
+        set({ generatorError: "auto-rig: select at least one PNG layer", atlasError: null, editError: null });
+        return;
+      }
+      for (const file of files) {
+        if (file.type !== "image/png") {
+          set({
+            generatorError: `auto-rig: "${file.name}" is not a PNG`,
+            atlasError: null,
+            editError: null,
+          });
+          return;
+        }
+      }
+
+      // Abandon any in-flight capture before swapping the whole document — a
+      // capture session pointing at an OLD-document part/deformer would corrupt
+      // later capture cleanup.
+      if (get().capture !== null) clearCapture();
+
+      // Bitmap ownership: decoded source bitmaps are ALWAYS closed in finally
+      // (they are NEVER transferred to partTextures). Crop bitmaps are closed
+      // only on failure (committed === false); on success they transfer to the
+      // side-table. committed is set to true immediately after the atomic set,
+      // BEFORE old-bitmap cleanup, so finally never double-closes live crops.
+      const decodedBitmaps: ImageBitmap[] = [];
+      const cropBitmaps: ImageBitmap[] = [];
+      let committed = false;
+
+      try {
+        // Decode each file and track ownership immediately.
+        const decodedByName = new Map<string, ImageBitmap>();
+        for (const file of files) {
+          const decoded = await decodeImageFile(file, {
+            premultiplyAlpha: "none",
+            imageOrientation: "none",
+          });
+          decodedBitmaps.push(decoded.bitmap);
+          decodedByName.set(file.name, decoded.bitmap);
+        }
+
+        // Build LayerInput[] — reads pixels only, creates NO ImageBitmaps.
+        const layers: LayerInput[] = buildLayerInputs(
+          [...decodedByName].map(([fileName, bitmap]) => ({
+            fileName,
+            bitmap,
+          })),
+        );
+
+        // Crop each layer; push to cropBitmaps BEFORE the next await so a
+        // throw on a later layer leaves prior crops in finally's reach.
+        const crops: DecodedSource[] = [];
+        for (const layer of layers) {
+          // Unreachable: layers were derived from decodedByName entries; TS requires the guard.
+          const src = decodedByName.get(layer.fileName);
+          if (src === undefined) {
+            throw new Error(
+              `auto-rig: no decoded bitmap for "${layer.fileName}"`,
+            );
+          }
+          const cropped = await cropBitmap(src, layer.bbox);
+          cropBitmaps.push(cropped);
+          crops.push({
+            id: layer.role,
+            name: layer.fileName,
+            bitmap: cropped,
+            width: layer.cropW,
+            height: layer.cropH,
+          });
+        }
+
+        // Generate model and create a fresh document.
+        const model = generateIkiFromLayerSet(layers, {
+          width: layers[0].canvasW,
+          height: layers[0].canvasH,
+        });
+        const doc = new EditorDocument(model);
+
+        // Pack + render atlas from crops.
+        const layout = packAtlas(crops.map(toAtlasSource));
+        const dataUri = renderAtlas(crops, layout);
+
+        // Build UV assignments — guard Array.find (strict TS: returns
+        // AtlasPlacement | undefined).
+        const partTextureAssignments: AtlasAssignment[] = [];
+        for (const crop of crops) {
+          const placement: AtlasPlacement | undefined =
+            layout.placements.find((p) => p.id === crop.id);
+          if (placement === undefined) {
+            throw new Error(
+              `auto-rig: no atlas placement for "${crop.id}"`,
+            );
+          }
+          partTextureAssignments.push({
+            partId: crop.id,
+            uv: uvRectFor(placement, {
+              width: layout.pageWidth,
+              height: layout.pageHeight,
+            }),
+          });
+        }
+
+        // Apply to the fresh LOCAL doc — not the live store doc; import isn't committed yet.
+        doc.applyAtlas({
+          textures: [{ source: dataUri }],
+          partTextureAssignments,
+        });
+
+        // Build new side-table keyed by generated part id (subset invariant).
+        const nextPartTextures: Record<string, DecodedSource> = {};
+        for (const crop of crops) {
+          nextPartTextures[crop.id] = crop;
+        }
+
+        // Close any capture session started during the async work — awaits above
+        // create a window where UI actions could start a new session; re-running
+        // clearCapture() here ensures the ephemeral base is restored before swap.
+        if (get().capture !== null) clearCapture();
+
+        // Atomic commit: snapshot old side-table bitmaps before overwriting.
+        const oldPartTextures = get().partTextures;
+        set((s) => ({
+          doc,
+          partTextures: nextPartTextures,
+          generatorError: null,
+          atlasError: null,
+          editError: null,
+          selectedPartId: null,
+          selectedDeformerId: null,
+          capture: null,
+          params: Object.fromEntries(
+            model.parameters.map((p) => [p.id, p.default]),
+          ),
+          revision: s.revision + 1,
+        }));
+
+        // Mark success immediately after the swap — BEFORE closing old bitmaps.
+        // If bitmap.close() ever threw, committed must already be true so that
+        // finally does not double-close the crop bitmaps now live in partTextures.
+        committed = true;
+
+        // Close old side-table bitmaps now that the new ones are committed.
+        for (const t of Object.values(oldPartTextures)) {
+          t.bitmap.close();
+        }
+      } catch (e) {
+        set({
+          generatorError: e instanceof Error ? e.message : String(e),
+        });
+        // committed stays false → finally closes decoded (i) + crops (ii).
+      } finally {
+        // (i) ALWAYS close source decode bitmaps — never transferred anywhere.
+        for (const b of decodedBitmaps) b.close();
+        // (ii) Close crop bitmaps ONLY on failure — on success they transferred
+        // to partTextures and must NOT be closed here.
+        if (!committed) {
+          for (const b of cropBitmaps) b.close();
+        }
       }
     },
 
