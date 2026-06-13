@@ -204,6 +204,44 @@ export interface IkiGridKeyform {
 }
 
 /**
+ * A single authored pose within an {@link IkiGrid2DWarp} at one (valuesX[i], valuesY[j]) cell.
+ * No per-entry `value` — the (i,j) lattice index plus valuesX/valuesY carry the parameter values.
+ */
+export interface IkiGrid2DKeyform {
+  /** Flat per-control-point delta, same length as `grid.points`; ADDED to the rest grid. */
+  offsets: number[];
+}
+
+/**
+ * Per-control-point grid warp driven by TWO parameters (a 2D parameter grid).
+ *
+ * Layout (row-major):
+ * - `keyforms2d.length === valuesX.length * valuesY.length`
+ * - Cell index: `k(i, j) = j * valuesX.length + i`
+ *   where `i` indexes `valuesX` (X-axis parameter) and `j` indexes `valuesY` (Y-axis parameter).
+ * - `valuesX` and `valuesY` are each strictly ascending, length ≥ 2; asymmetric N×M grids
+ *   (N,M ≥ 2) are allowed.
+ * - `parameter !== parameterY` (validator-enforced).
+ *
+ * These are documented invariants enforced by the validator (Task 2); the type itself is structural.
+ */
+export interface IkiGrid2DWarp {
+  /** Id of the driving parameter along the X axis. */
+  parameter: string;
+  /** Id of the driving parameter along the Y axis. */
+  parameterY: string;
+  /** Strictly ascending parameter values along the X axis (length ≥ 2). */
+  valuesX: number[];
+  /** Strictly ascending parameter values along the Y axis (length ≥ 2). */
+  valuesY: number[];
+  /**
+   * Row-major grid of keyforms; `length === valuesX.length * valuesY.length`.
+   * Cell (i, j) is at index `j * valuesX.length + i`.
+   */
+  keyforms2d: IkiGrid2DKeyform[];
+}
+
+/**
  * Per-control-point grid warp driven by one parameter. Same clamp+lerp runtime
  * semantics as {@link IkiWarp}, but targets grid control points, not mesh vertices.
  */
@@ -218,6 +256,10 @@ export interface IkiGridWarp {
  * via `part.deformer` and MUST carry a `mesh`. Its parent (if any) must be a
  * matrix deformer (validator-enforced) — e.g. a neck-rotation `headDeformer`:
  * the rigid turn stays on the parent, curvature lives in the grid keyforms.
+ *
+ * A deformer carries EITHER `warps` (one 1D grid warp) XOR `warp2d` (one 2D grid warp),
+ * never both (validator-enforced). The 2D warp's two axes together act as its single
+ * compound driver, preserving the one-warp-per-deformer intent.
  */
 export interface IkiWarpDeformer {
   kind: "warp";
@@ -231,6 +273,11 @@ export interface IkiWarpDeformer {
    * (validator-enforced).
    */
   warps?: IkiGridWarp[];
+  /**
+   * Two-parameter (2D) grid warp; mutually exclusive with `warps` (validator-enforced).
+   * Absent means rest grid (same as omitting `warps`).
+   */
+  warp2d?: IkiGrid2DWarp;
 }
 
 /** A deformer node: a rigid matrix deformer (#4a) or a group warp deformer (#4c). */

@@ -4,6 +4,8 @@ export {
   type IkiDeformer,
   type IkiDeformerBinding,
   type IkiDeformerTransform,
+  type IkiGrid2DKeyform,
+  type IkiGrid2DWarp,
   type IkiGridKeyform,
   type IkiGridWarp,
   type IkiKeyform,
