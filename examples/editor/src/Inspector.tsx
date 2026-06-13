@@ -207,13 +207,13 @@ export function Inspector() {
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <span style={labelStyle}>Auto-rig from layers</span>
         <p style={{ margin: 0, fontSize: 11, color: "#9a9aa5" }}>
-          Named PNG layers: face, eye_L, eye_R, mouth, …
+          Named PNG layers: face, eye_L, eye_R, mouth, … or a single .psd
         </p>
         <input
           ref={layerSetInputRef}
           type="file"
           multiple
-          accept="image/png"
+          accept="image/png,.psd"
           style={{ display: "none" }}
           onChange={onLayerSetInputChange}
         />
