@@ -129,6 +129,17 @@ const removeBtnStyle: CSSProperties = {
   cursor: "pointer",
 };
 
+const errorStyle: CSSProperties = {
+  margin: 0,
+  padding: "8px 10px",
+  background: "#3a1a1a",
+  border: "1px solid #7a2a2a",
+  borderRadius: 4,
+  color: "#f08080",
+  fontSize: 12,
+  wordBreak: "break-word",
+};
+
 /**
  * Numeric property panel for the selected part's lean-5a fields. Each edit
  * dispatches the matching editor-core command through the store, which mutates
@@ -167,6 +178,18 @@ export function Inspector() {
     void s.revision;
     return s.doc.canRedo();
   });
+  const importLayerSet = useEditorStore((s) => s.importLayerSet);
+  const generatorError = useEditorStore((s) => s.generatorError);
+  const layerSetInputRef = useRef<HTMLInputElement>(null);
+
+  function onLayerSetInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.currentTarget.files;
+    if (files && files.length > 0) {
+      void importLayerSet([...files]);
+      // Reset so re-selecting the same set re-triggers the change event.
+      e.currentTarget.value = "";
+    }
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -177,6 +200,30 @@ export function Inspector() {
         <button type="button" onClick={redo} disabled={!canRedo}>
           Redo
         </button>
+      </div>
+
+      {/* Model-level: auto-rig from named PNG layers */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <span style={labelStyle}>Auto-rig from layers</span>
+        <p style={{ margin: 0, fontSize: 11, color: "#9a9aa5" }}>
+          Named PNG layers: face, eye_L, eye_R, mouth, …
+        </p>
+        <input
+          ref={layerSetInputRef}
+          type="file"
+          multiple
+          accept="image/png"
+          style={{ display: "none" }}
+          onChange={onLayerSetInputChange}
+        />
+        <button
+          type="button"
+          onClick={() => layerSetInputRef.current?.click()}
+          style={smallBtnStyle}
+        >
+          Import layer set
+        </button>
+        {generatorError && <p style={errorStyle}>{generatorError}</p>}
       </div>
 
       {selectedDeformerId ? (
@@ -923,17 +970,6 @@ function AttachDropdown({
     </label>
   );
 }
-
-const errorStyle: CSSProperties = {
-  margin: 0,
-  padding: "8px 10px",
-  background: "#3a1a1a",
-  border: "1px solid #7a2a2a",
-  borderRadius: 4,
-  color: "#f08080",
-  fontSize: 12,
-  wordBreak: "break-word",
-};
 
 /**
  * Grid-mesh controls for a part. Shows cols/rows inputs and "Add Grid Mesh"
