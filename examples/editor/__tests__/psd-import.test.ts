@@ -9,7 +9,14 @@ import {
 } from "../src/psd-import";
 
 // Helper: build a flat RGBA buffer of size w*h where every pixel is (r,g,b,a).
-function solidLayer(w: number, h: number, r: number, g: number, b: number, a: number): Uint8ClampedArray {
+function solidLayer(
+  w: number,
+  h: number,
+  r: number,
+  g: number,
+  b: number,
+  a: number,
+): Uint8ClampedArray {
   const buf = new Uint8ClampedArray(w * h * 4);
   for (let i = 0; i < w * h; i++) {
     buf[i * 4 + 0] = r;
@@ -21,7 +28,12 @@ function solidLayer(w: number, h: number, r: number, g: number, b: number, a: nu
 }
 
 // Helper: read one pixel from a flat RGBA buffer at (x, y) with given stride.
-function px(buf: Uint8ClampedArray, stride: number, x: number, y: number): [number, number, number, number] {
+function px(
+  buf: Uint8ClampedArray,
+  stride: number,
+  x: number,
+  y: number,
+): [number, number, number, number] {
   const i = (y * stride + x) * 4;
   return [buf[i], buf[i + 1], buf[i + 2], buf[i + 3]];
 }
@@ -215,7 +227,9 @@ describe("validatePsdHeader", () => {
   });
 
   it("rejects 16-bit depth", () => {
-    expect(() => validatePsdHeader({ ...validHeader, bitsPerChannel: 16 })).toThrow(
+    expect(() =>
+      validatePsdHeader({ ...validHeader, bitsPerChannel: 16 }),
+    ).toThrow(
       /psd import: document: unsupported bit depth 16; only 8-bit is supported/,
     );
   });
@@ -223,16 +237,17 @@ describe("validatePsdHeader", () => {
   it(`rejects documents exceeding ${MAX_PSD_MEGAPIXELS} MP (9000×9000)`, () => {
     expect(() =>
       validatePsdHeader({ ...validHeader, width: 9000, height: 9000 }),
-    ).toThrow(
-      /psd import: document: 9000x9000 exceeds the 64 megapixel limit/,
-    );
+    ).toThrow(/psd import: document: 9000x9000 exceeds the 64 megapixel limit/);
   });
 });
 
 // ---------------------------------------------------------------------------
 // Helper: build a minimal valid raster PsdLayerLike
 // ---------------------------------------------------------------------------
-function rasterLayer(name: string, overrides: Partial<PsdLayerLike> = {}): PsdLayerLike {
+function rasterLayer(
+  name: string,
+  overrides: Partial<PsdLayerLike> = {},
+): PsdLayerLike {
   return {
     name,
     imageData: { data: new Uint8ClampedArray(4), width: 1, height: 1 },
@@ -249,31 +264,39 @@ describe("selectImportableLayers", () => {
   });
 
   it("throws on a hidden layer", () => {
-    expect(() => selectImportableLayers([rasterLayer("bg", { hidden: true })])).toThrow(
-      /layer "bg": hidden layers are not supported/,
-    );
+    expect(() =>
+      selectImportableLayers([rasterLayer("bg", { hidden: true })]),
+    ).toThrow(/layer "bg": hidden layers are not supported/);
   });
 
   it("throws on a clipping layer", () => {
-    expect(() => selectImportableLayers([rasterLayer("clip", { clipping: true })])).toThrow(
-      /layer "clip": clipping layers are not supported/,
-    );
+    expect(() =>
+      selectImportableLayers([rasterLayer("clip", { clipping: true })]),
+    ).toThrow(/layer "clip": clipping layers are not supported/);
   });
 
   it("throws on blend mode other than normal", () => {
     expect(() =>
-      selectImportableLayers([rasterLayer("multiply", { blendMode: "multiply" })]),
+      selectImportableLayers([
+        rasterLayer("multiply", { blendMode: "multiply" }),
+      ]),
     ).toThrow(/unsupported blend mode "multiply"; only normal is supported/);
   });
 
   it("throws on 'pass through' blend mode", () => {
     expect(() =>
-      selectImportableLayers([rasterLayer("pt", { blendMode: "pass through" })]),
-    ).toThrow(/unsupported blend mode "pass through"; only normal is supported/);
+      selectImportableLayers([
+        rasterLayer("pt", { blendMode: "pass through" }),
+      ]),
+    ).toThrow(
+      /unsupported blend mode "pass through"; only normal is supported/,
+    );
   });
 
   it("throws on partial opacity (0.5)", () => {
-    expect(() => selectImportableLayers([rasterLayer("semi", { opacity: 0.5 })])).toThrow(
+    expect(() =>
+      selectImportableLayers([rasterLayer("semi", { opacity: 0.5 })]),
+    ).toThrow(
       /unsupported opacity 0\.5; only fully-opaque layers are supported/,
     );
   });
@@ -281,7 +304,9 @@ describe("selectImportableLayers", () => {
   it("throws on a text layer", () => {
     // Text layer WITH cached imageData must still be rejected via the text marker
     expect(() =>
-      selectImportableLayers([rasterLayer("label", { text: { text: "Hello" } })]),
+      selectImportableLayers([
+        rasterLayer("label", { text: { text: "Hello" } }),
+      ]),
     ).toThrow(/layer "label": text layers are not supported/);
   });
 
@@ -339,7 +364,9 @@ describe("selectImportableLayers", () => {
   });
 
   it("passes a layer with opacity explicitly set to 1", () => {
-    const result = selectImportableLayers([rasterLayer("face", { opacity: 1 })]);
+    const result = selectImportableLayers([
+      rasterLayer("face", { opacity: 1 }),
+    ]);
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe("face");
   });
@@ -351,7 +378,11 @@ describe("selectImportableLayers", () => {
   });
 
   it("does NOT dedupe duplicate top-level layer names", () => {
-    const layers = [rasterLayer("eye"), rasterLayer("eye"), rasterLayer("mouth")];
+    const layers = [
+      rasterLayer("eye"),
+      rasterLayer("eye"),
+      rasterLayer("mouth"),
+    ];
     const result = selectImportableLayers(layers);
     expect(result).toHaveLength(3);
     expect(result[0].name).toBe("eye");
@@ -368,11 +399,18 @@ describe("selectImportableLayers", () => {
     ];
     const result = selectImportableLayers(layers);
     expect(result).toHaveLength(4);
-    expect(result.map((r) => r.name)).toEqual(["face", "eye_L", "eye_R", "mouth"]);
+    expect(result.map((r) => r.name)).toEqual([
+      "face",
+      "eye_L",
+      "eye_R",
+      "mouth",
+    ]);
   });
 
   it("passes with blendMode explicitly set to 'normal'", () => {
-    const result = selectImportableLayers([rasterLayer("face", { blendMode: "normal" })]);
+    const result = selectImportableLayers([
+      rasterLayer("face", { blendMode: "normal" }),
+    ]);
     expect(result).toHaveLength(1);
   });
 });

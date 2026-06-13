@@ -59,7 +59,10 @@ export function compositeLayerPixels(
     const dy = dyStart + row;
     const srcRowStart = (sy * layerW + sxOffset) * 4;
     const dstRowStart = (dy * docW + dxStart) * 4;
-    out.set(layerData.subarray(srcRowStart, srcRowStart + copyW * 4), dstRowStart);
+    out.set(
+      layerData.subarray(srcRowStart, srcRowStart + copyW * 4),
+      dstRowStart,
+    );
   }
 
   return out;
@@ -161,7 +164,10 @@ export function validatePsdHeader(header: {
 
   if (header.colorMode !== 3) {
     const modeName = COLOR_MODE_NAMES[header.colorMode];
-    const modeLabel = modeName !== undefined ? `${modeName} (${header.colorMode})` : String(header.colorMode);
+    const modeLabel =
+      modeName !== undefined
+        ? `${modeName} (${header.colorMode})`
+        : String(header.colorMode);
     throw new Error(
       `psd import: document: unsupported color mode ${modeLabel}; only RGB is supported`,
     );
@@ -244,17 +250,18 @@ export function selectImportableLayers(
     }
 
     if (layer.hidden === true) {
-      throw new Error(`psd import: layer ${label}: hidden layers are not supported`);
+      throw new Error(
+        `psd import: layer ${label}: hidden layers are not supported`,
+      );
     }
 
     if (layer.clipping === true) {
-      throw new Error(`psd import: layer ${label}: clipping layers are not supported`);
+      throw new Error(
+        `psd import: layer ${label}: clipping layers are not supported`,
+      );
     }
 
-    if (
-      layer.blendMode !== undefined &&
-      layer.blendMode !== "normal"
-    ) {
+    if (layer.blendMode !== undefined && layer.blendMode !== "normal") {
       throw new Error(
         `psd import: layer ${label}: unsupported blend mode "${layer.blendMode}"; only normal is supported`,
       );
@@ -269,19 +276,34 @@ export function selectImportableLayers(
     // Special-layer markers — checked explicitly so a text layer WITH cached
     // imageData is still rejected via its marker, not allowed through.
     if (layer.text) {
-      throw new Error(`psd import: layer ${label}: text layers are not supported`);
+      throw new Error(
+        `psd import: layer ${label}: text layers are not supported`,
+      );
     }
     if (layer.placedLayer) {
-      throw new Error(`psd import: layer ${label}: smart-object layers are not supported`);
+      throw new Error(
+        `psd import: layer ${label}: smart-object layers are not supported`,
+      );
     }
-    if (layer.vectorFill || layer.vectorStroke || layer.vectorMask || layer.vectorOrigination) {
-      throw new Error(`psd import: layer ${label}: vector/shape layers are not supported`);
+    if (
+      layer.vectorFill ||
+      layer.vectorStroke ||
+      layer.vectorMask ||
+      layer.vectorOrigination
+    ) {
+      throw new Error(
+        `psd import: layer ${label}: vector/shape layers are not supported`,
+      );
     }
     if (layer.adjustment) {
-      throw new Error(`psd import: layer ${label}: adjustment layers are not supported`);
+      throw new Error(
+        `psd import: layer ${label}: adjustment layers are not supported`,
+      );
     }
     if (layer.effects) {
-      throw new Error(`psd import: layer ${label}: layer effects are not supported`);
+      throw new Error(
+        `psd import: layer ${label}: layer effects are not supported`,
+      );
     }
     if (layer.sectionDivider) {
       throw new Error(
@@ -362,11 +384,24 @@ export async function decodePsdLayers(
         // non-8-bit documents, but ag-psd's type for imageData.data is a
         // 4-member union; this explicit check keeps Uint16Array/Float32Array
         // out of the compositor and acts as the narrowing TypeScript needs.
-        if (!(data instanceof Uint8ClampedArray) && !(data instanceof Uint8Array)) {
-          throw new Error(`psd import: layer "${name}": unsupported pixel data type`);
+        if (
+          !(data instanceof Uint8ClampedArray) &&
+          !(data instanceof Uint8Array)
+        ) {
+          throw new Error(
+            `psd import: layer "${name}": unsupported pixel data type`,
+          );
         }
 
-        const full = compositeLayerPixels(data, width, height, left, top, psd.width, psd.height);
+        const full = compositeLayerPixels(
+          data,
+          width,
+          height,
+          left,
+          top,
+          psd.width,
+          psd.height,
+        );
         // compositeLayerPixels always allocates with new Uint8ClampedArray(), so
         // its buffer is always a plain ArrayBuffer. Cast away SharedArrayBuffer
         // from the union so the ImageData constructor overload resolves. The
@@ -375,7 +410,11 @@ export async function decodePsdLayers(
         // overload needs Uint8ClampedArray<ArrayBuffer> — do NOT simplify this to
         // `new ImageData(full, …)` or the typecheck breaks.
         const imageData = new ImageData(
-          new Uint8ClampedArray(full.buffer as ArrayBuffer, full.byteOffset, full.length),
+          new Uint8ClampedArray(
+            full.buffer as ArrayBuffer,
+            full.byteOffset,
+            full.length,
+          ),
           psd.width,
           psd.height,
         );
