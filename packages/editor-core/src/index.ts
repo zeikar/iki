@@ -53,3 +53,11 @@ export {
   createDefaultWarpDeformer,
   createGridMesh,
 } from "./factories";
+export {
+  generateIkiFromLayerSet,
+  parseLayerRoles,
+  bboxToTransform,
+  ROLE_TABLE,
+  type LayerInput,
+  type RoleSpec,
+} from "./auto-rig";
