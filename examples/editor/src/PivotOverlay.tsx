@@ -102,7 +102,14 @@ export function PivotOverlay({ canvasRef }: PivotOverlayProps) {
   const { width: modelW, height: modelH } = model.canvas;
 
   // Convert the pivot world position to overlay-local CSS px.
-  const handlePx = modelToScreen(wx, wy, clientWidth, clientHeight, modelW, modelH);
+  const handlePx = modelToScreen(
+    wx,
+    wy,
+    clientWidth,
+    clientHeight,
+    modelW,
+    modelH,
+  );
 
   // Use live drag position when dragging, otherwise the computed handle position.
   const displayPx = drag !== null ? drag : handlePx;
@@ -165,7 +172,12 @@ export function PivotOverlay({ canvasRef }: PivotOverlayProps) {
       const newPivot = invertAffinePoint(parentWorld, mx, my);
 
       // runCommand never throws here; command-level failures surface via editError.
-      runCommand(new SetDeformerPivot(activeDeformer.id, { x: newPivot.x, y: newPivot.y }));
+      runCommand(
+        new SetDeformerPivot(activeDeformer.id, {
+          x: newPivot.x,
+          y: newPivot.y,
+        }),
+      );
       // Clear any prior geometry-error banner on success.
       setExportError(null);
     } catch (err) {

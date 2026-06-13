@@ -60,8 +60,11 @@ export function Preview({ playerRef }: PreviewProps) {
       setIdleOn(false);
       return;
     }
-    const d = doc.getModel().deformers?.find((x) => x.id === selectedDeformerId);
-    const isMatrix = d !== undefined && (d.kind === "matrix" || d.kind === undefined);
+    const d = doc
+      .getModel()
+      .deformers?.find((x) => x.id === selectedDeformerId);
+    const isMatrix =
+      d !== undefined && (d.kind === "matrix" || d.kind === undefined);
     if (isMatrix) setIdleOn(false);
   }, [gridEditMode, selectedDeformerId, doc]);
 
