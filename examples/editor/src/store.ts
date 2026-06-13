@@ -129,6 +129,14 @@ interface EditorState {
   atlasError: string | null;
   /** Visible banner for auto-rig import failures. */
   generatorError: string | null;
+  /** True while importLayerSet is in flight — used to disable the import button. */
+  importing: boolean;
+  /**
+   * Monotonically increasing import sequence counter. Incremented at the START of
+   * each importLayerSet call; checked immediately before the atomic commit so a
+   * superseded (stale) import never overwrites a newer one.
+   */
+  importSeq: number;
 
   /**
    * Editor-only ephemeral capture session state — NEVER serialized. Non-null
@@ -199,6 +207,8 @@ interface EditorState {
    * Fail-fast: sets generatorError and returns on empty input or non-PNG files.
    * On success atomically replaces doc + partTextures and resets all banners.
    * On failure sets generatorError; existing doc is untouched.
+   * A generation guard (importSeq) ensures a stale import never overwrites a
+   * newer one when multiple imports are initiated before the first completes.
    */
   importLayerSet: (files: File[]) => Promise<void>;
 
@@ -399,6 +409,8 @@ export const useEditorStore = create<EditorState>((set, get) => {
     partTextures: {},
     atlasError: null,
     generatorError: null,
+    importing: false,
+    importSeq: 0,
     capture: null,
 
     runCommand: (cmd) => {
@@ -643,6 +655,11 @@ export const useEditorStore = create<EditorState>((set, get) => {
         }
       }
 
+      // Claim a new sequence number and mark the import as in-flight so the UI
+      // can disable the import button while work is pending.
+      const seq = get().importSeq + 1;
+      set({ importSeq: seq, importing: true });
+
       // Abandon any in-flight capture before swapping the whole document — a
       // capture session pointing at an OLD-document part/deformer would corrupt
       // later capture cleanup.
@@ -746,6 +763,11 @@ export const useEditorStore = create<EditorState>((set, get) => {
         // clearCapture() here ensures the ephemeral base is restored before swap.
         if (get().capture !== null) clearCapture();
 
+        // Generation guard: if a newer import started while we were awaiting,
+        // this result is stale — abandon without committing. The finally block
+        // still frees all bitmaps (committed stays false).
+        if (get().importSeq !== seq) return;
+
         // Atomic commit: snapshot old side-table bitmaps before overwriting.
         const oldPartTextures = get().partTextures;
         set((s) => ({
@@ -773,9 +795,13 @@ export const useEditorStore = create<EditorState>((set, get) => {
           t.bitmap.close();
         }
       } catch (e) {
-        set({
-          generatorError: e instanceof Error ? e.message : String(e),
-        });
+        // Only surface the error if this import is still the current one; a
+        // superseded import should not overwrite a newer result or its error.
+        if (get().importSeq === seq) {
+          set({
+            generatorError: e instanceof Error ? e.message : String(e),
+          });
+        }
         // committed stays false → finally closes decoded (i) + crops (ii).
       } finally {
         // (i) ALWAYS close source decode bitmaps — never transferred anywhere.
@@ -784,6 +810,11 @@ export const useEditorStore = create<EditorState>((set, get) => {
         // to partTextures and must NOT be closed here.
         if (!committed) {
           for (const b of cropBitmaps) b.close();
+        }
+        // Clear the in-flight flag only if this import is still the current one.
+        // A superseded import must not clear the flag set by the newer import.
+        if (get().importSeq === seq) {
+          set({ importing: false });
         }
       }
     },

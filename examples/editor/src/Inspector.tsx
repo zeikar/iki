@@ -180,6 +180,7 @@ export function Inspector() {
   });
   const importLayerSet = useEditorStore((s) => s.importLayerSet);
   const generatorError = useEditorStore((s) => s.generatorError);
+  const importing = useEditorStore((s) => s.importing);
   const layerSetInputRef = useRef<HTMLInputElement>(null);
 
   function onLayerSetInputChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -219,9 +220,10 @@ export function Inspector() {
         <button
           type="button"
           onClick={() => layerSetInputRef.current?.click()}
+          disabled={importing}
           style={smallBtnStyle}
         >
-          Import layer set
+          {importing ? "Importing…" : "Import layer set"}
         </button>
         {generatorError && <p style={errorStyle}>{generatorError}</p>}
       </div>
