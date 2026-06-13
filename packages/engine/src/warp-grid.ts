@@ -1,7 +1,7 @@
 import type { IkiDeformer, IkiWarpGrid } from "@iki/format";
 import type { Affine } from "./affine";
 import type { ParameterStore } from "./parameter-store";
-import { accumulateKeyformOffsets } from "./warp";
+import { accumulate2DKeyformOffsets, accumulateKeyformOffsets } from "./warp";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -48,6 +48,17 @@ export function resolveWarpGrids(
       accumulateKeyformOffsets(
         warp.keyforms,
         params.get(warp.parameter),
+        points,
+      );
+    }
+    // 1D xor 2D is validator-enforced; at most one branch contributes per deformer.
+    if (d.warp2d !== undefined) {
+      accumulate2DKeyformOffsets(
+        d.warp2d.valuesX,
+        d.warp2d.valuesY,
+        d.warp2d.keyforms2d,
+        params.get(d.warp2d.parameter),
+        params.get(d.warp2d.parameterY),
         points,
       );
     }
