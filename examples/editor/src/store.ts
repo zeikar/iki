@@ -38,6 +38,7 @@ import {
   type DecodedSource,
 } from "./atlas-image";
 import { buildLayerInputs, cropBitmap } from "./auto-rig-image";
+import { decodePsdLayers } from "./psd-import";
 import { sampleModel } from "./sample-model";
 
 function toAtlasSource(s: DecodedSource): AtlasSource {
@@ -644,14 +645,33 @@ export const useEditorStore = create<EditorState>((set, get) => {
         });
         return;
       }
-      for (const file of files) {
-        if (file.type !== "image/png") {
-          set({
-            generatorError: `auto-rig: "${file.name}" is not a PNG`,
-            atlasError: null,
-            editError: null,
-          });
-          return;
+      // Detect PSD by EXTENSION — file.type is unreliable for .psd. A single
+      // .psd routes through decodePsdLayers; any PNG count (0 .psd) takes the
+      // existing PNG path. Anything else (mixed, or >1 .psd) is rejected.
+      const psdFiles = files.filter((f) =>
+        f.name.toLowerCase().endsWith(".psd"),
+      );
+      const isPsd = psdFiles.length === files.length && files.length === 1;
+      if (!isPsd && psdFiles.length > 0) {
+        set({
+          generatorError:
+            "psd import: select exactly one .psd file or one or more PNG files (mixed input is not supported)",
+          atlasError: null,
+          editError: null,
+        });
+        return;
+      }
+      // PNG type check applies ONLY to the PNG path so a .psd never hits it.
+      if (!isPsd) {
+        for (const file of files) {
+          if (file.type !== "image/png") {
+            set({
+              generatorError: `auto-rig: "${file.name}" is not a PNG`,
+              atlasError: null,
+              editError: null,
+            });
+            return;
+          }
         }
       }
 
@@ -675,23 +695,36 @@ export const useEditorStore = create<EditorState>((set, get) => {
       let committed = false;
 
       try {
-        // Decode each file and track ownership immediately.
-        const decodedByName = new Map<string, ImageBitmap>();
-        for (const file of files) {
-          const decoded = await decodeImageFile(file, {
-            premultiplyAlpha: "none",
-            imageOrientation: "none",
-          });
-          decodedBitmaps.push(decoded.bitmap);
-          decodedByName.set(file.name, decoded.bitmap);
+        // Decode into a flat ARRAY (not a Map) so duplicate top-level names
+        // survive to parseLayerRoles, which fail-fasts on collisions. Building
+        // a name→bitmap Map here would silently collapse duplicates.
+        const decodedList: { fileName: string; bitmap: ImageBitmap }[] = [];
+        if (isPsd) {
+          // decodePsdLayers returns a fully-owned array (it freed partials on
+          // throw); every returned bitmap enters decodedBitmaps so the shared
+          // finally owns it, exactly like the PNG decodes.
+          const decoded = await decodePsdLayers(psdFiles[0]);
+          for (const d of decoded) decodedBitmaps.push(d.bitmap);
+          decodedList.push(...decoded);
+        } else {
+          for (const file of files) {
+            const decoded = await decodeImageFile(file, {
+              premultiplyAlpha: "none",
+              imageOrientation: "none",
+            });
+            decodedBitmaps.push(decoded.bitmap);
+            decodedList.push({ fileName: file.name, bitmap: decoded.bitmap });
+          }
         }
 
         // Build LayerInput[] — reads pixels only, creates NO ImageBitmaps.
-        const layers: LayerInput[] = buildLayerInputs(
-          [...decodedByName].map(([fileName, bitmap]) => ({
-            fileName,
-            bitmap,
-          })),
+        // parseLayerRoles throws on duplicate names BEFORE we build the Map.
+        const layers: LayerInput[] = buildLayerInputs(decodedList);
+
+        // Now that duplicates have been rejected, the name→bitmap Map is
+        // collision-free for the crop loop's decodedByName.get lookups.
+        const decodedByName = new Map(
+          decodedList.map((d) => [d.fileName, d.bitmap]),
         );
 
         // Crop each layer; push to cropBitmaps BEFORE the next await so a
