@@ -22,9 +22,12 @@ const ALPHA_THRESHOLD = 8;
  * - the 2d canvas context is unavailable
  * - no pixel passes the threshold (empty layer)
  */
-export function detectAlphaBbox(
-  bitmap: ImageBitmap,
-): { x: number; y: number; w: number; h: number } {
+export function detectAlphaBbox(bitmap: ImageBitmap): {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+} {
   const { width, height } = bitmap;
 
   const canvas = document.createElement("canvas");
@@ -33,9 +36,7 @@ export function detectAlphaBbox(
 
   const ctx = canvas.getContext("2d");
   if (ctx === null) {
-    throw new Error(
-      "detectAlphaBbox: could not obtain 2d canvas context",
-    );
+    throw new Error("detectAlphaBbox: could not obtain 2d canvas context");
   }
 
   ctx.drawImage(bitmap, 0, 0);
@@ -59,9 +60,7 @@ export function detectAlphaBbox(
   }
 
   if (maxX === -1) {
-    throw new Error(
-      "auto-rig: layer is empty after alpha threshold",
-    );
+    throw new Error("auto-rig: layer is empty after alpha threshold");
   }
 
   // Expand by 1px on each side, clamped to canvas bounds. The resulting w/h
@@ -112,7 +111,9 @@ export function buildLayerInputs(
   decoded: { fileName: string; bitmap: ImageBitmap }[],
 ): LayerInput[] {
   if (decoded.length === 0) {
-    throw new Error("auto-rig: buildLayerInputs: decoded layers must not be empty");
+    throw new Error(
+      "auto-rig: buildLayerInputs: decoded layers must not be empty",
+    );
   }
 
   // Derive canvas size from the first bitmap; assert all others match.

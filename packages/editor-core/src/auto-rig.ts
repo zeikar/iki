@@ -496,8 +496,18 @@ export function bindingsForRole(
       const gx = Math.min(cropW * 0.18, 22);
       const gy = Math.min(cropH * 0.18, 16);
       bindings.push(
-        { parameter: StandardParameter.EyeballX, channel: "translateX", from: -gx, to: gx },
-        { parameter: StandardParameter.EyeballY, channel: "translateY", from: -gy, to: gy },
+        {
+          parameter: StandardParameter.EyeballX,
+          channel: "translateX",
+          from: -gx,
+          to: gx,
+        },
+        {
+          parameter: StandardParameter.EyeballY,
+          channel: "translateY",
+          from: -gy,
+          to: gy,
+        },
       );
     }
 
@@ -507,9 +517,19 @@ export function bindingsForRole(
   if (role === "mouth") {
     return [
       // Mouth open: scaleY from 0 (closed, param=0) to 3 (wide open, param=1).
-      { parameter: StandardParameter.MouthOpen, channel: "scaleY", from: 0, to: 3 },
+      {
+        parameter: StandardParameter.MouthOpen,
+        channel: "scaleY",
+        from: 0,
+        to: 3,
+      },
       // Mouth form: scaleX from -0.2 (pursed, param=-1) to 0.4 (wide, param=1).
-      { parameter: StandardParameter.MouthForm, channel: "scaleX", from: -0.2, to: 0.4 },
+      {
+        parameter: StandardParameter.MouthForm,
+        channel: "scaleX",
+        from: -0.2,
+        to: 0.4,
+      },
     ];
   }
 
@@ -635,10 +655,18 @@ export function generateIkiFromLayerSet(
       bboxToTransform(l.bbox, l.canvasW, l.canvasH, l.role),
     );
 
-    unionMinX = Math.min(...transforms.map((t, i) => t.x - faceWarpLayers[i].cropW / 2));
-    unionMaxX = Math.max(...transforms.map((t, i) => t.x + faceWarpLayers[i].cropW / 2));
-    unionMinY = Math.min(...transforms.map((t, i) => t.y - faceWarpLayers[i].cropH / 2));
-    unionMaxY = Math.max(...transforms.map((t, i) => t.y + faceWarpLayers[i].cropH / 2));
+    unionMinX = Math.min(
+      ...transforms.map((t, i) => t.x - faceWarpLayers[i].cropW / 2),
+    );
+    unionMaxX = Math.max(
+      ...transforms.map((t, i) => t.x + faceWarpLayers[i].cropW / 2),
+    );
+    unionMinY = Math.min(
+      ...transforms.map((t, i) => t.y - faceWarpLayers[i].cropH / 2),
+    );
+    unionMaxY = Math.max(
+      ...transforms.map((t, i) => t.y + faceWarpLayers[i].cropH / 2),
+    );
 
     // Expand by 12% margin on each side so no child vertex lands on the grid
     // boundary and gets clamped by bindPointToRestGrid.
@@ -656,17 +684,21 @@ export function generateIkiFromLayerSet(
   // halfW is the larger of the two distances from faceCenterX to the union edges,
   // ensuring the symmetric range [faceCenterX-halfW, faceCenterX+halfW] encloses
   // every child. y-range uses the margined union directly (not symmetric).
-  const halfW = Math.max(
-    faceCenterX - unionMinX,
-    unionMaxX - faceCenterX,
-  );
+  const halfW = Math.max(faceCenterX - unionMinX, unionMaxX - faceCenterX);
   const faceGridMinX = faceCenterX - halfW;
   const faceGridMaxX = faceCenterX + halfW;
 
   const faceGrid = {
     cols: 4,
     rows: 4,
-    points: generateGridPoints(4, 4, faceGridMinX, faceGridMaxX, unionMinY, unionMaxY),
+    points: generateGridPoints(
+      4,
+      4,
+      faceGridMinX,
+      faceGridMaxX,
+      unionMinY,
+      unionMaxY,
+    ),
   };
 
   // ── headDeformer pivot (neck): slightly below the face bottom ─────────────
@@ -693,9 +725,24 @@ export function generateIkiFromLayerSet(
       id: "headDeformer",
       pivot: neckPivot,
       bindings: [
-        { parameter: StandardParameter.AngleX, channel: "rotate" as const, from: 6, to: -6 },
-        { parameter: StandardParameter.AngleX, channel: "translateX" as const, from: -50, to: 50 },
-        { parameter: StandardParameter.Breath, channel: "translateY" as const, from: 0, to: -12 },
+        {
+          parameter: StandardParameter.AngleX,
+          channel: "rotate" as const,
+          from: 6,
+          to: -6,
+        },
+        {
+          parameter: StandardParameter.AngleX,
+          channel: "translateX" as const,
+          from: -50,
+          to: 50,
+        },
+        {
+          parameter: StandardParameter.Breath,
+          channel: "translateY" as const,
+          from: 0,
+          to: -12,
+        },
       ],
     },
     // faceWarp: cylinder-bend warp parented to headDeformer; grid is symmetric

@@ -73,7 +73,9 @@ describe("roles", () => {
 
   it("both eyes missing throws", () => {
     const files = ["face.png", "mouth.png"];
-    expect(() => parseLayerRoles(files)).toThrow(/missing required role "eye_L"/);
+    expect(() => parseLayerRoles(files)).toThrow(
+      /missing required role "eye_L"/,
+    );
   });
 
   it("duplicate role throws", () => {
@@ -542,13 +544,17 @@ describe("warp", () => {
     const model = generateIkiFromLayerSet(offCenterLayers(), canvas);
     const faceWarpDef = model.deformers?.find((d) => d.id === "faceWarp");
     expect(faceWarpDef).toBeDefined();
-    const grid = (faceWarpDef as { grid: { cols: number; rows: number; points: number[] } }).grid;
+    const grid = (
+      faceWarpDef as { grid: { cols: number; rows: number; points: number[] } }
+    ).grid;
 
     // Read grid min/max from the actual grid points (row 0 is top = maxY; last row is bottom = minY)
     const stride = grid.cols + 1;
     const pointCount = stride * (grid.rows + 1);
-    let gridMinX = Infinity, gridMaxX = -Infinity;
-    let gridMinY = Infinity, gridMaxY = -Infinity;
+    let gridMinX = Infinity,
+      gridMaxX = -Infinity;
+    let gridMinY = Infinity,
+      gridMaxY = -Infinity;
     for (let i = 0; i < pointCount; i++) {
       const x = grid.points[i * 2];
       const y = grid.points[i * 2 + 1];
@@ -562,10 +568,17 @@ describe("warp", () => {
     // checks that the tight union fits inside the margined grid).
     const layers = offCenterLayers();
     const faceWarpRoles = ["face", "eye_L", "eye_R", "mouth"]; // all are faceWarp
-    let unionMinX = Infinity, unionMaxX = -Infinity;
-    let unionMinY = Infinity, unionMaxY = -Infinity;
+    let unionMinX = Infinity,
+      unionMaxX = -Infinity;
+    let unionMinY = Infinity,
+      unionMaxY = -Infinity;
     for (const layer of layers.filter((l) => faceWarpRoles.includes(l.role))) {
-      const t = bboxToTransform(layer.bbox, layer.canvasW, layer.canvasH, layer.role);
+      const t = bboxToTransform(
+        layer.bbox,
+        layer.canvasW,
+        layer.canvasH,
+        layer.role,
+      );
       unionMinX = Math.min(unionMinX, t.x - layer.cropW / 2);
       unionMaxX = Math.max(unionMaxX, t.x + layer.cropW / 2);
       unionMinY = Math.min(unionMinY, t.y - layer.cropH / 2);
@@ -582,7 +595,9 @@ describe("warp", () => {
     const canvas = { width: 1000, height: 1000 };
     const model = generateIkiFromLayerSet(offCenterLayers(), canvas);
     const faceWarpDef = model.deformers?.find((d) => d.id === "faceWarp");
-    const grid = (faceWarpDef as { grid: { cols: number; rows: number; points: number[] } }).grid;
+    const grid = (
+      faceWarpDef as { grid: { cols: number; rows: number; points: number[] } }
+    ).grid;
 
     // faceCenterX = -100 for offCenterLayers
     const faceCenterX = -100;
@@ -632,7 +647,14 @@ describe("warp", () => {
     const grid = {
       cols: 4,
       rows: 4,
-      points: generateGridPoints(4, 4, faceGridMinX, faceGridMaxX, unionMinY, unionMaxY),
+      points: generateGridPoints(
+        4,
+        4,
+        faceGridMinX,
+        faceGridMaxX,
+        unionMinY,
+        unionMaxY,
+      ),
     };
     const faceCenterX = -100;
 
@@ -723,12 +745,26 @@ describe("bindings", () => {
     expect(irisL?.bindings).toBeDefined();
     // blink + EyeballX translateX + EyeballY translateY
     expect(irisL!.bindings!.length).toBe(3);
-    expect(irisL!.bindings!.some((b) => b.parameter === StandardParameter.EyeOpenLeft && b.channel === "scaleY")).toBe(true);
-    const gazeX = irisL!.bindings!.find((b) => b.parameter === StandardParameter.EyeballX && b.channel === "translateX");
+    expect(
+      irisL!.bindings!.some(
+        (b) =>
+          b.parameter === StandardParameter.EyeOpenLeft &&
+          b.channel === "scaleY",
+      ),
+    ).toBe(true);
+    const gazeX = irisL!.bindings!.find(
+      (b) =>
+        b.parameter === StandardParameter.EyeballX &&
+        b.channel === "translateX",
+    );
     expect(gazeX).toBeDefined();
     expect(gazeX!.from).toBe(-gx);
     expect(gazeX!.to).toBe(gx);
-    const gazeY = irisL!.bindings!.find((b) => b.parameter === StandardParameter.EyeballY && b.channel === "translateY");
+    const gazeY = irisL!.bindings!.find(
+      (b) =>
+        b.parameter === StandardParameter.EyeballY &&
+        b.channel === "translateY",
+    );
     expect(gazeY).toBeDefined();
     expect(gazeY!.from).toBe(-gy);
     expect(gazeY!.to).toBe(gy);

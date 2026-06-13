@@ -32,7 +32,11 @@ import type {
 } from "@iki/format";
 import { create } from "zustand";
 
-import { decodeImageFile, renderAtlas, type DecodedSource } from "./atlas-image";
+import {
+  decodeImageFile,
+  renderAtlas,
+  type DecodedSource,
+} from "./atlas-image";
 import { buildLayerInputs, cropBitmap } from "./auto-rig-image";
 import { sampleModel } from "./sample-model";
 
@@ -621,7 +625,11 @@ export const useEditorStore = create<EditorState>((set, get) => {
     importLayerSet: async (files) => {
       // Fail-fast: boundary checks before any decode.
       if (files.length === 0) {
-        set({ generatorError: "auto-rig: select at least one PNG layer", atlasError: null, editError: null });
+        set({
+          generatorError: "auto-rig: select at least one PNG layer",
+          atlasError: null,
+          editError: null,
+        });
         return;
       }
       for (const file of files) {
@@ -706,12 +714,11 @@ export const useEditorStore = create<EditorState>((set, get) => {
         // AtlasPlacement | undefined).
         const partTextureAssignments: AtlasAssignment[] = [];
         for (const crop of crops) {
-          const placement: AtlasPlacement | undefined =
-            layout.placements.find((p) => p.id === crop.id);
+          const placement: AtlasPlacement | undefined = layout.placements.find(
+            (p) => p.id === crop.id,
+          );
           if (placement === undefined) {
-            throw new Error(
-              `auto-rig: no atlas placement for "${crop.id}"`,
-            );
+            throw new Error(`auto-rig: no atlas placement for "${crop.id}"`);
           }
           partTextureAssignments.push({
             partId: crop.id,
