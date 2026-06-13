@@ -8,7 +8,7 @@ import {
   type IkiPart,
   type IkiWarpGrid,
 } from "@iki/format";
-import { bakeHeadTurnGridWarp } from "./mesh-generator";
+import { bakeHeadTurnGridWarp2D } from "./mesh-generator";
 
 /**
  * A hand-authored flat-shaded ("vector") anime face, built entirely from
@@ -159,9 +159,14 @@ const faceGrid: IkiWarpGrid = {
   rows: 4,
   points: generateGridPoints(4, 4, -260, 260, -310, 310),
 };
-// Cylinder-bend keyforms for the group warp — curvature lives here only; the
-// rigid turn/translate stays on headDeformer (no double-apply).
-const faceWarp = bakeHeadTurnGridWarp(faceGrid, StandardParameter.AngleX);
+// 2D cylinder-bend keyforms (AngleX × AngleY) — curvature lives here only; the
+// rigid turn/translate stays on headDeformer (no double-apply, same contract as
+// the 1D AngleX split). The 3×3 lattice captures horizontal AND vertical bends.
+const faceWarp2d = bakeHeadTurnGridWarp2D(
+  faceGrid,
+  StandardParameter.AngleX,
+  StandardParameter.AngleY,
+);
 
 // A face feature: a color mesh part on faceWarp at width/height 1.
 function feature(
@@ -257,7 +262,14 @@ export const sampleModel: IkiModel = {
     },
     {
       id: StandardParameter.AngleX,
-      name: "Head Angle",
+      name: "Head Angle X",
+      min: -30,
+      max: 30,
+      default: 0,
+    },
+    {
+      id: StandardParameter.AngleY,
+      name: "Head Angle Y",
       min: -30,
       max: 30,
       default: 0,
@@ -289,6 +301,20 @@ export const sampleModel: IkiModel = {
           from: -50,
           to: 50,
         },
+        // AngleY rigid turn: +AngleY = head tilts up (chin lifts).
+        // Curvature lives in faceWarp2d; only the rigid component is here (no double-apply).
+        {
+          parameter: StandardParameter.AngleY,
+          channel: "rotate",
+          from: -6,
+          to: 6,
+        },
+        {
+          parameter: StandardParameter.AngleY,
+          channel: "translateY",
+          from: -50,
+          to: 50,
+        },
         {
           parameter: StandardParameter.Breath,
           channel: "translateY",
@@ -302,7 +328,7 @@ export const sampleModel: IkiModel = {
       id: "faceWarp",
       parent: "headDeformer",
       grid: faceGrid,
-      warps: [faceWarp],
+      warp2d: faceWarp2d,
     },
   ],
   parts: [

@@ -1,4 +1,5 @@
 import type {
+  IkiGrid2DWarp,
   IkiGridWarp,
   IkiMesh,
   IkiUvRect,
@@ -156,4 +157,81 @@ export function bakeHeadTurnGridWarp(
 
   // keyforms are sorted ascending by construction (ANGLES = [-30, 0, 30]).
   return { parameter, keyforms };
+}
+
+/**
+ * Formula-bake a 2D head-turn grid warp driven by two parameters (AngleX, AngleY).
+ *
+ * WHY 2D: to capture both horizontal cylinder-bend (AngleX) and vertical
+ * cylinder-bend (AngleY) simultaneously via bilinear interpolation of a 3×3
+ * lattice of keyforms. The rigid portion (rotate + translate) stays on the
+ * matrix parent (headDeformer) — this warp adds curvature only, same split
+ * contract as the 1D version.
+ *
+ * LAYOUT (row-major, k(i,j) = j * valuesX.length + i):
+ *   i indexes valuesX (AngleX axis), j indexes valuesY (AngleY axis).
+ *   Center entry k(1,1) is AngleX=0,AngleY=0 → all-zero offsets (rest pose).
+ *
+ * +AngleX = head turns right → positive dx (xPrime moves right).
+ * +AngleY = head tilts up    → positive dy (yPrime moves up).
+ */
+export function bakeHeadTurnGridWarp2D(
+  grid: IkiWarpGrid,
+  parameter: string,
+  parameterY: string,
+): IkiGrid2DWarp {
+  const valuesX = [-30, 0, 30];
+  const valuesY = [-30, 0, 30];
+
+  // Cylinder radii in MODEL units. Same margin ratio (0.6/0.5) as bakeHeadTurnGridWarp.
+  const halfWidth2d = (grid.points[grid.cols * 2] - grid.points[0]) / 2;
+  const RADIUS_X = halfWidth2d * (0.6 / 0.5);
+
+  // For vertical bend, derive half-height from the grid's y extent.
+  // points[1] is the top-left y (row=0, col=0).
+  // The bottom-left point is at row=rows, col=0: index rows*(cols+1), y at [index*2+1].
+  const firstY = grid.points[1];
+  const lastY = grid.points[(grid.rows * (grid.cols + 1)) * 2 + 1];
+  const halfHeight = Math.abs(firstY - lastY) / 2;
+  const RADIUS_Y = halfHeight * (0.6 / 0.5);
+
+  const pointCount = grid.points.length / 2;
+  const DEG_TO_RAD = Math.PI / 180;
+
+  const keyforms2d: { offsets: number[] }[] = [];
+  // Outer loop: j over valuesY; inner loop: i over valuesX.
+  // Row-major: k(i,j) = j * valuesX.length + i.
+  for (let j = 0; j < valuesY.length; j++) {
+    const angleYDeg = valuesY[j];
+    const thetaY = angleYDeg * DEG_TO_RAD;
+
+    for (let i = 0; i < valuesX.length; i++) {
+      const angleXDeg = valuesX[i];
+      const thetaX = angleXDeg * DEG_TO_RAD;
+
+      const offsets: number[] = [];
+      for (let p = 0; p < pointCount; p++) {
+        const x = grid.points[p * 2];
+        const y = grid.points[p * 2 + 1];
+
+        // Horizontal cylinder bend (AngleX): same as bakeHeadTurnGridWarp.
+        const alphaX = Math.asin(Math.max(-1, Math.min(1, x / RADIUS_X)));
+        const xPrime = RADIUS_X * Math.sin(alphaX + thetaX);
+        const dx = xPrime - x;
+
+        // Vertical cylinder bend (AngleY): symmetric formula applied to y.
+        // +thetaY → the point arcs upward (+y direction).
+        const alphaY = Math.asin(Math.max(-1, Math.min(1, y / RADIUS_Y)));
+        const yPrime = RADIUS_Y * Math.sin(alphaY + thetaY);
+        const dy = yPrime - y;
+
+        offsets.push(dx, dy);
+      }
+
+      // Center entry k(1,1): angleX=0, angleY=0 → thetaX=thetaY=0 → dx=dy=0 for all points.
+      keyforms2d.push({ offsets });
+    }
+  }
+
+  return { parameter, parameterY, valuesX, valuesY, keyforms2d };
 }
