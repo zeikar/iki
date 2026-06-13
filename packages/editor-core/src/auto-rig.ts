@@ -10,9 +10,12 @@ import {
   IKI_FORMAT_VERSION,
   StandardParameter,
   parseIkiModel,
+  type IkiBinding,
+  type IkiGridWarp,
   type IkiMesh,
   type IkiModel,
   type IkiPart,
+  type IkiWarpGrid,
 } from "@iki/format";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -385,24 +388,151 @@ export function createPixelGridMesh(
   return { vertices, uvs, indices };
 }
 
+// ── bakeHeadTurnGridWarpCentered ──────────────────────────────────────────────
+
+/**
+ * Bake a cylinder head-turn grid warp for ParamAngleX, center-relative.
+ *
+ * WHY a cylinder: rotating a flat face mesh looks right head-on but the
+ * silhouette doesn't narrow at the sides; projecting each point onto a
+ * cylinder and rotating makes the face foreshorten naturally as it turns.
+ *
+ * HOW (center-relative): the cylinder axis sits at `centerX` (the face center
+ * in model space). Each grid point at absolute x has local x = x - centerX,
+ * which maps onto the cylinder. After rotating by theta, the new absolute x is:
+ *   xPrime = centerX + RADIUS * sin(asin(localX/RADIUS) + theta)
+ *   dx = xPrime - x,  dy = 0
+ *
+ * At theta=0 the center keyform is all-zero (xPrime === x by identity).
+ *
+ * RADIUS is derived from the grid's own half-width (same 0.6/0.5 margin ratio
+ * as bakeHeadTurnGridWarp in the editor example) so asin stays clear of ±1.
+ *
+ * NOTE: Copy (not import) of the example's bakeHeadTurnGridWarp — editor-core
+ * must not depend on the examples directory.
+ */
+export function bakeHeadTurnGridWarpCentered(
+  grid: IkiWarpGrid,
+  parameter: string,
+  centerX: number,
+): IkiGridWarp {
+  // Keyform stops (degrees) match ParamAngleX's −30..30 range.
+  const ANGLES = [-30, 0, 30] as const;
+  // Cylinder radius in MODEL units, derived from the grid's symmetric half-width.
+  // Same 0.6/0.5 margin ratio as the local mesh bake — keeps asin clear of ±1.
+  const halfWidth = (grid.points[grid.cols * 2] - grid.points[0]) / 2;
+  const RADIUS = halfWidth * (0.6 / 0.5);
+
+  const pointCount = grid.points.length / 2;
+  const DEG_TO_RAD = Math.PI / 180;
+
+  const keyforms = ANGLES.map((angleDeg) => {
+    const theta = angleDeg * DEG_TO_RAD;
+    const offsets: number[] = [];
+
+    for (let i = 0; i < pointCount; i++) {
+      const x = grid.points[i * 2];
+      const localX = x - centerX;
+      // Clamp localX/RADIUS to [-1,1] to keep asin defined at boundary points.
+      const alpha = Math.asin(Math.max(-1, Math.min(1, localX / RADIUS)));
+      const xPrime = centerX + RADIUS * Math.sin(alpha + theta);
+      const dx = xPrime - x;
+      // dy is zero — cylinder bend only deforms horizontal position.
+      offsets.push(dx, 0);
+    }
+
+    return { value: angleDeg, offsets };
+  });
+
+  // keyforms are sorted ascending by construction (ANGLES = [-30, 0, 30]).
+  return { parameter, keyforms };
+}
+
+// ── bindingsForRole ───────────────────────────────────────────────────────────
+
+// Role prefixes that belong to the eye stack (blink + optional gaze bindings).
+// Hoisted to module scope so it is not reallocated on every bindingsForRole call.
+const EYE_STACK_PREFIXES = ["eye_", "iris_", "pupil_", "highlight_"] as const;
+
+/**
+ * Derive the IkiBinding[] for a part from its role spec and crop dimensions.
+ *
+ * - face, static (hair_back/front), brow, blush, nose → no bindings
+ * - eye-stack (eye_L/R, iris_L/R, pupil_L/R, highlight_L/R):
+ *     blink: scaleY driven by EyeOpenLeft or EyeOpenRight (from -0.85 to 0)
+ *     iris, pupil, highlight ALSO get gaze translateX and translateY bindings
+ * - mouth: MouthOpen scaleY (0 to 3) + MouthForm scaleX (-0.2 to 0.4)
+ *
+ * Returns [] when the role has no bindings (callers skip the bindings key when
+ * the array is empty).
+ */
+export function bindingsForRole(
+  spec: RoleSpec,
+  role: string,
+  cropW: number,
+  cropH: number,
+): IkiBinding[] {
+  const isEyeStack = EYE_STACK_PREFIXES.some((p) => role.startsWith(p));
+
+  if (isEyeStack && spec.eyeSide !== undefined) {
+    const blinkParam =
+      spec.eyeSide === "L"
+        ? StandardParameter.EyeOpenLeft
+        : StandardParameter.EyeOpenRight;
+
+    const bindings: IkiBinding[] = [
+      // Blink: param=0 (closed) → scaleY offset -0.85 (collapses the eye); param=1 (open) → 0 (no change). Matches blink() in sample-model.ts.
+      { parameter: blinkParam, channel: "scaleY", from: -0.85, to: 0 },
+    ];
+
+    // iris_*, pupil_*, highlight_* also get gaze
+    const isGazeRole =
+      role.startsWith("iris_") ||
+      role.startsWith("pupil_") ||
+      role.startsWith("highlight_");
+
+    if (isGazeRole) {
+      // Gaze range: proportional to crop size, capped to avoid over-travel.
+      const gx = Math.min(cropW * 0.18, 22);
+      const gy = Math.min(cropH * 0.18, 16);
+      bindings.push(
+        { parameter: StandardParameter.EyeballX, channel: "translateX", from: -gx, to: gx },
+        { parameter: StandardParameter.EyeballY, channel: "translateY", from: -gy, to: gy },
+      );
+    }
+
+    return bindings;
+  }
+
+  if (role === "mouth") {
+    return [
+      // Mouth open: scaleY from 0 (closed, param=0) to 3 (wide open, param=1).
+      { parameter: StandardParameter.MouthOpen, channel: "scaleY", from: 0, to: 3 },
+      // Mouth form: scaleX from -0.2 (pursed, param=-1) to 0.4 (wide, param=1).
+      { parameter: StandardParameter.MouthForm, channel: "scaleX", from: -0.2, to: 0.4 },
+    ];
+  }
+
+  // face, brow_*, blush_*, nose, hair_* → no bindings
+  return [];
+}
+
 // ── generateIkiFromLayerSet ───────────────────────────────────────────────────
 
 /**
- * First-pass auto-rig: given decoded layer inputs and the shared canvas size,
- * produce a valid IkiModel ready for parseIkiModel.
+ * Auto-rig: given decoded layer inputs and the shared canvas size, produce a
+ * valid IkiModel ready for parseIkiModel.
  *
- * Scope of this first pass:
  *   - Validate all inputs before deriving anything.
  *   - Place parts at source-derived positions (bboxToTransform, unshifted).
  *   - Emit the 8 standard parameters verbatim (same ids/ranges as sample-model.ts).
- *   - Build minimal-valid headDeformer (matrix) and faceWarp (warp, 4×4) deformers.
- *   - Mesh parts (spec.mesh===true) → width:1, height:1, pixel grid mesh 4×4.
+ *   - Build headDeformer (matrix, neck pivot, AngleX+Breath bindings) and faceWarp
+ *     (warp, 4×4, baked cylinder warp center-relative on faceCenterX).
+ *   - Mesh parts (spec.mesh===true) → width:1, height:1, pixel grid mesh 4×4 + role bindings.
  *   - Static parts (spec.mesh===false) → width:cropW, height:cropH, no mesh.
  *   - Part ids equal the role string (deterministic, no crypto.randomUUID).
  *   - Return parseIkiModel(structuredClone(model)) — every caller gets a
  *     validated model; bad assembly fails loudly.
- *
- * Full grid pivot, bake, and parameter bindings are added in Task 3.
  */
 export function generateIkiFromLayerSet(
   layers: LayerInput[],
@@ -471,66 +601,111 @@ export function generateIkiFromLayerSet(
     },
   ];
 
-  // ── Compute faceWarp grid bounds ──────────────────────────────────────────
-  // Collect all faceWarp-assigned layers so the warp grid spans a generous
-  // box that encloses all children. Warp children require a mesh — all
-  // faceWarp-assigned roles in ROLE_TABLE have spec.mesh===true.
+  // ── Face layer: derive center and crop for pivot + grid ───────────────────
+  const faceLayers = layers.filter((l) => l.role === "face");
+  // validateLayerInputs guarantees "face" is present — safe to assert here.
+  const faceLayer = faceLayers[0]!;
+  const faceTransform = bboxToTransform(
+    faceLayer.bbox,
+    faceLayer.canvasW,
+    faceLayer.canvasH,
+    "face",
+  );
+  // faceCenterX: source-placed face center in model space (unshifted).
+  const faceCenterX = faceTransform.x;
+  const faceCropH = faceLayer.cropH;
+
+  // ── Union bbox of all faceWarp-child layers (model space) ─────────────────
+  // All faceWarp-assigned roles have spec.mesh===true (validated by ROLE_TABLE).
+  // Each child's model-space extent: transform.{x,y} ± cropW/2, cropH/2
+  // (centered pixel mesh convention — part.transform is the crop center).
   const faceWarpLayers = layers.filter(
     (l) => ROLE_TABLE[l.role].deformer === "faceWarp",
   );
 
-  // If for some reason no faceWarp layers exist, fall back to a generous box.
-  let gridMinX = -canvas.width / 2;
-  let gridMaxX = canvas.width / 2;
-  let gridMinY = -canvas.height / 2;
-  let gridMaxY = canvas.height / 2;
+  // Fall back to a full-canvas box only when no faceWarp layers exist (shouldn't
+  // happen given required roles, but guards against future role-table changes).
+  let unionMinX = -canvas.width / 2;
+  let unionMaxX = canvas.width / 2;
+  let unionMinY = -canvas.height / 2;
+  let unionMaxY = canvas.height / 2;
 
   if (faceWarpLayers.length > 0) {
     const transforms = faceWarpLayers.map((l) =>
       bboxToTransform(l.bbox, l.canvasW, l.canvasH, l.role),
     );
-    const halfWs = faceWarpLayers.map((l) => l.cropW / 2);
-    const halfHs = faceWarpLayers.map((l) => l.cropH / 2);
 
-    // Compute tight bbox in model space, then add a 20% margin.
-    const tightMinX = Math.min(...transforms.map((t, i) => t.x - halfWs[i]));
-    const tightMaxX = Math.max(...transforms.map((t, i) => t.x + halfWs[i]));
-    const tightMinY = Math.min(...transforms.map((t, i) => t.y - halfHs[i]));
-    const tightMaxY = Math.max(...transforms.map((t, i) => t.y + halfHs[i]));
+    unionMinX = Math.min(...transforms.map((t, i) => t.x - faceWarpLayers[i].cropW / 2));
+    unionMaxX = Math.max(...transforms.map((t, i) => t.x + faceWarpLayers[i].cropW / 2));
+    unionMinY = Math.min(...transforms.map((t, i) => t.y - faceWarpLayers[i].cropH / 2));
+    unionMaxY = Math.max(...transforms.map((t, i) => t.y + faceWarpLayers[i].cropH / 2));
 
-    const marginX = (tightMaxX - tightMinX) * 0.2;
-    const marginY = (tightMaxY - tightMinY) * 0.2;
-    gridMinX = tightMinX - marginX;
-    gridMaxX = tightMaxX + marginX;
-    gridMinY = tightMinY - marginY;
-    gridMaxY = tightMaxY + marginY;
+    // Expand by 12% margin on each side so no child vertex lands on the grid
+    // boundary and gets clamped by bindPointToRestGrid.
+    const spanX = unionMaxX - unionMinX;
+    const spanY = unionMaxY - unionMinY;
+    const MARGIN = 0.12;
+    unionMinX -= spanX * MARGIN;
+    unionMaxX += spanX * MARGIN;
+    unionMinY -= spanY * MARGIN;
+    unionMaxY += spanY * MARGIN;
   }
+
+  // ── faceWarp grid: symmetric about faceCenterX, spanning the margined union ─
+  // Symmetric x so the cylinder axis aligns exactly with the face center.
+  // halfW is the larger of the two distances from faceCenterX to the union edges,
+  // ensuring the symmetric range [faceCenterX-halfW, faceCenterX+halfW] encloses
+  // every child. y-range uses the margined union directly (not symmetric).
+  const halfW = Math.max(
+    faceCenterX - unionMinX,
+    unionMaxX - faceCenterX,
+  );
+  const faceGridMinX = faceCenterX - halfW;
+  const faceGridMaxX = faceCenterX + halfW;
+
+  const faceGrid = {
+    cols: 4,
+    rows: 4,
+    points: generateGridPoints(4, 4, faceGridMinX, faceGridMaxX, unionMinY, unionMaxY),
+  };
+
+  // ── headDeformer pivot (neck): slightly below the face bottom ─────────────
+  // faceBottom is the model-space y of the bottom edge of the face crop.
+  // The neck pivot sits 15% of the face crop height below the face bottom.
+  const faceBottom = faceTransform.y - faceCropH / 2;
+  const neckPivot = {
+    x: faceCenterX,
+    y: faceBottom - faceCropH * 0.15, // 15% below face bottom = neck
+  };
+
+  // ── Bake center-relative head-turn cylinder warp ──────────────────────────
+  const faceWarpBake = bakeHeadTurnGridWarpCentered(
+    faceGrid,
+    StandardParameter.AngleX,
+    faceCenterX,
+  );
 
   // ── Deformers ─────────────────────────────────────────────────────────────
   const deformers = [
-    // headDeformer: rigid matrix; no bindings in this first pass
+    // headDeformer: rigid matrix rotating/translating the whole head about the
+    // neck pivot; bindings mirror sample-model.ts exactly.
     {
       id: "headDeformer",
-      pivot: { x: 0, y: 0 },
+      pivot: neckPivot,
+      bindings: [
+        { parameter: StandardParameter.AngleX, channel: "rotate" as const, from: 6, to: -6 },
+        { parameter: StandardParameter.AngleX, channel: "translateX" as const, from: -50, to: 50 },
+        { parameter: StandardParameter.Breath, channel: "translateY" as const, from: 0, to: -12 },
+      ],
     },
-    // faceWarp: warp child of headDeformer; grid spans all faceWarp children
-    // Task 3 replaces: real union grid + center-relative bake
+    // faceWarp: cylinder-bend warp parented to headDeformer; grid is symmetric
+    // about faceCenterX so the bake's cylinder axis aligns with the face center.
     {
       kind: "warp" as const,
       id: "faceWarp",
       parent: "headDeformer",
-      grid: {
-        cols: 4,
-        rows: 4,
-        points: generateGridPoints(
-          4,
-          4,
-          gridMinX,
-          gridMaxX,
-          gridMinY,
-          gridMaxY,
-        ),
-      },
+      grid: faceGrid,
+      warps: [faceWarpBake],
     },
   ];
 
@@ -539,11 +714,12 @@ export function generateIkiFromLayerSet(
     const { role, bbox, cropW, cropH, canvasW, canvasH } = layer;
     const spec = ROLE_TABLE[role];
     const t = bboxToTransform(bbox, canvasW, canvasH, role);
+    const roleBindings = bindingsForRole(spec, role, cropW, cropH);
 
     if (spec.mesh) {
       // Warp-deformer child: width:1, height:1 with a pixel grid mesh centered
       // at the crop center. The engine applies the part transform to position it.
-      return {
+      const part: IkiPart = {
         id: role,
         color: [1, 1, 1, 1] as [number, number, number, number],
         width: 1,
@@ -553,6 +729,10 @@ export function generateIkiFromLayerSet(
         deformer: spec.deformer,
         mesh: createPixelGridMesh(4, 4, cropW, cropH),
       };
+      if (roleBindings.length > 0) {
+        part.bindings = roleBindings;
+      }
+      return part;
     } else {
       // Static quad: no mesh, sized to the crop. Placed on headDeformer.
       return {

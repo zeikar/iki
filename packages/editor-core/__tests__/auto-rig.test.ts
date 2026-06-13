@@ -2,7 +2,10 @@ import { StandardParameter, parseIkiModel } from "@iki/format";
 import { describe, expect, it } from "vitest";
 import {
   ROLE_TABLE,
+  bakeHeadTurnGridWarpCentered,
   bboxToTransform,
+  bindingsForRole,
+  generateGridPoints,
   generateIkiFromLayerSet,
   parseLayerRoles,
   validateLayerInputs,
@@ -470,6 +473,300 @@ function assemblyLayers(): LayerInput[] {
     },
   ];
 }
+
+// ── Off-center fixture (faceCenterX = -100) ───────────────────────────────────
+//
+// Canvas 1000×1000. Face bbox x=250,y=100,w=300,h=400:
+//   faceTransform = { x: 400-500=-100, y: 500-300=200 }
+//   faceCenterX = -100  (non-zero — proves center-relative bake)
+//   faceCropH = 400
+//
+// faceWarp children union (model space, tight then +12% margin):
+//   face:   x∈[-250,50],   y∈[0,400]
+//   eye_L:  x∈[-350,-250], y∈[220,300]
+//   eye_R:  x∈[-200,-100], y∈[220,300]
+//   mouth:  x∈[-250,-150], y∈[40,100]
+//   tight:  minX=-350, maxX=50, minY=0, maxY=400
+//   margin = 12% of span (400 x, 400 y) = 48
+//   unionMinX=-398, unionMaxX=98, unionMinY=-48, unionMaxY=448
+//
+// Symmetric grid about faceCenterX=-100:
+//   halfW = max(-100-(-398), 98-(-100)) = max(298, 198) = 298
+//   faceGridMinX = -398,  faceGridMaxX = 198
+function offCenterLayers(): LayerInput[] {
+  return [
+    {
+      role: "face",
+      fileName: "face.png",
+      canvasW: 1000,
+      canvasH: 1000,
+      bbox: { x: 250, y: 100, w: 300, h: 400 },
+      cropW: 300,
+      cropH: 400,
+    },
+    {
+      role: "eye_L",
+      fileName: "eye_L.png",
+      canvasW: 1000,
+      canvasH: 1000,
+      bbox: { x: 150, y: 200, w: 100, h: 80 },
+      cropW: 100,
+      cropH: 80,
+    },
+    {
+      role: "eye_R",
+      fileName: "eye_R.png",
+      canvasW: 1000,
+      canvasH: 1000,
+      bbox: { x: 300, y: 200, w: 100, h: 80 },
+      cropW: 100,
+      cropH: 80,
+    },
+    {
+      role: "mouth",
+      fileName: "mouth.png",
+      canvasW: 1000,
+      canvasH: 1000,
+      bbox: { x: 250, y: 400, w: 100, h: 60 },
+      cropW: 100,
+      cropH: 60,
+    },
+  ];
+}
+
+// ── describe("warp") ─────────────────────────────────────────────────────────
+
+describe("warp", () => {
+  it("faceWarp grid encloses all faceWarp children (4 bounds)", () => {
+    const canvas = { width: 1000, height: 1000 };
+    const model = generateIkiFromLayerSet(offCenterLayers(), canvas);
+    const faceWarpDef = model.deformers?.find((d) => d.id === "faceWarp");
+    expect(faceWarpDef).toBeDefined();
+    const grid = (faceWarpDef as { grid: { cols: number; rows: number; points: number[] } }).grid;
+
+    // Read grid min/max from the actual grid points (row 0 is top = maxY; last row is bottom = minY)
+    const stride = grid.cols + 1;
+    const pointCount = stride * (grid.rows + 1);
+    let gridMinX = Infinity, gridMaxX = -Infinity;
+    let gridMinY = Infinity, gridMaxY = -Infinity;
+    for (let i = 0; i < pointCount; i++) {
+      const x = grid.points[i * 2];
+      const y = grid.points[i * 2 + 1];
+      if (x < gridMinX) gridMinX = x;
+      if (x > gridMaxX) gridMaxX = x;
+      if (y < gridMinY) gridMinY = y;
+      if (y > gridMaxY) gridMaxY = y;
+    }
+
+    // Union of faceWarp children in model space (tight, before margin — the test
+    // checks that the tight union fits inside the margined grid).
+    const layers = offCenterLayers();
+    const faceWarpRoles = ["face", "eye_L", "eye_R", "mouth"]; // all are faceWarp
+    let unionMinX = Infinity, unionMaxX = -Infinity;
+    let unionMinY = Infinity, unionMaxY = -Infinity;
+    for (const layer of layers.filter((l) => faceWarpRoles.includes(l.role))) {
+      const t = bboxToTransform(layer.bbox, layer.canvasW, layer.canvasH, layer.role);
+      unionMinX = Math.min(unionMinX, t.x - layer.cropW / 2);
+      unionMaxX = Math.max(unionMaxX, t.x + layer.cropW / 2);
+      unionMinY = Math.min(unionMinY, t.y - layer.cropH / 2);
+      unionMaxY = Math.max(unionMaxY, t.y + layer.cropH / 2);
+    }
+
+    expect(unionMinX, "unionMinX inside grid").toBeGreaterThanOrEqual(gridMinX);
+    expect(unionMaxX, "unionMaxX inside grid").toBeLessThanOrEqual(gridMaxX);
+    expect(unionMinY, "unionMinY inside grid").toBeGreaterThanOrEqual(gridMinY);
+    expect(unionMaxY, "unionMaxY inside grid").toBeLessThanOrEqual(gridMaxY);
+  });
+
+  it("faceWarp grid is symmetric about faceCenterX", () => {
+    const canvas = { width: 1000, height: 1000 };
+    const model = generateIkiFromLayerSet(offCenterLayers(), canvas);
+    const faceWarpDef = model.deformers?.find((d) => d.id === "faceWarp");
+    const grid = (faceWarpDef as { grid: { cols: number; rows: number; points: number[] } }).grid;
+
+    // faceCenterX = -100 for offCenterLayers
+    const faceCenterX = -100;
+    const gridMinX = grid.points[0]; // col 0, row 0
+    const gridMaxX = grid.points[grid.cols * 2]; // col cols, row 0
+
+    expect(gridMaxX - faceCenterX).toBeCloseTo(faceCenterX - gridMinX, 10);
+  });
+
+  it("headDeformer pivot.x === faceCenterX and pivot.y < faceBottom", () => {
+    const canvas = { width: 1000, height: 1000 };
+    const model = generateIkiFromLayerSet(offCenterLayers(), canvas);
+    const headDef = model.deformers?.find((d) => d.id === "headDeformer") as
+      | { pivot: { x: number; y: number } }
+      | undefined;
+    expect(headDef).toBeDefined();
+
+    // faceCenterX = -100;  faceBottom = faceTransform.y - faceCropH/2 = 200 - 200 = 0
+    const faceCenterX = -100;
+    const faceBottom = 0; // 200 - 400/2
+
+    expect(headDef!.pivot.x).toBe(faceCenterX);
+    expect(headDef!.pivot.y).toBeLessThan(faceBottom);
+  });
+
+  it("faceWarp.warps[0] has a value-0 keyform with all-zero offsets", () => {
+    const canvas = { width: 1000, height: 1000 };
+    const model = generateIkiFromLayerSet(offCenterLayers(), canvas);
+    const faceWarpDef = model.deformers?.find((d) => d.id === "faceWarp") as
+      | { warps?: { keyforms: { value: number; offsets: number[] }[] }[] }
+      | undefined;
+    expect(faceWarpDef?.warps).toBeDefined();
+    const warp = faceWarpDef!.warps![0];
+    const centerKeyform = warp.keyforms.find((k) => k.value === 0);
+    expect(centerKeyform).toBeDefined();
+    for (const offset of centerKeyform!.offsets) {
+      expect(offset).toBeCloseTo(0, 10);
+    }
+  });
+
+  it("off-center bake: nonzero-angle keyform dx matches center-relative formula", () => {
+    // Grid: cols=4, rows=4, faceGridMinX=-398, faceGridMaxX=198, y range -48..448
+    const faceGridMinX = -398;
+    const faceGridMaxX = 198;
+    const unionMinY = -48;
+    const unionMaxY = 448;
+    const grid = {
+      cols: 4,
+      rows: 4,
+      points: generateGridPoints(4, 4, faceGridMinX, faceGridMaxX, unionMinY, unionMaxY),
+    };
+    const faceCenterX = -100;
+
+    const warp = bakeHeadTurnGridWarpCentered(grid, "ParamAngleX", faceCenterX);
+    const kf30 = warp.keyforms.find((k) => k.value === 30)!;
+
+    // Point i=0: x = faceGridMinX = -398
+    const x = grid.points[0]; // -398
+    const halfWidth = (grid.points[grid.cols * 2] - grid.points[0]) / 2; // (198-(-398))/2 = 298
+    const RADIUS = halfWidth * (0.6 / 0.5); // 357.6
+    const theta = 30 * (Math.PI / 180);
+    const localX = x - faceCenterX; // -298
+    const alpha = Math.asin(Math.max(-1, Math.min(1, localX / RADIUS)));
+    const xPrime = faceCenterX + RADIUS * Math.sin(alpha + theta);
+    const expectedDx = xPrime - x;
+
+    expect(kf30.offsets[0]).toBeCloseTo(expectedDx, 8);
+
+    // Verify this DIFFERS from the old absolute-x bake (would fail the test
+    // if someone reverts to the non-center-relative formula).
+    const alphaAbsolute = Math.asin(Math.max(-1, Math.min(1, x / RADIUS)));
+    const xPrimeAbsolute = RADIUS * Math.sin(alphaAbsolute + theta);
+    const oldDx = xPrimeAbsolute - x;
+    expect(kf30.offsets[0]).not.toBeCloseTo(oldDx, 3);
+  });
+
+  it("face part transform.x is preserved (source placement unshifted)", () => {
+    const canvas = { width: 1000, height: 1000 };
+    const model = generateIkiFromLayerSet(offCenterLayers(), canvas);
+    const facePart = model.parts.find((p) => p.id === "face");
+    // faceCenterX = -100 (bboxToTransform of face layer)
+    expect(facePart?.transform.x).toBe(-100);
+  });
+
+  it("parseIkiModel passes on the off-center fixture model", () => {
+    const canvas = { width: 1000, height: 1000 };
+    expect(() =>
+      generateIkiFromLayerSet(offCenterLayers(), canvas),
+    ).not.toThrow();
+  });
+});
+
+// ── describe("bindings") ─────────────────────────────────────────────────────
+
+describe("bindings", () => {
+  it("eye_L part has exactly one binding: blink on EyeOpenLeft", () => {
+    const canvas = { width: 1000, height: 1000 };
+    const model = generateIkiFromLayerSet(offCenterLayers(), canvas);
+    const eyeL = model.parts.find((p) => p.id === "eye_L");
+    expect(eyeL?.bindings).toBeDefined();
+    expect(eyeL!.bindings!.length).toBe(1);
+    expect(eyeL!.bindings![0].parameter).toBe(StandardParameter.EyeOpenLeft);
+    expect(eyeL!.bindings![0].channel).toBe("scaleY");
+  });
+
+  it("eye_R part has exactly one binding: blink on EyeOpenRight", () => {
+    const canvas = { width: 1000, height: 1000 };
+    const model = generateIkiFromLayerSet(offCenterLayers(), canvas);
+    const eyeR = model.parts.find((p) => p.id === "eye_R");
+    expect(eyeR?.bindings).toBeDefined();
+    expect(eyeR!.bindings!.length).toBe(1);
+    expect(eyeR!.bindings![0].parameter).toBe(StandardParameter.EyeOpenRight);
+    expect(eyeR!.bindings![0].channel).toBe("scaleY");
+  });
+
+  it("iris_L part has blink + 2 gaze bindings (3 total) with correct from/to", () => {
+    // Need iris_L in the fixture — use assemblyLayers extended with iris_L
+    const IRIS_CROP_W = 80;
+    const IRIS_CROP_H = 80;
+    // gx = min(80*0.18, 22) = 14.4;  gy = min(80*0.18, 16) = 14.4
+    const gx = Math.min(IRIS_CROP_W * 0.18, 22);
+    const gy = Math.min(IRIS_CROP_H * 0.18, 16);
+    const layers: LayerInput[] = [
+      ...assemblyLayers(),
+      {
+        role: "iris_L",
+        fileName: "iris_L.png",
+        canvasW: 1000,
+        canvasH: 1000,
+        bbox: { x: 310, y: 310, w: IRIS_CROP_W, h: IRIS_CROP_H },
+        cropW: IRIS_CROP_W,
+        cropH: IRIS_CROP_H,
+      },
+    ];
+    const canvas = { width: 1000, height: 1000 };
+    const model = generateIkiFromLayerSet(layers, canvas);
+    const irisL = model.parts.find((p) => p.id === "iris_L");
+    expect(irisL?.bindings).toBeDefined();
+    // blink + EyeballX translateX + EyeballY translateY
+    expect(irisL!.bindings!.length).toBe(3);
+    expect(irisL!.bindings!.some((b) => b.parameter === StandardParameter.EyeOpenLeft && b.channel === "scaleY")).toBe(true);
+    const gazeX = irisL!.bindings!.find((b) => b.parameter === StandardParameter.EyeballX && b.channel === "translateX");
+    expect(gazeX).toBeDefined();
+    expect(gazeX!.from).toBe(-gx);
+    expect(gazeX!.to).toBe(gx);
+    const gazeY = irisL!.bindings!.find((b) => b.parameter === StandardParameter.EyeballY && b.channel === "translateY");
+    expect(gazeY).toBeDefined();
+    expect(gazeY!.from).toBe(-gy);
+    expect(gazeY!.to).toBe(gy);
+  });
+
+  it("mouth part has MouthOpen scaleY (to:3) + MouthForm scaleX", () => {
+    const canvas = { width: 1000, height: 1000 };
+    const model = generateIkiFromLayerSet(offCenterLayers(), canvas);
+    const mouthPart = model.parts.find((p) => p.id === "mouth");
+    expect(mouthPart?.bindings).toBeDefined();
+    const mouthOpen = mouthPart!.bindings!.find(
+      (b) => b.parameter === StandardParameter.MouthOpen,
+    );
+    expect(mouthOpen?.channel).toBe("scaleY");
+    expect(mouthOpen?.to).toBe(3);
+    const mouthForm = mouthPart!.bindings!.find(
+      (b) => b.parameter === StandardParameter.MouthForm,
+    );
+    expect(mouthForm?.channel).toBe("scaleX");
+  });
+
+  it("face part has no bindings key", () => {
+    const canvas = { width: 1000, height: 1000 };
+    const model = generateIkiFromLayerSet(offCenterLayers(), canvas);
+    const facePart = model.parts.find((p) => p.id === "face");
+    expect(facePart?.bindings).toBeUndefined();
+  });
+
+  it("bindingsForRole: face spec returns empty array", () => {
+    const spec = ROLE_TABLE["face"];
+    expect(bindingsForRole(spec, "face", 300, 400)).toHaveLength(0);
+  });
+
+  it("bindingsForRole: hair_back (static) returns empty array", () => {
+    const spec = ROLE_TABLE["hair_back"];
+    expect(bindingsForRole(spec, "hair_back", 800, 700)).toHaveLength(0);
+  });
+});
 
 describe("assembly", () => {
   it("does not throw (parseIkiModel gate passes)", () => {
