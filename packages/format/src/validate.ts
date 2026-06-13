@@ -322,9 +322,7 @@ function parseGrid2DWarp(
   const keyforms2d: IkiGrid2DKeyform[] = value.keyforms2d.map(
     (kf: unknown, k: number) => {
       if (!isObject(kf)) {
-        throw new IkiFormatError(
-          `${path}.keyforms2d[${k}] must be an object`,
-        );
+        throw new IkiFormatError(`${path}.keyforms2d[${k}] must be an object`);
       }
       const offsets = parseNumberArray(
         kf.offsets,
@@ -463,7 +461,14 @@ function parseWarpDeformer(
     );
   }
 
-  return { kind: "warp", id, parent, grid: { cols, rows, points }, warps, warp2d };
+  return {
+    kind: "warp",
+    id,
+    parent,
+    grid: { cols, rows, points },
+    warps,
+    warp2d,
+  };
 }
 
 function parseColor(

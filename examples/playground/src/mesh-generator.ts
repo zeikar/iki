@@ -191,7 +191,7 @@ export function bakeHeadTurnGridWarp2D(
   // points[1] is the top-left y (row=0, col=0).
   // The bottom-left point is at row=rows, col=0: index rows*(cols+1), y at [index*2+1].
   const firstY = grid.points[1];
-  const lastY = grid.points[(grid.rows * (grid.cols + 1)) * 2 + 1];
+  const lastY = grid.points[grid.rows * (grid.cols + 1) * 2 + 1];
   const halfHeight = Math.abs(firstY - lastY) / 2;
   const RADIUS_Y = halfHeight * (0.6 / 0.5);
 
