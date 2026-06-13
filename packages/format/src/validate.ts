@@ -3,6 +3,8 @@ import {
   type IkiBinding,
   type IkiDeformer,
   type IkiDeformerBinding,
+  type IkiGrid2DKeyform,
+  type IkiGrid2DWarp,
   type IkiGridKeyform,
   type IkiGridWarp,
   type IkiKeyform,
@@ -225,6 +227,121 @@ function parseGridWarp(
   return { parameter, keyforms };
 }
 
+function parseGrid2DWarp(
+  value: unknown,
+  path: string,
+  paramDescriptors: ReadonlyMap<string, { min: number; max: number }>,
+  pointComponentCount: number,
+): IkiGrid2DWarp {
+  if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
+
+  // All five fields are required for a complete 2D warp shape.
+  if (
+    value.parameter === undefined ||
+    value.parameterY === undefined ||
+    value.valuesX === undefined ||
+    value.valuesY === undefined ||
+    value.keyforms2d === undefined
+  ) {
+    throw new IkiFormatError(
+      `${path} must declare parameter, parameterY, valuesX, valuesY, and keyforms2d`,
+    );
+  }
+
+  const parameter = str(value.parameter, `${path}.parameter`);
+  const descriptorX = paramDescriptors.get(parameter);
+  if (!descriptorX) {
+    throw new IkiFormatError(
+      `${path}.parameter "${parameter}" is not a declared parameter`,
+    );
+  }
+
+  const parameterY = str(value.parameterY, `${path}.parameterY`);
+  const descriptorY = paramDescriptors.get(parameterY);
+  if (!descriptorY) {
+    throw new IkiFormatError(
+      `${path}.parameterY "${parameterY}" is not a declared parameter`,
+    );
+  }
+
+  if (parameter === parameterY) {
+    throw new IkiFormatError(
+      `${path}.parameter and ${path}.parameterY must be different (a parameter cannot drive both axes)`,
+    );
+  }
+
+  const valuesX = parseNumberArray(value.valuesX, `${path}.valuesX`);
+  if (valuesX.length < 2) {
+    throw new IkiFormatError(
+      `${path}.valuesX must have at least 2 entries (a 2D warp needs ≥2 stops per axis)`,
+    );
+  }
+  for (let i = 0; i < valuesX.length; i++) {
+    const v = valuesX[i];
+    if (v < descriptorX.min || v > descriptorX.max) {
+      throw new IkiFormatError(
+        `${path}.valuesX[${i}] ${v} is outside parameter "${parameter}" range [${descriptorX.min},${descriptorX.max}]`,
+      );
+    }
+  }
+  for (let i = 1; i < valuesX.length; i++) {
+    if (valuesX[i] <= valuesX[i - 1]) {
+      throw new IkiFormatError(`${path}.valuesX must be strictly ascending`);
+    }
+  }
+
+  const valuesY = parseNumberArray(value.valuesY, `${path}.valuesY`);
+  if (valuesY.length < 2) {
+    throw new IkiFormatError(
+      `${path}.valuesY must have at least 2 entries (a 2D warp needs ≥2 stops per axis)`,
+    );
+  }
+  for (let i = 0; i < valuesY.length; i++) {
+    const v = valuesY[i];
+    if (v < descriptorY.min || v > descriptorY.max) {
+      throw new IkiFormatError(
+        `${path}.valuesY[${i}] ${v} is outside parameter "${parameterY}" range [${descriptorY.min},${descriptorY.max}]`,
+      );
+    }
+  }
+  for (let i = 1; i < valuesY.length; i++) {
+    if (valuesY[i] <= valuesY[i - 1]) {
+      throw new IkiFormatError(`${path}.valuesY must be strictly ascending`);
+    }
+  }
+
+  if (!Array.isArray(value.keyforms2d)) {
+    throw new IkiFormatError(`${path}.keyforms2d must be an array`);
+  }
+  const expectedCount = valuesX.length * valuesY.length;
+  if (value.keyforms2d.length !== expectedCount) {
+    throw new IkiFormatError(
+      `${path}.keyforms2d length ${value.keyforms2d.length} must equal valuesX.length * valuesY.length = ${expectedCount}`,
+    );
+  }
+  const keyforms2d: IkiGrid2DKeyform[] = value.keyforms2d.map(
+    (kf: unknown, k: number) => {
+      if (!isObject(kf)) {
+        throw new IkiFormatError(
+          `${path}.keyforms2d[${k}] must be an object`,
+        );
+      }
+      const offsets = parseNumberArray(
+        kf.offsets,
+        `${path}.keyforms2d[${k}].offsets`,
+      );
+      if (offsets.length !== pointComponentCount) {
+        throw new IkiFormatError(
+          `${path}.keyforms2d[${k}].offsets length must equal grid.points length`,
+        );
+      }
+      return { offsets };
+    },
+  );
+
+  return { parameter, parameterY, valuesX, valuesY, keyforms2d };
+}
+
 const GRID_REGULARITY_ERROR =
   "must be a regular axis-aligned grid (row 0 top / largest y, column 0 left / smallest x, strictly ordered, nonzero spacing)";
 
@@ -310,6 +427,13 @@ function parseWarpDeformer(
 
   checkGridRegularity(points, cols, rows, path);
 
+  // A warp deformer carries EITHER warps (1D) XOR warp2d (2D) — reject both.
+  if (value.warps !== undefined && value.warp2d !== undefined) {
+    throw new IkiFormatError(
+      `${path}: a warp deformer declares only one of warps (1D) or warp2d (2D), not both`,
+    );
+  }
+
   let warps: IkiWarpDeformer["warps"];
   if (value.warps !== undefined) {
     if (!Array.isArray(value.warps)) {
@@ -329,7 +453,17 @@ function parseWarpDeformer(
     );
   }
 
-  return { kind: "warp", id, parent, grid: { cols, rows, points }, warps };
+  let warp2d: IkiWarpDeformer["warp2d"];
+  if (value.warp2d !== undefined) {
+    warp2d = parseGrid2DWarp(
+      value.warp2d,
+      `${path}.warp2d`,
+      paramDescriptors,
+      points.length,
+    );
+  }
+
+  return { kind: "warp", id, parent, grid: { cols, rows, points }, warps, warp2d };
 }
 
 function parseColor(

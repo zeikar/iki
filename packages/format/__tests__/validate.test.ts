@@ -1606,3 +1606,315 @@ describe("warp deformers — cycle and dangling parent with warp deformer presen
     );
   });
 });
+
+// ── 2D warp deformer tests ─────────────────────────────────────────────────────
+
+/**
+ * A model with two declared parameters and a warp deformer that carries a
+ * 3×3 warp2d (valuesX: 3 stops, valuesY: 3 stops → 9 keyforms).
+ *
+ * makeWarpDeformer uses cols:2, rows:1 → (2+1)*(1+1)=6 points → 12 components.
+ * Each IkiGrid2DKeyform.offsets must be length 12.
+ */
+function modelWith2DWarp(warp2dOverride?: Record<string, unknown>) {
+  const offsets12 = Array(12).fill(0);
+  const defaultWarp2d = {
+    parameter: "ParamX",
+    parameterY: "ParamY",
+    valuesX: [-1, 0, 1],
+    valuesY: [-1, 0, 1],
+    // 3*3 = 9 keyforms
+    keyforms2d: Array(9)
+      .fill(null)
+      .map(() => ({ offsets: [...offsets12] })),
+  };
+  return {
+    ...validModel(),
+    parameters: [
+      { id: "ParamA", name: "A", min: -1, max: 1, default: 0 },
+      { id: "ParamX", min: -1, max: 1, default: 0 },
+      { id: "ParamY", min: -1, max: 1, default: 0 },
+    ],
+    parts: [
+      {
+        ...validModel().parts[0],
+        bindings: [
+          { parameter: "ParamA", channel: "translateX", from: 0, to: 5 },
+        ],
+        deformer: "faceWarp",
+        mesh: warpChildMesh(),
+      },
+    ],
+    deformers: [
+      {
+        ...makeWarpDeformer("faceWarp"),
+        warp2d: warp2dOverride ?? defaultWarp2d,
+      },
+    ],
+  };
+}
+
+describe("warp deformers — 2D warp (warp2d) happy path", () => {
+  it("(a) 3×3 warp2d round-trips: valuesX, valuesY, keyforms2d are preserved", () => {
+    const input = modelWith2DWarp();
+    const model = parseIkiModel(structuredClone(input));
+    const wd = model.deformers![0];
+    expect(wd.kind).toBe("warp");
+    if (wd.kind === "warp") {
+      expect(wd.warp2d).toBeDefined();
+      const w = wd.warp2d!;
+      expect(w.parameter).toBe("ParamX");
+      expect(w.parameterY).toBe("ParamY");
+      expect(w.valuesX).toEqual([-1, 0, 1]);
+      expect(w.valuesY).toEqual([-1, 0, 1]);
+      expect(w.keyforms2d).toHaveLength(9);
+      for (const kf of w.keyforms2d) {
+        expect(kf.offsets).toHaveLength(12);
+      }
+      // row-major order: cell (i=1, j=2) is at index j*valuesX.length + i = 2*3+1 = 7
+      expect(w.keyforms2d[7].offsets).toEqual(Array(12).fill(0));
+    }
+  });
+
+  it("(b) asymmetric 2×3 warp2d (valuesX:2, valuesY:3 → 6 keyforms) parses", () => {
+    const offsets12 = Array(12).fill(0);
+    const input = modelWith2DWarp({
+      parameter: "ParamX",
+      parameterY: "ParamY",
+      valuesX: [-1, 1],
+      valuesY: [-1, 0, 1],
+      keyforms2d: Array(6)
+        .fill(null)
+        .map(() => ({ offsets: [...offsets12] })),
+    });
+    const model = parseIkiModel(structuredClone(input));
+    const wd = model.deformers![0];
+    if (wd.kind === "warp") {
+      expect(wd.warp2d!.keyforms2d).toHaveLength(6);
+      expect(wd.warp2d!.valuesX).toEqual([-1, 1]);
+      expect(wd.warp2d!.valuesY).toEqual([-1, 0, 1]);
+    }
+  });
+
+  it("(c) 1D back-compat: model with warps (no warp2d) still parses unchanged", () => {
+    const input = {
+      ...validModel(),
+      deformers: [
+        {
+          ...makeWarpDeformer("faceWarp"),
+          warps: [
+            {
+              parameter: "ParamA",
+              keyforms: [
+                { value: -1, offsets: Array(12).fill(0) },
+                { value: 1, offsets: Array(12).fill(0.5) },
+              ],
+            },
+          ],
+        },
+      ],
+      parts: [
+        {
+          ...validModel().parts[0],
+          deformer: "faceWarp",
+          mesh: warpChildMesh(),
+        },
+      ],
+    };
+    const model = parseIkiModel(structuredClone(input));
+    const wd = model.deformers![0];
+    if (wd.kind === "warp") {
+      expect(wd.warps).toHaveLength(1);
+      expect(wd.warps![0].parameter).toBe("ParamA");
+      expect(wd.warp2d).toBeUndefined();
+    }
+  });
+});
+
+describe("warp deformers — 2D warp (warp2d) error paths", () => {
+  it("(a) both warps and warp2d present throws XOR error (before parsing either)", () => {
+    // Include a malformed warps to confirm the XOR fires first, not a 1D parse error.
+    const input = {
+      ...modelWith2DWarp(),
+      deformers: [
+        {
+          ...makeWarpDeformer("faceWarp"),
+          warps: "not-an-array", // malformed — XOR check must fire before this is parsed
+          warp2d: {
+            parameter: "ParamX",
+            parameterY: "ParamY",
+            valuesX: [-1, 1],
+            valuesY: [-1, 1],
+            keyforms2d: [
+              { offsets: Array(12).fill(0) },
+              { offsets: Array(12).fill(0) },
+              { offsets: Array(12).fill(0) },
+              { offsets: Array(12).fill(0) },
+            ],
+          },
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /declares only one of warps \(1D\) or warp2d \(2D\), not both/,
+    );
+  });
+
+  it("(b) keyforms2d.length !== valuesX.length * valuesY.length throws with actual + expected", () => {
+    const offsets12 = Array(12).fill(0);
+    // valuesX:3, valuesY:3 → expect 9; supply 4
+    const input = modelWith2DWarp({
+      parameter: "ParamX",
+      parameterY: "ParamY",
+      valuesX: [-1, 0, 1],
+      valuesY: [-1, 0, 1],
+      keyforms2d: Array(4)
+        .fill(null)
+        .map(() => ({ offsets: [...offsets12] })),
+    });
+    expect(() => parseIkiModel(input)).toThrow(
+      /keyforms2d length 4 must equal valuesX\.length \* valuesY\.length = 9/,
+    );
+  });
+
+  it("(c) offset length mismatch in keyforms2d throws /offsets length must equal grid\.points length/", () => {
+    // grid has 12 components; supply 6 in a keyform
+    const input = modelWith2DWarp({
+      parameter: "ParamX",
+      parameterY: "ParamY",
+      valuesX: [-1, 1],
+      valuesY: [-1, 1],
+      keyforms2d: [
+        { offsets: Array(12).fill(0) },
+        { offsets: Array(12).fill(0) },
+        { offsets: Array(12).fill(0) },
+        { offsets: Array(6).fill(0) }, // wrong length at index 3
+      ],
+    });
+    expect(() => parseIkiModel(input)).toThrow(
+      /keyforms2d\[3\]\.offsets length must equal grid\.points length/,
+    );
+  });
+
+  it("(d) valuesX with only one entry throws axis length error", () => {
+    const offsets12 = Array(12).fill(0);
+    const input = modelWith2DWarp({
+      parameter: "ParamX",
+      parameterY: "ParamY",
+      valuesX: [0],
+      valuesY: [-1, 1],
+      keyforms2d: [{ offsets: [...offsets12] }, { offsets: [...offsets12] }],
+    });
+    expect(() => parseIkiModel(input)).toThrow(
+      /valuesX must have at least 2 entries/,
+    );
+  });
+
+  it("(e) valuesY with only one entry throws axis length error", () => {
+    const offsets12 = Array(12).fill(0);
+    const input = modelWith2DWarp({
+      parameter: "ParamX",
+      parameterY: "ParamY",
+      valuesX: [-1, 1],
+      valuesY: [0],
+      keyforms2d: [{ offsets: [...offsets12] }, { offsets: [...offsets12] }],
+    });
+    expect(() => parseIkiModel(input)).toThrow(
+      /valuesY must have at least 2 entries/,
+    );
+  });
+
+  it("(f) non-ascending valuesX throws /valuesX must be strictly ascending/", () => {
+    const offsets12 = Array(12).fill(0);
+    const input = modelWith2DWarp({
+      parameter: "ParamX",
+      parameterY: "ParamY",
+      valuesX: [1, -1], // descending
+      valuesY: [-1, 1],
+      keyforms2d: Array(4)
+        .fill(null)
+        .map(() => ({ offsets: [...offsets12] })),
+    });
+    expect(() => parseIkiModel(input)).toThrow(
+      /valuesX must be strictly ascending/,
+    );
+  });
+
+  it("(g) non-ascending valuesY throws /valuesY must be strictly ascending/", () => {
+    const offsets12 = Array(12).fill(0);
+    const input = modelWith2DWarp({
+      parameter: "ParamX",
+      parameterY: "ParamY",
+      valuesX: [-1, 1],
+      valuesY: [0, 0], // equal (not strictly ascending)
+      keyforms2d: Array(4)
+        .fill(null)
+        .map(() => ({ offsets: [...offsets12] })),
+    });
+    expect(() => parseIkiModel(input)).toThrow(
+      /valuesY must be strictly ascending/,
+    );
+  });
+
+  it("(h) valuesY entry outside parameterY range throws out-of-range message", () => {
+    // ParamY has min:-1, max:1; supply a valuesY entry of 2.0
+    const offsets12 = Array(12).fill(0);
+    const input = modelWith2DWarp({
+      parameter: "ParamX",
+      parameterY: "ParamY",
+      valuesX: [-1, 1],
+      valuesY: [-1, 2.0], // 2.0 out of range
+      keyforms2d: Array(4)
+        .fill(null)
+        .map(() => ({ offsets: [...offsets12] })),
+    });
+    expect(() => parseIkiModel(input)).toThrow(
+      /valuesY\[1\] 2 is outside parameter "ParamY" range/,
+    );
+  });
+
+  it("(i) undeclared parameterY throws /is not a declared parameter/", () => {
+    const offsets12 = Array(12).fill(0);
+    const input = modelWith2DWarp({
+      parameter: "ParamX",
+      parameterY: "NoSuchParam",
+      valuesX: [-1, 1],
+      valuesY: [-1, 1],
+      keyforms2d: Array(4)
+        .fill(null)
+        .map(() => ({ offsets: [...offsets12] })),
+    });
+    expect(() => parseIkiModel(input)).toThrow(
+      /"NoSuchParam" is not a declared parameter/,
+    );
+  });
+
+  it("(j) parameter === parameterY throws same-axis error", () => {
+    const offsets12 = Array(12).fill(0);
+    const input = modelWith2DWarp({
+      parameter: "ParamX",
+      parameterY: "ParamX", // same!
+      valuesX: [-1, 1],
+      valuesY: [-1, 1],
+      keyforms2d: Array(4)
+        .fill(null)
+        .map(() => ({ offsets: [...offsets12] })),
+    });
+    expect(() => parseIkiModel(input)).toThrow(
+      /parameter and .*parameterY must be different/,
+    );
+  });
+
+  it("(k) missing any required field (e.g. no keyforms2d) throws incomplete shape error", () => {
+    const input = modelWith2DWarp({
+      parameter: "ParamX",
+      parameterY: "ParamY",
+      valuesX: [-1, 1],
+      valuesY: [-1, 1],
+      // keyforms2d intentionally omitted
+    });
+    expect(() => parseIkiModel(input)).toThrow(
+      /must declare parameter, parameterY, valuesX, valuesY, and keyforms2d/,
+    );
+  });
+});
