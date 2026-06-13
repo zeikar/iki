@@ -133,6 +133,20 @@ export function parsePsdHeader(buffer: ArrayBuffer): {
  */
 export const MAX_PSD_MEGAPIXELS = 64;
 
+/**
+ * 256 MP total transient-RGBA budget across all decoded layers.
+ * Each selected layer allocates one full-canvas RGBA buffer (docW*docH*4),
+ * so a 64 MP document with 4 layers would hit this limit. The cap prevents
+ * multi-layer PSDs from exhausting browser memory before any bitmaps are
+ * released. 256 MP at 4 bytes/pixel = ~1 GB peak RGBA allocation.
+ *
+ * Applied as a preflight before the full pixel decode: groups are rejected
+ * first (fail-fast, no nested-layer memory spike), then top-level count is
+ * used — accurate after group rejection — to check the budget before ag-psd
+ * allocates any layer pixel data.
+ */
+export const MAX_PSD_TOTAL_MEGAPIXELS = 256;
+
 // ColorMode enum names for human-readable error messages.
 const COLOR_MODE_NAMES: Record<number, string> = {
   0: "Bitmap",
@@ -223,6 +237,9 @@ export interface PsdLayerLike {
   adjustment?: unknown;
   placedLayer?: unknown;
   sectionDivider?: unknown;
+  // Pixel-mask fields from LayerAdditionalInfo (ag-psd v30.1.1)
+  mask?: unknown;
+  realMask?: unknown;
 }
 
 /**
@@ -310,6 +327,16 @@ export function selectImportableLayers(
         `psd import: layer ${label}: groups/folders are not supported in this slice`,
       );
     }
+    if (layer.mask) {
+      throw new Error(
+        `psd import: layer ${label}: layer masks are not supported`,
+      );
+    }
+    if (layer.realMask) {
+      throw new Error(
+        `psd import: layer ${label}: layer masks are not supported`,
+      );
+    }
 
     // Must have actual pixel data
     if (
@@ -327,6 +354,23 @@ export function selectImportableLayers(
   }
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Budget helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the total pixel count for decoding `layerCount` layers from a
+ * document of `docW × docH`. Each layer allocates one full-canvas RGBA buffer.
+ * Exported so unit tests can verify the budget arithmetic without DOM APIs.
+ */
+export function totalDecodedPixels(
+  docW: number,
+  docH: number,
+  layerCount: number,
+): number {
+  return docW * docH * layerCount;
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +403,43 @@ export async function decodePsdLayers(
     // bad signature / PSB / non-RGB / non-8-bit / oversize cheaply upfront.
     const header = parsePsdHeader(buffer);
     validatePsdHeader(header);
+
+    // Metadata preflight: read layer tree WITHOUT pixel data (skipLayerImageData)
+    // so we can reject groups and apply the total-pixel budget before the
+    // expensive full decode. Groups are rejected here first — this ensures no
+    // nested-layer memory spike and makes the top-level count accurate for the
+    // budget check. Full selectImportableLayers is not run here because its
+    // empty-raster check requires imageData which is intentionally skipped.
+    const meta = readPsd(buffer, {
+      skipLayerImageData: true,
+      skipCompositeImageData: true,
+      skipThumbnail: true,
+      skipLinkedFilesData: true,
+    });
+    for (const entry of meta.children ?? []) {
+      // Detect groups/folders the same way selectImportableLayers does: presence
+      // of `children` on the entry. Reject before the full pixel decode fires.
+      if (entry.children !== undefined) {
+        const rawName = entry.name ?? "";
+        const label = rawName.length > 0 ? `"${rawName}"` : '"(unnamed)"';
+        throw new Error(
+          `psd import: layer ${label}: groups/folders are not supported in this slice`,
+        );
+      }
+    }
+    // With groups rejected, top-level count is the accurate importable-candidate
+    // count — no nested layers can inflate the real allocation.
+    const conservativeLayerCount = meta.children?.length ?? 0;
+    const preflightPixels = totalDecodedPixels(
+      meta.width,
+      meta.height,
+      conservativeLayerCount,
+    );
+    if (preflightPixels > MAX_PSD_TOTAL_MEGAPIXELS * 1_000_000) {
+      throw new Error(
+        `psd import: document: ${meta.width}x${meta.height} with ${conservativeLayerCount} layers (${preflightPixels / 1_000_000} MP total) exceeds the ${MAX_PSD_TOTAL_MEGAPIXELS} megapixel total budget`,
+      );
+    }
 
     const psd = readPsd(buffer, {
       useImageData: true,

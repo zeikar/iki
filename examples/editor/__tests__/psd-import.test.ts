@@ -4,6 +4,8 @@ import {
   parsePsdHeader,
   validatePsdHeader,
   MAX_PSD_MEGAPIXELS,
+  MAX_PSD_TOTAL_MEGAPIXELS,
+  totalDecodedPixels,
   selectImportableLayers,
   type PsdLayerLike,
 } from "../src/psd-import";
@@ -346,6 +348,18 @@ describe("selectImportableLayers", () => {
     ).toThrow(/layer "div": groups\/folders are not supported/);
   });
 
+  it("throws on a layer with mask", () => {
+    expect(() =>
+      selectImportableLayers([rasterLayer("masked", { mask: {} })]),
+    ).toThrow(/layer "masked": layer masks are not supported/);
+  });
+
+  it("throws on a layer with realMask", () => {
+    expect(() =>
+      selectImportableLayers([rasterLayer("realmasked", { realMask: {} })]),
+    ).toThrow(/layer "realmasked": layer masks are not supported/);
+  });
+
   it("throws on an empty raster (no imageData)", () => {
     const layer: PsdLayerLike = { name: "empty" };
     expect(() => selectImportableLayers([layer])).toThrow(
@@ -412,5 +426,40 @@ describe("selectImportableLayers", () => {
       rasterLayer("face", { blendMode: "normal" }),
     ]);
     expect(result).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// totalDecodedPixels / MAX_PSD_TOTAL_MEGAPIXELS budget math
+// ---------------------------------------------------------------------------
+describe("totalDecodedPixels", () => {
+  it("returns docW * docH * layerCount", () => {
+    expect(totalDecodedPixels(100, 200, 3)).toBe(100 * 200 * 3);
+  });
+
+  it("is below budget for a typical small multi-layer PSD", () => {
+    // 512x512 with 4 layers = ~1 MP total — well under budget
+    expect(totalDecodedPixels(512, 512, 4)).toBeLessThan(
+      MAX_PSD_TOTAL_MEGAPIXELS * 1_000_000,
+    );
+  });
+
+  it("exceeds budget when layers × document pixels surpass the cap", () => {
+    // 8000x8000 = 64 MP per layer; 5 layers = 320 MP > 256 MP budget
+    const total = totalDecodedPixels(8000, 8000, 5);
+    expect(total).toBeGreaterThan(MAX_PSD_TOTAL_MEGAPIXELS * 1_000_000);
+  });
+
+  it("budget boundary: exactly at the limit is allowed", () => {
+    // Find layer count that lands exactly on the budget
+    const docPixels = 1000 * 1000; // 1 MP document
+    const layerCount = MAX_PSD_TOTAL_MEGAPIXELS; // 256 layers → 256 MP exactly
+    expect(totalDecodedPixels(1000, 1000, layerCount)).toBe(
+      docPixels * layerCount,
+    );
+    // Should be exactly at the limit (not over)
+    expect(totalDecodedPixels(1000, 1000, layerCount)).toBeLessThanOrEqual(
+      MAX_PSD_TOTAL_MEGAPIXELS * 1_000_000,
+    );
   });
 });
