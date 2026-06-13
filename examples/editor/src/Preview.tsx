@@ -32,9 +32,26 @@ export function Preview({ playerRef }: PreviewProps) {
   const setGridEditMode = useEditorStore((s) => s.setGridEditMode);
   const selectedDeformerId = useEditorStore((s) => s.selectedDeformerId);
   const doc = useEditorStore((s) => s.doc);
+  // revision bumps on every in-place doc mutation (undo/redo/add/delete).
+  // Subscribing here ensures idleBlocked recomputes from the live model after
+  // any mutation — mirrors the pattern used by Inspector.tsx and GridOverlay.tsx.
+  const revision = useEditorStore((s) => s.revision);
+  void revision;
   // Idle is ephemeral PREVIEW state — never the store. It drives the player
   // directly and must leave authoring `params` untouched.
   const [idleOn, setIdleOn] = useState(false);
+
+  // True when idle must be blocked: grid-edit mode OR a matrix deformer is
+  // selected (matrix deformer needs stable pose for the pivot gizmo; warp does
+  // not — PivotOverlay no-ops for warp, so idle stays allowed there).
+  const selectedDeformer = doc
+    .getModel()
+    .deformers?.find((x) => x.id === selectedDeformerId);
+  const idleBlocked =
+    gridEditMode ||
+    (selectedDeformer !== undefined &&
+      (selectedDeformer.kind === "matrix" ||
+        selectedDeformer.kind === undefined));
 
   useEffect(() => {
     // Exactly ONE player per effect run, destroyed in this run's cleanup.
@@ -52,21 +69,14 @@ export function Preview({ playerRef }: PreviewProps) {
     };
   }, [playerRef]);
 
-  // Entering grid-edit OR selecting a matrix deformer forces idle off — both
-  // need a stable pose (grid dragging; pivot handle must align with canvas).
-  // Warp deformer selection does NOT disable idle: PivotOverlay no-ops for warp.
+  // Force idle off whenever the stable-pose requirement kicks in (grid-edit or
+  // matrix deformer selected). Mirrors the grid-edit precedent: idle is forced
+  // off AND the checkbox is disabled so the user can't re-enable it.
+  // revision is included so this re-evaluates after in-place doc mutations
+  // (e.g. a selected deformer removed via undo must stop holding idle off).
   useEffect(() => {
-    if (gridEditMode) {
-      setIdleOn(false);
-      return;
-    }
-    const d = doc
-      .getModel()
-      .deformers?.find((x) => x.id === selectedDeformerId);
-    const isMatrix =
-      d !== undefined && (d.kind === "matrix" || d.kind === undefined);
-    if (isMatrix) setIdleOn(false);
-  }, [gridEditMode, selectedDeformerId, doc]);
+    if (idleBlocked) setIdleOn(false);
+  }, [idleBlocked, revision]);
 
   // Idle loop, owned entirely by the preview. Never writes the store: the loop
   // calls `player.setParameter` directly, and cleanup restores the authored
@@ -142,7 +152,7 @@ export function Preview({ playerRef }: PreviewProps) {
           <input
             type="checkbox"
             checked={idleOn}
-            disabled={gridEditMode}
+            disabled={idleBlocked}
             onChange={(e) => setIdleOn(e.currentTarget.checked)}
           />
           <span style={{ fontSize: 12, color: "#9a9aa5" }}>Idle</span>
