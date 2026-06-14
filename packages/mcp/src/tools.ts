@@ -23,7 +23,13 @@ export interface DeformerSummary {
   parent?: string;
   warp?:
     | { mode: "1d"; parameters: string[] }
-    | { mode: "2d"; parameterX: string; parameterY: string; gridX: number; gridY: number };
+    | {
+        mode: "2d";
+        parameterX: string;
+        parameterY: string;
+        gridX: number;
+        gridY: number;
+      };
 }
 
 export type DescribeResult =

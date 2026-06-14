@@ -4,11 +4,7 @@ import {
   StandardParameter,
   parseIkiModel,
 } from "@iki/format";
-import {
-  validateIki,
-  describeIki,
-  listStandardParameters,
-} from "../src/tools";
+import { validateIki, describeIki, listStandardParameters } from "../src/tools";
 
 // Minimal valid model used across several tests.
 function validModel() {
