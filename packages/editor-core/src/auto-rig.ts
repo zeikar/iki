@@ -64,6 +64,8 @@ export interface LayerInput {
  *   eye_R = character's right eye = screen left side.
  */
 export const ROLE_TABLE: Record<string, RoleSpec> = {
+  // hair_back stays rigid (silhouette behind the face); per-layer front/back
+  // depth parallax is a later slice.
   hair_back: { deformer: "headDeformer", order: 0, mesh: false },
   face: { deformer: "faceWarp", order: 10, mesh: true },
   nose: { deformer: "faceWarp", order: 15, mesh: true },
@@ -80,7 +82,10 @@ export const ROLE_TABLE: Record<string, RoleSpec> = {
   highlight_R: { deformer: "faceWarp", order: 33, mesh: true, eyeSide: "R" },
   brow_L: { deformer: "faceWarp", order: 40, mesh: true },
   brow_R: { deformer: "faceWarp", order: 40, mesh: true },
-  hair_front: { deformer: "headDeformer", order: 50, mesh: false },
+  // Front hair rides faceWarp (mesh) so it follows the head-turn curvature with
+  // the face instead of detaching as a rigid blob; its bbox joins the faceWarp
+  // grid union so the grid covers it.
+  hair_front: { deformer: "faceWarp", order: 50, mesh: true },
 };
 
 /**
