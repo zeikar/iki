@@ -12,6 +12,13 @@ import { applyWarps } from "./warp";
 import { applyWarpToChild, resolveWarpGrids } from "./warp-grid";
 
 /**
+ * Alpha threshold used only during the stencil mask-write pass: a mask fragment
+ * marks the stencil only where its coverage alpha is at least this. Keeps the
+ * clip region to the mask's opaque body, not its anti-aliased fringe.
+ */
+const MASK_ALPHA_CUTOFF = 0.5;
+
+/**
  * Outcome of {@link IkiPlayer.load}: the indices into `model.textures` that
  * failed to decode or upload (empty = every declared texture loaded). The model
  * is still swapped in and rendered; parts using a failed texture are skipped.
@@ -67,8 +74,11 @@ export class IkiPlayer {
   private readonly uUvOffset: WebGLUniformLocation;
   private readonly uUvScale: WebGLUniformLocation;
   private readonly uUseMeshUv: WebGLUniformLocation;
+  private readonly uAlphaCutoff: WebGLUniformLocation;
   private readonly aPos: number;
   private readonly aUv: number;
+  /** True when the context granted a stencil buffer; clipping needs it. */
+  private readonly stencilAvailable: boolean;
 
   private model?: IkiModel;
   private parts: IkiPart[] = [];
@@ -84,14 +94,23 @@ export class IkiPlayer {
    * (NOT by part id — duplicate ids must not swap buffers).
    */
   private partMeshes = new Map<number, PartMesh>();
+  /**
+   * Clip groups resolved once per `load()`: consumer part index (into `this.parts`)
+   * → its mask part indices. A part absent from this map is unclipped.
+   */
+  private partClipGroups = new Map<number, number[]>();
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", {
       alpha: true,
       premultipliedAlpha: false,
+      // Stencil buffer backs clip masks (a part rendered only inside its masks'
+      // coverage). Granted by every modern browser; the load() guard reports if not.
+      stencil: true,
     });
     if (!gl) throw new Error("WebGL2 is not available in this browser");
     this.gl = gl;
+    this.stencilAvailable = gl.getContextAttributes()?.stencil ?? false;
 
     this.program = createProgram(gl, VERTEX_SHADER, FRAGMENT_SHADER);
     this.uMatrix = getUniform(gl, this.program, "u_matrix");
@@ -101,6 +120,7 @@ export class IkiPlayer {
     this.uUvOffset = getUniform(gl, this.program, "u_uvOffset");
     this.uUvScale = getUniform(gl, this.program, "u_uvScale");
     this.uUseMeshUv = getUniform(gl, this.program, "u_useMeshUv");
+    this.uAlphaCutoff = getUniform(gl, this.program, "u_alphaCutoff");
     // Fetch attribute locations here so renderFrame can set them explicitly
     // per draw path (mesh vs quad), rather than hiding the wiring in createUnitQuad.
     this.aPos = gl.getAttribLocation(this.program, "a_pos");
@@ -286,6 +306,28 @@ export class IkiPlayer {
       });
     }
 
+    // Resolve clip groups once: consumer part index → mask part indices. The
+    // model is already validated (every mask id maps to a unique mesh part), so
+    // this is a plain id→index lookup, not a per-frame reconstruction.
+    const nextClipGroups = new Map<number, number[]>();
+    const indexById = new Map<string, number>();
+    for (let i = 0; i < nextParts.length; i++) {
+      indexById.set(nextParts[i].id, i);
+    }
+    for (let i = 0; i < nextParts.length; i++) {
+      const clip = nextParts[i].clip;
+      if (!clip) continue;
+      const maskIndices = clip.masks
+        .map((maskId) => indexById.get(maskId))
+        .filter((mi): mi is number => mi !== undefined);
+      if (maskIndices.length > 0) nextClipGroups.set(i, maskIndices);
+    }
+    if (nextClipGroups.size > 0 && !this.stencilAvailable) {
+      console.error(
+        "Iki: model uses clip masks but this WebGL2 context has no stencil buffer; rendering unclipped",
+      );
+    }
+
     // Atomic adoption: release the previous model's part-mesh buffers and textures,
     // then adopt the new model's state in a single block so the render loop
     // never sees a half-adopted model.
@@ -298,6 +340,7 @@ export class IkiPlayer {
     this.params = new ParameterStore(model.parameters);
     this.parts = nextParts;
     this.partMeshes = nextPartMeshes;
+    this.partClipGroups = nextClipGroups;
     this.textures = uploaded;
 
     return {
@@ -360,7 +403,7 @@ export class IkiPlayer {
 
     gl.viewport(0, 0, width, height);
     gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
 
     if (!this.model) return;
 
@@ -389,136 +432,214 @@ export class IkiPlayer {
         )
       : undefined;
 
+    // u_alphaCutoff defaults to 0 (no fragment is discarded) for normal parts;
+    // the mask-write pass raises it temporarily (see drawClipped).
+    gl.uniform1f(this.uAlphaCutoff, 0);
     for (let index = 0; index < this.parts.length; index++) {
-      const part = this.parts[index];
-      const texture = part.texture
-        ? this.textures[part.texture.index]
-        : undefined;
-      // A textured part whose slot is null (skipped/failed) draws nothing.
-      if (part.texture && !texture) continue;
-
-      const t = this.evaluate(part);
-      // Warp-child mesh parts bypass the affine dWorld·TRS chain entirely: their
-      // vertices are computed by the per-frame grid pipeline below (which bakes
-      // part TRS into model-space positions), so u_matrix carries ONLY clip-scale.
-      const warpChild = this.partMeshes.get(index)?.warpDeformer;
-      // clip <- project <- [deformer?] <- translate <- rotate <- scale(size)
-      let m: ReturnType<typeof multiply>;
-      if (warpChild) {
-        m = scale(clipX, clipY);
-      } else if (part.deformer !== undefined) {
-        const dWorld = deformerWorlds!.get(part.deformer);
-        if (!dWorld) {
-          throw new Error(
-            `part "${part.id}" references unknown deformer "${part.deformer}"`,
-          );
-        }
-        m = multiply(
-          multiply(scale(clipX, clipY), dWorld),
-          translate(t.x, t.y),
+      const maskIndices = this.partClipGroups.get(index);
+      if (maskIndices && this.stencilAvailable) {
+        this.drawClipped(
+          index,
+          maskIndices,
+          clipX,
+          clipY,
+          deformerWorlds,
+          warpGrids,
         );
-        m = multiply(m, rotate(t.rotation));
-        m = multiply(m, scale(part.width * t.scaleX, part.height * t.scaleY));
       } else {
-        m = multiply(scale(clipX, clipY), translate(t.x, t.y));
-        m = multiply(m, rotate(t.rotation));
-        m = multiply(m, scale(part.width * t.scaleX, part.height * t.scaleY));
+        // Unclipped (or stencil unavailable — load() already reported it).
+        this.drawPart(index, clipX, clipY, deformerWorlds, warpGrids);
+      }
+    }
+  }
+
+  /**
+   * Draw a clipped part: stencil the union of its masks' alpha coverage, then
+   * draw the part only where the stencil was written. The mask parts also draw
+   * normally in their own `order` slot — this is an EXTRA, color-free pass over
+   * the same per-frame deformed geometry. All stencil/colorMask state the pass
+   * touches is restored before returning so later parts are unaffected.
+   */
+  private drawClipped(
+    index: number,
+    maskIndices: number[],
+    clipX: number,
+    clipY: number,
+    deformerWorlds: ReturnType<typeof resolveDeformerWorlds> | undefined,
+    warpGrids: ReturnType<typeof resolveWarpGrids> | undefined,
+  ): void {
+    const { gl } = this;
+
+    // 1. Write coverage into the stencil (REPLACE 1), no color. Each mask is
+    //    drawn with its per-frame deformed geometry; u_alphaCutoff discards the
+    //    transparent fringe so only opaque coverage marks the stencil. Multiple
+    //    masks union naturally (all write 1).
+    gl.clear(gl.STENCIL_BUFFER_BIT);
+    gl.enable(gl.STENCIL_TEST);
+    gl.colorMask(false, false, false, false);
+    gl.stencilMask(0xff);
+    gl.stencilFunc(gl.ALWAYS, 1, 0xff);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
+    gl.uniform1f(this.uAlphaCutoff, MASK_ALPHA_CUTOFF);
+    for (const maskIndex of maskIndices) {
+      this.drawPart(maskIndex, clipX, clipY, deformerWorlds, warpGrids);
+    }
+
+    // 2. Draw the consumer only where stencil == 1; restore color writes first.
+    gl.uniform1f(this.uAlphaCutoff, 0);
+    gl.colorMask(true, true, true, true);
+    gl.stencilMask(0x00);
+    gl.stencilFunc(gl.EQUAL, 1, 0xff);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+    this.drawPart(index, clipX, clipY, deformerWorlds, warpGrids);
+
+    // 3. Restore every stencil state this pass changed (colorMask + u_alphaCutoff
+    //    already restored above) so the next unmasked part renders normally.
+    gl.disable(gl.STENCIL_TEST);
+    gl.stencilMask(0xff);
+    gl.stencilFunc(gl.ALWAYS, 0, 0xff);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+  }
+
+  /**
+   * Draw a single part with its full per-part material + geometry state. Shared
+   * by the normal pass, the stencil mask-write pass, and the masked consumer
+   * draw — so every path prepares the SAME complete uniform/texture/VBO state
+   * (the caller only sets stencil/colorMask/u_alphaCutoff around it).
+   */
+  private drawPart(
+    index: number,
+    clipX: number,
+    clipY: number,
+    deformerWorlds: ReturnType<typeof resolveDeformerWorlds> | undefined,
+    warpGrids: ReturnType<typeof resolveWarpGrids> | undefined,
+  ): void {
+    const { gl } = this;
+    const part = this.parts[index];
+    const texture = part.texture
+      ? this.textures[part.texture.index]
+      : undefined;
+    // A textured part whose slot is null (skipped/failed) draws nothing.
+    if (part.texture && !texture) return;
+
+    const t = this.evaluate(part);
+    // Warp-child mesh parts bypass the affine dWorld·TRS chain entirely: their
+    // vertices are computed by the per-frame grid pipeline below (which bakes
+    // part TRS into model-space positions), so u_matrix carries ONLY clip-scale.
+    const warpChild = this.partMeshes.get(index)?.warpDeformer;
+    // clip <- project <- [deformer?] <- translate <- rotate <- scale(size)
+    let m: ReturnType<typeof multiply>;
+    if (warpChild) {
+      m = scale(clipX, clipY);
+    } else if (part.deformer !== undefined) {
+      const dWorld = deformerWorlds!.get(part.deformer);
+      if (!dWorld) {
+        throw new Error(
+          `part "${part.id}" references unknown deformer "${part.deformer}"`,
+        );
+      }
+      m = multiply(multiply(scale(clipX, clipY), dWorld), translate(t.x, t.y));
+      m = multiply(m, rotate(t.rotation));
+      m = multiply(m, scale(part.width * t.scaleX, part.height * t.scaleY));
+    } else {
+      m = multiply(scale(clipX, clipY), translate(t.x, t.y));
+      m = multiply(m, rotate(t.rotation));
+      m = multiply(m, scale(part.width * t.scaleX, part.height * t.scaleY));
+    }
+
+    const [r, g, b, a] = part.color;
+    gl.uniformMatrix3fv(this.uMatrix, false, toMat3(m));
+    gl.uniform4f(this.uColor, r, g, b, a * t.opacity);
+
+    if (part.texture && texture) {
+      const { uv } = part.texture;
+      gl.uniform1i(this.uUseTexture, 1);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.uniform1i(this.uTex, 0);
+      gl.uniform2f(this.uUvOffset, uv.x, uv.y);
+      gl.uniform2f(this.uUvScale, uv.width, uv.height);
+    } else {
+      gl.uniform1i(this.uUseTexture, 0);
+    }
+
+    if (part.mesh) {
+      // --- Mesh draw path ---
+      const pm = this.partMeshes.get(index);
+      if (!pm) {
+        // Impossible after the fatal-allocation rule in load(); throwing rather
+        // than skipping matches the existing unknown-deformer-parent throw in
+        // deform.ts and ensures engine bugs are never silently hidden.
+        throw new Error(`Iki: mesh buffers missing for part "${part.id}"`);
       }
 
-      const [r, g, b, a] = part.color;
-      gl.uniformMatrix3fv(this.uMatrix, false, toMat3(m));
-      gl.uniform4f(this.uColor, r, g, b, a * t.opacity);
+      gl.uniform1i(this.uUseMeshUv, 1);
 
-      if (part.texture && texture) {
-        const { uv } = part.texture;
-        gl.uniform1i(this.uUseTexture, 1);
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, texture);
-        gl.uniform1i(this.uTex, 0);
-        gl.uniform2f(this.uUvOffset, uv.x, uv.y);
-        gl.uniform2f(this.uUvScale, uv.width, uv.height);
-      } else {
-        gl.uniform1i(this.uUseTexture, 0);
-      }
-
-      if (part.mesh) {
-        // --- Mesh draw path ---
-        const pm = this.partMeshes.get(index);
-        if (!pm) {
-          // Impossible after the fatal-allocation rule in load(); throwing rather
-          // than skipping matches the existing unknown-deformer-parent throw in
-          // deform.ts and ensures engine bugs are never silently hidden.
-          throw new Error(`Iki: mesh buffers missing for part "${part.id}"`);
-        }
-
-        gl.uniform1i(this.uUseMeshUv, 1);
-
-        // For warped meshes, compute morphed positions and upload to the
-        // DYNAMIC_DRAW VBO. Warp-less meshes skip this — their VBO already
-        // holds `rest` from load().
-        if (pm.warpDeformer) {
-          // --- Warp-deformer (group warp) child pipeline ---
-          // Coordinate invariant (top bug risk): BIND against the RAW rest grid
-          // (warpDeformer.grid — no keyform offsets, no parent affine), SAMPLE
-          // against the RESOLVED grid (resolveWarpGrids output: offsets added,
-          // THEN parent affine). Never bind against a resolved/deformed grid.
-          const warpDef = pm.warpDeformer;
-          const grid = warpGrids!.get(warpDef.id)!;
-          // 1. part-local mesh warps (#4b) into the local scratch (no-op if none).
-          applyWarps(pm.rest, pm.warps, this.params, pm.local!);
-          // 2. live part TRS (eye/mouth open etc.), baked into the vertices.
-          const trs = evaluateTransform(
-            part.transform,
-            part.bindings,
-            this.params,
-          );
-          const partAffine = multiply(
-            multiply(translate(trs.x, trs.y), rotate(trs.rotation)),
-            scale(part.width * trs.scaleX, part.height * trs.scaleY),
-          );
-          // 2b+3+4. transform each local vertex by partAffine, rebind to the RAW
-          // rest grid, and sample the RESOLVED (deformed) grid.
-          applyWarpToChild(
-            pm.local!,
-            partAffine,
-            warpDef.grid,
-            grid,
-            pm.scratch!,
-          );
-          gl.bindBuffer(gl.ARRAY_BUFFER, pm.position);
-          gl.bufferSubData(gl.ARRAY_BUFFER, 0, pm.scratch!);
-        } else if (pm.warps && pm.warps.length > 0) {
-          // scratch is always allocated when warps is non-empty (see load())
-          applyWarps(pm.rest, pm.warps, this.params, pm.scratch!);
-          gl.bindBuffer(gl.ARRAY_BUFFER, pm.position);
-          gl.bufferSubData(gl.ARRAY_BUFFER, 0, pm.scratch!);
-        }
-
-        // Position VBO (DYNAMIC_DRAW — morphed for warped parts, rest otherwise).
+      // For warped meshes, compute morphed positions and upload to the
+      // DYNAMIC_DRAW VBO. Warp-less meshes skip this — their VBO already
+      // holds `rest` from load().
+      if (pm.warpDeformer) {
+        // --- Warp-deformer (group warp) child pipeline ---
+        // Coordinate invariant (top bug risk): BIND against the RAW rest grid
+        // (warpDeformer.grid — no keyform offsets, no parent affine), SAMPLE
+        // against the RESOLVED grid (resolveWarpGrids output: offsets added,
+        // THEN parent affine). Never bind against a resolved/deformed grid.
+        const warpDef = pm.warpDeformer;
+        const grid = warpGrids!.get(warpDef.id)!;
+        // 1. part-local mesh warps (#4b) into the local scratch (no-op if none).
+        applyWarps(pm.rest, pm.warps, this.params, pm.local!);
+        // 2. live part TRS (eye/mouth open etc.), baked into the vertices.
+        const trs = evaluateTransform(
+          part.transform,
+          part.bindings,
+          this.params,
+        );
+        const partAffine = multiply(
+          multiply(translate(trs.x, trs.y), rotate(trs.rotation)),
+          scale(part.width * trs.scaleX, part.height * trs.scaleY),
+        );
+        // 2b+3+4. transform each local vertex by partAffine, rebind to the RAW
+        // rest grid, and sample the RESOLVED (deformed) grid.
+        applyWarpToChild(
+          pm.local!,
+          partAffine,
+          warpDef.grid,
+          grid,
+          pm.scratch!,
+        );
         gl.bindBuffer(gl.ARRAY_BUFFER, pm.position);
-        gl.enableVertexAttribArray(this.aPos);
-        gl.vertexAttribPointer(this.aPos, 2, gl.FLOAT, false, 0, 0);
-
-        // UV VBO (STATIC_DRAW — mesh UVs are passed straight through, no flip).
-        gl.bindBuffer(gl.ARRAY_BUFFER, pm.uv);
-        gl.enableVertexAttribArray(this.aUv);
-        gl.vertexAttribPointer(this.aUv, 2, gl.FLOAT, false, 0, 0);
-
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, pm.index);
-        gl.drawElements(gl.TRIANGLES, pm.indexCount, gl.UNSIGNED_SHORT, 0);
-      } else {
-        // --- Implicit-quad draw path ---
-        // Disable a_uv so no stale mesh UV buffer from a preceding mesh part is
-        // sourced. The quad shader branch derives UV from a_pos, not a_uv.
-        gl.uniform1i(this.uUseMeshUv, 0);
-        gl.disableVertexAttribArray(this.aUv);
-
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
-        gl.enableVertexAttribArray(this.aPos);
-        gl.vertexAttribPointer(this.aPos, 2, gl.FLOAT, false, 0, 0);
-
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, pm.scratch!);
+      } else if (pm.warps && pm.warps.length > 0) {
+        // scratch is always allocated when warps is non-empty (see load())
+        applyWarps(pm.rest, pm.warps, this.params, pm.scratch!);
+        gl.bindBuffer(gl.ARRAY_BUFFER, pm.position);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, pm.scratch!);
       }
+
+      // Position VBO (DYNAMIC_DRAW — morphed for warped parts, rest otherwise).
+      gl.bindBuffer(gl.ARRAY_BUFFER, pm.position);
+      gl.enableVertexAttribArray(this.aPos);
+      gl.vertexAttribPointer(this.aPos, 2, gl.FLOAT, false, 0, 0);
+
+      // UV VBO (STATIC_DRAW — mesh UVs are passed straight through, no flip).
+      gl.bindBuffer(gl.ARRAY_BUFFER, pm.uv);
+      gl.enableVertexAttribArray(this.aUv);
+      gl.vertexAttribPointer(this.aUv, 2, gl.FLOAT, false, 0, 0);
+
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, pm.index);
+      gl.drawElements(gl.TRIANGLES, pm.indexCount, gl.UNSIGNED_SHORT, 0);
+    } else {
+      // --- Implicit-quad draw path ---
+      // Disable a_uv so no stale mesh UV buffer from a preceding mesh part is
+      // sourced. The quad shader branch derives UV from a_pos, not a_uv.
+      gl.uniform1i(this.uUseMeshUv, 0);
+      gl.disableVertexAttribArray(this.aUv);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+      gl.enableVertexAttribArray(this.aPos);
+      gl.vertexAttribPointer(this.aPos, 2, gl.FLOAT, false, 0, 0);
+
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
   }
 
@@ -560,11 +681,15 @@ precision mediump float;
 uniform vec4 u_color;
 uniform bool u_useTexture;
 uniform sampler2D u_tex;
+uniform float u_alphaCutoff;
 in vec2 v_uv;
 out vec4 outColor;
 void main() {
   vec4 base = u_useTexture ? texture(u_tex, v_uv) : vec4(1.0);
   outColor = base * u_color;
+  // 0 for normal draws (no-op); raised during the stencil mask-write pass so
+  // only opaque mask coverage marks the stencil (the transparent fringe is cut).
+  if (outColor.a < u_alphaCutoff) discard;
 }`;
 
 /**
