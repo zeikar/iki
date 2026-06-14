@@ -301,14 +301,10 @@ export const sampleModel: IkiModel = {
           from: -50,
           to: 50,
         },
-        // AngleY rigid turn: +AngleY = head tilts up (chin lifts).
-        // Curvature lives in faceWarp2d; only the rigid component is here (no double-apply).
-        {
-          parameter: StandardParameter.AngleY,
-          channel: "rotate",
-          from: -6,
-          to: 6,
-        },
+        // AngleY vertical pitch: uses translateY + faceWarp2d curvature only.
+        // No rotate binding — AngleX already owns the rotate channel; adding AngleY
+        // rotate would cause the two rigid rotations to sum at diagonal poses (yaw
+        // and pitch collapsing into one roll scalar).
         {
           parameter: StandardParameter.AngleY,
           channel: "translateY",

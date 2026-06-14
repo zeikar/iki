@@ -1732,14 +1732,41 @@ describe("warp deformers — 2D warp (warp2d) happy path", () => {
 });
 
 describe("warp deformers — 2D warp (warp2d) error paths", () => {
-  it("(a) both warps and warp2d present throws XOR error (before parsing either)", () => {
-    // Include a malformed warps to confirm the XOR fires first, not a 1D parse error.
+  it("(a) both non-empty warps and warp2d present throws XOR error", () => {
+    const validWarp2d = {
+      parameter: "ParamX",
+      parameterY: "ParamY",
+      valuesX: [-1, 1],
+      valuesY: [-1, 1],
+      keyforms2d: [
+        { offsets: Array(12).fill(0) },
+        { offsets: Array(12).fill(0) },
+        { offsets: Array(12).fill(0) },
+        { offsets: Array(12).fill(0) },
+      ],
+    };
     const input = {
       ...modelWith2DWarp(),
       deformers: [
         {
           ...makeWarpDeformer("faceWarp"),
-          warps: "not-an-array", // malformed — XOR check must fire before this is parsed
+          warps: [{ parameter: "ParamA", keyforms: [] }], // non-empty — must trigger XOR
+          warp2d: validWarp2d,
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /declares only one of warps \(1D\) or warp2d \(2D\), not both/,
+    );
+  });
+
+  it("(a2) empty warps array with warp2d does NOT throw — empty warps is treated as absent", () => {
+    const input = {
+      ...modelWith2DWarp(),
+      deformers: [
+        {
+          ...makeWarpDeformer("faceWarp"),
+          warps: [], // inert empty array — must NOT trigger XOR error
           warp2d: {
             parameter: "ParamX",
             parameterY: "ParamY",
@@ -1755,9 +1782,14 @@ describe("warp deformers — 2D warp (warp2d) error paths", () => {
         },
       ],
     };
-    expect(() => parseIkiModel(input)).toThrow(
-      /declares only one of warps \(1D\) or warp2d \(2D\), not both/,
-    );
+    const model = parseIkiModel(input);
+    const wd = model.deformers!.find((d) => d.id === "faceWarp") as {
+      warp2d?: unknown;
+      warps?: unknown[];
+    };
+    expect(wd.warp2d).toBeDefined();
+    // empty warps is normalized to absent so the output satisfies the XOR contract
+    expect(wd.warps).toBeUndefined();
   });
 
   it("(b) keyforms2d.length !== valuesX.length * valuesY.length throws with actual + expected", () => {

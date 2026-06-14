@@ -6,7 +6,9 @@
  * parts through linear {@link IkiBinding}s. Parts may optionally carry a
  * triangle {@link IkiMesh} with per-vertex UV and per-parameter warp keyforms
  * ({@link IkiWarp}/{@link IkiKeyform}) — both are part of the v1 contract.
- * Multi-parameter warps are deferred; group warp deformers ({@link IkiWarpDeformer}) are part of the v1 contract.
+ * Two-parameter (joint X+Y) grid warps via {@link IkiGrid2DWarp} (`warp2d`) are supported; each deformer carries
+ * either a 1D warp (`warps`) or a 2D warp (`warp2d`), not both. Multi-grid composition and further advanced warp
+ * types remain deferred. Group warp deformers ({@link IkiWarpDeformer}) are part of the v1 contract.
  */
 export const IKI_FORMAT_VERSION = 1;
 

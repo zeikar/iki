@@ -94,7 +94,7 @@ any host can drive any model without per-model wiring.
    - **4a. Rotation deformer + pivot + parent hierarchy** — done
    - **4b. Warp mesh, keyform, per-vertex UV** — done
    - **4c. Warp deformer (group warp)** — done
-   - **4d. Advanced warp depth** — deferred (revisit when enhancing the look): 2D parameter grids (joint `AngleX`×`AngleY` keyform blend, true Live2D-style) + multi-driver grid composition; Bezier/bicubic smooth warp patches (vs. the current bilinear); nested warp deformers + matrix-under-warp hierarchies; glue / clipping-aware deformation / path deformers; folded-cell detection
+   - **4d. Advanced warp depth** — 2D parameter grids (joint `AngleX`×`AngleY` keyform blend via `warp2d`, true Live2D-style) — done. Deferred (revisit when enhancing the look): multi-driver grid composition; Bezier/bicubic smooth warp patches (vs. the current bilinear); nested warp deformers + matrix-under-warp hierarchies; glue / clipping-aware deformation / path deformers; folded-cell detection
 5. **Editor** — author parts, meshes, and bindings
    - **5a. Load → numeric part edit → live preview → validated export** — done
    - **5b. Texture/atlas import + per-part UV (quad parts)** — done

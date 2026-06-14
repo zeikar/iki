@@ -426,7 +426,13 @@ function parseWarpDeformer(
   checkGridRegularity(points, cols, rows, path);
 
   // A warp deformer carries EITHER warps (1D) XOR warp2d (2D) — reject both.
-  if (value.warps !== undefined && value.warp2d !== undefined) {
+  // An empty warps array is treated as absent (it contributes nothing at runtime);
+  // only a non-empty warps array conflicts with warp2d.
+  if (
+    Array.isArray(value.warps) &&
+    value.warps.length > 0 &&
+    value.warp2d !== undefined
+  ) {
     throw new IkiFormatError(
       `${path}: a warp deformer declares only one of warps (1D) or warp2d (2D), not both`,
     );
@@ -459,6 +465,11 @@ function parseWarpDeformer(
       paramDescriptors,
       points.length,
     );
+    // Normalize: an inert empty warps array alongside warp2d is dropped so the
+    // output model satisfies the XOR contract (EITHER warps XOR warp2d, not both).
+    if (warps !== undefined && warps.length === 0) {
+      warps = undefined;
+    }
   }
 
   return {
