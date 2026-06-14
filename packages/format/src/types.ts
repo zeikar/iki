@@ -149,6 +149,16 @@ export interface IkiPart {
   mesh?: IkiMesh;
   /** Per-vertex warp keyforms applied to `mesh` each frame; requires `mesh`. */
   warps?: IkiWarp[];
+  /**
+   * Clipping mask. This part renders only inside the (union of the) alpha
+   * coverage of the referenced mask parts — e.g. an iris clipped to the eye
+   * sclera so it never spills past the eye at extreme gaze. Each id must
+   * reference another part that carries a `mesh` and is not itself clipped
+   * (masks are flat — no nesting). Mask parts still render normally in their
+   * own `order` slot. The object shape leaves room for additive options
+   * (e.g. `inverted`) without a breaking reshape.
+   */
+  clip?: { masks: string[] };
 }
 
 /** Matrix-only subset of {@link IkiTransformChannel} — opacity is not representable as a matrix. */

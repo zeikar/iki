@@ -1950,3 +1950,107 @@ describe("warp deformers — 2D warp (warp2d) error paths", () => {
     );
   });
 });
+
+describe("parseIkiModel — clip masks", () => {
+  const tri = () => ({
+    vertices: [0, 0, 1, 0, 0, 1],
+    uvs: [0, 0, 1, 0, 0, 1],
+    indices: [0, 1, 2],
+  });
+  const meshPart = (id: string, order: number, extra: object = {}) => ({
+    id,
+    color: [1, 1, 1, 1],
+    width: 1,
+    height: 1,
+    order,
+    transform: { x: 0, y: 0 },
+    mesh: tri(),
+    ...extra,
+  });
+
+  /** A mask part `eyeWhite` (mesh) and a consumer `iris` carrying `clip`. */
+  function clipModel(clip: unknown, maskExtra: object = {}) {
+    return {
+      version: IKI_FORMAT_VERSION,
+      name: "clip",
+      canvas: { width: 100, height: 100 },
+      parameters: [],
+      parts: [
+        meshPart("eyeWhite", 0, maskExtra),
+        meshPart("iris", 1, { clip }),
+      ],
+    };
+  }
+
+  it("accepts a consumer clipped by a mesh mask", () => {
+    const model = parseIkiModel(clipModel({ masks: ["eyeWhite"] }));
+    expect(model.parts[1].clip).toEqual({ masks: ["eyeWhite"] });
+  });
+
+  it("rejects an unknown mask reference", () => {
+    expect(() => parseIkiModel(clipModel({ masks: ["nope"] }))).toThrow(
+      /parts\[1\]\.clip\.masks\[0\] "nope" is not a declared part/,
+    );
+  });
+
+  it("rejects self-clip", () => {
+    expect(() => parseIkiModel(clipModel({ masks: ["iris"] }))).toThrow(
+      /cannot clip itself/,
+    );
+  });
+
+  it("rejects a duplicate mask reference", () => {
+    expect(() =>
+      parseIkiModel(clipModel({ masks: ["eyeWhite", "eyeWhite"] })),
+    ).toThrow(/duplicate mask reference/);
+  });
+
+  it("rejects a non-mesh mask", () => {
+    const m = clipModel({ masks: ["eyeWhite"] });
+    delete (m.parts[0] as Record<string, unknown>).mesh;
+    expect(() => parseIkiModel(m)).toThrow(/must reference a part with a mesh/);
+  });
+
+  it("rejects a consumer clipped by a mask that is itself clipped (flat only)", () => {
+    const m = {
+      version: IKI_FORMAT_VERSION,
+      name: "nested",
+      canvas: { width: 100, height: 100 },
+      parameters: [],
+      parts: [
+        meshPart("base", 0),
+        meshPart("eyeWhite", 1, { clip: { masks: ["base"] } }),
+        meshPart("iris", 2, { clip: { masks: ["eyeWhite"] } }),
+      ],
+    };
+    expect(() => parseIkiModel(m)).toThrow(
+      /parts\[2\]\.clip\.masks\[0\] "eyeWhite" is itself clipped; nested masks are not supported/,
+    );
+  });
+
+  it("rejects an empty masks array", () => {
+    expect(() => parseIkiModel(clipModel({ masks: [] }))).toThrow(
+      /clip\.masks must not be empty/,
+    );
+  });
+
+  it("rejects a non-array masks", () => {
+    expect(() => parseIkiModel(clipModel({ masks: "eyeWhite" }))).toThrow(
+      /clip\.masks must be an array/,
+    );
+  });
+
+  it("rejects a non-object clip", () => {
+    expect(() => parseIkiModel(clipModel("eyeWhite"))).toThrow(
+      /\.clip must be an object/,
+    );
+  });
+
+  it("rejects duplicate part ids (clip refs must resolve unambiguously)", () => {
+    const m = clipModel({ masks: ["eyeWhite"] });
+    (m.parts[1] as Record<string, unknown>).id = "eyeWhite";
+    expect(() => parseIkiModel(m)).toThrow(
+      /parts\[1\]\.id "eyeWhite" collides with parts\[0\]\.id/,
+    );
+  });
+});

@@ -748,6 +748,23 @@ function parsePart(
     );
   }
 
+  let clip: IkiPart["clip"];
+  if (value.clip !== undefined) {
+    if (!isObject(value.clip)) {
+      throw new IkiFormatError(`${path}.clip must be an object`);
+    }
+    const masks = value.clip.masks;
+    if (!Array.isArray(masks)) {
+      throw new IkiFormatError(`${path}.clip.masks must be an array`);
+    }
+    if (masks.length === 0) {
+      throw new IkiFormatError(`${path}.clip.masks must not be empty`);
+    }
+    clip = {
+      masks: masks.map((m, j) => str(m, `${path}.clip.masks[${j}]`)),
+    };
+  }
+
   return {
     id: str(value.id, `${path}.id`),
     color: parseColor(value.color, `${path}.color`),
@@ -765,6 +782,7 @@ function parsePart(
         : str(value.deformer, `${path}.deformer`),
     mesh,
     warps,
+    clip,
   };
 }
 
@@ -819,6 +837,20 @@ export function parseIkiModel(input: unknown): IkiModel {
   const parts = input.parts.map((p, i) =>
     parsePart(p, `parts[${i}]`, declaredIds, paramDescriptors, texturesCount),
   );
+
+  // Part ids must be unique: clip (mask) references and the engine's id→index
+  // resolution both key on the part id, so a duplicate id is ambiguous.
+  const partIndexById = new Map<string, number>();
+  for (let i = 0; i < parts.length; i++) {
+    const { id } = parts[i];
+    const prev = partIndexById.get(id);
+    if (prev !== undefined) {
+      throw new IkiFormatError(
+        `parts[${i}].id "${id}" collides with parts[${prev}].id`,
+      );
+    }
+    partIndexById.set(id, i);
+  }
 
   // Parse deformers (optional)
   let deformers: IkiDeformer[] | undefined;
@@ -943,6 +975,42 @@ export function parseIkiModel(input: unknown): IkiModel {
       throw new IkiFormatError(
         `parts[${i}].deformer "${ref}" is a warp deformer and requires parts[${i}].mesh`,
       );
+    }
+  }
+
+  // Cross-check clip (mask) references: each referenced mask must exist, not be
+  // the part itself, be unique within the list, carry a mesh (predictable
+  // coverage), and not itself be clipped (masks are flat — no nesting).
+  for (let i = 0; i < parts.length; i++) {
+    const { clip } = parts[i];
+    if (clip === undefined) continue;
+    const seen = new Set<string>();
+    for (let j = 0; j < clip.masks.length; j++) {
+      const maskId = clip.masks[j];
+      const at = `parts[${i}].clip.masks[${j}]`;
+      if (maskId === parts[i].id) {
+        throw new IkiFormatError(`${at} "${maskId}" cannot clip itself`);
+      }
+      if (seen.has(maskId)) {
+        throw new IkiFormatError(
+          `${at} "${maskId}" is a duplicate mask reference`,
+        );
+      }
+      seen.add(maskId);
+      const maskIdx = partIndexById.get(maskId);
+      if (maskIdx === undefined) {
+        throw new IkiFormatError(`${at} "${maskId}" is not a declared part`);
+      }
+      if (parts[maskIdx].mesh === undefined) {
+        throw new IkiFormatError(
+          `${at} "${maskId}" must reference a part with a mesh`,
+        );
+      }
+      if (parts[maskIdx].clip !== undefined) {
+        throw new IkiFormatError(
+          `${at} "${maskId}" is itself clipped; nested masks are not supported`,
+        );
+      }
     }
   }
 
