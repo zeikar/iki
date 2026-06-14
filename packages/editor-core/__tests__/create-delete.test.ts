@@ -715,3 +715,61 @@ describe("createDefaultWarpDeformer standalone", () => {
     expect(() => parseIkiModel(fullModel)).not.toThrow();
   });
 });
+
+// ── 10. DeletePart clip-mask guard ────────────────────────────────────────────
+
+describe("DeletePart clip-mask guard", () => {
+  function clipModel(): IkiModel {
+    const tri = {
+      vertices: [0, 0, 1, 0, 0, 1],
+      uvs: [0, 0, 1, 0, 0, 1],
+      indices: [0, 1, 2],
+    };
+    return {
+      version: IKI_FORMAT_VERSION,
+      name: "clip",
+      canvas: { width: 1000, height: 1000 },
+      parameters: [],
+      parts: [
+        {
+          id: "eyeWhite",
+          color: [1, 1, 1, 1],
+          width: 1,
+          height: 1,
+          transform: { x: 0, y: 0 },
+          order: 0,
+          mesh: tri,
+        },
+        {
+          id: "iris",
+          color: [0, 0, 1, 1],
+          width: 1,
+          height: 1,
+          transform: { x: 0, y: 0 },
+          order: 1,
+          mesh: tri,
+          clip: { masks: ["eyeWhite"] },
+        },
+      ],
+    };
+  }
+
+  it("refuses to delete a part used as another part's clip mask; model unchanged, canUndo false", () => {
+    const doc = new EditorDocument(clipModel());
+    const before = snap(doc);
+
+    expect(() => doc.execute(new DeletePart("eyeWhite"))).toThrow(
+      /parts\."eyeWhite": cannot delete — used as a clip mask by part "iris"/,
+    );
+    expect(doc.canUndo()).toBe(false);
+    expect(doc.getModel()).toEqual(before);
+    expect(() => doc.toIkiModel()).not.toThrow();
+  });
+
+  it("deletes the consumer (iris) freely — it masks nothing", () => {
+    const doc = new EditorDocument(clipModel());
+    doc.execute(new DeletePart("iris"));
+    expect(doc.getModel().parts.find((p) => p.id === "iris")).toBeUndefined();
+    expect(() => doc.toIkiModel()).not.toThrow();
+  });
+});

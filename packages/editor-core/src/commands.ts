@@ -684,8 +684,10 @@ export class AddDeformer implements EditCommand {
  * visually predictable.
  *
  * No `parseIkiModel` pre-check is needed: removing an element from an already-
- * valid model cannot introduce a structural violation. Nothing in the model
- * contract references a part by id, so there are no dangling-ref hazards.
+ * valid model cannot introduce a structural violation — EXCEPT for clip-mask
+ * references, the one part→part reference in the contract. `apply` refuses to
+ * delete a part still used as another part's `clip.masks` entry (guard below),
+ * so it can never leave a dangling mask ref that would fail `toIkiModel()`.
  *
  * Texture-reference safety (editor-core invariant): `apply` refuses to delete a
  * part that still carries `part.texture`. Texture/atlas state is non-undoable
@@ -719,6 +721,20 @@ export class DeletePart implements EditCommand {
     }
 
     const parts = doc.getModel().parts;
+
+    // Clip-mask guard — `clip.masks` is the one part→part reference in the model
+    // contract. Deleting a referenced mask would leave a dangling ref that fails
+    // parseIkiModel on toIkiModel(). Refuse rather than corrupt (mirrors the
+    // texture guard above). Throw before any capture or mutation.
+    const masker = parts.find(
+      (p) => p.id !== this.partId && p.clip?.masks.includes(this.partId),
+    );
+    if (masker) {
+      throw new Error(
+        `parts."${this.partId}": cannot delete — used as a clip mask by part "${masker.id}"; remove its clip first`,
+      );
+    }
+
     const i = parts.indexOf(part);
     if (!this.captured) {
       this.removed = structuredClone(part);
