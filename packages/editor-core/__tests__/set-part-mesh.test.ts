@@ -470,3 +470,50 @@ describe("SetPartMesh path rewrite on degenerate candidate", () => {
     expect(doc.canUndo()).toBe(undoBefore);
   });
 });
+
+// ── SetPartMesh clip-mask guard ───────────────────────────────────────────────
+
+describe("SetPartMesh clip-mask guard", () => {
+  function clipModel(): IkiModel {
+    return {
+      version: IKI_FORMAT_VERSION,
+      name: "clip",
+      canvas: { width: 1000, height: 1000 },
+      parameters: [],
+      parts: [
+        {
+          id: "eyeWhite",
+          color: [1, 1, 1, 1],
+          width: 1,
+          height: 1,
+          transform: { x: 0, y: 0 },
+          order: 0,
+          mesh: createGridMesh(2, 2),
+        },
+        {
+          id: "iris",
+          color: [0, 0, 1, 1],
+          width: 1,
+          height: 1,
+          transform: { x: 0, y: 0 },
+          order: 1,
+          mesh: createGridMesh(2, 2),
+          clip: { masks: ["eyeWhite"] },
+        },
+      ],
+    };
+  }
+
+  it("refuses to remove the mesh from a part used as a clip mask; model+stacks unchanged", () => {
+    const doc = new EditorDocument(clipModel());
+    const before = JSON.stringify(doc.toIkiModel());
+    const undoBefore = doc.canUndo();
+
+    expect(() => doc.execute(new SetPartMesh("eyeWhite", undefined))).toThrow(
+      /parts\."eyeWhite": cannot remove mesh — used as a clip mask by part "iris"/,
+    );
+
+    expect(JSON.stringify(doc.toIkiModel())).toBe(before);
+    expect(doc.canUndo()).toBe(undoBefore);
+  });
+});

@@ -1062,6 +1062,19 @@ export class SetPartMesh implements EditCommand {
           `parts."${this.partId}": cannot remove mesh — part has warps or is attached to a warp deformer; remove its warps / detach from the warp deformer first`,
         );
       }
+      // Clip-mask guard — the format requires a clip mask to be a mesh part, so
+      // stripping the mesh from a referenced mask would dangle the ref and fail
+      // toIkiModel(). Mirrors the DeletePart clip-mask guard.
+      const masker = doc
+        .getModel()
+        .parts.find(
+          (p) => p.id !== this.partId && p.clip?.masks.includes(this.partId),
+        );
+      if (masker) {
+        throw new IkiFormatError(
+          `parts."${this.partId}": cannot remove mesh — used as a clip mask by part "${masker.id}" (masks require a mesh); remove its clip first`,
+        );
+      }
     } else {
       // ADD/REPLACE: guard on authored offsets (length > 0). An empty warps: []
       // has no offsets to invalidate, so replacing the mesh under it is harmless.
