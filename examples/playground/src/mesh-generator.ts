@@ -168,12 +168,19 @@ export function bakeHeadTurnGridWarp(
  * matrix parent (headDeformer) — this warp adds curvature only, same split
  * contract as the 1D version.
  *
+ * CENTER-RELATIVE: the bend is measured against the grid's geometric center and
+ * the center point's own shift (RADIUS·sin θ) is subtracted out, so the center
+ * stays pinned and the warp contributes ONLY differential foreshortening. The
+ * bulk turn translation comes from the matrix parent's translateX/Y — without
+ * this subtraction the cylinder's center shift (~0.5·RADIUS at ±30°) stacks on
+ * top of that translate and the face slides off-axis instead of turning.
+ *
  * LAYOUT (row-major, k(i,j) = j * valuesX.length + i):
  *   i indexes valuesX (AngleX axis), j indexes valuesY (AngleY axis).
  *   Center entry k(1,1) is AngleX=0,AngleY=0 → all-zero offsets (rest pose).
  *
- * +AngleX = head turns right → positive dx (xPrime moves right).
- * +AngleY = head tilts up    → positive dy (yPrime moves up).
+ * +AngleX = head turns right → near edge expands, far edge compresses.
+ * +AngleY = head tilts up    → vertical foreshortening about the center.
  */
 export function bakeHeadTurnGridWarp2D(
   grid: IkiWarpGrid,
@@ -183,20 +190,32 @@ export function bakeHeadTurnGridWarp2D(
   const valuesX = [-30, 0, 30];
   const valuesY = [-30, 0, 30];
 
-  // Cylinder radii in MODEL units. Same margin ratio (0.6/0.5) as bakeHeadTurnGridWarp.
-  const halfWidth2d = (grid.points[grid.cols * 2] - grid.points[0]) / 2;
-  const RADIUS_X = halfWidth2d * (0.6 / 0.5);
-
-  // For vertical bend, derive half-height from the grid's y extent.
-  // points[1] is the top-left y (row=0, col=0).
-  // The bottom-left point is at row=rows, col=0: index rows*(cols+1), y at [index*2+1].
-  const firstY = grid.points[1];
-  const lastY = grid.points[grid.rows * (grid.cols + 1) * 2 + 1];
-  const halfHeight = Math.abs(firstY - lastY) / 2;
-  const RADIUS_Y = halfHeight * (0.6 / 0.5);
-
   const pointCount = grid.points.length / 2;
   const DEG_TO_RAD = Math.PI / 180;
+
+  // Grid geometric center + extents (MODEL space). The bend is centered here so
+  // the center control point stays pinned across all poses.
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (let p = 0; p < pointCount; p++) {
+    const x = grid.points[p * 2];
+    const y = grid.points[p * 2 + 1];
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+
+  // Cylinder radii in MODEL units. A larger factor flattens the cylinder, so the
+  // foreshortening is gentler — tuned for a natural head turn rather than the
+  // exaggerated wrap a tight radius produces.
+  const RADIUS_FACTOR = 1.7;
+  const RADIUS_X = ((maxX - minX) / 2) * RADIUS_FACTOR;
+  const RADIUS_Y = ((maxY - minY) / 2) * RADIUS_FACTOR;
 
   const keyforms2d: { offsets: number[] }[] = [];
   // Outer loop: j over valuesY; inner loop: i over valuesX.
@@ -204,31 +223,33 @@ export function bakeHeadTurnGridWarp2D(
   for (let j = 0; j < valuesY.length; j++) {
     const angleYDeg = valuesY[j];
     const thetaY = angleYDeg * DEG_TO_RAD;
+    // Center point's own shift — subtracted so the center stays pinned.
+    const centerShiftY = RADIUS_Y * Math.sin(thetaY);
 
     for (let i = 0; i < valuesX.length; i++) {
       const angleXDeg = valuesX[i];
       const thetaX = angleXDeg * DEG_TO_RAD;
+      const centerShiftX = RADIUS_X * Math.sin(thetaX);
 
       const offsets: number[] = [];
       for (let p = 0; p < pointCount; p++) {
-        const x = grid.points[p * 2];
-        const y = grid.points[p * 2 + 1];
+        // Coordinates relative to the grid center (xr = yr = 0 at the center).
+        const xr = grid.points[p * 2] - centerX;
+        const yr = grid.points[p * 2 + 1] - centerY;
 
-        // Horizontal cylinder bend (AngleX): same as bakeHeadTurnGridWarp.
-        const alphaX = Math.asin(Math.max(-1, Math.min(1, x / RADIUS_X)));
-        const xPrime = RADIUS_X * Math.sin(alphaX + thetaX);
-        const dx = xPrime - x;
+        // Horizontal cylinder bend (AngleX), center-relative.
+        const alphaX = Math.asin(Math.max(-1, Math.min(1, xr / RADIUS_X)));
+        const dx = RADIUS_X * Math.sin(alphaX + thetaX) - xr - centerShiftX;
 
-        // Vertical cylinder bend (AngleY): symmetric formula applied to y.
-        // +thetaY → the point arcs upward (+y direction).
-        const alphaY = Math.asin(Math.max(-1, Math.min(1, y / RADIUS_Y)));
-        const yPrime = RADIUS_Y * Math.sin(alphaY + thetaY);
-        const dy = yPrime - y;
+        // Vertical cylinder bend (AngleY), center-relative. +thetaY arcs up.
+        const alphaY = Math.asin(Math.max(-1, Math.min(1, yr / RADIUS_Y)));
+        const dy = RADIUS_Y * Math.sin(alphaY + thetaY) - yr - centerShiftY;
 
         offsets.push(dx, dy);
       }
 
-      // Center entry k(1,1): angleX=0, angleY=0 → thetaX=thetaY=0 → dx=dy=0 for all points.
+      // Center entry k(1,1): thetaX=thetaY=0 → centerShift=0, sin(asin(r))-r=0,
+      // so dx=dy=0 for all points (rest pose preserved).
       keyforms2d.push({ offsets });
     }
   }

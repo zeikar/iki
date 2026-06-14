@@ -7,3 +7,6 @@ coverage
 
 # hyperclaude workflow artifacts (plans, reviews, research)
 .hyperclaude/
+
+# Playwright MCP e2e artifacts (snapshots, screenshots)
+.playwright-mcp/
