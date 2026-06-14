@@ -153,11 +153,15 @@ function generateGridPoints(
   return pts;
 }
 
-// Face warp grid: 4×4 cells (5×5 control points), spanning the face area.
+// Head warp grid: 4×4 cells (5×5 control points), spanning the WHOLE head —
+// face AND hair — so the head turns as one body (the hair foreshortens with the
+// face instead of staying a rigid blob). Bounds enclose backHair (±305 wide,
+// y ∈ [-320, 370]) with a small margin; the grid center (0, 25) is the head's
+// turn pivot for the center-relative bake.
 const faceGrid: IkiWarpGrid = {
   cols: 4,
   rows: 4,
-  points: generateGridPoints(4, 4, -260, 260, -310, 310),
+  points: generateGridPoints(4, 4, -310, 310, -325, 375),
 };
 // 2D cylinder-bend keyforms (AngleX × AngleY) — curvature lives here only; the
 // rigid turn/translate stays on headDeformer (no double-apply, same contract as
@@ -191,7 +195,8 @@ function feature(
   };
 }
 
-// A hair part rides the rigid headDeformer (no cylinder bend needed for hair).
+// A hair part rides faceWarp too, so the hair foreshortens with the head turn
+// as one body (same deformer as the face features — only the draw order differs).
 function hair(
   id: string,
   color: [number, number, number, number],
@@ -207,7 +212,7 @@ function hair(
     height: 1,
     order,
     transform: { x, y },
-    deformer: "headDeformer",
+    deformer: "faceWarp",
     mesh,
   };
 }
