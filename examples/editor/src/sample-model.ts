@@ -172,6 +172,7 @@ function feature(
   y: number,
   mesh: IkiMesh,
   bindings?: IkiBinding[],
+  clip?: IkiPart["clip"],
 ): IkiPart {
   return {
     id,
@@ -183,6 +184,7 @@ function feature(
     deformer: "faceWarp",
     mesh,
     ...(bindings ? { bindings } : {}),
+    ...(clip ? { clip } : {}),
   };
 }
 
@@ -328,35 +330,72 @@ export const sampleModel: IkiModel = {
       blink(StandardParameter.EyeOpenRight),
     ]),
 
-    // iris
-    feature("irisL", IRIS, 5, -108, 50, ellipseMesh(40, 44), [
-      blink(StandardParameter.EyeOpenLeft),
-      ...gaze(),
-    ]),
-    feature("irisR", IRIS, 5, 108, 50, ellipseMesh(40, 44), [
-      blink(StandardParameter.EyeOpenRight),
-      ...gaze(),
-    ]),
+    // iris / pupil / highlight are clipped to the eye-white sclera so they never
+    // spill past the eye outline at extreme gaze (also demonstrates clip masks).
+    feature(
+      "irisL",
+      IRIS,
+      5,
+      -108,
+      50,
+      ellipseMesh(40, 44),
+      [blink(StandardParameter.EyeOpenLeft), ...gaze()],
+      { masks: ["eyeWhiteL"] },
+    ),
+    feature(
+      "irisR",
+      IRIS,
+      5,
+      108,
+      50,
+      ellipseMesh(40, 44),
+      [blink(StandardParameter.EyeOpenRight), ...gaze()],
+      { masks: ["eyeWhiteR"] },
+    ),
 
     // pupil
-    feature("pupilL", PUPIL, 6, -108, 48, ellipseMesh(18, 24), [
-      blink(StandardParameter.EyeOpenLeft),
-      ...gaze(),
-    ]),
-    feature("pupilR", PUPIL, 6, 108, 48, ellipseMesh(18, 24), [
-      blink(StandardParameter.EyeOpenRight),
-      ...gaze(),
-    ]),
+    feature(
+      "pupilL",
+      PUPIL,
+      6,
+      -108,
+      48,
+      ellipseMesh(18, 24),
+      [blink(StandardParameter.EyeOpenLeft), ...gaze()],
+      { masks: ["eyeWhiteL"] },
+    ),
+    feature(
+      "pupilR",
+      PUPIL,
+      6,
+      108,
+      48,
+      ellipseMesh(18, 24),
+      [blink(StandardParameter.EyeOpenRight), ...gaze()],
+      { masks: ["eyeWhiteR"] },
+    ),
 
     // eye highlight (sparkle, upper-left of each pupil)
-    feature("highlightL", HIGHLIGHT, 7, -120, 68, ellipseMesh(16, 18), [
-      blink(StandardParameter.EyeOpenLeft),
-      ...gaze(),
-    ]),
-    feature("highlightR", HIGHLIGHT, 7, 96, 68, ellipseMesh(16, 18), [
-      blink(StandardParameter.EyeOpenRight),
-      ...gaze(),
-    ]),
+    feature(
+      "highlightL",
+      HIGHLIGHT,
+      7,
+      -120,
+      68,
+      ellipseMesh(16, 18),
+      [blink(StandardParameter.EyeOpenLeft), ...gaze()],
+      { masks: ["eyeWhiteL"] },
+    ),
+    feature(
+      "highlightR",
+      HIGHLIGHT,
+      7,
+      96,
+      68,
+      ellipseMesh(16, 18),
+      [blink(StandardParameter.EyeOpenRight), ...gaze()],
+      { masks: ["eyeWhiteR"] },
+    ),
 
     // upper lash line (drops a touch when the eye closes)
     feature("lashL", LASH, 7, -108, 84, ellipseMesh(58, 11), [
