@@ -12,6 +12,9 @@
       "require": "./dist/index.js"
     }
   },
+  "bin": {
+    "iki-mcp": "dist/cli.js"
+  },
   "files": [
     "dist"
   ],

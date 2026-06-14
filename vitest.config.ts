@@ -18,6 +18,8 @@ export default defineConfig({
         // Re-export barrels and the WebGL player (needs a real GL context).
         "packages/*/src/index.ts",
         "packages/engine/src/player.ts",
+        // Process entry / stdio transport — can't be unit-tested.
+        "packages/mcp/src/cli.ts",
       ],
       reporter: ["text", "json-summary", "html"],
       thresholds: {
