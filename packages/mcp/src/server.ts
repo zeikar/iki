@@ -69,21 +69,12 @@ export function createIkiMcpServer(): McpServer {
       inputSchema: {},
     },
     async () => {
-      try {
-        const params = listStandardParameters();
-        const text = params.map((p) => `${p.id} — ${p.description}`).join("\n");
-        return {
-          content: [{ type: "text", text }],
-          structuredContent: { parameters: params },
-        };
-      } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        return {
-          content: [{ type: "text", text: `Unexpected error: ${error}` }],
-          structuredContent: { ok: false, error },
-          isError: true,
-        };
-      }
+      const params = listStandardParameters();
+      const text = params.map((p) => `${p.id} — ${p.description}`).join("\n");
+      return {
+        content: [{ type: "text", text }],
+        structuredContent: { parameters: params },
+      };
     },
   );
 

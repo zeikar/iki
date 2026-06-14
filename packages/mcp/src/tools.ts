@@ -167,5 +167,5 @@ const STANDARD_PARAMETER_INFO: StandardParameterInfo[] = [
 ];
 
 export function listStandardParameters(): StandardParameterInfo[] {
-  return STANDARD_PARAMETER_INFO;
+  return STANDARD_PARAMETER_INFO.map((p) => ({ ...p }));
 }
