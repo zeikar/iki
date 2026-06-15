@@ -6,6 +6,7 @@ import {
   type IkiMesh,
   type IkiModel,
   type IkiPart,
+  type IkiWarp,
   type IkiWarpGrid,
 } from "@iki/format";
 import { bakeHeadTurnGridWarp } from "./mesh-generator";
@@ -14,14 +15,15 @@ import { bakeHeadTurnGridWarp } from "./mesh-generator";
  * A hand-authored flat-shaded ("vector") anime face, built entirely from
  * solid-color polygon meshes — no texture assets. It exists to make the default
  * model read as a real character while still exercising the whole rig: blink
- * (eyelid drop), gaze (iris/pupil translate), lip-sync (mouth scale), head-turn
+ * (eyelid fold), gaze (iris/pupil translate), lip-sync (mouth scale), head-turn
  * (faceWarp cylinder bend), and breath (head bob).
  *
  * Authoring convention: every mesh is built in MODEL-PIXEL units centered on the
  * part's local origin, and each part uses `width: 1, height: 1` so the mesh
  * coordinates pass through untouched except for the part `transform`. That keeps
- * `scaleX`/`scaleY` bindings (mouth) scaling about each part's own center, and
- * `translateX/Y` bindings (gaze, eyelid drop) moving a part as a whole.
+ * `scaleX`/`scaleY` bindings (mouth) scaling about each part's own center,
+ * `translateX/Y` bindings (gaze) moving a part as a whole, and `warps` keyforms
+ * (eyelid fold) deforming a mesh per-vertex.
  */
 
 // --- palette (RGBA, 0..1) ---------------------------------------------------
@@ -105,16 +107,42 @@ function fringeMesh(xs: number[], topY: number, bottomYs: number[]): IkiMesh {
 }
 
 // --- per-feature binding builders ------------------------------------------
-// Eyelid drop: the (static) eyeball stays put while a skin-colored lid slides
-// down to cover it. param=1 (open) lifts the lid clear above the eye; param=0
-// (closed) drops it back over the eyeball. This replaces the old scaleY blink
-// that collapsed the whole eye toward its center.
-const eyelidDrop = (eye: string): IkiBinding => ({
-  parameter: eye,
-  channel: "translateY",
-  from: 0,
-  to: 96,
-});
+// Model-space y of the closed-eye seam (where the upper lid folds down to). The
+// eye parts collapse toward this line as the eye shuts.
+const EYE_CREASE_Y = 38;
+
+/**
+ * Eyelid FOLD blink (Live2D-style): instead of sliding a lid down, the eye part
+ * deforms — as EyeOpen → 0 the part's CENTER maps onto the shared crease line
+ * `worldAnchorY` and its height scales by `k` (0 = flat line, ~0.18 = a thin
+ * band). Because every eye part collapses to the SAME seam, the lash covers the
+ * flattened eyeball. EyeOpen=1 → rest (zero offsets = the authored open shape);
+ * =0 → folded. This differs from the old scaleY blink, which shrank the whole
+ * eye about its own center IN PLACE (no shared seam, no fold).
+ */
+function foldWarp(
+  parameter: string,
+  worldAnchorY: number,
+  partCenterY: number,
+  mesh: IkiMesh,
+  k = 0.02,
+): IkiWarp {
+  const closed: number[] = [];
+  const zeros: number[] = [];
+  for (let i = 0; i < mesh.vertices.length; i += 2) {
+    const vy = mesh.vertices[i + 1];
+    // closed y = worldAnchorY + vy*k → dy added to the rest vertex (partCenterY + vy)
+    closed.push(0, worldAnchorY - partCenterY - (1 - k) * vy);
+    zeros.push(0, 0);
+  }
+  return {
+    parameter,
+    keyforms: [
+      { value: 0, offsets: closed },
+      { value: 1, offsets: zeros },
+    ],
+  };
+}
 const gaze = (): IkiBinding[] => [
   {
     parameter: StandardParameter.EyeballX,
@@ -177,6 +205,7 @@ function feature(
   mesh: IkiMesh,
   bindings?: IkiBinding[],
   clip?: IkiPart["clip"],
+  warps?: IkiWarp[],
 ): IkiPart {
   return {
     id,
@@ -189,6 +218,7 @@ function feature(
     mesh,
     ...(bindings ? { bindings } : {}),
     ...(clip ? { clip } : {}),
+    ...(warps ? { warps } : {}),
   };
 }
 
@@ -212,6 +242,13 @@ function hair(
     mesh,
   };
 }
+
+// Eye meshes are shared between each part and its fold warp: the warp's per-vertex
+// offsets must line up with the part's own mesh vertices.
+const eyeWhiteMeshL = ellipseMesh(54, 46);
+const eyeWhiteMeshR = ellipseMesh(54, 46);
+const lashMeshL = ellipseMesh(58, 11);
+const lashMeshR = ellipseMesh(58, 11);
 
 export const sampleModel: IkiModel = {
   version: 1,
@@ -326,12 +363,50 @@ export const sampleModel: IkiModel = {
     feature("blushL", BLUSH, 3, -128, -54, ellipseMesh(46, 26)),
     feature("blushR", BLUSH, 3, 128, -54, ellipseMesh(46, 26)),
 
-    // eye whites (static sclera — the eyelid does the blinking)
-    feature("eyeWhiteL", WHITE, 4, -108, 52, ellipseMesh(54, 46)),
-    feature("eyeWhiteR", WHITE, 4, 108, 52, ellipseMesh(54, 46)),
+    // eye whites (sclera). They double as the clip mask for iris/pupil/highlight
+    // AND fold closed on blink: collapsing the white shuts the clip region, so
+    // the eyeball vanishes under the descending lid (Live2D-style).
+    feature(
+      "eyeWhiteL",
+      WHITE,
+      4,
+      -108,
+      52,
+      eyeWhiteMeshL,
+      undefined,
+      undefined,
+      [
+        foldWarp(
+          StandardParameter.EyeOpenLeft,
+          EYE_CREASE_Y,
+          52,
+          eyeWhiteMeshL,
+        ),
+      ],
+    ),
+    feature(
+      "eyeWhiteR",
+      WHITE,
+      4,
+      108,
+      52,
+      eyeWhiteMeshR,
+      undefined,
+      undefined,
+      [
+        foldWarp(
+          StandardParameter.EyeOpenRight,
+          EYE_CREASE_Y,
+          52,
+          eyeWhiteMeshR,
+        ),
+      ],
+    ),
 
-    // iris / pupil / highlight are clipped to the eye-white sclera so they never
-    // spill past the eye outline at extreme gaze (also demonstrates clip masks).
+    // iris / pupil / highlight are clipped to the eye-white sclera. They stay
+    // STATIC and round — they do NOT fold. As the white folds shut, its clip
+    // region closes top-down and CUTS the round iris away (it is hidden, never
+    // squashed). They also keep gaze (translate within the open sclera).
     feature("irisL", IRIS, 5, -108, 50, ellipseMesh(40, 44), gaze(), {
       masks: ["eyeWhiteL"],
     }),
@@ -355,23 +430,26 @@ export const sampleModel: IkiModel = {
       masks: ["eyeWhiteR"],
     }),
 
-    // upper eyelids: skin-colored lids that DROP over the (now static) eyeball
-    // when the eye closes — the real eyelid blink. They sit above the eyeball
-    // stack but below the lash line and brow, so those still read on top.
-    feature("eyelidL", SKIN, 7.4, -108, 66, ellipseMesh(60, 62), [
-      eyelidDrop(StandardParameter.EyeOpenLeft),
+    // upper lash line — rests as the arc over the open eye, then FOLDS down to
+    // the crease as the eye closes (the visible closed-eye line). Same fold as
+    // the sclera, so they shut together.
+    feature("lashL", LASH, 7.6, -108, 84, lashMeshL, undefined, undefined, [
+      foldWarp(
+        StandardParameter.EyeOpenLeft,
+        EYE_CREASE_Y,
+        84,
+        lashMeshL,
+        0.18,
+      ),
     ]),
-    feature("eyelidR", SKIN, 7.4, 108, 66, ellipseMesh(60, 62), [
-      eyelidDrop(StandardParameter.EyeOpenRight),
-    ]),
-
-    // upper lash line — shares the eyelid's drop so it stays glued to the lid's
-    // lower edge (no skin band shows between the lash and the eyeball below).
-    feature("lashL", LASH, 7.6, -108, 8, ellipseMesh(58, 11), [
-      eyelidDrop(StandardParameter.EyeOpenLeft),
-    ]),
-    feature("lashR", LASH, 7.6, 108, 8, ellipseMesh(58, 11), [
-      eyelidDrop(StandardParameter.EyeOpenRight),
+    feature("lashR", LASH, 7.6, 108, 84, lashMeshR, undefined, undefined, [
+      foldWarp(
+        StandardParameter.EyeOpenRight,
+        EYE_CREASE_Y,
+        84,
+        lashMeshR,
+        0.18,
+      ),
     ]),
 
     // eyebrows
