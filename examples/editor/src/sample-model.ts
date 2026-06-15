@@ -14,14 +14,14 @@ import { bakeHeadTurnGridWarp } from "./mesh-generator";
  * A hand-authored flat-shaded ("vector") anime face, built entirely from
  * solid-color polygon meshes — no texture assets. It exists to make the default
  * model read as a real character while still exercising the whole rig: blink
- * (eye scaleY), gaze (iris/pupil translate), lip-sync (mouth scale), head-turn
+ * (eyelid drop), gaze (iris/pupil translate), lip-sync (mouth scale), head-turn
  * (faceWarp cylinder bend), and breath (head bob).
  *
  * Authoring convention: every mesh is built in MODEL-PIXEL units centered on the
  * part's local origin, and each part uses `width: 1, height: 1` so the mesh
  * coordinates pass through untouched except for the part `transform`. That keeps
- * `scaleX`/`scaleY` bindings (blink, mouth) scaling about each part's own
- * center, and `translateX/Y` bindings (gaze) moving a part as a whole.
+ * `scaleX`/`scaleY` bindings (mouth) scaling about each part's own center, and
+ * `translateX/Y` bindings (gaze, eyelid drop) moving a part as a whole.
  */
 
 // --- palette (RGBA, 0..1) ---------------------------------------------------
@@ -105,11 +105,15 @@ function fringeMesh(xs: number[], topY: number, bottomYs: number[]): IkiMesh {
 }
 
 // --- per-feature binding builders ------------------------------------------
-const blink = (eye: string): IkiBinding => ({
+// Eyelid drop: the (static) eyeball stays put while a skin-colored lid slides
+// down to cover it. param=1 (open) lifts the lid clear above the eye; param=0
+// (closed) drops it back over the eyeball. This replaces the old scaleY blink
+// that collapsed the whole eye toward its center.
+const eyelidDrop = (eye: string): IkiBinding => ({
   parameter: eye,
-  channel: "scaleY",
-  from: -0.85,
-  to: 0,
+  channel: "translateY",
+  from: 0,
+  to: 96,
 });
 const gaze = (): IkiBinding[] => [
   {
@@ -322,97 +326,52 @@ export const sampleModel: IkiModel = {
     feature("blushL", BLUSH, 3, -128, -54, ellipseMesh(46, 26)),
     feature("blushR", BLUSH, 3, 128, -54, ellipseMesh(46, 26)),
 
-    // eye whites
-    feature("eyeWhiteL", WHITE, 4, -108, 52, ellipseMesh(54, 46), [
-      blink(StandardParameter.EyeOpenLeft),
-    ]),
-    feature("eyeWhiteR", WHITE, 4, 108, 52, ellipseMesh(54, 46), [
-      blink(StandardParameter.EyeOpenRight),
-    ]),
+    // eye whites (static sclera — the eyelid does the blinking)
+    feature("eyeWhiteL", WHITE, 4, -108, 52, ellipseMesh(54, 46)),
+    feature("eyeWhiteR", WHITE, 4, 108, 52, ellipseMesh(54, 46)),
 
     // iris / pupil / highlight are clipped to the eye-white sclera so they never
     // spill past the eye outline at extreme gaze (also demonstrates clip masks).
-    feature(
-      "irisL",
-      IRIS,
-      5,
-      -108,
-      50,
-      ellipseMesh(40, 44),
-      [blink(StandardParameter.EyeOpenLeft), ...gaze()],
-      { masks: ["eyeWhiteL"] },
-    ),
-    feature(
-      "irisR",
-      IRIS,
-      5,
-      108,
-      50,
-      ellipseMesh(40, 44),
-      [blink(StandardParameter.EyeOpenRight), ...gaze()],
-      { masks: ["eyeWhiteR"] },
-    ),
+    feature("irisL", IRIS, 5, -108, 50, ellipseMesh(40, 44), gaze(), {
+      masks: ["eyeWhiteL"],
+    }),
+    feature("irisR", IRIS, 5, 108, 50, ellipseMesh(40, 44), gaze(), {
+      masks: ["eyeWhiteR"],
+    }),
 
     // pupil
-    feature(
-      "pupilL",
-      PUPIL,
-      6,
-      -108,
-      48,
-      ellipseMesh(18, 24),
-      [blink(StandardParameter.EyeOpenLeft), ...gaze()],
-      { masks: ["eyeWhiteL"] },
-    ),
-    feature(
-      "pupilR",
-      PUPIL,
-      6,
-      108,
-      48,
-      ellipseMesh(18, 24),
-      [blink(StandardParameter.EyeOpenRight), ...gaze()],
-      { masks: ["eyeWhiteR"] },
-    ),
+    feature("pupilL", PUPIL, 6, -108, 48, ellipseMesh(18, 24), gaze(), {
+      masks: ["eyeWhiteL"],
+    }),
+    feature("pupilR", PUPIL, 6, 108, 48, ellipseMesh(18, 24), gaze(), {
+      masks: ["eyeWhiteR"],
+    }),
 
     // eye highlight (sparkle, upper-left of each pupil)
-    feature(
-      "highlightL",
-      HIGHLIGHT,
-      7,
-      -120,
-      68,
-      ellipseMesh(16, 18),
-      [blink(StandardParameter.EyeOpenLeft), ...gaze()],
-      { masks: ["eyeWhiteL"] },
-    ),
-    feature(
-      "highlightR",
-      HIGHLIGHT,
-      7,
-      96,
-      68,
-      ellipseMesh(16, 18),
-      [blink(StandardParameter.EyeOpenRight), ...gaze()],
-      { masks: ["eyeWhiteR"] },
-    ),
+    feature("highlightL", HIGHLIGHT, 7, -120, 68, ellipseMesh(16, 18), gaze(), {
+      masks: ["eyeWhiteL"],
+    }),
+    feature("highlightR", HIGHLIGHT, 7, 96, 68, ellipseMesh(16, 18), gaze(), {
+      masks: ["eyeWhiteR"],
+    }),
 
-    // upper lash line (drops a touch when the eye closes)
-    feature("lashL", LASH, 7, -108, 84, ellipseMesh(58, 11), [
-      {
-        parameter: StandardParameter.EyeOpenLeft,
-        channel: "translateY",
-        from: -30,
-        to: 0,
-      },
+    // upper eyelids: skin-colored lids that DROP over the (now static) eyeball
+    // when the eye closes — the real eyelid blink. They sit above the eyeball
+    // stack but below the lash line and brow, so those still read on top.
+    feature("eyelidL", SKIN, 7.4, -108, 66, ellipseMesh(60, 62), [
+      eyelidDrop(StandardParameter.EyeOpenLeft),
     ]),
-    feature("lashR", LASH, 7, 108, 84, ellipseMesh(58, 11), [
-      {
-        parameter: StandardParameter.EyeOpenRight,
-        channel: "translateY",
-        from: -30,
-        to: 0,
-      },
+    feature("eyelidR", SKIN, 7.4, 108, 66, ellipseMesh(60, 62), [
+      eyelidDrop(StandardParameter.EyeOpenRight),
+    ]),
+
+    // upper lash line — shares the eyelid's drop so it stays glued to the lid's
+    // lower edge (no skin band shows between the lash and the eyeball below).
+    feature("lashL", LASH, 7.6, -108, 8, ellipseMesh(58, 11), [
+      eyelidDrop(StandardParameter.EyeOpenLeft),
+    ]),
+    feature("lashR", LASH, 7.6, 108, 8, ellipseMesh(58, 11), [
+      eyelidDrop(StandardParameter.EyeOpenRight),
     ]),
 
     // eyebrows
