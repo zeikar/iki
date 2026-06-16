@@ -1037,7 +1037,7 @@ describe("assembly", () => {
     expect(m).toEqual(parseIkiModel(structuredClone(m)));
   });
 
-  it("model contains all 8 standard parameter ids", () => {
+  it("model contains the 8 legacy standard parameter ids (brow ids covered by dedicated test)", () => {
     const model = generateIkiFromLayerSet(assemblyLayers(), {
       width: 1000,
       height: 1000,
