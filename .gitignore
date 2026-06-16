@@ -10,3 +10,6 @@ coverage
 
 # Playwright MCP e2e artifacts (snapshots, screenshots)
 .playwright-mcp/
+
+# Live2D reference model (licensed — local study reference only, never commit)
+Hiyori/
