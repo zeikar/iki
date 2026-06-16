@@ -2,9 +2,11 @@ import { StandardParameter, parseIkiModel } from "@iki/format";
 import { describe, expect, it } from "vitest";
 import {
   ROLE_TABLE,
+  bakeEyelidFoldWarp,
   bakeHeadTurnGridWarpCentered,
   bboxToTransform,
   bindingsForRole,
+  createPixelGridMesh,
   generateGridPoints,
   generateIkiFromLayerSet,
   parseLayerRoles,
@@ -700,31 +702,32 @@ describe("warp", () => {
 // ── describe("bindings") ─────────────────────────────────────────────────────
 
 describe("bindings", () => {
-  it("eye_L part has exactly one binding: blink on EyeOpenLeft", () => {
+  it("eye_L white has no bindings and a fold warp on EyeOpenLeft", () => {
     const canvas = { width: 1000, height: 1000 };
     const model = generateIkiFromLayerSet(offCenterLayers(), canvas);
     const eyeL = model.parts.find((p) => p.id === "eye_L");
-    expect(eyeL?.bindings).toBeDefined();
-    expect(eyeL!.bindings!.length).toBe(1);
-    expect(eyeL!.bindings![0].parameter).toBe(StandardParameter.EyeOpenLeft);
-    expect(eyeL!.bindings![0].channel).toBe("scaleY");
+    // Blink is a fold WARP, not a binding; the white also has no gaze.
+    expect(eyeL?.bindings).toBeUndefined();
+    expect(eyeL!.warps!.length).toBe(1);
+    expect(eyeL!.warps![0].parameter).toBe(StandardParameter.EyeOpenLeft);
+    // open (value 1) = rest (all-zero offsets); closed (value 0) folds.
+    const open = eyeL!.warps![0].keyforms.find((k) => k.value === 1);
+    expect(open!.offsets.every((o) => o === 0)).toBe(true);
+    const closed = eyeL!.warps![0].keyforms.find((k) => k.value === 0);
+    expect(closed!.offsets.some((o) => o !== 0)).toBe(true);
   });
 
-  it("eye_R part has exactly one binding: blink on EyeOpenRight", () => {
+  it("eye_R white has a fold warp on EyeOpenRight", () => {
     const canvas = { width: 1000, height: 1000 };
     const model = generateIkiFromLayerSet(offCenterLayers(), canvas);
     const eyeR = model.parts.find((p) => p.id === "eye_R");
-    expect(eyeR?.bindings).toBeDefined();
-    expect(eyeR!.bindings!.length).toBe(1);
-    expect(eyeR!.bindings![0].parameter).toBe(StandardParameter.EyeOpenRight);
-    expect(eyeR!.bindings![0].channel).toBe("scaleY");
+    expect(eyeR?.bindings).toBeUndefined();
+    expect(eyeR!.warps![0].parameter).toBe(StandardParameter.EyeOpenRight);
   });
 
-  it("iris_L part has blink + 2 gaze bindings (3 total) with correct from/to", () => {
-    // Need iris_L in the fixture — use assemblyLayers extended with iris_L
+  it("iris_L has gaze only (no blink), stays round, and clips to eye_L", () => {
     const IRIS_CROP_W = 80;
     const IRIS_CROP_H = 80;
-    // gx = min(80*0.18, 22) = 14.4;  gy = min(80*0.18, 16) = 14.4
     const gx = Math.min(IRIS_CROP_W * 0.18, 22);
     const gy = Math.min(IRIS_CROP_H * 0.18, 16);
     const layers: LayerInput[] = [
@@ -742,22 +745,17 @@ describe("bindings", () => {
     const canvas = { width: 1000, height: 1000 };
     const model = generateIkiFromLayerSet(layers, canvas);
     const irisL = model.parts.find((p) => p.id === "iris_L");
-    expect(irisL?.bindings).toBeDefined();
-    // blink + EyeballX translateX + EyeballY translateY
-    expect(irisL!.bindings!.length).toBe(3);
-    expect(
-      irisL!.bindings!.some(
-        (b) =>
-          b.parameter === StandardParameter.EyeOpenLeft &&
-          b.channel === "scaleY",
-      ),
-    ).toBe(true);
+    // gaze only — the iris no longer blinks; it is clipped + cut by the white.
+    expect(irisL!.bindings!.length).toBe(2);
+    expect(irisL!.bindings!.some((b) => b.channel === "scaleY")).toBe(false);
+    // it does NOT fold (stays round), and clips to the eye-white.
+    expect(irisL!.warps).toBeUndefined();
+    expect(irisL!.clip).toEqual({ masks: ["eye_L"] });
     const gazeX = irisL!.bindings!.find(
       (b) =>
         b.parameter === StandardParameter.EyeballX &&
         b.channel === "translateX",
     );
-    expect(gazeX).toBeDefined();
     expect(gazeX!.from).toBe(-gx);
     expect(gazeX!.to).toBe(gx);
     const gazeY = irisL!.bindings!.find(
@@ -765,7 +763,6 @@ describe("bindings", () => {
         b.parameter === StandardParameter.EyeballY &&
         b.channel === "translateY",
     );
-    expect(gazeY).toBeDefined();
     expect(gazeY!.from).toBe(-gy);
     expect(gazeY!.to).toBe(gy);
   });
@@ -801,6 +798,51 @@ describe("bindings", () => {
   it("bindingsForRole: hair_back (static) returns empty array", () => {
     const spec = ROLE_TABLE["hair_back"];
     expect(bindingsForRole(spec, "hair_back", 800, 700)).toHaveLength(0);
+  });
+});
+
+// ── describe("eyelid fold") ──────────────────────────────────────────────────
+
+describe("eyelid fold", () => {
+  it("bakeEyelidFoldWarp: 2 keyforms, open=rest-zeros, closed=non-zero", () => {
+    const mesh = createPixelGridMesh(4, 4, 120, 80);
+    const w = bakeEyelidFoldWarp(mesh, StandardParameter.EyeOpenLeft, -12, 0.1);
+    expect(w.parameter).toBe(StandardParameter.EyeOpenLeft);
+    expect(w.keyforms.map((k) => k.value)).toEqual([0, 1]);
+    const open = w.keyforms.find((k) => k.value === 1)!;
+    const closed = w.keyforms.find((k) => k.value === 0)!;
+    // offsets are flat [dx,dy,...] matching the mesh vertices (dx always 0).
+    expect(open.offsets.length).toBe(mesh.vertices.length);
+    expect(open.offsets.every((o) => o === 0)).toBe(true);
+    expect(closed.offsets.some((o) => o !== 0)).toBe(true);
+    expect(closed.offsets.every((o, i) => i % 2 === 1 || o === 0)).toBe(true);
+  });
+
+  it("a layer set with iris passes the parseIkiModel gate (clip + fold valid)", () => {
+    const layers: LayerInput[] = [
+      ...assemblyLayers(),
+      {
+        role: "iris_L",
+        fileName: "iris_L.png",
+        canvasW: 1000,
+        canvasH: 1000,
+        bbox: { x: 310, y: 310, w: 70, h: 70 },
+        cropW: 70,
+        cropH: 70,
+      },
+      {
+        role: "iris_R",
+        fileName: "iris_R.png",
+        canvasW: 1000,
+        canvasH: 1000,
+        bbox: { x: 560, y: 310, w: 70, h: 70 },
+        cropW: 70,
+        cropH: 70,
+      },
+    ];
+    expect(() =>
+      generateIkiFromLayerSet(layers, { width: 1000, height: 1000 }),
+    ).not.toThrow();
   });
 });
 

@@ -15,6 +15,7 @@ import {
   type IkiMesh,
   type IkiModel,
   type IkiPart,
+  type IkiWarp,
   type IkiWarpGrid,
 } from "@iki/format";
 
@@ -463,9 +464,10 @@ const EYE_STACK_PREFIXES = ["eye_", "iris_", "pupil_", "highlight_"] as const;
  * Derive the IkiBinding[] for a part from its role spec and crop dimensions.
  *
  * - face, static (hair_back/front), brow, blush, nose → no bindings
- * - eye-stack (eye_L/R, iris_L/R, pupil_L/R, highlight_L/R):
- *     blink: scaleY driven by EyeOpenLeft or EyeOpenRight (from -0.85 to 0)
- *     iris, pupil, highlight ALSO get gaze translateX and translateY bindings
+ * - eye-stack:
+ *     iris_/pupil_/highlight_ → gaze translateX + translateY (no blink binding)
+ *     eye_ (white) → none here; its blink is a fold warp attached in assembly,
+ *       and iris/pupil/highlight clip to it so the closing white CUTS them away
  * - mouth: MouthOpen scaleY (0 to 3) + MouthForm scaleX (-0.2 to 0.4)
  *
  * Returns [] when the role has no bindings (callers skip the bindings key when
@@ -480,43 +482,30 @@ export function bindingsForRole(
   const isEyeStack = EYE_STACK_PREFIXES.some((p) => role.startsWith(p));
 
   if (isEyeStack && spec.eyeSide !== undefined) {
-    const blinkParam =
-      spec.eyeSide === "L"
-        ? StandardParameter.EyeOpenLeft
-        : StandardParameter.EyeOpenRight;
-
-    const bindings: IkiBinding[] = [
-      // Blink: param=0 (closed) → scaleY offset -0.85 (collapses the eye); param=1 (open) → 0 (no change). Matches blink() in sample-model.ts.
-      { parameter: blinkParam, channel: "scaleY", from: -0.85, to: 0 },
-    ];
-
-    // iris_*, pupil_*, highlight_* also get gaze
+    // Only iris/pupil/highlight move with gaze; the white (eye_) gets nothing.
     const isGazeRole =
       role.startsWith("iris_") ||
       role.startsWith("pupil_") ||
       role.startsWith("highlight_");
+    if (!isGazeRole) return [];
 
-    if (isGazeRole) {
-      // Gaze range: proportional to crop size, capped to avoid over-travel.
-      const gx = Math.min(cropW * 0.18, 22);
-      const gy = Math.min(cropH * 0.18, 16);
-      bindings.push(
-        {
-          parameter: StandardParameter.EyeballX,
-          channel: "translateX",
-          from: -gx,
-          to: gx,
-        },
-        {
-          parameter: StandardParameter.EyeballY,
-          channel: "translateY",
-          from: -gy,
-          to: gy,
-        },
-      );
-    }
-
-    return bindings;
+    // Gaze range: proportional to crop size, capped to avoid over-travel.
+    const gx = Math.min(cropW * 0.18, 22);
+    const gy = Math.min(cropH * 0.18, 16);
+    return [
+      {
+        parameter: StandardParameter.EyeballX,
+        channel: "translateX",
+        from: -gx,
+        to: gx,
+      },
+      {
+        parameter: StandardParameter.EyeballY,
+        channel: "translateY",
+        from: -gy,
+        to: gy,
+      },
+    ];
   }
 
   if (role === "mouth") {
@@ -540,6 +529,48 @@ export function bindingsForRole(
 
   // face, brow_*, blush_*, nose, hair_* → no bindings
   return [];
+}
+
+// ── bakeEyelidFoldWarp ─────────────────────────────────────────────────────
+
+/** Crease sits this fraction of the eye height BELOW the white's center, and the
+ *  white keeps this fraction of its height when fully closed (a thin band, not 0
+ *  so the lash texture in the white art doesn't crush to a single aliased row). */
+const EYELID_FOLD_CREASE = 0.15;
+const EYELID_FOLD_K = 0.04;
+
+/**
+ * Live2D-style eyelid FOLD blink for the eye-white. Two EyeOpen keyforms collapse
+ * the white toward a crease line `creaseOffsetY` below its center while scaling
+ * its height by `k`: as EyeOpen → 0 the white folds shut. Because iris/pupil/
+ * highlight CLIP to the white, the closing clip region CUTS the (static, round)
+ * iris away instead of squashing it — unlike the old scaleY-collapse blink.
+ * EyeOpen=1 → rest (zero offsets = the authored open art); =0 → folded.
+ *
+ * Offsets are authored in the mesh's own pixel frame (+y up, centered), matching
+ * `createPixelGridMesh`, so the SAME mesh must be passed that the part renders.
+ */
+export function bakeEyelidFoldWarp(
+  mesh: IkiMesh,
+  parameter: string,
+  creaseOffsetY: number,
+  k: number,
+): IkiWarp {
+  const closed: number[] = [];
+  const zeros: number[] = [];
+  for (let i = 0; i < mesh.vertices.length; i += 2) {
+    const vy = mesh.vertices[i + 1];
+    // closed y = creaseOffsetY + vy*k  →  dy added to the rest vertex vy.
+    closed.push(0, creaseOffsetY - (1 - k) * vy);
+    zeros.push(0, 0);
+  }
+  return {
+    parameter,
+    keyforms: [
+      { value: 0, offsets: closed },
+      { value: 1, offsets: zeros },
+    ],
+  };
 }
 
 // ── generateIkiFromLayerSet ───────────────────────────────────────────────────
@@ -771,6 +802,7 @@ export function generateIkiFromLayerSet(
     if (spec.mesh) {
       // Warp-deformer child: width:1, height:1 with a pixel grid mesh centered
       // at the crop center. The engine applies the part transform to position it.
+      const mesh = createPixelGridMesh(4, 4, cropW, cropH);
       const part: IkiPart = {
         id: role,
         color: [1, 1, 1, 1] as [number, number, number, number],
@@ -779,10 +811,31 @@ export function generateIkiFromLayerSet(
         order: spec.order,
         transform: t,
         deformer: spec.deformer,
-        mesh: createPixelGridMesh(4, 4, cropW, cropH),
+        mesh,
       };
       if (roleBindings.length > 0) {
         part.bindings = roleBindings;
+      }
+      // Eye blink = fold: the white (eye_) folds shut via a warp; iris/pupil/
+      // highlight clip to it, so the closing white CUTS them away (round, not
+      // squashed). The white is a required role, so the clip mask always exists.
+      if (spec.eyeSide !== undefined) {
+        if (role.startsWith("eye_")) {
+          const openParam =
+            spec.eyeSide === "L"
+              ? StandardParameter.EyeOpenLeft
+              : StandardParameter.EyeOpenRight;
+          part.warps = [
+            bakeEyelidFoldWarp(
+              mesh,
+              openParam,
+              -EYELID_FOLD_CREASE * cropH,
+              EYELID_FOLD_K,
+            ),
+          ];
+        } else {
+          part.clip = { masks: [`eye_${spec.eyeSide}`] };
+        }
       }
       return part;
     } else {
