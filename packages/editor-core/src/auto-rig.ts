@@ -81,6 +81,11 @@ export const ROLE_TABLE: Record<string, RoleSpec> = {
   pupil_R: { deformer: "faceWarp", order: 32, mesh: true, eyeSide: "R" },
   highlight_L: { deformer: "faceWarp", order: 33, mesh: true, eyeSide: "L" },
   highlight_R: { deformer: "faceWarp", order: 33, mesh: true, eyeSide: "R" },
+  // Upper lashes: an OPTIONAL separate layer ABOVE the iris that folds down to
+  // the closed-eye seam (the same crease the white folds to), covering the cut
+  // eyeball cleanly. When absent, the white's own fold is the only closed line.
+  lash_L: { deformer: "faceWarp", order: 34, mesh: true, eyeSide: "L" },
+  lash_R: { deformer: "faceWarp", order: 34, mesh: true, eyeSide: "R" },
   brow_L: { deformer: "faceWarp", order: 40, mesh: true },
   brow_R: { deformer: "faceWarp", order: 40, mesh: true },
   // Front hair rides faceWarp (mesh) so it follows the head-turn curvature with
@@ -538,6 +543,9 @@ export function bindingsForRole(
  *  so the lash texture in the white art doesn't crush to a single aliased row). */
 const EYELID_FOLD_CREASE = 0.15;
 const EYELID_FOLD_K = 0.04;
+/** The lash keeps a thicker band than the white when closed, so it reads as a
+ *  visible dark closed-eye line and covers the cut eyeball/seam. */
+const LASH_FOLD_K = 0.2;
 
 /**
  * Live2D-style eyelid FOLD blink for the eye-white. Two EyeOpen keyforms collapse
@@ -792,6 +800,23 @@ export function generateIkiFromLayerSet(
     },
   ];
 
+  // ── Shared closed-eye crease per side ─────────────────────────────────────
+  // The white AND the lash fold to the SAME seam (derived from the eye-white
+  // center), so the lash lands on top of the cut eyeball and covers it.
+  const eyeCreaseBySide: Partial<Record<"L" | "R", number>> = {};
+  for (const layer of layers) {
+    const side = ROLE_TABLE[layer.role].eyeSide;
+    if ((layer.role === "eye_L" || layer.role === "eye_R") && side) {
+      const ey = bboxToTransform(
+        layer.bbox,
+        layer.canvasW,
+        layer.canvasH,
+        layer.role,
+      ).y;
+      eyeCreaseBySide[side] = ey - EYELID_FOLD_CREASE * layer.cropH;
+    }
+  }
+
   // ── Parts ─────────────────────────────────────────────────────────────────
   const parts: IkiPart[] = layers.map((layer) => {
     const { role, bbox, cropW, cropH, canvasW, canvasH } = layer;
@@ -816,21 +841,25 @@ export function generateIkiFromLayerSet(
       if (roleBindings.length > 0) {
         part.bindings = roleBindings;
       }
-      // Eye blink = fold: the white (eye_) folds shut via a warp; iris/pupil/
-      // highlight clip to it, so the closing white CUTS them away (round, not
-      // squashed). The white is a required role, so the clip mask always exists.
+      // Eye blink = fold: the white (eye_) and the lash (lash_) fold shut via a
+      // warp toward the shared crease; iris/pupil/highlight clip to the white, so
+      // the closing white CUTS them away (round, not squashed) and the lash lands
+      // on top to cover the seam. The white is a required role (clip mask exists).
       if (spec.eyeSide !== undefined) {
-        if (role.startsWith("eye_")) {
+        const isLash = role.startsWith("lash_");
+        if (role.startsWith("eye_") || isLash) {
           const openParam =
             spec.eyeSide === "L"
               ? StandardParameter.EyeOpenLeft
               : StandardParameter.EyeOpenRight;
+          const creaseWorldY =
+            eyeCreaseBySide[spec.eyeSide] ?? t.y - EYELID_FOLD_CREASE * cropH;
           part.warps = [
             bakeEyelidFoldWarp(
               mesh,
               openParam,
-              -EYELID_FOLD_CREASE * cropH,
-              EYELID_FOLD_K,
+              creaseWorldY - t.y,
+              isLash ? LASH_FOLD_K : EYELID_FOLD_K,
             ),
           ];
         } else {

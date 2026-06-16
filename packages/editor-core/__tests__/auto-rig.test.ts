@@ -844,6 +844,44 @@ describe("eyelid fold", () => {
       generateIkiFromLayerSet(layers, { width: 1000, height: 1000 }),
     ).not.toThrow();
   });
+
+  it("lash_L folds (warp on EyeOpen, no clip/bindings) above the iris", () => {
+    const layers: LayerInput[] = [
+      ...assemblyLayers(),
+      {
+        role: "iris_L",
+        fileName: "iris_L.png",
+        canvasW: 1000,
+        canvasH: 1000,
+        bbox: { x: 310, y: 320, w: 70, h: 70 },
+        cropW: 70,
+        cropH: 70,
+      },
+      {
+        role: "lash_L",
+        fileName: "lash_L.png",
+        canvasW: 1000,
+        canvasH: 1000,
+        bbox: { x: 300, y: 290, w: 160, h: 40 },
+        cropW: 160,
+        cropH: 40,
+      },
+    ];
+    const model = generateIkiFromLayerSet(layers, {
+      width: 1000,
+      height: 1000,
+    });
+    const lashL = model.parts.find((p) => p.id === "lash_L")!;
+    const irisL = model.parts.find((p) => p.id === "iris_L")!;
+    // lash folds, does not gaze or clip, and draws above the iris.
+    expect(lashL.bindings).toBeUndefined();
+    expect(lashL.clip).toBeUndefined();
+    expect(lashL.warps![0].parameter).toBe(StandardParameter.EyeOpenLeft);
+    expect(
+      lashL.warps![0].keyforms.find((k) => k.value === 0)!.offsets,
+    ).toEqual(expect.arrayContaining([expect.any(Number)]));
+    expect(lashL.order).toBeGreaterThan(irisL.order);
+  });
 });
 
 describe("assembly", () => {
