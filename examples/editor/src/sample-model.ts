@@ -312,6 +312,34 @@ export const sampleModel: IkiModel = {
       max: 1,
       default: 0,
     },
+    {
+      id: StandardParameter.BrowLeftY,
+      name: "Brow L Y",
+      min: -1,
+      max: 1,
+      default: 0,
+    },
+    {
+      id: StandardParameter.BrowRightY,
+      name: "Brow R Y",
+      min: -1,
+      max: 1,
+      default: 0,
+    },
+    {
+      id: StandardParameter.BrowLeftAngle,
+      name: "Brow L Angle",
+      min: -1,
+      max: 1,
+      default: 0,
+    },
+    {
+      id: StandardParameter.BrowRightAngle,
+      name: "Brow R Angle",
+      min: -1,
+      max: 1,
+      default: 0,
+    },
   ],
   // headDeformer rotates/bobs the whole head as one rigid body about the neck
   // pivot. faceWarp (parented to it) adds cylinder-bend curvature on top.
@@ -453,8 +481,34 @@ export const sampleModel: IkiModel = {
     ]),
 
     // eyebrows
-    feature("browL", HAIR, 8, -108, 120, ellipseMesh(44, 8)),
-    feature("browR", HAIR, 8, 108, 120, ellipseMesh(44, 8)),
+    feature("browL", HAIR, 8, -108, 120, ellipseMesh(44, 8), [
+      {
+        parameter: StandardParameter.BrowLeftY,
+        channel: "translateY",
+        from: -14,
+        to: 14,
+      },
+      {
+        parameter: StandardParameter.BrowLeftAngle,
+        channel: "rotate",
+        from: -12,
+        to: 12,
+      },
+    ]),
+    feature("browR", HAIR, 8, 108, 120, ellipseMesh(44, 8), [
+      {
+        parameter: StandardParameter.BrowRightY,
+        channel: "translateY",
+        from: -14,
+        to: 14,
+      },
+      {
+        parameter: StandardParameter.BrowRightAngle,
+        channel: "rotate",
+        from: -12,
+        to: 12,
+      },
+    ]),
 
     // nose (subtle)
     feature("nose", NOSE, 5, 0, -12, ellipseMesh(7, 9)),

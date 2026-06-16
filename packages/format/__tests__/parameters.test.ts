@@ -14,6 +14,10 @@ describe("StandardParameter", () => {
       AngleY: "ParamAngleY",
       AngleZ: "ParamAngleZ",
       Breath: "ParamBreath",
+      BrowLeftY: "ParamBrowLY",
+      BrowRightY: "ParamBrowRY",
+      BrowLeftAngle: "ParamBrowLAngle",
+      BrowRightAngle: "ParamBrowRAngle",
     });
   });
 });

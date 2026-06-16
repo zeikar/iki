@@ -164,6 +164,22 @@ const STANDARD_PARAMETER_INFO: StandardParameterInfo[] = [
     id: StandardParameter.Breath,
     description: "Idle breath (0 .. 1), cycled by the host.",
   },
+  {
+    id: StandardParameter.BrowLeftY,
+    description: "Left brow raise/lower (-1 .. 1).",
+  },
+  {
+    id: StandardParameter.BrowRightY,
+    description: "Right brow raise/lower (-1 .. 1).",
+  },
+  {
+    id: StandardParameter.BrowLeftAngle,
+    description: "Left brow tilt/angle (-1 .. 1).",
+  },
+  {
+    id: StandardParameter.BrowRightAngle,
+    description: "Right brow tilt/angle (-1 .. 1).",
+  },
 ];
 
 export function listStandardParameters(): StandardParameterInfo[] {

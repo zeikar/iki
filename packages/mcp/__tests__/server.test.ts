@@ -113,7 +113,7 @@ describe("MCP server integration", () => {
     const sc = result.structuredContent as {
       parameters: { id: string; description: string }[];
     };
-    expect(sc.parameters).toHaveLength(10);
+    expect(sc.parameters).toHaveLength(14);
     expect(result.isError).toBeFalsy();
   });
 });
