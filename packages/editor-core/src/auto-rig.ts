@@ -468,7 +468,9 @@ const EYE_STACK_PREFIXES = ["eye_", "iris_", "pupil_", "highlight_"] as const;
 /**
  * Derive the IkiBinding[] for a part from its role spec and crop dimensions.
  *
- * - face, static (hair_back/front), brow, blush, nose → no bindings
+ * - face, hair_back, blush, nose → no bindings
+ * - brow_L/R: BrowLeftY/RightY translateY (raise/lower) + BrowLeftAngle/RightAngle rotate
+ *     (each brow rotates its own, CCW-positive)
  * - eye-stack:
  *     iris_/pupil_/highlight_ → gaze translateX + translateY (no blink binding)
  *     eye_ (white) → none here; its blink is a fold warp attached in assembly,
@@ -532,7 +534,44 @@ export function bindingsForRole(
     ];
   }
 
-  // face, brow_*, blush_*, nose, hair_* → no bindings
+  if (role === "brow_L" || role === "brow_R") {
+    // Raise/lower capped to avoid over-travel; tilt is a fixed ±12° range.
+    const ty = Math.min(cropH * 0.8, 18);
+    const deg = 12;
+    if (role === "brow_L") {
+      return [
+        {
+          parameter: StandardParameter.BrowLeftY,
+          channel: "translateY",
+          from: -ty,
+          to: ty,
+        },
+        {
+          parameter: StandardParameter.BrowLeftAngle,
+          channel: "rotate",
+          from: -deg,
+          to: deg,
+        },
+      ];
+    } else {
+      return [
+        {
+          parameter: StandardParameter.BrowRightY,
+          channel: "translateY",
+          from: -ty,
+          to: ty,
+        },
+        {
+          parameter: StandardParameter.BrowRightAngle,
+          channel: "rotate",
+          from: -deg,
+          to: deg,
+        },
+      ];
+    }
+  }
+
+  // face, blush_*, nose, hair_* → no bindings
   return [];
 }
 
@@ -589,7 +628,7 @@ export function bakeEyelidFoldWarp(
  *
  *   - Validate all inputs before deriving anything.
  *   - Place parts at source-derived positions (bboxToTransform, unshifted).
- *   - Emit the 8 standard parameters verbatim (same ids/ranges as sample-model.ts).
+ *   - Emit the 12 standard parameters verbatim (same ids/ranges as sample-model.ts).
  *   - Build headDeformer (matrix, neck pivot, AngleX+Breath bindings) and faceWarp
  *     (warp, 4×4, baked cylinder warp center-relative on faceCenterX).
  *   - Mesh parts (spec.mesh===true) → width:1, height:1, pixel grid mesh 4×4 + role bindings.
@@ -660,6 +699,34 @@ export function generateIkiFromLayerSet(
       id: StandardParameter.Breath,
       name: "Breath",
       min: 0,
+      max: 1,
+      default: 0,
+    },
+    {
+      id: StandardParameter.BrowLeftY,
+      name: "Brow L Y",
+      min: -1,
+      max: 1,
+      default: 0,
+    },
+    {
+      id: StandardParameter.BrowRightY,
+      name: "Brow R Y",
+      min: -1,
+      max: 1,
+      default: 0,
+    },
+    {
+      id: StandardParameter.BrowLeftAngle,
+      name: "Brow L Angle",
+      min: -1,
+      max: 1,
+      default: 0,
+    },
+    {
+      id: StandardParameter.BrowRightAngle,
+      name: "Brow R Angle",
+      min: -1,
       max: 1,
       default: 0,
     },

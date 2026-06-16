@@ -799,6 +799,72 @@ describe("bindings", () => {
     const spec = ROLE_TABLE["hair_back"];
     expect(bindingsForRole(spec, "hair_back", 800, 700)).toHaveLength(0);
   });
+
+  it("bindingsForRole: brow_L returns 2 bindings with left params, raw-symmetric", () => {
+    const spec = ROLE_TABLE["brow_L"];
+    const bindings = bindingsForRole(spec, "brow_L", 120, 40);
+
+    expect(bindings).toHaveLength(2);
+
+    const tyBinding = bindings.find(
+      (b) => b.parameter === StandardParameter.BrowLeftY,
+    );
+    expect(tyBinding).toBeDefined();
+    expect(tyBinding!.channel).toBe("translateY");
+    // from === -to (symmetric)
+    expect(tyBinding!.from).toBe(-tyBinding!.to);
+
+    const rotBinding = bindings.find(
+      (b) => b.parameter === StandardParameter.BrowLeftAngle,
+    );
+    expect(rotBinding).toBeDefined();
+    expect(rotBinding!.channel).toBe("rotate");
+    expect(rotBinding!.from).toBe(-12);
+    expect(rotBinding!.to).toBe(12);
+  });
+
+  it("bindingsForRole: brow_R returns 2 bindings with right params, same raw-symmetric signs as brow_L", () => {
+    const spec = ROLE_TABLE["brow_R"];
+    const bindings = bindingsForRole(spec, "brow_R", 120, 40);
+
+    expect(bindings).toHaveLength(2);
+
+    // Must not contain any left-side params
+    const hasLeftParam = bindings.some(
+      (b) =>
+        b.parameter === StandardParameter.BrowLeftY ||
+        b.parameter === StandardParameter.BrowLeftAngle,
+    );
+    expect(hasLeftParam).toBe(false);
+
+    const tyBinding = bindings.find(
+      (b) => b.parameter === StandardParameter.BrowRightY,
+    );
+    expect(tyBinding).toBeDefined();
+    expect(tyBinding!.channel).toBe("translateY");
+    expect(tyBinding!.from).toBe(-tyBinding!.to);
+
+    // Raw-symmetric: NOT inverted — same from/to signs as brow_L
+    const rotBinding = bindings.find(
+      (b) => b.parameter === StandardParameter.BrowRightAngle,
+    );
+    expect(rotBinding).toBeDefined();
+    expect(rotBinding!.channel).toBe("rotate");
+    expect(rotBinding!.from).toBe(-12);
+    expect(rotBinding!.to).toBe(12);
+  });
+
+  it("generateIkiFromLayerSet declares all 4 brow param ids even without brow layers", () => {
+    const model = generateIkiFromLayerSet(assemblyLayers(), {
+      width: 1000,
+      height: 1000,
+    });
+    const paramIds = new Set(model.parameters.map((p) => p.id));
+    expect(paramIds.has(StandardParameter.BrowLeftY)).toBe(true);
+    expect(paramIds.has(StandardParameter.BrowRightY)).toBe(true);
+    expect(paramIds.has(StandardParameter.BrowLeftAngle)).toBe(true);
+    expect(paramIds.has(StandardParameter.BrowRightAngle)).toBe(true);
+  });
 });
 
 // ── describe("eyelid fold") ──────────────────────────────────────────────────
