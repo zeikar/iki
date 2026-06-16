@@ -27,6 +27,14 @@ export const StandardParameter = {
   AngleZ: "ParamAngleZ",
   /** Idle breath (0 .. 1), cycled by the host. */
   Breath: "ParamBreath",
+  /** Left brow vertical raise/lower (-1 down .. 1 up). */
+  BrowLeftY: "ParamBrowLY",
+  /** Right brow vertical raise/lower (-1 down .. 1 up). */
+  BrowRightY: "ParamBrowRY",
+  /** Left brow tilt (-1 .. 1, CCW-positive). */
+  BrowLeftAngle: "ParamBrowLAngle",
+  /** Right brow tilt (-1 .. 1, CCW-positive). */
+  BrowRightAngle: "ParamBrowRAngle",
 } as const;
 
 export type StandardParameterId =
