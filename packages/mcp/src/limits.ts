@@ -93,11 +93,6 @@ export function resolveOutputPath(outputPath: string): string {
   }
   const root = process.cwd();
   const resolved = path.resolve(root, outputPath);
-  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
-    throw new AutoRigInputError(
-      `output path escapes the working directory: ${outputPath}`,
-    );
-  }
   const dir = path.dirname(resolved);
   let stat: fs.Stats;
   try {
@@ -108,5 +103,15 @@ export function resolveOutputPath(outputPath: string): string {
   if (!stat.isDirectory()) {
     throw new AutoRigInputError(`output parent is not a directory: ${dir}`);
   }
-  return resolved;
+  // Confine on REAL paths (statSync/writeFileSync follow symlinks, so a lexical
+  // startsWith check can be bypassed by a symlinked dir under cwd). Compare the
+  // symlink-resolved parent against the symlink-resolved root.
+  const realRoot = fs.realpathSync(root);
+  const realDir = fs.realpathSync(dir);
+  if (realDir !== realRoot && !realDir.startsWith(realRoot + path.sep)) {
+    throw new AutoRigInputError(
+      `output path escapes the working directory: ${outputPath}`,
+    );
+  }
+  return path.join(realDir, path.basename(resolved));
 }
