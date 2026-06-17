@@ -14,7 +14,9 @@ import {
 function makeRgba(
   width: number,
   height: number,
-  paint: (set: (x: number, y: number, rgb: [number, number, number]) => void) => void,
+  paint: (
+    set: (x: number, y: number, rgb: [number, number, number]) => void,
+  ) => void,
 ): Buffer {
   const buf = Buffer.alloc(width * height * 4); // all transparent (alpha 0)
   const set = (x: number, y: number, rgb: [number, number, number]) => {
@@ -48,7 +50,9 @@ describe("detectAlphaBbox", () => {
   it("throws AutoRigInputError on a fully transparent layer", () => {
     const rgba = makeRgba(8, 8, () => {});
     expect(() => detectAlphaBbox(rgba, 8, 8)).toThrow(AutoRigInputError);
-    expect(() => detectAlphaBbox(rgba, 8, 8)).toThrow(/empty after alpha threshold/);
+    expect(() => detectAlphaBbox(rgba, 8, 8)).toThrow(
+      /empty after alpha threshold/,
+    );
   });
 
   it("expands a single interior opaque pixel by 1px each side", () => {
@@ -71,7 +75,8 @@ describe("detectAlphaBbox", () => {
 
   it("returns a tight bbox + 1px margin for an interior rect", () => {
     const rgba = makeRgba(20, 20, (set) => {
-      for (let y = 5; y <= 8; y++) for (let x = 6; x <= 10; x++) set(x, y, [200, 100, 50]);
+      for (let y = 5; y <= 8; y++)
+        for (let x = 6; x <= 10; x++) set(x, y, [200, 100, 50]);
     });
     // x:6..10 → 5..11 (w=7); y:5..8 → 4..9 (h=6)
     expect(detectAlphaBbox(rgba, 20, 20)).toEqual({ x: 5, y: 4, w: 7, h: 6 });
@@ -82,7 +87,12 @@ describe("decodePng", () => {
   it("decodes a PNG to RGBA bytes + dims and promotes RGB to RGBA", async () => {
     // An opaque-RGB (no alpha) PNG must still come back as stride-4 RGBA.
     const png = await sharp({
-      create: { width: 6, height: 4, channels: 3, background: { r: 10, g: 20, b: 30 } },
+      create: {
+        width: 6,
+        height: 4,
+        channels: 3,
+        background: { r: 10, g: 20, b: 30 },
+      },
     })
       .png()
       .toBuffer();
@@ -98,7 +108,12 @@ describe("decodePng", () => {
 
   it("throws AutoRigInputError (path-qualified) for a non-PNG file", async () => {
     const jpeg = await sharp({
-      create: { width: 4, height: 4, channels: 3, background: { r: 1, g: 2, b: 3 } },
+      create: {
+        width: 4,
+        height: 4,
+        channels: 3,
+        background: { r: 1, g: 2, b: 3 },
+      },
     })
       .jpeg()
       .toBuffer();
@@ -112,9 +127,15 @@ describe("decodePng", () => {
 describe("cropToBuffer", () => {
   it("crops the decoded RGBA to the bbox dimensions", async () => {
     const rgba = makeRgba(12, 12, (set) => {
-      for (let y = 3; y < 7; y++) for (let x = 2; x < 9; x++) set(x, y, [9, 9, 9]);
+      for (let y = 3; y < 7; y++)
+        for (let x = 2; x < 9; x++) set(x, y, [9, 9, 9]);
     });
-    const cropped = await cropToBuffer(rgba, 12, 12, { x: 2, y: 3, w: 7, h: 4 });
+    const cropped = await cropToBuffer(rgba, 12, 12, {
+      x: 2,
+      y: 3,
+      w: 7,
+      h: 4,
+    });
     const meta = await sharp(cropped).metadata();
     expect(meta.width).toBe(7);
     expect(meta.height).toBe(4);
@@ -129,12 +150,22 @@ describe("renderAtlasToDataUri", () => {
     const colorA: [number, number, number] = [220, 30, 30];
     const colorB: [number, number, number] = [30, 30, 220];
     const cropABuf = await sharp({
-      create: { width: 5, height: 4, channels: 4, background: { r: colorA[0], g: colorA[1], b: colorA[2], alpha: 1 } },
+      create: {
+        width: 5,
+        height: 4,
+        channels: 4,
+        background: { r: colorA[0], g: colorA[1], b: colorA[2], alpha: 1 },
+      },
     })
       .png()
       .toBuffer();
     const cropBBuf = await sharp({
-      create: { width: 6, height: 3, channels: 4, background: { r: colorB[0], g: colorB[1], b: colorB[2], alpha: 1 } },
+      create: {
+        width: 6,
+        height: 3,
+        channels: 4,
+        background: { r: colorB[0], g: colorB[1], b: colorB[2], alpha: 1 },
+      },
     })
       .png()
       .toBuffer();

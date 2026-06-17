@@ -17,12 +17,22 @@ async function writeLayer(
 ): Promise<string> {
   const filePath = path.join(dir, name);
   const overlay = await sharp({
-    create: { width: rect.w, height: rect.h, channels: 4, background: { r: 200, g: 120, b: 60, alpha: 1 } },
+    create: {
+      width: rect.w,
+      height: rect.h,
+      channels: 4,
+      background: { r: 200, g: 120, b: 60, alpha: 1 },
+    },
   })
     .png()
     .toBuffer();
   await sharp({
-    create: { width: 100, height: 100, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+    create: {
+      width: 100,
+      height: 100,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
   })
     .composite([{ input: overlay, left: rect.x, top: rect.y }])
     .png()
@@ -166,7 +176,10 @@ describe("MCP server integration", () => {
 
     const result = await pair.client.callTool({
       name: "auto_rig_from_layers",
-      arguments: { layers: paths.map((p) => ({ path: p })), outputPath: outPath },
+      arguments: {
+        layers: paths.map((p) => ({ path: p })),
+        outputPath: outPath,
+      },
     });
 
     expect((result.structuredContent as { ok: boolean }).ok).toBe(true);
@@ -186,7 +199,10 @@ describe("MCP server integration", () => {
 
     const result = await pair.client.callTool({
       name: "auto_rig_from_layers",
-      arguments: { layers: paths.map((p) => ({ path: p })), outputPath: path.join(dir, "model.iki") },
+      arguments: {
+        layers: paths.map((p) => ({ path: p })),
+        outputPath: path.join(dir, "model.iki"),
+      },
     });
 
     expect((result.structuredContent as { ok: boolean }).ok).toBe(false);

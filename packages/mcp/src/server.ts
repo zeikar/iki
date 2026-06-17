@@ -98,7 +98,9 @@ export function createIkiMcpServer(): McpServer {
                 .describe(
                   "Role-bearing filename; defaults to the basename of `path`.",
                 ),
-              path: z.string().describe("PNG file path (resolved against cwd)."),
+              path: z
+                .string()
+                .describe("PNG file path (resolved against cwd)."),
             }),
           )
           .describe("Full-canvas PNG layers; all must share the same size."),

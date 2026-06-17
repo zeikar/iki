@@ -49,7 +49,9 @@ export function resolveInputPath(inputPath: string): string {
     throw new AutoRigInputError("layer path is empty");
   }
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(inputPath)) {
-    throw new AutoRigInputError(`layer path must be a file path, not a URL: ${inputPath}`);
+    throw new AutoRigInputError(
+      `layer path must be a file path, not a URL: ${inputPath}`,
+    );
   }
   const resolved = path.resolve(process.cwd(), inputPath);
   let stat: fs.Stats;
@@ -59,7 +61,9 @@ export function resolveInputPath(inputPath: string): string {
     throw new AutoRigInputError(`layer file not found: ${resolved}`);
   }
   if (stat.isDirectory()) {
-    throw new AutoRigInputError(`layer path is a directory, not a file: ${resolved}`);
+    throw new AutoRigInputError(
+      `layer path is a directory, not a file: ${resolved}`,
+    );
   }
   return resolved;
 }

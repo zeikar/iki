@@ -334,7 +334,9 @@ export async function autoRigFromLayers(
       } catch (e) {
         // Enrich the empty-layer error with role + file context.
         const msg = e instanceof Error ? e.message : String(e);
-        throw new AutoRigInputError(`role "${role}" file "${d.fileName}": ${msg}`);
+        throw new AutoRigInputError(
+          `role "${role}" file "${d.fileName}": ${msg}`,
+        );
       }
       layerInputs.push({
         role,
@@ -395,7 +397,9 @@ export async function autoRigFromLayers(
     // Validate the patched model before writing — never persist an invalid model.
     const finalModel = parseIkiModel(doc.getModel());
 
-    const outPath = resolveOutputPath(input.outputPath ?? "auto-rigged-model.iki");
+    const outPath = resolveOutputPath(
+      input.outputPath ?? "auto-rigged-model.iki",
+    );
     expectInput("write", () =>
       fs.writeFileSync(outPath, JSON.stringify(finalModel)),
     );
@@ -408,7 +412,8 @@ export async function autoRigFromLayers(
       atlasBytes: dataUri.length,
     };
   } catch (err) {
-    if (err instanceof AutoRigInputError) return { ok: false, error: err.message };
+    if (err instanceof AutoRigInputError)
+      return { ok: false, error: err.message };
     throw err;
   }
 }

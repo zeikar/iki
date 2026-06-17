@@ -320,7 +320,12 @@ describe("autoRigFromLayers", () => {
     const paths = await writeRequiredLayers(dir);
     // Overwrite eye_R.png with JPEG bytes.
     await sharp({
-      create: { width: CANVAS, height: CANVAS, channels: 3, background: { r: 1, g: 2, b: 3 } },
+      create: {
+        width: CANVAS,
+        height: CANVAS,
+        channels: 3,
+        background: { r: 1, g: 2, b: 3 },
+      },
     })
       .jpeg()
       .toFile(paths[2]);
@@ -338,7 +343,12 @@ describe("autoRigFromLayers", () => {
     const dir = tmpDir();
     const paths = await writeRequiredLayers(dir);
     // Re-write mouth.png at a different canvas size.
-    await writeLayerPng(dir, "mouth.png", { x: 5, y: 5, w: 10, h: 10 }, { w: 80, h: 80 });
+    await writeLayerPng(
+      dir,
+      "mouth.png",
+      { x: 5, y: 5, w: 10, h: 10 },
+      { w: 80, h: 80 },
+    );
 
     const result = await autoRigFromLayers({
       layers: paths.map((p) => ({ path: p })),
@@ -369,7 +379,12 @@ describe("autoRigFromLayers", () => {
   it("returns { ok:false } for an unknown role filename", async () => {
     const dir = tmpDir();
     const paths = await writeRequiredLayers(dir);
-    const banana = await writeLayerPng(dir, "banana.png", { x: 10, y: 10, w: 8, h: 8 });
+    const banana = await writeLayerPng(dir, "banana.png", {
+      x: 10,
+      y: 10,
+      w: 8,
+      h: 8,
+    });
 
     const result = await autoRigFromLayers({
       layers: [...paths, banana].map((p) => ({ path: p })),
