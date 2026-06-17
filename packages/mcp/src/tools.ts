@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import {
   parseIkiModel,
   loadIkiModel,
@@ -6,6 +8,32 @@ import {
   type IkiModel,
   type IkiDeformer,
 } from "@iki/format";
+import {
+  EditorDocument,
+  packAtlas,
+  uvRectFor,
+  generateIkiFromLayerSet,
+  parseLayerRoles,
+  type LayerInput,
+  type AtlasAssignment,
+} from "@iki/editor-core";
+import {
+  decodePng,
+  detectAlphaBbox,
+  cropToBuffer,
+  renderAtlasToDataUri,
+  type AtlasCrop,
+} from "./node-images";
+import {
+  AutoRigInputError,
+  MAX_LAYERS,
+  MAX_LAYER_DIM,
+  MAX_CANVAS_DIM,
+  MAX_ATLAS_AREA,
+  MAX_OUTPUT_BYTES,
+  resolveInputPath,
+  resolveOutputPath,
+} from "./limits";
 
 export type ValidateResult = { ok: true } | { ok: false; error: string };
 
@@ -184,4 +212,203 @@ const STANDARD_PARAMETER_INFO: StandardParameterInfo[] = [
 
 export function listStandardParameters(): StandardParameterInfo[] {
   return STANDARD_PARAMETER_INFO.map((p) => ({ ...p }));
+}
+
+// ── auto_rig_from_layers ──────────────────────────────────────────────────────
+
+/** One role-named PNG layer; role is derived from `fileName ?? basename(path)`. */
+export interface AutoRigLayerInput {
+  fileName?: string;
+  path: string;
+}
+
+export interface AutoRigInput {
+  layers: AutoRigLayerInput[];
+  /** Output `.iki` path (relative paths resolve against the process cwd). */
+  outputPath?: string;
+}
+
+export type AutoRigResult =
+  | {
+      ok: true;
+      path: string;
+      canvas: { width: number; height: number };
+      partCount: number;
+      atlasBytes: number;
+    }
+  | { ok: false; error: string };
+
+/**
+ * Run a fallible input/environment-boundary call, re-tagging any throw as an
+ * AutoRigInputError with context so the tool reports it as `{ ok:false }` rather
+ * than an unexpected `isError`. Use ONLY around true caller-input / filesystem
+ * boundaries — never around internal pipeline math (a throw there is a bug).
+ */
+function expectInput<T>(label: string, fn: () => T): T {
+  try {
+    return fn();
+  } catch (e) {
+    throw new AutoRigInputError(
+      `${label}: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+}
+
+/**
+ * Decode role-named PNG file paths, auto-rig a model from them, atlas + embed
+ * the textures (Node sharp), validate, and write the renderable `.iki` to disk.
+ * Returns the output path + summary stats (the multi-MB model is never inlined).
+ *
+ * Re-host of examples/editor/src/store.ts `importLayerSet` with the three DOM
+ * pixel functions swapped for the sharp-backed ./node-images helpers; the pure
+ * model math is reused from @iki/editor-core.
+ *
+ * Error boundary: ONLY AutoRigInputError (caller input / filesystem) → `{ ok:false }`;
+ * any other throw (invariant break, programmer bug) propagates to `isError`.
+ */
+export async function autoRigFromLayers(
+  input: AutoRigInput,
+): Promise<AutoRigResult> {
+  try {
+    const layers = input.layers;
+    if (!Array.isArray(layers) || layers.length === 0) {
+      throw new AutoRigInputError("layers must be a non-empty array");
+    }
+    if (layers.length > MAX_LAYERS) {
+      throw new AutoRigInputError(
+        `too many layers: ${layers.length} > ${MAX_LAYERS}`,
+      );
+    }
+
+    // Resolve + decode each PNG (input boundary); guard per-layer dimensions.
+    const decoded = await Promise.all(
+      layers.map(async (layer) => {
+        const resolved = resolveInputPath(layer.path);
+        const png = await decodePng(resolved);
+        if (png.width > MAX_LAYER_DIM || png.height > MAX_LAYER_DIM) {
+          throw new AutoRigInputError(
+            `layer ${resolved} dimension ${png.width}x${png.height} exceeds ${MAX_LAYER_DIM}`,
+          );
+        }
+        const fileName = layer.fileName ?? path.basename(resolved);
+        return { fileName, png };
+      }),
+    );
+
+    // Canvas = first layer's full PNG dims; reject mismatches (parity with
+    // buildLayerInputs in examples/editor/src/auto-rig-image.ts).
+    const canvasW = decoded[0].png.width;
+    const canvasH = decoded[0].png.height;
+    if (canvasW > MAX_CANVAS_DIM || canvasH > MAX_CANVAS_DIM) {
+      throw new AutoRigInputError(
+        `canvas ${canvasW}x${canvasH} exceeds ${MAX_CANVAS_DIM}`,
+      );
+    }
+    for (const d of decoded) {
+      if (d.png.width !== canvasW || d.png.height !== canvasH) {
+        throw new AutoRigInputError(
+          `layer "${d.fileName}" size ${d.png.width}x${d.png.height} differs from canvas ${canvasW}x${canvasH}`,
+        );
+      }
+    }
+
+    // Filename → role (input boundary); parseLayerRoles throws on
+    // unknown/duplicate/missing-required roles.
+    const fileNames = decoded.map((d) => d.fileName);
+    const rolePairs = expectInput("role parsing", () =>
+      parseLayerRoles(fileNames),
+    );
+    const roleByFileName = new Map(rolePairs.map((p) => [p.fileName, p.role]));
+
+    // Alpha-bbox per layer + cropped PNG buffer keyed by role (= part id).
+    const layerInputs: LayerInput[] = [];
+    const crops: AtlasCrop[] = [];
+    for (const d of decoded) {
+      const role = roleByFileName.get(d.fileName);
+      if (role === undefined) {
+        throw new AutoRigInputError(`no role resolved for "${d.fileName}"`);
+      }
+      let bbox: { x: number; y: number; w: number; h: number };
+      try {
+        bbox = detectAlphaBbox(d.png.rgba, d.png.width, d.png.height);
+      } catch (e) {
+        // Enrich the empty-layer error with role + file context.
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new AutoRigInputError(`role "${role}" file "${d.fileName}": ${msg}`);
+      }
+      layerInputs.push({
+        role,
+        fileName: d.fileName,
+        canvasW,
+        canvasH,
+        bbox,
+        cropW: bbox.w,
+        cropH: bbox.h,
+      });
+      crops.push({
+        id: role,
+        buffer: await cropToBuffer(d.png.rgba, d.png.width, d.png.height, bbox),
+        width: bbox.w,
+        height: bbox.h,
+      });
+    }
+
+    // Internal pipeline — direct calls. By here roles + bboxes are validated, so
+    // a throw is an invariant break / bug and must propagate to `isError`.
+    const model = generateIkiFromLayerSet(layerInputs, {
+      width: canvasW,
+      height: canvasH,
+    });
+    const doc = new EditorDocument(model);
+
+    const layout = packAtlas(
+      crops.map((c) => ({ id: c.id, width: c.width, height: c.height })),
+    );
+    if (layout.pageWidth * layout.pageHeight > MAX_ATLAS_AREA) {
+      throw new AutoRigInputError(
+        `atlas page ${layout.pageWidth}x${layout.pageHeight} exceeds max area ${MAX_ATLAS_AREA}`,
+      );
+    }
+
+    const dataUri = await renderAtlasToDataUri(crops, layout);
+    if (dataUri.length > MAX_OUTPUT_BYTES) {
+      throw new AutoRigInputError(
+        `atlas data URI ${dataUri.length} bytes exceeds ${MAX_OUTPUT_BYTES}`,
+      );
+    }
+
+    const partTextureAssignments: AtlasAssignment[] = crops.map((crop) => {
+      const placement = layout.placements.find((p) => p.id === crop.id);
+      if (placement === undefined) {
+        throw new Error(`auto-rig: no atlas placement for "${crop.id}"`);
+      }
+      return {
+        partId: crop.id,
+        uv: uvRectFor(placement, {
+          width: layout.pageWidth,
+          height: layout.pageHeight,
+        }),
+      };
+    });
+
+    doc.applyAtlas({ textures: [{ source: dataUri }], partTextureAssignments });
+    // Validate the patched model before writing — never persist an invalid model.
+    const finalModel = parseIkiModel(doc.getModel());
+
+    const outPath = resolveOutputPath(input.outputPath ?? "auto-rigged-model.iki");
+    expectInput("write", () =>
+      fs.writeFileSync(outPath, JSON.stringify(finalModel)),
+    );
+
+    return {
+      ok: true,
+      path: outPath,
+      canvas: { width: canvasW, height: canvasH },
+      partCount: finalModel.parts.length,
+      atlasBytes: dataUri.length,
+    };
+  } catch (err) {
+    if (err instanceof AutoRigInputError) return { ok: false, error: err.message };
+    throw err;
+  }
 }
