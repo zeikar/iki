@@ -1,6 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { validateIki, describeIki, listStandardParameters } from "./tools";
+import {
+  validateIki,
+  describeIki,
+  listStandardParameters,
+  autoRigFromLayers,
+} from "./tools";
 
 export function createIkiMcpServer(): McpServer {
   const server = new McpServer({ name: "iki", version: "0.0.0" });
@@ -75,6 +80,49 @@ export function createIkiMcpServer(): McpServer {
         content: [{ type: "text", text }],
         structuredContent: { parameters: params },
       };
+    },
+  );
+
+  server.registerTool(
+    "auto_rig_from_layers",
+    {
+      description:
+        "Auto-rigs role-named PNG layers (face, eye_L/eye_R, mouth required; iris_L/R, brow_L/R, hair_front, etc. optional) into a renderable .iki written to disk. Pass full-canvas PNG file paths; returns the output path + summary (the model is NOT inlined). Filenames map to roles unless `fileName` is given.",
+      inputSchema: {
+        layers: z
+          .array(
+            z.object({
+              fileName: z
+                .string()
+                .optional()
+                .describe(
+                  "Role-bearing filename; defaults to the basename of `path`.",
+                ),
+              path: z.string().describe("PNG file path (resolved against cwd)."),
+            }),
+          )
+          .describe("Full-canvas PNG layers; all must share the same size."),
+        outputPath: z
+          .string()
+          .optional()
+          .describe(
+            "Output .iki path (resolved against cwd; parent dir must exist).",
+          ),
+      },
+    },
+    async (args) => {
+      try {
+        const r = await autoRigFromLayers(args);
+        const text = r.ok ? r.path : `INVALID: ${r.error}`;
+        return { content: [{ type: "text", text }], structuredContent: r };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: "text", text: `Unexpected error: ${error}` }],
+          structuredContent: { ok: false, error },
+          isError: true,
+        };
+      }
     },
   );
 
