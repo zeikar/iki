@@ -3,3 +3,4 @@ packages:
   - "examples/*"
 allowBuilds:
   esbuild: true
+  sharp: true
