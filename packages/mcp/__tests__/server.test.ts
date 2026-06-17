@@ -1,6 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -92,11 +91,26 @@ async function createPair(): Promise<Pair> {
 describe("MCP server integration", () => {
   let pair: Pair | undefined;
 
+  // Temp dirs under cwd (node_modules is gitignored) so auto-rig output paths
+  // satisfy the tool's working-directory confinement; cleaned up after.
+  const createdDirs: string[] = [];
+  function tmpDir(): string {
+    const d = fs.mkdtempSync(
+      path.join(process.cwd(), "node_modules", ".iki-mcp-server-"),
+    );
+    createdDirs.push(d);
+    return d;
+  }
+
   afterEach(async () => {
     if (pair) {
       await pair.cleanup();
       pair = undefined;
     }
+  });
+
+  afterAll(() => {
+    for (const d of createdDirs) fs.rmSync(d, { recursive: true, force: true });
   });
 
   it("validate_iki returns ok:true and text 'OK' for a valid model", async () => {
@@ -170,7 +184,7 @@ describe("MCP server integration", () => {
 
   it("auto_rig_from_layers writes a renderable .iki and returns its path", async () => {
     pair = await createPair();
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "iki-mcp-server-"));
+    const dir = tmpDir();
     const paths = await writeRequiredLayers(dir);
     const outPath = path.join(dir, "model.iki");
 
@@ -193,7 +207,7 @@ describe("MCP server integration", () => {
 
   it("auto_rig_from_layers returns ok:false + INVALID: (not isError) for a bad path", async () => {
     pair = await createPair();
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "iki-mcp-server-"));
+    const dir = tmpDir();
     const paths = await writeRequiredLayers(dir);
     paths[0] = path.join(dir, "missing.png");
 

@@ -1,6 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import {
@@ -269,9 +268,19 @@ describe("autoRigFromLayers", () => {
     ];
   }
 
+  // Temp dirs live UNDER cwd (node_modules is gitignored) so they satisfy the
+  // tool's output-path confinement to the working directory; cleaned up after.
+  const createdDirs: string[] = [];
   function tmpDir(): string {
-    return fs.mkdtempSync(path.join(os.tmpdir(), "iki-mcp-autorig-"));
+    const d = fs.mkdtempSync(
+      path.join(process.cwd(), "node_modules", ".iki-mcp-autorig-"),
+    );
+    createdDirs.push(d);
+    return d;
   }
+  afterAll(() => {
+    for (const d of createdDirs) fs.rmSync(d, { recursive: true, force: true });
+  });
 
   it("produces a renderable validated .iki with an embedded base64 PNG atlas", async () => {
     const dir = tmpDir();

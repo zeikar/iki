@@ -76,11 +76,13 @@ export function resolveInputPath(inputPath: string): string {
  * AutoRigInputError (path-qualified) if the parent directory does not exist —
  * the tool never creates directories (fail-fast).
  *
- * The path MUST end in `.iki`. The MCP server runs with the user's own
- * permissions on agent-supplied input; requiring the `.iki` extension bounds the
- * file-overwrite surface to model files (an agent cannot redirect the write at,
- * say, a dotfile or source file). Writes are still resolved cwd-relative — the
- * same trust model as the input paths the tool reads.
+ * Writes are confined to the MCP process working directory: the path must end
+ * in `.iki` AND resolve to a location under `process.cwd()`. The MCP server runs
+ * with the user's own permissions on agent-supplied input, so an unrestricted
+ * `outputPath` is an arbitrary-file-overwrite surface — absolute paths and `..`
+ * traversal that escape the working directory are rejected. (Overwriting an
+ * existing `.iki` UNDER the working directory is intentional: re-running the tool
+ * regenerates the named model.)
  */
 export function resolveOutputPath(outputPath: string): string {
   if (typeof outputPath !== "string" || outputPath.trim() === "") {
@@ -89,7 +91,13 @@ export function resolveOutputPath(outputPath: string): string {
   if (!outputPath.toLowerCase().endsWith(".iki")) {
     throw new AutoRigInputError(`output path must end in .iki: ${outputPath}`);
   }
-  const resolved = path.resolve(process.cwd(), outputPath);
+  const root = process.cwd();
+  const resolved = path.resolve(root, outputPath);
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+    throw new AutoRigInputError(
+      `output path escapes the working directory: ${outputPath}`,
+    );
+  }
   const dir = path.dirname(resolved);
   let stat: fs.Stats;
   try {

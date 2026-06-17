@@ -281,6 +281,13 @@ export async function autoRigFromLayers(
       );
     }
 
+    // Resolve the output path FIRST (fail-fast): reject a bad/escaping/non-.iki
+    // target before spending the image-decode budget on a request that can't
+    // be written anyway.
+    const outPath = resolveOutputPath(
+      input.outputPath ?? "auto-rigged-model.iki",
+    );
+
     // Resolve paths + role-map up front (input boundary; no decode needed).
     // parseLayerRoles throws on unknown/duplicate/missing-required roles.
     const resolvedLayers = layers.map((layer) => {
@@ -402,9 +409,6 @@ export async function autoRigFromLayers(
     // Validate the patched model before writing — never persist an invalid model.
     const finalModel = parseIkiModel(doc.getModel());
 
-    const outPath = resolveOutputPath(
-      input.outputPath ?? "auto-rigged-model.iki",
-    );
     expectInput("write", () =>
       fs.writeFileSync(outPath, JSON.stringify(finalModel)),
     );
