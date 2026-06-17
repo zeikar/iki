@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import {
@@ -447,5 +448,72 @@ describe("autoRigFromLayers", () => {
     if (result.ok) return;
     expect(result.error).toMatch(/must end in \.iki/);
     expect(fs.existsSync(outPath)).toBe(false);
+  });
+
+  // A directory genuinely OUTSIDE the working tree, for confinement tests.
+  function outsideDir(): string {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "iki-outside-"));
+    createdDirs.push(d);
+    return d;
+  }
+
+  it("rejects an absolute output path outside the working directory", async () => {
+    const dir = tmpDir();
+    const paths = await writeRequiredLayers(dir);
+    const outside = outsideDir();
+    const outPath = path.join(outside, "escape.iki");
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: outPath,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/escapes the working directory/);
+    expect(fs.existsSync(outPath)).toBe(false);
+  });
+
+  it("rejects an output path whose parent is a symlink pointing outside cwd", async () => {
+    const dir = tmpDir();
+    const paths = await writeRequiredLayers(dir);
+    const outside = outsideDir();
+    // A symlink UNDER cwd that points outside the working tree.
+    const linkDir = path.join(dir, "link");
+    fs.symlinkSync(outside, linkDir);
+    const outPath = path.join(linkDir, "model.iki");
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: outPath,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/escapes the working directory/);
+    expect(fs.existsSync(path.join(outside, "model.iki"))).toBe(false);
+  });
+
+  it("does not follow an existing .iki symlink at the output path (atomic replace)", async () => {
+    const dir = tmpDir();
+    const paths = await writeRequiredLayers(dir);
+    const outside = outsideDir();
+    const outsideTarget = path.join(outside, "target.iki");
+    // out.iki lives UNDER cwd (parent passes confinement) but is a symlink to
+    // an external target; the atomic rename must replace the link, not follow it.
+    const outPath = path.join(dir, "out.iki");
+    fs.symlinkSync(outsideTarget, outPath);
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: outPath,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // External target was NOT written; the symlink was replaced by a real file.
+    expect(fs.existsSync(outsideTarget)).toBe(false);
+    expect(fs.lstatSync(outPath).isSymbolicLink()).toBe(false);
+    const model = parseIkiModel(JSON.parse(fs.readFileSync(outPath, "utf8")));
+    expect(model.textures[0].source.startsWith("data:image/png;base64,")).toBe(
+      true,
+    );
   });
 });
