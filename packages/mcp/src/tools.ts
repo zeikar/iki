@@ -409,9 +409,24 @@ export async function autoRigFromLayers(
     // Validate the patched model before writing — never persist an invalid model.
     const finalModel = parseIkiModel(doc.getModel());
 
-    expectInput("write", () =>
-      fs.writeFileSync(outPath, JSON.stringify(finalModel)),
-    );
+    // Write to a fresh temp file in the verified directory, then atomically
+    // rename over the target. `rename` REPLACES the destination entry rather
+    // than following it, so an existing `.iki` symlink at outPath cannot
+    // redirect the write outside the working tree (and the write is atomic).
+    expectInput("write", () => {
+      const tmp = `${outPath}.${process.pid}.${Date.now()}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(finalModel));
+      try {
+        fs.renameSync(tmp, outPath);
+      } catch (e) {
+        try {
+          fs.rmSync(tmp, { force: true });
+        } catch {
+          // best-effort temp cleanup; surface the original rename error
+        }
+        throw e;
+      }
+    });
 
     return {
       ok: true,
