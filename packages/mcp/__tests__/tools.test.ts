@@ -424,4 +424,19 @@ describe("autoRigFromLayers", () => {
     if (result.ok) return;
     expect(result.error).toMatch(/too many layers/);
   });
+
+  it("returns { ok:false } when the output path does not end in .iki", async () => {
+    const dir = tmpDir();
+    const paths = await writeRequiredLayers(dir);
+    const outPath = path.join(dir, "model.json");
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: outPath,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/must end in \.iki/);
+    expect(fs.existsSync(outPath)).toBe(false);
+  });
 });

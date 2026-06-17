@@ -30,6 +30,7 @@ import {
   MAX_LAYER_DIM,
   MAX_CANVAS_DIM,
   MAX_ATLAS_AREA,
+  MAX_TOTAL_PIXELS,
   MAX_OUTPUT_BYTES,
   resolveInputPath,
   resolveOutputPath,
@@ -280,79 +281,83 @@ export async function autoRigFromLayers(
       );
     }
 
-    // Resolve + decode each PNG (input boundary); guard per-layer dimensions.
-    const decoded = await Promise.all(
-      layers.map(async (layer) => {
-        const resolved = resolveInputPath(layer.path);
-        const png = await decodePng(resolved);
-        if (png.width > MAX_LAYER_DIM || png.height > MAX_LAYER_DIM) {
-          throw new AutoRigInputError(
-            `layer ${resolved} dimension ${png.width}x${png.height} exceeds ${MAX_LAYER_DIM}`,
-          );
-        }
-        const fileName = layer.fileName ?? path.basename(resolved);
-        return { fileName, png };
-      }),
-    );
-
-    // Canvas = first layer's full PNG dims; reject mismatches (parity with
-    // buildLayerInputs in examples/editor/src/auto-rig-image.ts).
-    const canvasW = decoded[0].png.width;
-    const canvasH = decoded[0].png.height;
-    if (canvasW > MAX_CANVAS_DIM || canvasH > MAX_CANVAS_DIM) {
-      throw new AutoRigInputError(
-        `canvas ${canvasW}x${canvasH} exceeds ${MAX_CANVAS_DIM}`,
-      );
-    }
-    for (const d of decoded) {
-      if (d.png.width !== canvasW || d.png.height !== canvasH) {
-        throw new AutoRigInputError(
-          `layer "${d.fileName}" size ${d.png.width}x${d.png.height} differs from canvas ${canvasW}x${canvasH}`,
-        );
-      }
-    }
-
-    // Filename → role (input boundary); parseLayerRoles throws on
-    // unknown/duplicate/missing-required roles.
-    const fileNames = decoded.map((d) => d.fileName);
+    // Resolve paths + role-map up front (input boundary; no decode needed).
+    // parseLayerRoles throws on unknown/duplicate/missing-required roles.
+    const resolvedLayers = layers.map((layer) => {
+      const resolved = resolveInputPath(layer.path);
+      return { resolved, fileName: layer.fileName ?? path.basename(resolved) };
+    });
     const rolePairs = expectInput("role parsing", () =>
-      parseLayerRoles(fileNames),
+      parseLayerRoles(resolvedLayers.map((r) => r.fileName)),
     );
     const roleByFileName = new Map(rolePairs.map((p) => [p.fileName, p.role]));
 
-    // Alpha-bbox per layer + cropped PNG buffer keyed by role (= part id).
+    // Decode + alpha-bbox + crop SEQUENTIALLY: only ONE full-canvas RGBA buffer
+    // is live at a time (a Promise.all over all layers would hold every decoded
+    // buffer at once, allowing a multi-GB spike on inputs that each pass
+    // MAX_LAYER_DIM). MAX_TOTAL_PIXELS bounds the aggregate work. Canvas size =
+    // the first layer's full PNG dims (parity with buildLayerInputs in
+    // examples/editor/src/auto-rig-image.ts); all layers must match it.
+    let canvasW = 0;
+    let canvasH = 0;
+    let totalPixels = 0;
     const layerInputs: LayerInput[] = [];
     const crops: AtlasCrop[] = [];
-    for (const d of decoded) {
-      const role = roleByFileName.get(d.fileName);
+    for (let i = 0; i < resolvedLayers.length; i++) {
+      const { resolved, fileName } = resolvedLayers[i];
+      const png = await decodePng(resolved);
+      if (png.width > MAX_LAYER_DIM || png.height > MAX_LAYER_DIM) {
+        throw new AutoRigInputError(
+          `layer ${resolved} dimension ${png.width}x${png.height} exceeds ${MAX_LAYER_DIM}`,
+        );
+      }
+      totalPixels += png.width * png.height;
+      if (totalPixels > MAX_TOTAL_PIXELS) {
+        throw new AutoRigInputError(
+          `total decoded pixels exceed ${MAX_TOTAL_PIXELS}`,
+        );
+      }
+      if (i === 0) {
+        canvasW = png.width;
+        canvasH = png.height;
+        if (canvasW > MAX_CANVAS_DIM || canvasH > MAX_CANVAS_DIM) {
+          throw new AutoRigInputError(
+            `canvas ${canvasW}x${canvasH} exceeds ${MAX_CANVAS_DIM}`,
+          );
+        }
+      } else if (png.width !== canvasW || png.height !== canvasH) {
+        throw new AutoRigInputError(
+          `layer "${fileName}" size ${png.width}x${png.height} differs from canvas ${canvasW}x${canvasH}`,
+        );
+      }
+
+      const role = roleByFileName.get(fileName);
       if (role === undefined) {
-        throw new AutoRigInputError(`no role resolved for "${d.fileName}"`);
+        throw new AutoRigInputError(`no role resolved for "${fileName}"`);
       }
       let bbox: { x: number; y: number; w: number; h: number };
       try {
-        bbox = detectAlphaBbox(d.png.rgba, d.png.width, d.png.height);
+        bbox = detectAlphaBbox(png.rgba, png.width, png.height);
       } catch (e) {
         // Enrich the empty-layer error with role + file context.
         const msg = e instanceof Error ? e.message : String(e);
         throw new AutoRigInputError(
-          `role "${role}" file "${d.fileName}": ${msg}`,
+          `role "${role}" file "${fileName}": ${msg}`,
         );
       }
+      const buffer = await cropToBuffer(png.rgba, png.width, png.height, bbox);
+      // png.rgba (full-canvas) is dropped at the next iteration — GC reclaims it
+      // before the next decode, so peak memory stays ~one canvas + the crops.
       layerInputs.push({
         role,
-        fileName: d.fileName,
+        fileName,
         canvasW,
         canvasH,
         bbox,
         cropW: bbox.w,
         cropH: bbox.h,
       });
-      crops.push({
-        id: role,
-        buffer: await cropToBuffer(d.png.rgba, d.png.width, d.png.height, bbox),
-        width: bbox.w,
-        height: bbox.h,
-      });
+      crops.push({ id: role, buffer, width: bbox.w, height: bbox.h });
     }
 
     // Internal pipeline — direct calls. By here roles + bboxes are validated, so
