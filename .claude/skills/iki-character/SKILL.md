@@ -53,7 +53,7 @@ Mirrors `@iki/editor-core` `ROLE_TABLE` / `REQUIRED_ROLES`. **Required:** `face`
 | `brow.png` (one eyebrow)                                 | `brow_L/R` (mirrored)                                | BrowY / BrowAngle                                                |
 | `hair_front.png` (bangs)                                 | `hair_front`                                         | rides the face warp on head-turn                                 |
 
-`eye_L/R` and `lash_L/R` both come from the **single** `eyewhite.png` — `compose.cjs prepEyeSplit()` splits it by luminance into a clean white sclera (lashes recolored white = the clip-mask shape) and a dark lash-only layer. This is deliberate: asking codex-image for a _separately clean_ sclera and lash is less reliable than splitting one lashed white deterministically.
+`eye_L/R` and `lash_L/R` both come from the **single** `eyewhite.png` — `compose.cjs prepEyeSplit()` splits it by luminance into a clean white sclera (the dark outline/lash recolored white = the clip-mask shape) and a dark **upper-lash** layer (only the top fraction of the dark pixels; the lower almond rim is dropped). Both are cropped to the **same** eye bbox and placed with `noTrim`, so the lash stays anchored ABOVE the sclera center — on blink it folds DOWN over the eye (like the sample model) instead of the whole eye shrinking in place. This is deliberate: asking codex-image for a _separately clean_ sclera and lash is less reliable than splitting one lashed white deterministically.
 
 ## Procedure
 
@@ -123,11 +123,14 @@ printf '%s\n' \
 
 ### Step 4 — Render-verify
 
-Load the `.iki` in the playground and confirm it renders + animates. Use the **iki-visual-test** skill: `pnpm playground`, then `window.__iki.load(<model>)` (fetch the disk `.iki` via vite `/@fs/<abs-path>`), drive `ParamEyeLOpen`/`ParamEyeROpen` (blink-fold), `ParamEyeBallX/Y` (gaze), `ParamMouthOpenY`/`ParamMouthForm`, `ParamAngleX` (head turn), `ParamBrowLY`/`RY`/`LAngle`/`RAngle` (expression), and screenshot before/after. A clean console (no `IkiFormatError`/WebGL error) plus visibly-driving parameters = success.
+Load the `.iki` in the playground and confirm it renders + animates. Use the **iki-visual-test** skill: `pnpm playground`, then `window.__iki.load(<model>)`, drive `ParamEyeLOpen`/`ParamEyeROpen` (blink-fold), `ParamEyeBallX/Y` (gaze), `ParamMouthOpenY`/`ParamMouthForm`, `ParamAngleX` (head turn), `ParamBrowLY`/`RY`/`LAngle`/`RAngle` (expression), and screenshot before/after. A clean console (no `IkiFormatError`/WebGL error) plus visibly-driving parameters = success.
+
+To feed the disk `.iki` to `load()`: vite blocks `/@fs/` for paths **outside the workspace root** (a `/tmp/...` model 403s), so copy the `.iki` into the playground's `public/` (`examples/playground/public/<name>.iki`, served at `/<name>.iki`) and `fetch` it with a cache-buster (`?t=Date.now()`), then `await res.json()`. Remove the temp `public/` file afterward (it is not part of the slice).
 
 ## Pitfalls (hard-won — read before generating)
 
 - **"NO iris" on the eyewhite is the flakiest prompt.** codex-image often paints an iris anyway. Generate **2–3 eyewhite variants** and pick the cleanest iris-free one; a leaked colored iris breaks `prepEyeSplit` (the luminance split would misclassify a dark/saturated iris as lash). If all variants leak, regenerate with a stronger negation ("empty white interior, absolutely no colored circle").
+- **The eyewhite must be a SOLID FILLED white almond, not an outline.** The first generation often comes back as a thin line-art ring with a transparent interior — useless as a clip mask. Demand "SOLID FILLED pure-white almond, the entire interior painted opaque white". The blink-fold also reads best when the **upper lash is the boldest dark element**; a heavy full-almond outline still works (the split keeps only the top fraction as the lash via `LASH_KEEP_FRACTION`), but a clean white with a distinct top lash folds most cleanly.
 - **The face base must have NO eyes and NO mouth.** A face with baked eyes can't blink/gaze (the eye stack would double up). Re-prompt until the eye/mouth sockets are bare skin.
 - **Keep the iris smaller than the sclera opening** in `LAYOUT` (default `w:48`). The auto-rig auto-clips iris→sclera at runtime, but an oversized iris looks wrong before the clip and at extreme gaze.
 - **Opaque-on-white parts** are handled by `keyWhiteToAlpha` (keys >238 RGB to alpha), but transparent output is cleaner — ask for it. White-rimmed parts (e.g. a white highlight on the iris) can be clipped by the key; prefer transparent generation for those.

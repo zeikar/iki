@@ -36,18 +36,16 @@ const OUT = path.resolve(process.argv[3] ?? "layers");
 const LAYOUT = {
   face: { src: "face.png", cx: 500, cy: 470, w: 600 },
   mouth: { src: "mouth.png", cx: 500, cy: 612, w: 150 },
-  eye_L: {
-    src: "eyewhite_sclera.png",
-    cx: 590,
-    cy: 468,
-    w: 150,
-    mirror: false,
-  },
-  eye_R: { src: "eyewhite_sclera.png", cx: 410, cy: 468, w: 150, mirror: true },
+  // eye_* (sclera) and lash_* share the eyewhite's cropped frame via noTrim (so
+  // they are NOT re-bboxed independently): the upper lash stays anchored ABOVE
+  // the sclera center, so on blink it folds DOWN over the eye like the sample
+  // model instead of the whole eye shrinking in place. Same cx/cy/w.
+  eye_L: { src: "eyewhite_sclera.png", cx: 590, cy: 468, w: 150, noTrim: true },
+  eye_R: { src: "eyewhite_sclera.png", cx: 410, cy: 468, w: 150, mirror: true, noTrim: true }, // prettier-ignore
   iris_L: { src: "iris.png", cx: 590, cy: 470, w: 48, mirror: false },
   iris_R: { src: "iris.png", cx: 410, cy: 470, w: 48, mirror: true },
-  lash_L: { src: "eyewhite_lash.png", cx: 590, cy: 468, w: 150, mirror: false },
-  lash_R: { src: "eyewhite_lash.png", cx: 410, cy: 468, w: 150, mirror: true },
+  lash_L: { src: "eyewhite_lash.png", cx: 590, cy: 468, w: 150, noTrim: true },
+  lash_R: { src: "eyewhite_lash.png", cx: 410, cy: 468, w: 150, mirror: true, noTrim: true }, // prettier-ignore
   brow_L: { src: "brow.png", cx: 590, cy: 378, w: 138, mirror: false },
   brow_R: { src: "brow.png", cx: 410, cy: 378, w: 138, mirror: true },
   hair_front: { src: "hair_front.png", cx: 500, cy: 330, w: 660 },
@@ -70,6 +68,12 @@ const ORDER = [
 
 // The eyewhite source that prepEyeSplit() splits into sclera + lash.
 const EYEWHITE_SRC = "eyewhite.png";
+// Luminance below this (0..255) = a dark lash/outline pixel in the eyewhite.
+const EYE_LASH_LUMA = 120;
+// Of the eye's dark pixels, keep only those in the TOP this-fraction as the lash
+// (drops the lower almond rim/outline) so the lash reads as an upper arc that
+// folds DOWN over the eye on blink, instead of a full ring that shrinks in place.
+const LASH_KEEP_FRACTION = 0.5;
 
 // Some generated parts come back opaque on a white background (no alpha).
 // Key near-white pixels to transparent so they can layer cleanly.
@@ -100,7 +104,10 @@ async function partBuffer(cfg) {
   }
   const meta0 = await sharp(srcPath).metadata();
   const input = meta0.hasAlpha ? srcPath : await keyWhiteToAlpha(srcPath);
-  let img = sharp(input).trim({ threshold: 12 });
+  // noTrim parts (the eye pair) keep their shared pre-cropped frame so sclera and
+  // lash stay aligned; everything else is alpha-trimmed to its own bbox.
+  let img = sharp(input);
+  if (!cfg.noTrim) img = img.trim({ threshold: 12 });
   if (cfg.mirror) img = img.flop();
   const buf = await img.resize({ width: cfg.w }).png().toBuffer();
   const meta = await sharp(buf).metadata();
@@ -123,9 +130,11 @@ function blankCanvas() {
 }
 
 // Split eyewhite.png (white almond + dark lashes) into a clean white sclera
-// (lashes recolored to white = the blink clip-mask shape) and a dark lash-only
-// layer. Keeps the lash texture matched to the eye and avoids doubling the lash.
-// Writes eyewhite_sclera.png + eyewhite_lash.png into SRC for LAYOUT to consume.
+// (the dark outline/lash recolored to white = the blink clip-mask shape) and a
+// dark UPPER-lash-only layer. Both are cropped to the SAME eye bbox so they stay
+// aligned (consumed with noTrim): the lash arc keeps its position at the top of
+// the sclera, so on blink it folds DOWN over the eye rather than the eye shrinking
+// in place. Writes eyewhite_sclera.png + eyewhite_lash.png into SRC for LAYOUT.
 async function prepEyeSplit() {
   const srcPath = path.join(SRC, EYEWHITE_SRC);
   if (!fs.existsSync(srcPath)) {
@@ -136,23 +145,54 @@ async function prepEyeSplit() {
     .raw()
     .toBuffer({ resolveWithObject: true });
   const ch = info.channels;
-  const sclera = Buffer.from(data);
-  const lash = Buffer.from(data);
-  const THRESH = 120; // luminance below this = dark lash pixel
-  for (let i = 0; i < data.length; i += ch) {
-    const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-    const isLash = data[i + 3] > 0 && lum < THRESH;
-    if (isLash) {
-      sclera[i] = sclera[i + 1] = sclera[i + 2] = 255; // dark lash -> white
-    } else {
-      lash[i + 3] = 0; // non-lash -> transparent in the lash layer
+  const W = info.width;
+  const H = info.height;
+
+  // Eye content bbox (alpha) → the shared cropped frame for both outputs.
+  let minX = W;
+  let minY = H;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (data[(y * W + x) * ch + 3] > 8) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
     }
   }
-  const raw = { width: info.width, height: info.height, channels: ch };
+  if (maxX < 0) throw new Error("eyewhite is fully transparent");
+  // Keep only the upper lash: dark pixels above this row become the lash layer.
+  const lashCutoffY = minY + LASH_KEEP_FRACTION * (maxY - minY + 1);
+
+  const sclera = Buffer.from(data);
+  const lash = Buffer.from(data);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * ch;
+      const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      const isDark = data[i + 3] > 0 && lum < EYE_LASH_LUMA;
+      if (isDark) sclera[i] = sclera[i + 1] = sclera[i + 2] = 255; // dark -> white
+      if (!(isDark && y <= lashCutoffY)) lash[i + 3] = 0; // keep upper dark only
+    }
+  }
+  const raw = { width: W, height: H, channels: ch };
+  const region = {
+    left: minX,
+    top: minY,
+    width: maxX - minX + 1,
+    height: maxY - minY + 1,
+  };
   await sharp(sclera, { raw })
+    .extract(region)
     .png()
     .toFile(path.join(SRC, "eyewhite_sclera.png"));
-  await sharp(lash, { raw }).png().toFile(path.join(SRC, "eyewhite_lash.png"));
+  await sharp(lash, { raw })
+    .extract(region)
+    .png()
+    .toFile(path.join(SRC, "eyewhite_lash.png"));
 }
 
 async function main() {
