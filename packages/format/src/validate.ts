@@ -14,6 +14,7 @@ import {
   type IkiModel,
   type IkiParameter,
   type IkiPart,
+  type IkiPhysics,
   type IkiTexture,
   type IkiTransform,
   type IkiTransformChannel,
@@ -581,6 +582,57 @@ function parseBinding(
   };
 }
 
+function parsePhysics(
+  value: unknown,
+  path: string,
+  validParameters: ReadonlySet<string>,
+): IkiPhysics {
+  if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
+  const id = str(value.id, `${path}.id`);
+  if (!isObject(value.input)) {
+    throw new IkiFormatError(`${path}.input must be an object`);
+  }
+  if (!isObject(value.output)) {
+    throw new IkiFormatError(`${path}.output must be an object`);
+  }
+  const inputParameter = str(value.input.parameter, `${path}.input.parameter`);
+  if (!validParameters.has(inputParameter)) {
+    throw new IkiFormatError(
+      `${path}.input.parameter "${inputParameter}" is not a declared parameter`,
+    );
+  }
+  const weight = num(value.input.weight, `${path}.input.weight`);
+  const outputParameter = str(
+    value.output.parameter,
+    `${path}.output.parameter`,
+  );
+  if (!validParameters.has(outputParameter)) {
+    throw new IkiFormatError(
+      `${path}.output.parameter "${outputParameter}" is not a declared parameter`,
+    );
+  }
+  const scale = num(value.output.scale, `${path}.output.scale`);
+  const mass = num(value.mass, `${path}.mass`);
+  const stiffness = num(value.stiffness, `${path}.stiffness`);
+  const damping = num(value.damping, `${path}.damping`);
+  if (mass <= 0) throw new IkiFormatError(`${path}.mass must be > 0`);
+  if (stiffness <= 0) throw new IkiFormatError(`${path}.stiffness must be > 0`);
+  if (damping < 0) throw new IkiFormatError(`${path}.damping must be >= 0`);
+  if (inputParameter === outputParameter) {
+    throw new IkiFormatError(
+      `${path}: input.parameter and output.parameter must differ (anti-feedback)`,
+    );
+  }
+  return {
+    id,
+    input: { parameter: inputParameter, weight },
+    output: { parameter: outputParameter, scale },
+    mass,
+    stiffness,
+    damping,
+  };
+}
+
 function parseTransform(value: unknown, path: string): IkiTransform {
   if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
   return {
@@ -1014,6 +1066,34 @@ export function parseIkiModel(input: unknown): IkiModel {
     }
   }
 
+  let physics: IkiPhysics[] | undefined;
+  if (input.physics !== undefined) {
+    if (!Array.isArray(input.physics)) {
+      throw new IkiFormatError("physics must be an array");
+    }
+    physics = input.physics.map((p, i) =>
+      parsePhysics(p, `physics[${i}]`, declaredIds),
+    );
+    // Cross-rig checks: an output param may be written by at most one rig, and
+    // no rig's output may feed any rig's input (feedback loops are unsupported).
+    const physicsInputIds = new Set(physics.map((r) => r.input.parameter));
+    const seenOutputs = new Set<string>();
+    for (let i = 0; i < physics.length; i++) {
+      const outId = physics[i].output.parameter;
+      if (seenOutputs.has(outId)) {
+        throw new IkiFormatError(
+          `physics[${i}].output.parameter "${outId}" is already an output of another physics rig`,
+        );
+      }
+      seenOutputs.add(outId);
+      if (physicsInputIds.has(outId)) {
+        throw new IkiFormatError(
+          `physics[${i}].output.parameter "${outId}" is used as a physics input (feedback loops are not supported)`,
+        );
+      }
+    }
+  }
+
   return {
     version,
     name: str(input.name, "name"),
@@ -1025,6 +1105,7 @@ export function parseIkiModel(input: unknown): IkiModel {
     textures,
     parts,
     deformers,
+    physics,
   };
 }
 
