@@ -2054,3 +2054,107 @@ describe("parseIkiModel — clip masks", () => {
     );
   });
 });
+
+describe("physics rigs", () => {
+  /** A valid model declaring the two params physics rigs reference. */
+  function physicsModel(physics: unknown) {
+    const m = validModel() as Record<string, unknown>;
+    m.parameters = [
+      { id: "ParamAngleX", name: "Angle X", min: -30, max: 30, default: 0 },
+      { id: "ParamHairSwayX", name: "Hair Sway", min: -20, max: 20, default: 0 },
+    ];
+    // validModel()'s part binds "ParamA", which physicsModel no longer declares;
+    // repoint it to a declared param so the part itself stays valid.
+    (m.parts as { bindings: { parameter: string }[] }[])[0].bindings[0].parameter =
+      "ParamAngleX";
+    m.physics = physics;
+    return m;
+  }
+
+  const validRig = {
+    id: "hairSway",
+    input: { parameter: "ParamAngleX", weight: 1 },
+    output: { parameter: "ParamHairSwayX", scale: -10 },
+    mass: 1,
+    stiffness: 80,
+    damping: 10,
+  };
+
+  it("parses a valid single rig and round-trips onto model.physics", () => {
+    const model = parseIkiModel(physicsModel([validRig]));
+    expect(model.physics).toHaveLength(1);
+    expect(model.physics?.[0]).toEqual(validRig);
+  });
+
+  it("rejects an unknown input.parameter", () => {
+    const rig = { ...validRig, input: { parameter: "Nope", weight: 1 } };
+    expect(() => parseIkiModel(physicsModel([rig]))).toThrow(
+      /physics\[0\]\.input\.parameter "Nope" is not a declared parameter/,
+    );
+  });
+
+  it("rejects an unknown output.parameter", () => {
+    const rig = { ...validRig, output: { parameter: "Nope", scale: -10 } };
+    expect(() => parseIkiModel(physicsModel([rig]))).toThrow(
+      /physics\[0\]\.output\.parameter "Nope" is not a declared parameter/,
+    );
+  });
+
+  it("rejects input.parameter === output.parameter (anti-feedback)", () => {
+    const rig = {
+      ...validRig,
+      input: { parameter: "ParamAngleX", weight: 1 },
+      output: { parameter: "ParamAngleX", scale: -10 },
+    };
+    expect(() => parseIkiModel(physicsModel([rig]))).toThrow(
+      /physics\[0\]: input\.parameter and output\.parameter must differ \(anti-feedback\)/,
+    );
+  });
+
+  it("rejects two rigs sharing the same output.parameter", () => {
+    const a = { ...validRig, id: "a" };
+    const b = { ...validRig, id: "b" };
+    expect(() => parseIkiModel(physicsModel([a, b]))).toThrow(
+      /physics\[1\]\.output\.parameter "ParamHairSwayX" is already an output of another physics rig/,
+    );
+  });
+
+  it("rejects a rig whose output is another rig's input (feedback loop)", () => {
+    // rig 0 outputs ParamHairSwayX; rig 1 reads ParamHairSwayX as input.
+    const rig0 = { ...validRig, id: "a" };
+    const rig1 = {
+      id: "b",
+      input: { parameter: "ParamHairSwayX", weight: 1 },
+      output: { parameter: "ParamAngleX", scale: -10 },
+      mass: 1,
+      stiffness: 80,
+      damping: 10,
+    };
+    expect(() => parseIkiModel(physicsModel([rig0, rig1]))).toThrow(
+      /physics\[0\]\.output\.parameter "ParamHairSwayX" is used as a physics input \(feedback loops are not supported\)/,
+    );
+  });
+
+  it("rejects mass <= 0", () => {
+    expect(() => parseIkiModel(physicsModel([{ ...validRig, mass: 0 }]))).toThrow(
+      /physics\[0\]\.mass must be > 0/,
+    );
+  });
+
+  it("rejects stiffness <= 0", () => {
+    expect(() =>
+      parseIkiModel(physicsModel([{ ...validRig, stiffness: 0 }])),
+    ).toThrow(/physics\[0\]\.stiffness must be > 0/);
+  });
+
+  it("rejects damping < 0", () => {
+    expect(() =>
+      parseIkiModel(physicsModel([{ ...validRig, damping: -1 }])),
+    ).toThrow(/physics\[0\]\.damping must be >= 0/);
+  });
+
+  it("treats physics as optional (omitted => model.physics is undefined)", () => {
+    const model = parseIkiModel(validModel());
+    expect(model.physics).toBeUndefined();
+  });
+});
