@@ -2061,12 +2061,19 @@ describe("physics rigs", () => {
     const m = validModel() as Record<string, unknown>;
     m.parameters = [
       { id: "ParamAngleX", name: "Angle X", min: -30, max: 30, default: 0 },
-      { id: "ParamHairSwayX", name: "Hair Sway", min: -20, max: 20, default: 0 },
+      {
+        id: "ParamHairSwayX",
+        name: "Hair Sway",
+        min: -20,
+        max: 20,
+        default: 0,
+      },
     ];
     // validModel()'s part binds "ParamA", which physicsModel no longer declares;
     // repoint it to a declared param so the part itself stays valid.
-    (m.parts as { bindings: { parameter: string }[] }[])[0].bindings[0].parameter =
-      "ParamAngleX";
+    (
+      m.parts as { bindings: { parameter: string }[] }[]
+    )[0].bindings[0].parameter = "ParamAngleX";
     m.physics = physics;
     return m;
   }
@@ -2136,9 +2143,9 @@ describe("physics rigs", () => {
   });
 
   it("rejects mass <= 0", () => {
-    expect(() => parseIkiModel(physicsModel([{ ...validRig, mass: 0 }]))).toThrow(
-      /physics\[0\]\.mass must be > 0/,
-    );
+    expect(() =>
+      parseIkiModel(physicsModel([{ ...validRig, mass: 0 }])),
+    ).toThrow(/physics\[0\]\.mass must be > 0/);
   });
 
   it("rejects stiffness <= 0", () => {
