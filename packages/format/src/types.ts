@@ -295,6 +295,31 @@ export interface IkiWarpDeformer {
 /** A deformer node: a rigid matrix deformer (#4a) or a group warp deformer (#4c). */
 export type IkiDeformer = IkiMatrixDeformer | IkiWarpDeformer;
 
+/**
+ * A 1D spring-mass-damper secondary-motion rig.
+ *
+ * `input.parameter` drives the spring: its current value is signed-normalized
+ * around its declared default and multiplied by `weight` to form the spring's
+ * target. The spring's lagging position is multiplied by `output.scale` and
+ * added onto `output.parameter`'s default — so the output param lags and
+ * overshoots the input (hair/accessory sway). Spring constants are
+ * SECONDS-based. This is secondary motion only: it must not write a
+ * host-driven input param (`input.parameter !== output.parameter`).
+ */
+export interface IkiPhysics {
+  id: string;
+  /** Driver parameter; its signed-normalized value × `weight` is the spring target. */
+  input: { parameter: string; weight: number };
+  /** Driven parameter; the spring position × `scale` is added onto its default. */
+  output: { parameter: string; scale: number };
+  /** Spring mass (> 0). */
+  mass: number;
+  /** Spring stiffness (> 0). */
+  stiffness: number;
+  /** Damping coefficient (>= 0). */
+  damping: number;
+}
+
 /** A complete `.iki` puppet model. */
 export interface IkiModel {
   /** Format version; see {@link IKI_FORMAT_VERSION}. */
@@ -307,4 +332,6 @@ export interface IkiModel {
   textures?: IkiTexture[];
   parts: IkiPart[];
   deformers?: IkiDeformer[];
+  /** Optional spring-mass-damper secondary-motion rigs. */
+  physics?: IkiPhysics[];
 }
