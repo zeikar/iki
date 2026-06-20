@@ -9,3 +9,4 @@ export {
   translate,
 } from "./affine";
 export { IdleMotion, type IdleMotionOptions } from "./idle-motion";
+export { PhysicsMotion } from "./physics-motion";
