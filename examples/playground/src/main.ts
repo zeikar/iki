@@ -31,6 +31,11 @@ const slidersById = new Map<
 // so EVERY write must flow through mirrorParam to keep this fresh.
 const current: Record<string, number> = {};
 
+// Declared [min,max] per param id, so mirrorParam can clamp exactly like the
+// player's ParameterStore — keeping `current` in lockstep with the engine even
+// for out-of-range programmatic writes (window.__iki.reset/setParam).
+const ranges = new Map<string, { min: number; max: number }>();
+
 // The most recently loaded parsed model — startIdle reads its `physics` rigs and
 // `parameters` (descriptors) to construct the PhysicsMotion driver.
 let parsedModel: ReturnType<typeof parseIkiModel> | undefined;
@@ -39,12 +44,15 @@ let parsedModel: ReturnType<typeof parseIkiModel> | undefined;
 // AND the host-side `current` mirror. Used by the slider handlers, the idle
 // loop, the physics loop, and the dev setParam API.
 function mirrorParam(id: string, value: number): void {
-  player.setParameter(id, value);
-  current[id] = value;
+  // Clamp to the declared range so `current` (which PhysicsMotion reads) never
+  // diverges from the player's clamped ParameterStore value.
+  const r = ranges.get(id);
+  const v = r ? clamp(value, r.min, r.max) : value;
+  player.setParameter(id, v);
+  current[id] = v;
   const ui = slidersById.get(id);
   if (ui) {
-    // Clamp to the slider's range exactly as the <input> clamps it.
-    ui.slider.value = String(value);
+    ui.slider.value = String(v);
     ui.readout.textContent = Number(ui.slider.value).toFixed(2);
   }
 }
@@ -152,10 +160,14 @@ panel.insertBefore(idleRow, controls);
 async function loadModel(rawModel: unknown): Promise<void> {
   const parsed = parseIkiModel(rawModel);
   parsedModel = parsed;
-  // Seed the host-side current-value mirror from the engine-effective (clamped)
-  // defaults so the physics driver reads the same rest values ParameterStore
-  // holds — before the first slider/idle write.
-  for (const p of parsed.parameters) current[p.id] = effectiveDefault(p);
+  // Record ranges + seed the host-side current-value mirror from the engine-
+  // effective (clamped) defaults so the physics driver reads the same rest
+  // values ParameterStore holds — before the first slider/idle write.
+  ranges.clear();
+  for (const p of parsed.parameters) {
+    ranges.set(p.id, { min: p.min, max: p.max });
+    current[p.id] = effectiveDefault(p);
+  }
   const { failedTextures } = await player.load(parsed);
   buildControls();
   if (failedTextures.length > 0) {
