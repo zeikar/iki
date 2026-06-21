@@ -141,6 +141,43 @@ describe("PhysicsMotion", () => {
     expect(a).toEqual(b);
   });
 
+  it("never emits NaN/Infinity for an extreme-but-valid rig", () => {
+    // Tiny mass + huge stiffness push the fixed-substep integrator past its
+    // explicit-stability limit; the finiteness guard must keep the sink clean.
+    const extreme: IkiPhysics = {
+      id: "stiff",
+      input: { parameter: INPUT, weight: 1 },
+      output: { parameter: OUTPUT, scale: -10 },
+      mass: 1e-9,
+      stiffness: 1e12,
+      damping: 0,
+    };
+    const ts = timestamps(1000, 40, 16);
+    const inputFn = (_id: string, t: number) => (t <= ts[0] ? 0 : 30);
+    const out = drive([extreme], PARAMS, inputFn, ts).get(OUTPUT)!;
+    // The contract is finiteness: the sink must never receive NaN/Infinity (the
+    // host's ParameterStore clamps any finite magnitude into range, but cannot
+    // clamp NaN). A diverging spring may emit large-but-finite values for a
+    // frame before the guard snaps it back to rest — those are clamp-safe.
+    for (const v of out) {
+      expect(Number.isFinite(v)).toBe(true);
+    }
+  });
+
+  it("normalizes/emits against the clamped engine-effective default", () => {
+    // Out-of-range defaults: ParameterStore clamps input rest to 30, output to 20.
+    const params: IkiParameter[] = [
+      { id: INPUT, name: "Angle X", min: -30, max: 30, default: 99 },
+      { id: OUTPUT, name: "Hair Sway", min: -20, max: 20, default: 50 },
+    ];
+    // Input held at its clamped rest (30) -> spring target 0 -> output rests at
+    // the CLAMPED output default (20), not the raw 50.
+    const out = drive([rig()], params, () => 30, timestamps(1000, 3, 16)).get(
+      OUTPUT,
+    )!;
+    expect(out[0]).toBeCloseTo(20, 6);
+  });
+
   it("is a no-op with an empty rig list", () => {
     const emissions = drive([], PARAMS, () => 30, timestamps(1000, 3, 16));
     expect(emissions.size).toBe(0);

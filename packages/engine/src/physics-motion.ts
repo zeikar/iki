@@ -14,20 +14,22 @@ function clamp(v: number, lo: number, hi: number): number {
 }
 
 /**
- * Map a parameter value to [-1, 1] around its declared default. Portable across
- * param ranges: the wider side of the range (default→max vs min→default) sets
- * the unit, so ±1 lands at the farther extreme. Returns 0 for a zero-width range.
+ * Map a parameter value to [-1, 1] around its engine-effective default. Portable
+ * across param ranges: the wider side (rest→max vs min→rest) sets the unit, so
+ * ±1 lands at the farther extreme. Returns 0 for a zero-width range.
+ *
+ * The rest center is `clamp(default, min, max)` to match ParameterStore, which
+ * clamps an out-of-range default — so the spring rests where the model actually
+ * renders, not at a raw out-of-range default.
  */
 function signedNormalized(
   value: number,
   param: { min: number; max: number; default: number },
 ): number {
-  const den = Math.max(
-    Math.abs(param.max - param.default),
-    Math.abs(param.default - param.min),
-  );
+  const rest = clamp(param.default, param.min, param.max);
+  const den = Math.max(Math.abs(param.max - rest), Math.abs(rest - param.min));
   if (den === 0) return 0;
-  return clamp((value - param.default) / den, -1, 1);
+  return clamp((value - rest) / den, -1, 1);
 }
 
 // --- Public API --------------------------------------------------------------
@@ -130,7 +132,17 @@ export class PhysicsMotion {
 
     // Always emit (even when zero sub-steps ran) so the sink stays in sync.
     for (let i = 0; i < this.rigs.length; i++) {
-      this.emit(this.rigs[i], this.state[i]);
+      const st = this.state[i];
+      // The fixed 1/60s sub-step can diverge for an extreme-but-parse-valid rig
+      // (tiny mass / huge stiffness push ω·dt past the explicit-integrator
+      // stability limit). If state goes non-finite, snap back to rest at the
+      // current target so a validated model can never poison the sink with
+      // NaN/Infinity (ParameterStore.clamp(NaN) would store NaN).
+      if (!Number.isFinite(st.x) || !Number.isFinite(st.v)) {
+        st.x = Number.isFinite(targets[i]) ? targets[i] : 0;
+        st.v = 0;
+      }
+      this.emit(this.rigs[i], st);
     }
   }
 
@@ -153,7 +165,17 @@ export class PhysicsMotion {
   /** Write outputDefault + x * scale onto the output param via the sink. */
   private emit(rig: IkiPhysics, st: RigState): void {
     const outParam = this.params.get(rig.output.parameter);
-    const outDefault = outParam ? outParam.default : 0;
-    this.sink(rig.output.parameter, outDefault + st.x * rig.output.scale);
+    // clamp to match ParameterStore's engine-effective default (see signedNormalized).
+    const outDefault = outParam
+      ? clamp(outParam.default, outParam.min, outParam.max)
+      : 0;
+    const value = outDefault + st.x * rig.output.scale;
+    // Final guard: even a finite-but-enormous `x` could overflow the product to
+    // ±Infinity. Emit the rest pose rather than ever handing a non-finite value
+    // to the sink — ParameterStore.clamp(NaN) would otherwise store NaN.
+    this.sink(
+      rig.output.parameter,
+      Number.isFinite(value) ? value : outDefault,
+    );
   }
 }
