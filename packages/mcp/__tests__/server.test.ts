@@ -161,7 +161,7 @@ describe("MCP server integration", () => {
     expect(sc.summary.name).toBe("test-model");
   });
 
-  it("list_standard_parameters returns 14 entries under structuredContent.parameters", async () => {
+  it("list_standard_parameters returns 15 entries under structuredContent.parameters", async () => {
     pair = await createPair();
     const result = await pair.client.callTool({
       name: "list_standard_parameters",
@@ -171,7 +171,7 @@ describe("MCP server integration", () => {
     const sc = result.structuredContent as {
       parameters: { id: string; description: string }[];
     };
-    expect(sc.parameters).toHaveLength(14);
+    expect(sc.parameters).toHaveLength(15);
     expect(result.isError).toBeFalsy();
   });
 
