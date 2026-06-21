@@ -299,12 +299,15 @@ export type IkiDeformer = IkiMatrixDeformer | IkiWarpDeformer;
  * A 1D spring-mass-damper secondary-motion rig.
  *
  * `input.parameter` drives the spring: its current value is signed-normalized
- * around its declared default and multiplied by `weight` to form the spring's
- * target. The spring's lagging position is multiplied by `output.scale` and
- * added onto `output.parameter`'s default — so the output param lags and
- * overshoots the input (hair/accessory sway). Spring constants are
- * SECONDS-based. This is secondary motion only: it must not write a
- * host-driven input param (`input.parameter !== output.parameter`).
+ * around its engine-effective default and multiplied by `weight` to form the
+ * spring's target. The spring's lagging position is multiplied by `output.scale`
+ * and added onto `output.parameter`'s engine-effective default — so the output
+ * param lags and overshoots the input (hair/accessory sway). "Engine-effective
+ * default" means the declared `default` clamped into `[min, max]`, matching how
+ * the runtime parameter store rests an out-of-range default; host adapters must
+ * clamp likewise. Spring constants are SECONDS-based. This is secondary motion
+ * only: it must not write a host-driven input param
+ * (`input.parameter !== output.parameter`).
  */
 export interface IkiPhysics {
   id: string;

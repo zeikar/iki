@@ -6,6 +6,14 @@ const canvas = document.getElementById("iki") as HTMLCanvasElement;
 const controls = document.getElementById("controls") as HTMLDivElement;
 const panel = controls.parentElement!;
 
+// Engine-effective default: ParameterStore clamps an out-of-range default into
+// range, and PhysicsMotion rests around that same clamped value — so the host
+// mirror + sliders must use it too, not the raw declared default.
+const clamp = (v: number, lo: number, hi: number) =>
+  Math.max(lo, Math.min(hi, v));
+const effectiveDefault = (p: { min: number; max: number; default: number }) =>
+  clamp(p.default, p.min, p.max);
+
 const player = new IkiPlayer(canvas);
 // start() may be called any time, but nothing renders until the first load()
 // resolves. load() swaps the model atomically — you never see a partial frame.
@@ -50,11 +58,12 @@ function buildControls(): void {
     const wrap = document.createElement("div");
     wrap.className = "control";
 
+    const def = effectiveDefault(param);
     const label = document.createElement("label");
     const name = document.createElement("span");
     name.textContent = param.name ?? param.id;
     const readout = document.createElement("span");
-    readout.textContent = param.default.toFixed(2);
+    readout.textContent = def.toFixed(2);
     label.append(name, readout);
 
     const slider = document.createElement("input");
@@ -62,7 +71,7 @@ function buildControls(): void {
     slider.min = String(param.min);
     slider.max = String(param.max);
     slider.step = String((param.max - param.min) / 100);
-    slider.value = String(param.default);
+    slider.value = String(def);
     slider.addEventListener("input", () => {
       const value = Number(slider.value);
       // Route through mirrorParam so `current` stays fresh — otherwise the
@@ -143,9 +152,10 @@ panel.insertBefore(idleRow, controls);
 async function loadModel(rawModel: unknown): Promise<void> {
   const parsed = parseIkiModel(rawModel);
   parsedModel = parsed;
-  // Seed the host-side current-value mirror from the declared defaults so the
-  // physics driver reads sane inputs before the first slider/idle write.
-  for (const p of parsed.parameters) current[p.id] = p.default;
+  // Seed the host-side current-value mirror from the engine-effective (clamped)
+  // defaults so the physics driver reads the same rest values ParameterStore
+  // holds — before the first slider/idle write.
+  for (const p of parsed.parameters) current[p.id] = effectiveDefault(p);
   const { failedTextures } = await player.load(parsed);
   buildControls();
   if (failedTextures.length > 0) {
