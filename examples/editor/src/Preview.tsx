@@ -41,6 +41,14 @@ export function Preview({ playerRef }: PreviewProps) {
   // directly and must leave authoring `params` untouched.
   const [idleOn, setIdleOn] = useState(false);
 
+  // Preview-local current-value mirror shared by the idle loop, the physics
+  // driver, and the sliders. PhysicsMotion has no access to the player's private
+  // ParameterStore, so every preview write (idle, physics, slider) flows through
+  // here and physics reads its input from it — this is what lets physics see an
+  // idle-driven (or slider-driven) input value within the same frame. It is
+  // ephemeral preview state and is never written back to the authoring store.
+  const currentRef = useRef<Record<string, number>>({});
+
   // True when idle must be blocked: grid-edit mode OR a matrix deformer is
   // selected (matrix deformer needs stable pose for the pivot gizmo; warp does
   // not — PivotOverlay no-ops for warp, so idle stays allowed there).
@@ -93,23 +101,36 @@ export function Preview({ playerRef }: PreviewProps) {
       return p ? Math.max(p.min, Math.min(p.max, v)) : v;
     };
 
-    const idle = new IdleMotion(player.setParameter.bind(player));
+    // Seed the shared preview mirror from the authored pose (clamped like
+    // ParameterStore) so the drivers read sane rest values from frame 1.
+    const current = currentRef.current;
+    const authored = useEditorStore.getState().params;
+    for (const p of descriptors) {
+      current[p.id] = clampParam(p.id, authored[p.id] ?? p.default);
+    }
+
+    // Ephemeral driver sink: writes the player AND the shared mirror, but NOT
+    // the authoring store. Both idle and physics write through this, so physics
+    // sees idle's same-frame writes (and slider writes, which also hit `current`).
+    const drive = (id: string, value: number): void => {
+      const v = clampParam(id, value);
+      player.setParameter(id, v);
+      current[id] = v;
+    };
+
+    const idle = new IdleMotion(drive);
 
     // Secondary-motion spring (the playground's peer). Reads its input from the
-    // LIVE authoring pose (store params, clamped like ParameterStore) and writes
-    // its output param through the player. A model without physics rigs is a
-    // no-op. Output params are restored on cleanup alongside the idle params.
+    // shared mirror and writes its output param through the same sink. A model
+    // without physics rigs is a no-op. Output params are restored on cleanup
+    // alongside the idle params. Rigs are re-read on `revision` (deps) so a doc
+    // edit/reload rebuilds the driver with the current model's rigs.
     const rigs = useEditorStore.getState().doc.getModel().physics ?? [];
     const physics = new PhysicsMotion(
       rigs,
       descriptors,
-      (id) => {
-        const v = useEditorStore.getState().params[id];
-        return v !== undefined
-          ? clampParam(id, v)
-          : clampParam(id, byId.get(id)?.default ?? 0);
-      },
-      player.setParameter.bind(player),
+      (id) => current[id] ?? clampParam(id, byId.get(id)?.default ?? 0),
+      drive,
     );
 
     let frame = requestAnimationFrame(function tick() {
@@ -135,7 +156,9 @@ export function Preview({ playerRef }: PreviewProps) {
         }
       }
     };
-  }, [idleOn, gridEditMode, playerRef]);
+    // `revision` rebuilds the loop after a doc edit/reload so physics picks up
+    // the current model's rigs/descriptors instead of going stale.
+  }, [idleOn, gridEditMode, playerRef, revision]);
 
   return (
     <main
@@ -203,12 +226,17 @@ export function Preview({ playerRef }: PreviewProps) {
           )}
         </div>
       </div>
-      <ParamSliders playerRef={playerRef} />
+      <ParamSliders playerRef={playerRef} currentRef={currentRef} />
     </main>
   );
 }
 
-function ParamSliders({ playerRef }: PreviewProps) {
+function ParamSliders({
+  playerRef,
+  currentRef,
+}: PreviewProps & {
+  currentRef: MutableRefObject<Record<string, number>>;
+}) {
   // Parameters are not editable in 5a, so the descriptors are stable once the
   // first load resolves — `loaded` is the only re-render trigger needed.
   const loaded = useEditorStore((s) => s.loaded);
@@ -252,6 +280,9 @@ function ParamSliders({ playerRef }: PreviewProps) {
                 // loaded === true guarantees playerRef.current is the loaded player.
                 playerRef.current!.setParameter(param.id, next);
                 setParam(param.id, next);
+                // Keep the preview mirror fresh so a physics rig reading this
+                // param as input sees the drag on the next frame.
+                currentRef.current[param.id] = next;
               }}
               style={{ flex: 1 }}
             />
