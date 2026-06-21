@@ -222,8 +222,18 @@ function hair(
 // ParamHairSwayX (driven by the PhysicsMotion spring) rotates/translates the
 // side locks so they lag + overshoot the head turn. Both locks sway together.
 const hairSwayBindings: IkiBinding[] = [
-  { parameter: "ParamHairSwayX", channel: "rotate", from: -8, to: 8 },
-  { parameter: "ParamHairSwayX", channel: "translateX", from: -10, to: 10 },
+  {
+    parameter: StandardParameter.HairSwayX,
+    channel: "rotate",
+    from: -8,
+    to: 8,
+  },
+  {
+    parameter: StandardParameter.HairSwayX,
+    channel: "translateX",
+    from: -10,
+    to: 10,
+  },
 ];
 
 export const sampleModel: IkiModel = {
@@ -296,9 +306,9 @@ export const sampleModel: IkiModel = {
       default: 0,
     },
     {
-      // Driven by the PhysicsMotion spring (not by the host directly); raw id —
-      // no StandardParameter. Range is wide enough for the spring's overshoot.
-      id: "ParamHairSwayX",
+      // Driven by the PhysicsMotion spring (not by the host directly). Range is
+      // wide enough for the spring's overshoot.
+      id: StandardParameter.HairSwayX,
       name: "Hair Sway X",
       min: -20,
       max: 20,
@@ -497,7 +507,7 @@ export const sampleModel: IkiModel = {
     {
       id: "hairSway",
       input: { parameter: StandardParameter.AngleX, weight: 1 },
-      output: { parameter: "ParamHairSwayX", scale: -10 },
+      output: { parameter: StandardParameter.HairSwayX, scale: -10 },
       mass: 1,
       stiffness: 80,
       damping: 10,
