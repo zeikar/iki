@@ -478,6 +478,79 @@ function assemblyLayers(): LayerInput[] {
   ];
 }
 
+/** assemblyLayers() + a hair_front layer (the base fixture has hair_back only). */
+function hairFrontLayers(): LayerInput[] {
+  return [
+    ...assemblyLayers(),
+    {
+      role: "hair_front",
+      fileName: "hair_front.png",
+      canvasW: 1000,
+      canvasH: 1000,
+      bbox: { x: 150, y: 60, w: 700, h: 400 },
+      cropW: 700,
+      cropH: 400,
+    },
+  ];
+}
+
+describe("hair-sway physics", () => {
+  const canvas = { width: 1000, height: 1000 };
+
+  it("emits one hair-sway rig when a hair_front layer is present", () => {
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+    expect(model.physics).toBeDefined();
+    expect(model.physics).toHaveLength(1);
+    const rig = model.physics![0];
+    expect(rig.input.parameter).toBe(StandardParameter.AngleX);
+    expect(rig.input.weight).toBe(1);
+    expect(rig.output.parameter).toBe(StandardParameter.HairSwayX);
+    expect(rig.output.scale).toBe(-10);
+    expect(rig.mass).toBe(1);
+    expect(rig.stiffness).toBe(80);
+    expect(rig.damping).toBe(10);
+  });
+
+  it("binds rotate + translateX on HairSwayX to the hair_front part", () => {
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+    const hair = model.parts.find((p) => p.id === "hair_front");
+    expect(hair).toBeDefined();
+    const sway = (hair!.bindings ?? []).filter(
+      (b) => b.parameter === StandardParameter.HairSwayX,
+    );
+    expect(sway.find((b) => b.channel === "rotate")).toMatchObject({
+      from: -8,
+      to: 8,
+    });
+    expect(sway.find((b) => b.channel === "translateX")).toMatchObject({
+      from: -10,
+      to: 10,
+    });
+  });
+
+  it("declares the HairSwayX parameter when hair is present", () => {
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+    const param = model.parameters.find(
+      (p) => p.id === StandardParameter.HairSwayX,
+    );
+    expect(param).toMatchObject({ min: -20, max: 20, default: 0 });
+  });
+
+  it("emits NO physics / param / binding without a hair_front layer", () => {
+    const model = generateIkiFromLayerSet(assemblyLayers(), canvas);
+    expect(model.physics).toBeUndefined();
+    expect(
+      model.parameters.some((p) => p.id === StandardParameter.HairSwayX),
+    ).toBe(false);
+    const anySway = model.parts.some((part) =>
+      (part.bindings ?? []).some(
+        (b) => b.parameter === StandardParameter.HairSwayX,
+      ),
+    );
+    expect(anySway).toBe(false);
+  });
+});
+
 // ── Off-center fixture (faceCenterX = -100) ───────────────────────────────────
 //
 // Canvas 1000×1000. Face bbox x=250,y=100,w=300,h=400:
@@ -798,6 +871,23 @@ describe("bindings", () => {
   it("bindingsForRole: hair_back (static) returns empty array", () => {
     const spec = ROLE_TABLE["hair_back"];
     expect(bindingsForRole(spec, "hair_back", 800, 700)).toHaveLength(0);
+  });
+
+  it("bindingsForRole: hair_front returns rotate + translateX sway on HairSwayX", () => {
+    const spec = ROLE_TABLE["hair_front"];
+    const bindings = bindingsForRole(spec, "hair_front", 700, 400);
+    expect(bindings).toHaveLength(2);
+    expect(
+      bindings.every((b) => b.parameter === StandardParameter.HairSwayX),
+    ).toBe(true);
+    expect(bindings.find((b) => b.channel === "rotate")).toMatchObject({
+      from: -8,
+      to: 8,
+    });
+    expect(bindings.find((b) => b.channel === "translateX")).toMatchObject({
+      from: -10,
+      to: 10,
+    });
   });
 
   it("bindingsForRole: brow_L returns 2 bindings with left params, raw-symmetric", () => {
