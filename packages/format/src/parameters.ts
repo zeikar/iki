@@ -35,6 +35,8 @@ export const StandardParameter = {
   BrowLeftAngle: "ParamBrowLAngle",
   /** Right brow tilt (-1 .. 1, CCW-positive). */
   BrowRightAngle: "ParamBrowRAngle",
+  /** Horizontal hair sway. Physics OUTPUT — driven by the spring, not set by the host. */
+  HairSwayX: "ParamHairSwayX",
 } as const;
 
 export type StandardParameterId =

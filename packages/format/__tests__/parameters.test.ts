@@ -18,6 +18,7 @@ describe("StandardParameter", () => {
       BrowRightY: "ParamBrowRY",
       BrowLeftAngle: "ParamBrowLAngle",
       BrowRightAngle: "ParamBrowRAngle",
+      HairSwayX: "ParamHairSwayX",
     });
   });
 });
