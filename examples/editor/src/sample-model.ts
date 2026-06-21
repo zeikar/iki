@@ -230,6 +230,7 @@ function hair(
   x: number,
   y: number,
   mesh: IkiMesh,
+  bindings?: IkiBinding[],
 ): IkiPart {
   return {
     id,
@@ -240,8 +241,16 @@ function hair(
     transform: { x, y },
     deformer: "headDeformer",
     mesh,
+    ...(bindings ? { bindings } : {}),
   };
 }
+
+// ParamHairSwayX (driven by the PhysicsMotion spring) rotates/translates the
+// side locks so they lag + overshoot the head turn. Both locks sway together.
+const hairSwayBindings: IkiBinding[] = [
+  { parameter: "ParamHairSwayX", channel: "rotate", from: -8, to: 8 },
+  { parameter: "ParamHairSwayX", channel: "translateX", from: -10, to: 10 },
+];
 
 // Eye meshes are shared between each part and its fold warp: the warp's per-vertex
 // offsets must line up with the part's own mesh vertices.
@@ -310,6 +319,14 @@ export const sampleModel: IkiModel = {
       name: "Breath",
       min: 0,
       max: 1,
+      default: 0,
+    },
+    {
+      // Driven by the PhysicsMotion spring (not the host directly); raw id.
+      id: "ParamHairSwayX",
+      name: "Hair Sway X",
+      min: -20,
+      max: 20,
       default: 0,
     },
     {
@@ -559,6 +576,7 @@ export const sampleModel: IkiModel = {
         [-188, -70],
         [-232, -30],
       ]),
+      hairSwayBindings,
     ),
     hair(
       "sideLockR",
@@ -572,6 +590,19 @@ export const sampleModel: IkiModel = {
         [232, -30],
         [188, -70],
       ]),
+      hairSwayBindings,
     ),
+  ],
+  // Secondary motion: a spring lags ParamAngleX onto ParamHairSwayX so the side
+  // locks sway behind the head turn (constants are SECONDS-based, underdamped).
+  physics: [
+    {
+      id: "hairSway",
+      input: { parameter: StandardParameter.AngleX, weight: 1 },
+      output: { parameter: "ParamHairSwayX", scale: -10 },
+      mass: 1,
+      stiffness: 80,
+      damping: 10,
+    },
   ],
 };
