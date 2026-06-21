@@ -1,4 +1,4 @@
-import { IkiPlayer, IdleMotion } from "@iki/engine";
+import { IkiPlayer, IdleMotion, PhysicsMotion } from "@iki/engine";
 import { StandardParameter } from "@iki/format";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 
@@ -86,21 +86,52 @@ export function Preview({ playerRef }: PreviewProps) {
     const player = playerRef.current;
     if (!idleOn || gridEditMode || !player) return;
 
+    const descriptors = player.getParameters();
+    const byId = new Map(descriptors.map((p) => [p.id, p]));
+    const clampParam = (id: string, v: number): number => {
+      const p = byId.get(id);
+      return p ? Math.max(p.min, Math.min(p.max, v)) : v;
+    };
+
     const idle = new IdleMotion(player.setParameter.bind(player));
+
+    // Secondary-motion spring (the playground's peer). Reads its input from the
+    // LIVE authoring pose (store params, clamped like ParameterStore) and writes
+    // its output param through the player. A model without physics rigs is a
+    // no-op. Output params are restored on cleanup alongside the idle params.
+    const rigs = useEditorStore.getState().doc.getModel().physics ?? [];
+    const physics = new PhysicsMotion(
+      rigs,
+      descriptors,
+      (id) => {
+        const v = useEditorStore.getState().params[id];
+        return v !== undefined
+          ? clampParam(id, v)
+          : clampParam(id, byId.get(id)?.default ?? 0);
+      },
+      player.setParameter.bind(player),
+    );
+
     let frame = requestAnimationFrame(function tick() {
-      idle.update(performance.now());
+      const now = performance.now();
+      idle.update(now);
+      physics.update(now);
       frame = requestAnimationFrame(tick);
     });
 
     return () => {
       cancelAnimationFrame(frame);
-      // Restore the authored pose on the SAME player the loop drove. Only touch
-      // ids the loaded model declares — never `.default` on an absent descriptor.
-      const descriptors = new Map(player.getParameters().map((p) => [p.id, p]));
+      // Restore the authored pose on the SAME player the loop drove — both the
+      // idle params and the physics OUTPUT params the spring overwrote. Only
+      // touch ids the loaded model declares — never `.default` on an absent one.
       const { params } = useEditorStore.getState();
-      for (const id of IDLE_PARAM_IDS) {
-        if (descriptors.has(id)) {
-          player.setParameter(id, params[id] ?? descriptors.get(id)!.default);
+      const restoreIds = new Set<string>([
+        ...IDLE_PARAM_IDS,
+        ...rigs.map((r) => r.output.parameter),
+      ]);
+      for (const id of restoreIds) {
+        if (byId.has(id)) {
+          player.setParameter(id, params[id] ?? byId.get(id)!.default);
         }
       }
     };
