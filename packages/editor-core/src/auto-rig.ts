@@ -14,6 +14,7 @@ import {
   type IkiGridWarp,
   type IkiMesh,
   type IkiModel,
+  type IkiParameter,
   type IkiPart,
   type IkiWarp,
   type IkiWarpGrid,
@@ -469,6 +470,8 @@ const EYE_STACK_PREFIXES = ["eye_", "iris_", "pupil_", "highlight_"] as const;
  * Derive the IkiBinding[] for a part from its role spec and crop dimensions.
  *
  * - face, hair_back, blush, nose → no bindings
+ * - hair_front: HairSwayX rotate (-8..8) + translateX (-10..10) — secondary-motion
+ *     sway driven by the PhysicsMotion spring (rig emitted in generateIkiFromLayerSet)
  * - brow_L/R: BrowLeftY/RightY translateY (raise/lower) + BrowLeftAngle/RightAngle rotate
  *     (each brow rotates its own, CCW-positive)
  * - eye-stack:
@@ -571,7 +574,28 @@ export function bindingsForRole(
     }
   }
 
-  // face, blush_*, nose, hair_* → no bindings
+  if (role === "hair_front") {
+    // Hair sway: ParamHairSwayX (a PhysicsMotion spring output) lags/overshoots
+    // the head turn. Fixed magnitudes match the hand-authored sample. hair_back
+    // stays rigid (no sway). The PhysicsMotion rig that drives HairSwayX is
+    // emitted in generateIkiFromLayerSet when a hair_front layer is present.
+    return [
+      {
+        parameter: StandardParameter.HairSwayX,
+        channel: "rotate",
+        from: -8,
+        to: 8,
+      },
+      {
+        parameter: StandardParameter.HairSwayX,
+        channel: "translateX",
+        from: -10,
+        to: 10,
+      },
+    ];
+  }
+
+  // face, blush_*, nose, hair_back → no bindings
   return [];
 }
 
@@ -628,7 +652,9 @@ export function bakeEyelidFoldWarp(
  *
  *   - Validate all inputs before deriving anything.
  *   - Place parts at source-derived positions (bboxToTransform, unshifted).
- *   - Emit the 12 standard parameters verbatim (same ids/ranges as sample-model.ts).
+ *   - Emit the standard parameters (same ids/ranges as sample-model.ts), plus a
+ *     conditional HairSwayX descriptor + hair-sway physics rig when a hair_front
+ *     layer is present.
  *   - Build headDeformer (matrix, neck pivot, AngleX+Breath bindings) and faceWarp
  *     (warp, 4×4, baked cylinder warp center-relative on faceCenterX).
  *   - Mesh parts (spec.mesh===true) → width:1, height:1, pixel grid mesh 4×4 + role bindings.
@@ -644,8 +670,11 @@ export function generateIkiFromLayerSet(
   // Validate first — never derive anything from unchecked input.
   validateLayerInputs(layers, canvas);
 
+  // Hair-sway secondary motion is gated on a front-hair layer being present.
+  const hasHair = layers.some((l) => l.role === "hair_front");
+
   // ── Standard parameters — verbatim from sample-model.ts ──────────────────
-  const parameters = [
+  const parameters: IkiParameter[] = [
     {
       id: StandardParameter.MouthOpen,
       name: "Mouth Open",
@@ -731,6 +760,18 @@ export function generateIkiFromLayerSet(
       default: 0,
     },
   ];
+
+  // Hair-sway output param (physics-driven), declared only when there is front
+  // hair to drive — keeps no-hair models free of an unused parameter.
+  if (hasHair) {
+    parameters.push({
+      id: StandardParameter.HairSwayX,
+      name: "Hair Sway X",
+      min: -20,
+      max: 20,
+      default: 0,
+    });
+  }
 
   // ── Face layer: derive center and crop for pivot + grid ───────────────────
   const faceLayers = layers.filter((l) => l.role === "face");
@@ -956,6 +997,21 @@ export function generateIkiFromLayerSet(
     parameters,
     deformers,
     parts,
+    // Secondary motion: a spring lags AngleX onto HairSwayX so front hair sways
+    // behind the head turn (same constants as the hand-authored sample). Omitted
+    // when there is no front hair to drive.
+    physics: hasHair
+      ? [
+          {
+            id: "hairSway",
+            input: { parameter: StandardParameter.AngleX, weight: 1 },
+            output: { parameter: StandardParameter.HairSwayX, scale: -10 },
+            mass: 1,
+            stiffness: 80,
+            damping: 10,
+          },
+        ]
+      : undefined,
   };
 
   // Gate: run through parseIkiModel so bad assembly fails loudly at the source.
