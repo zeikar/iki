@@ -1,4 +1,6 @@
 import {
+  AddPhysicsRig,
+  DeletePhysicsRig,
   SetDeformerBindings,
   SetDeformerParent,
   SetDeformerPivotX,
@@ -11,6 +13,7 @@ import {
   SetPartOrder,
   SetPartTransform,
   SetPartWidth,
+  SetPhysicsRig,
   type DeformerTransformChannel,
   type EditCommand,
   type EditTransformChannel,
@@ -23,9 +26,10 @@ import type {
   IkiMatrixDeformer,
   IkiModel,
   IkiPart,
+  IkiPhysics,
   IkiTransformChannel,
 } from "@iki/format";
-import { useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 import { decodeImageFile } from "./atlas-image";
 import { useEditorStore } from "./store";
@@ -228,6 +232,9 @@ export function Inspector() {
         {generatorError && <p style={errorStyle}>{generatorError}</p>}
       </div>
 
+      {/* Model-level: physics rig CRUD + tuning */}
+      <PhysicsRigsEditor model={model} runCommand={runCommand} />
+
       {selectedDeformerId ? (
         deformer ? (
           <DeformerPanel
@@ -248,6 +255,280 @@ export function Inspector() {
         />
       ) : (
         <p style={labelStyle}>Select a part or deformer to edit.</p>
+      )}
+    </div>
+  );
+}
+
+// ── Physics rigs (model-level authoring) ─────────────────────────────────────
+
+/** Scalar fields of a physics rig editable via draft-state inputs. `weight` and
+ *  `scale` live under the nested `input`/`output`; the rest are top-level. */
+type PhysicsScalar = "weight" | "scale" | "mass" | "stiffness" | "damping";
+
+/** Return a deep-cloned rig with one scalar overwritten — never aliases the
+ *  nested `input`/`output` objects. */
+function withPhysicsScalar(
+  rig: IkiPhysics,
+  field: PhysicsScalar,
+  value: number,
+): IkiPhysics {
+  const next = structuredClone(rig);
+  if (field === "weight") next.input.weight = value;
+  else if (field === "scale") next.output.scale = value;
+  else next[field] = value;
+  return next;
+}
+
+/**
+ * Build a valid default rig for the Add button, or `null` when no valid pair
+ * exists. A candidate `(input, output)` is valid iff (parsePhysics's per-rig +
+ * cross-rig rules): input !== output; output is not an existing output; output
+ * is not an existing input; AND input is not an existing output — because no rig
+ * output may be used as any rig input (feedback both ways). Searches ALL ordered
+ * pairs rather than greedily fixing input first.
+ */
+function defaultPhysicsRig(model: IkiModel): IkiPhysics | null {
+  const physics = model.physics ?? [];
+  const params = model.parameters;
+  const existingOutputs = new Set(physics.map((r) => r.output.parameter));
+  const existingInputs = new Set(physics.map((r) => r.input.parameter));
+
+  let pair: { input: string; output: string } | null = null;
+  for (const input of params) {
+    if (existingOutputs.has(input.id)) continue; // input can't be an existing output
+    for (const output of params) {
+      if (
+        input.id !== output.id &&
+        !existingOutputs.has(output.id) &&
+        !existingInputs.has(output.id)
+      ) {
+        pair = { input: input.id, output: output.id };
+        break;
+      }
+    }
+    if (pair) break;
+  }
+  if (!pair) return null;
+
+  const ids = new Set(physics.map((r) => r.id));
+  let n = physics.length + 1;
+  let id = `physics-${n}`;
+  while (ids.has(id)) id = `physics-${++n}`;
+  return {
+    id,
+    input: { parameter: pair.input, weight: 1 },
+    output: { parameter: pair.output, scale: -10 },
+    mass: 1,
+    stiffness: 80,
+    damping: 10,
+  };
+}
+
+/**
+ * One physics scalar input with LOCAL DRAFT state. The committed value comes
+ * from the parent rig; `onChange` updates ONLY the draft text (so a transient
+ * "" or "-" never reaches the validate-before-mutate command). The edit commits
+ * on blur/Enter only when the draft parses to a finite number that DIFFERS from
+ * the current value (idempotent — avoids a double undo when Enter then blur).
+ * A `text` input (not `number`) preserves a mid-edit "-" as raw draft text.
+ */
+function PhysicsNumberDraftField({
+  label,
+  value,
+  onCommit,
+}: {
+  label: string;
+  value: number;
+  onCommit: (v: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  // Re-sync the draft when the committed value changes (e.g. undo/redo).
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  const commit = () => {
+    const trimmed = draft.trim();
+    const parsed = trimmed === "" ? NaN : Number(trimmed);
+    if (Number.isFinite(parsed) && parsed !== value) onCommit(parsed);
+    else setDraft(String(value)); // snap back an unparseable / no-op draft
+  };
+
+  return (
+    <label
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+        fontSize: 11,
+        color: "#9a9aa5",
+      }}
+    >
+      {label}
+      <input
+        type="text"
+        inputMode="decimal"
+        value={draft}
+        onChange={(e) => setDraft(e.currentTarget.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+        style={{ ...inputStyle, width: 56 }}
+      />
+    </label>
+  );
+}
+
+/**
+ * One physics rig row. Holds the per-field draft state (in the keyed child, never
+ * in the parent's map) so adding/deleting a rig never shifts hook order. Each
+ * committed edit builds a deep-cloned patched rig and dispatches one
+ * `SetPhysicsRig` (one undo step); Delete dispatches `DeletePhysicsRig`.
+ */
+function PhysicsRigRow({
+  rig,
+  model,
+  runCommand,
+}: {
+  rig: IkiPhysics;
+  model: IkiModel;
+  runCommand: (cmd: EditCommand) => void;
+}) {
+  const set = (patched: IkiPhysics) =>
+    runCommand(new SetPhysicsRig(rig.id, patched));
+  const setParam = (which: "input" | "output", parameter: string) => {
+    const next = structuredClone(rig);
+    next[which].parameter = parameter;
+    set(next);
+  };
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+        paddingTop: 6,
+        borderTop: "1px solid #2a2b33",
+      }}
+    >
+      <div style={rowStyle}>
+        <span style={{ fontSize: 12, color: "#e6e6ee" }}>{rig.id}</span>
+        <button
+          type="button"
+          style={removeBtnStyle}
+          onClick={() => runCommand(new DeletePhysicsRig(rig.id))}
+        >
+          Delete
+        </button>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={labelStyle}>in</span>
+        <select
+          value={rig.input.parameter}
+          onChange={(e) => setParam("input", e.currentTarget.value)}
+          style={{ ...selectStyle, flex: 1, minWidth: 0 }}
+        >
+          {model.parameters.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.id}
+            </option>
+          ))}
+        </select>
+        <PhysicsNumberDraftField
+          label="w"
+          value={rig.input.weight}
+          onCommit={(v) => set(withPhysicsScalar(rig, "weight", v))}
+        />
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={labelStyle}>out</span>
+        <select
+          value={rig.output.parameter}
+          onChange={(e) => setParam("output", e.currentTarget.value)}
+          style={{ ...selectStyle, flex: 1, minWidth: 0 }}
+        >
+          {model.parameters.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.id}
+            </option>
+          ))}
+        </select>
+        <PhysicsNumberDraftField
+          label="×"
+          value={rig.output.scale}
+          onCommit={(v) => set(withPhysicsScalar(rig, "scale", v))}
+        />
+      </div>
+      <div
+        style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}
+      >
+        <PhysicsNumberDraftField
+          label="mass"
+          value={rig.mass}
+          onCommit={(v) => set(withPhysicsScalar(rig, "mass", v))}
+        />
+        <PhysicsNumberDraftField
+          label="stiff"
+          value={rig.stiffness}
+          onCommit={(v) => set(withPhysicsScalar(rig, "stiffness", v))}
+        />
+        <PhysicsNumberDraftField
+          label="damp"
+          value={rig.damping}
+          onCommit={(v) => set(withPhysicsScalar(rig, "damping", v))}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Model-level "Physics Rigs" panel: lists every `model.physics` rig with
+ * editable dropdowns + draft-state numeric fields, an Add button (disabled when
+ * no valid rig can be built), and per-rig Delete. The parent holds NO per-field
+ * hooks — all draft state lives in the keyed {@link PhysicsRigRow}.
+ */
+function PhysicsRigsEditor({
+  model,
+  runCommand,
+}: {
+  model: IkiModel;
+  runCommand: (cmd: EditCommand) => void;
+}) {
+  const rigs = model.physics ?? [];
+  const nextRig = defaultPhysicsRig(model);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <span style={labelStyle}>Physics Rigs</span>
+      {rigs.length === 0 && (
+        <p style={{ margin: 0, fontSize: 11, color: "#9a9aa5" }}>
+          No physics rigs. Add one to spring-lag a parameter onto another.
+        </p>
+      )}
+      {rigs.map((rig) => (
+        <PhysicsRigRow
+          key={rig.id}
+          rig={rig}
+          model={model}
+          runCommand={runCommand}
+        />
+      ))}
+      <button
+        type="button"
+        disabled={nextRig === null}
+        onClick={() => nextRig && runCommand(new AddPhysicsRig(nextRig))}
+        style={smallBtnStyle}
+      >
+        Add Physics Rig
+      </button>
+      {nextRig === null && (
+        <p style={{ margin: 0, fontSize: 11, color: "#9a9aa5" }}>
+          Need two free parameters (one unused as a rig output) to add a rig.
+        </p>
       )}
     </div>
   );
