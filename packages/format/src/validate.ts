@@ -1074,11 +1074,20 @@ export function parseIkiModel(input: unknown): IkiModel {
     physics = input.physics.map((p, i) =>
       parsePhysics(p, `physics[${i}]`, declaredIds),
     );
-    // Cross-rig checks: an output param may be written by at most one rig, and
-    // no rig's output may feed any rig's input (feedback loops are unsupported).
+    // Cross-rig checks: rig ids must be unique (commands key on them, like
+    // parameter and part ids), an output param may be written by at most one
+    // rig, and no rig's output may feed any rig's input (feedback unsupported).
     const physicsInputIds = new Set(physics.map((r) => r.input.parameter));
+    const seenIds = new Set<string>();
     const seenOutputs = new Set<string>();
     for (let i = 0; i < physics.length; i++) {
+      const rigId = physics[i].id;
+      if (seenIds.has(rigId)) {
+        throw new IkiFormatError(
+          `physics[${i}].id "${rigId}" duplicates an earlier physics rig id`,
+        );
+      }
+      seenIds.add(rigId);
       const outId = physics[i].output.parameter;
       if (seenOutputs.has(outId)) {
         throw new IkiFormatError(

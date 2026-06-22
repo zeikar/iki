@@ -2126,6 +2126,16 @@ describe("physics rigs", () => {
     );
   });
 
+  it("rejects two rigs sharing the same id", () => {
+    // Same id is caught before the dup-output check in the same loop pass;
+    // rig ids must be unique because editor commands key on them.
+    const a = { ...validRig, id: "dup" };
+    const b = { ...validRig, id: "dup" };
+    expect(() => parseIkiModel(physicsModel([a, b]))).toThrow(
+      /physics\[1\]\.id "dup" duplicates an earlier physics rig id/,
+    );
+  });
+
   it("rejects a rig whose output is another rig's input (feedback loop)", () => {
     // rig 0 outputs ParamHairSwayX; rig 1 reads ParamHairSwayX as input.
     const rig0 = { ...validRig, id: "a" };
