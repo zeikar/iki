@@ -166,7 +166,7 @@ interface EditorState {
     rowRest: { from: number; to: number };
   } | null;
 
-  runCommand: (cmd: EditCommand) => void;
+  runCommand: (cmd: EditCommand) => boolean;
   undo: () => void;
   redo: () => void;
   select: (partId: string | null) => void;
@@ -421,8 +421,10 @@ export const useEditorStore = create<EditorState>((set, get) => {
       try {
         get().doc.execute(cmd);
         set((s) => ({ revision: s.revision + 1, editError: null }));
+        return true;
       } catch (e) {
         set({ editError: e instanceof Error ? e.message : String(e) });
+        return false;
       }
     },
     undo: () => {

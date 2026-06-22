@@ -332,6 +332,8 @@ function defaultPhysicsRig(model: IkiModel): IkiPhysics | null {
  * on blur/Enter only when the draft parses to a finite number that DIFFERS from
  * the current value (idempotent — avoids a double undo when Enter then blur).
  * A `text` input (not `number`) preserves a mid-edit "-" as raw draft text.
+ * When `onCommit` returns `false` (validator-rejected), the draft snaps back to
+ * the last committed value so the inspector stays consistent with the model.
  */
 function PhysicsNumberDraftField({
   label,
@@ -340,7 +342,7 @@ function PhysicsNumberDraftField({
 }: {
   label: string;
   value: number;
-  onCommit: (v: number) => void;
+  onCommit: (v: number) => boolean;
 }) {
   const [draft, setDraft] = useState(String(value));
   // Re-sync the draft when the committed value changes (e.g. undo/redo).
@@ -351,8 +353,12 @@ function PhysicsNumberDraftField({
   const commit = () => {
     const trimmed = draft.trim();
     const parsed = trimmed === "" ? NaN : Number(trimmed);
-    if (Number.isFinite(parsed) && parsed !== value) onCommit(parsed);
-    else setDraft(String(value)); // snap back an unparseable / no-op draft
+    if (Number.isFinite(parsed) && parsed !== value) {
+      const ok = onCommit(parsed);
+      if (!ok) setDraft(String(value)); // snap back when validator rejected
+    } else {
+      setDraft(String(value)); // snap back an unparseable / no-op draft
+    }
   };
 
   return (
@@ -394,9 +400,9 @@ function PhysicsRigRow({
 }: {
   rig: IkiPhysics;
   model: IkiModel;
-  runCommand: (cmd: EditCommand) => void;
+  runCommand: (cmd: EditCommand) => boolean;
 }) {
-  const set = (patched: IkiPhysics) =>
+  const set = (patched: IkiPhysics): boolean =>
     runCommand(new SetPhysicsRig(rig.id, patched));
   const setParam = (which: "input" | "output", parameter: string) => {
     const next = structuredClone(rig);
@@ -501,7 +507,7 @@ function PhysicsRigsEditor({
   runCommand,
 }: {
   model: IkiModel;
-  runCommand: (cmd: EditCommand) => void;
+  runCommand: (cmd: EditCommand) => boolean;
 }) {
   const rigs = model.physics ?? [];
   const nextRig = defaultPhysicsRig(model);
