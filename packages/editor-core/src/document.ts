@@ -7,6 +7,7 @@ import type {
   IkiMatrixDeformer,
   IkiModel,
   IkiPart,
+  IkiPhysics,
   IkiTexture,
   IkiTransform,
   IkiUvRect,
@@ -110,6 +111,17 @@ export class EditorDocument {
       throw new Error(`deformers: no deformer with id "${id}"`);
     }
     return deformer;
+  }
+
+  /** Resolve a physics rig by stable id. Throws a path-qualified plain `Error`
+   *  if no rig matches the id. The `physics` array is optional, so guard it.
+   *  READ/mutate-through accessor, consistent with {@link findDeformer}. */
+  findPhysicsRig(id: string): IkiPhysics {
+    const rig = this.model.physics?.find((r) => r.id === id);
+    if (!rig) {
+      throw new Error(`physics: no physics rig with id "${id}"`);
+    }
+    return rig;
   }
 
   /**

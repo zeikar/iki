@@ -8,6 +8,7 @@ import type {
   IkiMesh,
   IkiModel,
   IkiPart,
+  IkiPhysics,
 } from "@iki/format";
 import { IKI_FORMAT_VERSION, IkiFormatError, parseIkiModel } from "@iki/format";
 
@@ -1159,5 +1160,193 @@ export class SetPartMesh implements EditCommand {
     }
     // Restore the side-table to the exact prior state (unit-square base).
     doc.restoreBaseMeshUvs(this.partId, this.prevBaseMeshUvs);
+  }
+}
+
+/**
+ * Validate a candidate `physics` array against the model's declared parameters
+ * via a NARROW synthetic model — full `parameters` + the full candidate physics
+ * array + one trivial part. Mirrors {@link SetPartBindings}' synthetic-candidate
+ * (avoids false-positives from unrelated in-flight NaN part numerics) but carries
+ * the FULL physics array so the cross-rig rules (dup id / dup output / feedback)
+ * run. On `IkiFormatError`, rewrite the failing `physics[n]` path to name the rig
+ * AT THE FAILING INDEX — a cross-rig failure can surface at a different index than
+ * the edited rig, so the rewrite follows the message index, not the command target.
+ */
+function validatePhysicsCandidate(
+  doc: EditorDocument,
+  candidatePhysics: IkiPhysics[],
+): void {
+  const candidatePart: Record<string, unknown> = {
+    id: "_",
+    color: [0, 0, 0, 1],
+    width: 1,
+    height: 1,
+    transform: { x: 0, y: 0 },
+    order: 0,
+  };
+  const candidate = {
+    version: IKI_FORMAT_VERSION,
+    name: "_",
+    canvas: { width: 1, height: 1 },
+    parameters: doc.getModel().parameters,
+    parts: [candidatePart],
+    physics: candidatePhysics,
+  };
+  try {
+    parseIkiModel(candidate);
+  } catch (e) {
+    if (e instanceof IkiFormatError) {
+      const m = e.message.match(/^physics\[(\d+)\]/);
+      const rigId = m ? candidatePhysics[Number(m[1])]?.id : undefined;
+      if (rigId !== undefined) {
+        throw new IkiFormatError(
+          e.message.replace(/^physics\[\d+\]/, `physics."${rigId}"`),
+        );
+      }
+    }
+    throw e;
+  }
+}
+
+/**
+ * Add a physics rig to `model.physics`. Mirrors {@link AddDeformer}: clone on
+ * construction, cheap friendly duplicate-id pre-check, full synthetic-candidate
+ * validation before mutating, capture the absent-vs-present `physics` state once,
+ * and on invert delete the key when the array empties back to its prior absence.
+ */
+export class AddPhysicsRig implements EditCommand {
+  readonly label = "Add physics rig";
+  private readonly rig: IkiPhysics;
+  private captured = false;
+  private prevPhysicsAbsent = false;
+
+  constructor(rig: IkiPhysics) {
+    // Deep clone — input/output are nested objects a shallow spread would alias.
+    this.rig = structuredClone(rig);
+  }
+
+  apply(doc: EditorDocument): void {
+    const model = doc.getModel();
+    // (a) Friendly duplicate-id pre-check (the format check from validate.ts is
+    //     the real guard; this surfaces an actionable message before validate).
+    if ((model.physics ?? []).some((r) => r.id === this.rig.id)) {
+      throw new Error(
+        `physics: id "${this.rig.id}" collides with an existing physics rig id`,
+      );
+    }
+    // (b) Full-physics synthetic validation with the rig appended.
+    validatePhysicsCandidate(doc, [
+      ...(model.physics ?? []),
+      structuredClone(this.rig),
+    ]);
+    // (c) Capture-once, then mutate with a fresh clone.
+    if (!this.captured) {
+      this.prevPhysicsAbsent = model.physics === undefined;
+      this.captured = true;
+    }
+    if (model.physics === undefined) {
+      model.physics = [];
+    }
+    model.physics.push(structuredClone(this.rig));
+  }
+
+  invert(doc: EditorDocument): void {
+    const model = doc.getModel();
+    const arr = model.physics;
+    if (!arr) return;
+    const i = arr.findIndex((r) => r.id === this.rig.id);
+    if (i !== -1) arr.splice(i, 1);
+    if (this.prevPhysicsAbsent && arr.length === 0) {
+      delete model.physics;
+    }
+  }
+}
+
+/**
+ * Delete a physics rig by id. Mirrors {@link DeleteDeformer}: resolve/validate
+ * first, capture the removed rig + its index once, splice. Removing the LAST rig
+ * deletes the `physics` key to keep the exported shape minimal; invert re-inserts
+ * at the original index (recreating the array if it was deleted).
+ */
+export class DeletePhysicsRig implements EditCommand {
+  readonly label = "Delete physics rig";
+  private captured = false;
+  private removed!: IkiPhysics;
+  private index!: number;
+
+  constructor(private readonly rigId: string) {}
+
+  apply(doc: EditorDocument): void {
+    const rig = doc.findPhysicsRig(this.rigId); // throws if unknown
+    const arr = doc.getModel().physics!;
+    const i = arr.indexOf(rig);
+    if (!this.captured) {
+      this.removed = structuredClone(rig);
+      this.index = i;
+      this.captured = true;
+    }
+    arr.splice(i, 1);
+    // Minimal exported shape: drop the key once the last rig is gone.
+    if (arr.length === 0) {
+      delete doc.getModel().physics;
+    }
+  }
+
+  invert(doc: EditorDocument): void {
+    const model = doc.getModel();
+    (model.physics ??= []).splice(this.index, 0, structuredClone(this.removed));
+  }
+}
+
+/**
+ * Replace a physics rig in place (tuning). Mirrors {@link SetDeformerBindings}
+ * but DEEP-clones the nested `input`/`output` (a shallow spread would alias them).
+ * Forbids rename (`rig.id` must equal the target `rigId`) — this command tunes a
+ * rig, never re-keys it. Validates the whole candidate (the edited rig swapped in
+ * at its index) so cross-rig rules still run, then captures the prior rig once.
+ */
+export class SetPhysicsRig implements EditCommand {
+  readonly label = "Set physics rig";
+  private readonly rig: IkiPhysics;
+  private captured = false;
+  private prevRig!: IkiPhysics;
+
+  constructor(
+    private readonly rigId: string,
+    rig: IkiPhysics,
+  ) {
+    this.rig = structuredClone(rig);
+  }
+
+  apply(doc: EditorDocument): void {
+    // No-rename guard — fail before mutating.
+    if (this.rig.id !== this.rigId) {
+      throw new Error(
+        `physics."${this.rigId}": cannot change rig id to "${this.rig.id}" (rename unsupported)`,
+      );
+    }
+    const model = doc.getModel();
+    const i = (model.physics ?? []).findIndex((r) => r.id === this.rigId);
+    if (i === -1) {
+      throw new Error(`physics: no physics rig with id "${this.rigId}"`);
+    }
+    // Validate a candidate with the edited rig swapped in at its index.
+    const candidate = model.physics!.map((r, idx) =>
+      idx === i ? structuredClone(this.rig) : r,
+    );
+    validatePhysicsCandidate(doc, candidate);
+    if (!this.captured) {
+      this.prevRig = structuredClone(model.physics![i]);
+      this.captured = true;
+    }
+    model.physics![i] = structuredClone(this.rig);
+  }
+
+  invert(doc: EditorDocument): void {
+    const arr = doc.getModel().physics;
+    if (!arr) return;
+    const i = arr.findIndex((r) => r.id === this.rigId);
+    if (i !== -1) arr[i] = structuredClone(this.prevRig);
   }
 }
