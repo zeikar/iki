@@ -463,7 +463,12 @@ function PhysicsRigRow({
         />
       </div>
       <div
-        style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          flexWrap: "wrap",
+        }}
       >
         <PhysicsNumberDraftField
           label="mass"
