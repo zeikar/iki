@@ -3,9 +3,14 @@
 import {
   StandardParameter,
   type IkiBinding,
+  type IkiDeformerBinding,
+  type IkiMatrixDeformer,
   type IkiMesh,
   type IkiModel,
+  type IkiParameter,
   type IkiPart,
+  type IkiPhysicsChain,
+  type IkiPhysicsChainSegment,
   type IkiWarpGrid,
 } from "@iki/format";
 import { bakeHeadTurnGridWarp2D } from "./mesh-generator";
@@ -252,12 +257,135 @@ const LOCK_PARAM_MAX = 60;
 // pose is unchanged; each lock pulls inward on the turn that makes its side recede.
 const LOCK_TURN_TRACK = 42;
 
-// Lock segment output param ids (no StandardParameter enum entry — these are
-// chain-only outputs not driven by the host).
-const ParamLockL0 = "ParamLockL0";
-const ParamLockL1 = "ParamLockL1";
-const ParamLockR0 = "ParamLockR0";
-const ParamLockR1 = "ParamLockR1";
+// --- side-lock strand (Hiyori-style smooth, single-piece lock) --------------
+// A single conceptual strand is SLICED into many short bands, each band riding
+// one matrix deformer in a parent chain (seg0 → seg1 → … off the head). Adjacent
+// bands SHARE the joint vertex row, and each segment's pivot sits exactly on its
+// band's top row, so a segment rotates about that shared point — WELDING the seam
+// (no gap) while the strand bends smoothly across many joints. This is the
+// slice-and-glue approach Live2D Cubism "skinning" actually uses (not per-vertex
+// LBS); HairChainMotion drives each band's rotation param. Solid color + many
+// fine bands ⇒ the slices read as one continuous flowing lock.
+
+// Strand centerline in part-LOCAL model px (top → tip) for the LEFT lock, each
+// point with a half-width (taper). Band count = points − 1. Right lock mirrors x.
+const LOCK_CENTERLINE: ReadonlyArray<readonly [number, number]> = [
+  [-12, 4],
+  [-12, -90],
+  [-8, -190],
+  [0, -290],
+  [12, -380],
+  [28, -460],
+  [48, -540],
+];
+const LOCK_HALF_WIDTHS = [30, 33, 32, 28, 22, 15, 8];
+// Part transform placing the local strand at the LEFT temple (right negates x).
+const LOCK_ORIGIN = { x: -215, y: 215 };
+// Per-band physics (length = band count). θ ACCUMULATES down the chain, so the
+// tip already moves most on its own — the ramp therefore FIRMS the lower bands
+// (rising damping + held-up stiffness toward the tip) so the tip swishes gently
+// instead of whipping. Upper bands stay a touch looser to carry the lead sway.
+const LOCK_STIFFNESS = [10, 9, 8, 7, 7, 6];
+const LOCK_DAMPING = [7, 8, 9, 10, 10, 11];
+
+// Build one side-lock's params, deformer chain, mesh bands, and physics chain
+// from the shared centerline. seg ids/params are `lock{L|R}_seg{i}` /
+// `ParamLock{L|R}{i}` (chain-only outputs, not host-driven).
+function buildLock(side: "L" | "R"): {
+  params: IkiParameter[];
+  deformers: IkiMatrixDeformer[];
+  parts: IkiPart[];
+  chain: IkiPhysicsChain;
+} {
+  const sign = side === "L" ? 1 : -1;
+  const origin = { x: LOCK_ORIGIN.x * sign, y: LOCK_ORIGIN.y };
+  const centerline = LOCK_CENTERLINE.map(([x, y]) => [x * sign, y] as const);
+  const bandCount = centerline.length - 1;
+
+  const params: IkiParameter[] = [];
+  const deformers: IkiMatrixDeformer[] = [];
+  const parts: IkiPart[] = [];
+  const segments: IkiPhysicsChainSegment[] = [];
+
+  for (let i = 0; i < bandCount; i++) {
+    const paramId = `ParamLock${side}${i}`;
+    params.push({
+      id: paramId,
+      name: `Lock ${side} seg${i}`,
+      min: LOCK_PARAM_MIN,
+      max: LOCK_PARAM_MAX,
+      default: 0,
+    });
+
+    // rotate binding maps the param 1:1 to degrees (from/to == param [min,max]).
+    const bindings: IkiDeformerBinding[] = [
+      {
+        parameter: paramId,
+        channel: "rotate",
+        from: LOCK_PARAM_MIN,
+        to: LOCK_PARAM_MAX,
+      },
+    ];
+    // Only the ROOT band tracks the warped face edge on a turn (see LOCK_TURN_TRACK);
+    // child bands inherit it through the parent chain. Same sign on both locks.
+    if (i === 0) {
+      bindings.push({
+        parameter: StandardParameter.AngleX,
+        channel: "translateX",
+        from: LOCK_TURN_TRACK,
+        to: -LOCK_TURN_TRACK,
+      });
+    }
+    deformers.push({
+      id: `lock${side}_seg${i}`,
+      parent: i === 0 ? "headDeformer" : `lock${side}_seg${i - 1}`,
+      // Pivot at the band's TOP row (= the joint shared with the previous band),
+      // in model space (part transform + local), so rotation welds the seam.
+      pivot: { x: origin.x + centerline[i][0], y: origin.y + centerline[i][1] },
+      bindings,
+    });
+
+    parts.push({
+      id: `sideLock${side}_${i}`,
+      color: HAIR,
+      width: 1,
+      height: 1,
+      order: 9,
+      transform: { ...origin },
+      deformer: `lock${side}_seg${i}`,
+      mesh: strandMesh(
+        [centerline[i], centerline[i + 1]],
+        [LOCK_HALF_WIDTHS[i], LOCK_HALF_WIDTHS[i + 1]],
+      ),
+    });
+
+    segments.push({
+      output: { parameter: paramId, scale: 1 },
+      // seg0 rest world direction is straight DOWN (-90 = gravity.angle) → zero
+      // gravity torque at rest. Child bands continue straight (restAngle 0).
+      ...(i === 0 ? { restAngle: -90 } : {}),
+      mass: 1,
+      stiffness: LOCK_STIFFNESS[i],
+      damping: LOCK_DAMPING[i],
+    });
+  }
+
+  return {
+    params,
+    deformers,
+    parts,
+    chain: {
+      id: `lock${side}`,
+      anchorDeformer: "headDeformer",
+      // gravity.strength ≫ stiffness so the lock hangs ≈vertical under any head angle.
+      gravity: { angle: -90, strength: 50 },
+      segments,
+    },
+  };
+}
+
+const lockL = buildLock("L");
+const lockR = buildLock("R");
 
 export const sampleModel: IkiModel = {
   version: 1,
@@ -328,36 +456,11 @@ export const sampleModel: IkiModel = {
       max: 1,
       default: 0,
     },
-    // Chain segment output params — driven by HairChainMotion, not the host.
-    // Range ±60° covers the expected pendulum deviation under gravity.
-    {
-      id: ParamLockL0,
-      name: "Lock L seg0",
-      min: LOCK_PARAM_MIN,
-      max: LOCK_PARAM_MAX,
-      default: 0,
-    },
-    {
-      id: ParamLockL1,
-      name: "Lock L seg1",
-      min: LOCK_PARAM_MIN,
-      max: LOCK_PARAM_MAX,
-      default: 0,
-    },
-    {
-      id: ParamLockR0,
-      name: "Lock R seg0",
-      min: LOCK_PARAM_MIN,
-      max: LOCK_PARAM_MAX,
-      default: 0,
-    },
-    {
-      id: ParamLockR1,
-      name: "Lock R seg1",
-      min: LOCK_PARAM_MIN,
-      max: LOCK_PARAM_MAX,
-      default: 0,
-    },
+    // Chain segment output params (driven by HairChainMotion, not the host) —
+    // one per band, generated per side lock by buildLock. Range ±60° covers the
+    // expected pendulum deviation under gravity.
+    ...lockL.params,
+    ...lockR.params,
   ],
   // headDeformer rotates/bobs the whole head as one rigid body about the neck
   // pivot. faceWarp (parented to it) adds cylinder-bend curvature on top.
@@ -403,82 +506,10 @@ export const sampleModel: IkiModel = {
       grid: faceGrid,
       warp2d: faceWarp2d,
     },
-    // Left lock chain deformers. lockL_seg0 pivots at the temple (the top hinge
-    // of the strand in model space); lockL_seg1 pivots at the mid-strand joint.
-    // The rotate binding maps the output param 1:1 to degrees: from=-60,to=60
-    // equals the param's [min,max], so evaluateTransform emits θ degrees exactly.
-    {
-      id: "lockL_seg0",
-      parent: "headDeformer",
-      pivot: { x: -215, y: 215 },
-      bindings: [
-        {
-          parameter: ParamLockL0,
-          channel: "rotate" as const,
-          from: LOCK_PARAM_MIN,
-          to: LOCK_PARAM_MAX,
-        },
-        {
-          // Track the warped face edge on turn (see LOCK_TURN_TRACK). Same sign
-          // as the right lock: both counter headDeformer's rigid translateX, which
-          // over-shifts the (warp-less) locks past the compressed face on a turn.
-          parameter: StandardParameter.AngleX,
-          channel: "translateX" as const,
-          from: LOCK_TURN_TRACK,
-          to: -LOCK_TURN_TRACK,
-        },
-      ],
-    },
-    {
-      id: "lockL_seg1",
-      parent: "lockL_seg0",
-      // Mid-strand joint in model space (at rest): centerline row 1 of the original
-      // lock = part-transform(-215,215) + local(-10,-190) = (-225, 25).
-      pivot: { x: -225, y: 25 },
-      bindings: [
-        {
-          parameter: ParamLockL1,
-          channel: "rotate" as const,
-          from: LOCK_PARAM_MIN,
-          to: LOCK_PARAM_MAX,
-        },
-      ],
-    },
-    // Right lock chain deformers — mirror of the left.
-    {
-      id: "lockR_seg0",
-      parent: "headDeformer",
-      pivot: { x: 215, y: 215 },
-      bindings: [
-        {
-          parameter: ParamLockR0,
-          channel: "rotate" as const,
-          from: LOCK_PARAM_MIN,
-          to: LOCK_PARAM_MAX,
-        },
-        {
-          // Mirror of the left lock's turn-tracking translate.
-          parameter: StandardParameter.AngleX,
-          channel: "translateX" as const,
-          from: LOCK_TURN_TRACK,
-          to: -LOCK_TURN_TRACK,
-        },
-      ],
-    },
-    {
-      id: "lockR_seg1",
-      parent: "lockR_seg0",
-      // Mirror of the left: (215+10, 215+(-190)) = (225, 25).
-      pivot: { x: 225, y: 25 },
-      bindings: [
-        {
-          parameter: ParamLockR1,
-          channel: "rotate" as const,
-          from: LOCK_PARAM_MIN,
-          to: LOCK_PARAM_MAX,
-        },
-      ],
-    },
+    // Side-lock chain deformers (seg0 → seg1 → … off the head), one per band,
+    // generated per side lock by buildLock — see the strand block above.
+    ...lockL.deformers,
+    ...lockR.deformers,
   ],
   parts: [
     // back hair mass (behind everything)
@@ -591,132 +622,15 @@ export const sampleModel: IkiModel = {
       ),
     ),
 
-    // Left lock — split into two segments that share a vertex row at the
-    // mid-strand joint (y=-190 local, model y=25) so there is no seam gap when
-    // lockL_seg1 rotates. Each part uses transform {x:-215,y:215} matching the
-    // old single-part offset, so at rest (rotate=0 on both chain params) the
-    // mesh coords produce identical model-space positions to the original strand.
-    {
-      id: "sideLockL_0",
-      color: HAIR,
-      width: 1,
-      height: 1,
-      order: 9,
-      transform: { x: -215, y: 215 },
-      deformer: "lockL_seg0",
-      // Temple → mid joint (top two rows of the original centerline).
-      mesh: strandMesh(
-        [
-          [-12, 4],
-          [-10, -190],
-        ],
-        [30, 32],
-      ),
-    },
-    {
-      id: "sideLockL_1",
-      color: HAIR,
-      width: 1,
-      height: 1,
-      order: 9,
-      transform: { x: -215, y: 215 },
-      deformer: "lockL_seg1",
-      // Mid joint → tip (overlaps the bottom row of sideLockL_0 to hide the seam).
-      mesh: strandMesh(
-        [
-          [-10, -190],
-          [10, -360],
-          [40, -470],
-        ],
-        [32, 22, 11],
-      ),
-    },
-    // Right lock — mirror of the left.
-    {
-      id: "sideLockR_0",
-      color: HAIR,
-      width: 1,
-      height: 1,
-      order: 9,
-      transform: { x: 215, y: 215 },
-      deformer: "lockR_seg0",
-      mesh: strandMesh(
-        [
-          [12, 4],
-          [10, -190],
-        ],
-        [30, 32],
-      ),
-    },
-    {
-      id: "sideLockR_1",
-      color: HAIR,
-      width: 1,
-      height: 1,
-      order: 9,
-      transform: { x: 215, y: 215 },
-      deformer: "lockR_seg1",
-      mesh: strandMesh(
-        [
-          [10, -190],
-          [-10, -360],
-          [-40, -470],
-        ],
-        [32, 22, 11],
-      ),
-    },
+    // Side-lock strands — each sliced into welded bands on its deformer chain,
+    // generated per side by buildLock (see the strand block above). Drawn at
+    // order 9 (over the back hair / face, under the front bangs and scalp).
+    ...lockL.parts,
+    ...lockR.parts,
   ],
-  // Gravity-hung 2-segment angular chain for each side lock. The chain anchors
-  // to headDeformer (so the locks follow the head) and drives the lockL/R seg0/1
-  // rotation params via HairChainMotion. gravity.strength (50) >> stiffness (8/5)
-  // so gravity dominates: the locks hang roughly vertical regardless of head angle.
-  // restAngle is omitted for both segments (default=0) because the mesh is authored
-  // straight down at rest — no authored rest angle to declare.
-  physicsChains: [
-    {
-      id: "lockL",
-      anchorDeformer: "headDeformer",
-      gravity: { angle: -90, strength: 50 },
-      segments: [
-        {
-          // restAngle = the segment's REST world direction: the strand hangs
-          // straight DOWN, which is -90° (the gravity.angle), so Φ_rest matches
-          // gravity → zero torque at rest (no yank). seg1 continues straight, so
-          // its restAngle stays 0 (omitted).
-          output: { parameter: ParamLockL0, scale: 1 },
-          restAngle: -90,
-          mass: 1,
-          stiffness: 8,
-          damping: 5,
-        },
-        {
-          output: { parameter: ParamLockL1, scale: 1 },
-          mass: 1,
-          stiffness: 5,
-          damping: 4,
-        },
-      ],
-    },
-    {
-      id: "lockR",
-      anchorDeformer: "headDeformer",
-      gravity: { angle: -90, strength: 50 },
-      segments: [
-        {
-          // Rest world direction is straight down (-90° = gravity.angle).
-          output: { parameter: ParamLockR0, scale: 1 },
-          restAngle: -90,
-          mass: 1,
-          stiffness: 8,
-          damping: 5,
-        },
-        {
-          output: { parameter: ParamLockR1, scale: 1 },
-          mass: 1,
-          stiffness: 5,
-          damping: 4,
-        },
-      ],
-    },
-  ],
+  // Gravity-hung angular chain for each side lock (one segment per band),
+  // generated by buildLock. Anchored to headDeformer (locks follow the head) and
+  // driving the lock{L,R} band rotation params via HairChainMotion. gravity.strength
+  // (50) ≫ the per-band stiffness ramp, so each lock hangs ≈vertical at any head angle.
+  physicsChains: [lockL.chain, lockR.chain],
 };
