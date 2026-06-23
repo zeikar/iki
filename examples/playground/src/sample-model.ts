@@ -235,34 +235,20 @@ function hair(
   };
 }
 
-// Side-lock motion = two rotate contributions that SUM (the engine adds same-
-// channel bindings):
-//  1. ParamHairSwayX (the PhysicsMotion spring) — lag + overshoot of the turn.
-//  2. ParamAngleX counter-roll — cancels the headDeformer's ±6° head-roll
-//     (bound `from 6 to -6`) with the OPPOSITE `from -6 to 6`, so the locks keep
-//     hanging vertically (gravity feel) instead of tilting with the face when it
-//     turns. The temple still follows the head's translate; only the roll is
-//     neutralised.
-const hairSwayBindings: IkiBinding[] = [
-  {
-    parameter: StandardParameter.HairSwayX,
-    channel: "rotate",
-    from: -10,
-    to: 10,
-  },
-  {
-    parameter: StandardParameter.HairSwayX,
-    channel: "translateX",
-    from: -4,
-    to: 4,
-  },
-  {
-    parameter: StandardParameter.AngleX,
-    channel: "rotate",
-    from: -6,
-    to: 6,
-  },
-];
+// Side-lock chain params. Each segment emits its angular displacement θ
+// (degrees) via HairChainMotion. The rotate binding maps the param 1:1 to
+// degrees because the binding range {from:-60,to:60} equals the param's own
+// [min,max], so evaluateTransform lerps from→to across the normalized [0,1]
+// range giving exactly θ degrees of rotation.
+const LOCK_PARAM_MIN = -60;
+const LOCK_PARAM_MAX = 60;
+
+// Lock segment output param ids (no StandardParameter enum entry — these are
+// chain-only outputs not driven by the host).
+const ParamLockL0 = "ParamLockL0";
+const ParamLockL1 = "ParamLockL1";
+const ParamLockR0 = "ParamLockR0";
+const ParamLockR1 = "ParamLockR1";
 
 export const sampleModel: IkiModel = {
   version: 1,
@@ -333,13 +319,34 @@ export const sampleModel: IkiModel = {
       max: 1,
       default: 0,
     },
+    // Chain segment output params — driven by HairChainMotion, not the host.
+    // Range ±60° covers the expected pendulum deviation under gravity.
     {
-      // Driven by the PhysicsMotion spring (not by the host directly). Range is
-      // wide enough for the spring's overshoot.
-      id: StandardParameter.HairSwayX,
-      name: "Hair Sway X",
-      min: -20,
-      max: 20,
+      id: ParamLockL0,
+      name: "Lock L seg0",
+      min: LOCK_PARAM_MIN,
+      max: LOCK_PARAM_MAX,
+      default: 0,
+    },
+    {
+      id: ParamLockL1,
+      name: "Lock L seg1",
+      min: LOCK_PARAM_MIN,
+      max: LOCK_PARAM_MAX,
+      default: 0,
+    },
+    {
+      id: ParamLockR0,
+      name: "Lock R seg0",
+      min: LOCK_PARAM_MIN,
+      max: LOCK_PARAM_MAX,
+      default: 0,
+    },
+    {
+      id: ParamLockR1,
+      name: "Lock R seg1",
+      min: LOCK_PARAM_MIN,
+      max: LOCK_PARAM_MAX,
       default: 0,
     },
   ],
@@ -386,6 +393,66 @@ export const sampleModel: IkiModel = {
       parent: "headDeformer",
       grid: faceGrid,
       warp2d: faceWarp2d,
+    },
+    // Left lock chain deformers. lockL_seg0 pivots at the temple (the top hinge
+    // of the strand in model space); lockL_seg1 pivots at the mid-strand joint.
+    // The rotate binding maps the output param 1:1 to degrees: from=-60,to=60
+    // equals the param's [min,max], so evaluateTransform emits θ degrees exactly.
+    {
+      id: "lockL_seg0",
+      parent: "headDeformer",
+      pivot: { x: -215, y: 215 },
+      bindings: [
+        {
+          parameter: ParamLockL0,
+          channel: "rotate" as const,
+          from: LOCK_PARAM_MIN,
+          to: LOCK_PARAM_MAX,
+        },
+      ],
+    },
+    {
+      id: "lockL_seg1",
+      parent: "lockL_seg0",
+      // Mid-strand joint in model space (at rest): centerline row 1 of the original
+      // lock = part-transform(-215,215) + local(-10,-190) = (-225, 25).
+      pivot: { x: -225, y: 25 },
+      bindings: [
+        {
+          parameter: ParamLockL1,
+          channel: "rotate" as const,
+          from: LOCK_PARAM_MIN,
+          to: LOCK_PARAM_MAX,
+        },
+      ],
+    },
+    // Right lock chain deformers — mirror of the left.
+    {
+      id: "lockR_seg0",
+      parent: "headDeformer",
+      pivot: { x: 215, y: 215 },
+      bindings: [
+        {
+          parameter: ParamLockR0,
+          channel: "rotate" as const,
+          from: LOCK_PARAM_MIN,
+          to: LOCK_PARAM_MAX,
+        },
+      ],
+    },
+    {
+      id: "lockR_seg1",
+      parent: "lockR_seg0",
+      // Mirror of the left: (215+10, 215+(-190)) = (225, 25).
+      pivot: { x: 225, y: 25 },
+      bindings: [
+        {
+          parameter: ParamLockR1,
+          channel: "rotate" as const,
+          from: LOCK_PARAM_MIN,
+          to: LOCK_PARAM_MAX,
+        },
+      ],
     },
   ],
   parts: [
@@ -499,57 +566,125 @@ export const sampleModel: IkiModel = {
       ),
     ),
 
-    // Long side-framing locks. Each part's ORIGIN sits at the temple (its
-    // `transform`), and the mesh hangs DOWN from there in local coords, so the
-    // `rotate` sway pivots from the root (the strand swings like a pendulum, the
-    // temple stays put) and the tips swish past the jaw.
-    hair(
-      "sideLockL",
-      HAIR,
-      9,
-      -215,
-      215,
-      // Hangs straight DOWN from the temple (gravity), then KINKS inward toward
-      // the jaw — local +y is up, so the strand runs into negative y.
-      strandMesh(
+    // Left lock — split into two segments that share a vertex row at the
+    // mid-strand joint (y=-190 local, model y=25) so there is no seam gap when
+    // lockL_seg1 rotates. Each part uses transform {x:-215,y:215} matching the
+    // old single-part offset, so at rest (rotate=0 on both chain params) the
+    // mesh coords produce identical model-space positions to the original strand.
+    {
+      id: "sideLockL_0",
+      color: HAIR,
+      width: 1,
+      height: 1,
+      order: 9,
+      transform: { x: -215, y: 215 },
+      deformer: "lockL_seg0",
+      // Temple → mid joint (top two rows of the original centerline).
+      mesh: strandMesh(
         [
           [-12, 4],
+          [-10, -190],
+        ],
+        [30, 32],
+      ),
+    },
+    {
+      id: "sideLockL_1",
+      color: HAIR,
+      width: 1,
+      height: 1,
+      order: 9,
+      transform: { x: -215, y: 215 },
+      deformer: "lockL_seg1",
+      // Mid joint → tip (overlaps the bottom row of sideLockL_0 to hide the seam).
+      mesh: strandMesh(
+        [
           [-10, -190],
           [10, -360],
           [40, -470],
         ],
-        [30, 32, 22, 11],
+        [32, 22, 11],
       ),
-      hairSwayBindings,
-    ),
-    hair(
-      "sideLockR",
-      HAIR,
-      9,
-      215,
-      215,
-      strandMesh(
+    },
+    // Right lock — mirror of the left.
+    {
+      id: "sideLockR_0",
+      color: HAIR,
+      width: 1,
+      height: 1,
+      order: 9,
+      transform: { x: 215, y: 215 },
+      deformer: "lockR_seg0",
+      mesh: strandMesh(
         [
           [12, 4],
+          [10, -190],
+        ],
+        [30, 32],
+      ),
+    },
+    {
+      id: "sideLockR_1",
+      color: HAIR,
+      width: 1,
+      height: 1,
+      order: 9,
+      transform: { x: 215, y: 215 },
+      deformer: "lockR_seg1",
+      mesh: strandMesh(
+        [
           [10, -190],
           [-10, -360],
           [-40, -470],
         ],
-        [30, 32, 22, 11],
+        [32, 22, 11],
       ),
-      hairSwayBindings,
-    ),
+    },
   ],
-  // Secondary motion: a spring lags ParamAngleX onto ParamHairSwayX so the side
-  // locks sway behind the head turn (constants are SECONDS-based, underdamped).
-  physics: [
+  // Gravity-hung 2-segment angular chain for each side lock. The chain anchors
+  // to headDeformer (so the locks follow the head) and drives the lockL/R seg0/1
+  // rotation params via HairChainMotion. gravity.strength (50) >> stiffness (8/5)
+  // so gravity dominates: the locks hang roughly vertical regardless of head angle.
+  // restAngle is omitted for both segments (default=0) because the mesh is authored
+  // straight down at rest — no authored rest angle to declare.
+  physicsChains: [
     {
-      id: "hairSway",
-      input: { parameter: StandardParameter.AngleX, weight: 1 },
-      output: { parameter: StandardParameter.HairSwayX, scale: -10 },
-      mass: 1,
-      stiffness: 60,
-      damping: 5,
+      id: "lockL",
+      anchorDeformer: "headDeformer",
+      gravity: { angle: -90, strength: 50 },
+      segments: [
+        {
+          output: { parameter: ParamLockL0, scale: 1 },
+          mass: 1,
+          stiffness: 8,
+          damping: 5,
+        },
+        {
+          output: { parameter: ParamLockL1, scale: 1 },
+          mass: 1,
+          stiffness: 5,
+          damping: 4,
+        },
+      ],
+    },
+    {
+      id: "lockR",
+      anchorDeformer: "headDeformer",
+      gravity: { angle: -90, strength: 50 },
+      segments: [
+        {
+          output: { parameter: ParamLockR0, scale: 1 },
+          mass: 1,
+          stiffness: 8,
+          damping: 5,
+        },
+        {
+          output: { parameter: ParamLockR1, scale: 1 },
+          mass: 1,
+          stiffness: 5,
+          damping: 4,
+        },
+      ],
     },
   ],
 };
