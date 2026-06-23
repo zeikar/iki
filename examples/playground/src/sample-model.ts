@@ -59,21 +59,6 @@ function ellipseMesh(rx: number, ry: number, segments = 28): IkiMesh {
   return { vertices, uvs, indices };
 }
 
-/** A filled CONVEX polygon (points in model px), fan-triangulated from points[0]. */
-function polygonMesh(
-  points: ReadonlyArray<readonly [number, number]>,
-): IkiMesh {
-  const vertices: number[] = [];
-  const uvs: number[] = [];
-  for (const [x, y] of points) {
-    vertices.push(x, y);
-    uvs.push(0.5, 0.5);
-  }
-  const indices: number[] = [];
-  for (let i = 1; i < points.length - 1; i++) indices.push(0, i, i + 1);
-  return { vertices, uvs, indices };
-}
-
 /**
  * A solid hair fringe: a band between a straight top edge (`topY`) and a
  * scalloped bottom edge (`bottomYs`, one per `xs` column). Strip-triangulated so
@@ -100,6 +85,37 @@ function fringeMesh(xs: number[], topY: number, bottomYs: number[]): IkiMesh {
     const b1 = n + i + 1;
     indices.push(t0, t1, b1);
     indices.push(t0, b1, b0);
+  }
+  return { vertices, uvs, indices };
+}
+
+/**
+ * A tapering hair strand following a vertical-ish `centerline` (top→bottom), each
+ * point with its own `halfWidths` — strip-triangulated down the strand so it can
+ * KINK / bend mid-length (a non-convex silhouette a single convex polygon can't
+ * make). Width is applied as a horizontal ±x offset (fine for near-vertical
+ * strands). Vertices are [L0,R0,L1,R1,…] so segment i uses 2i..2i+3.
+ */
+function strandMesh(
+  centerline: ReadonlyArray<readonly [number, number]>,
+  halfWidths: number[],
+): IkiMesh {
+  const vertices: number[] = [];
+  const uvs: number[] = [];
+  for (let i = 0; i < centerline.length; i++) {
+    const [x, y] = centerline[i];
+    const w = halfWidths[i];
+    vertices.push(x - w, y, x + w, y);
+    uvs.push(0.5, 0.5, 0.5, 0.5);
+  }
+  const indices: number[] = [];
+  for (let i = 0; i < centerline.length - 1; i++) {
+    const l0 = 2 * i;
+    const r0 = 2 * i + 1;
+    const l1 = 2 * i + 2;
+    const r1 = 2 * i + 3;
+    indices.push(l0, r0, r1);
+    indices.push(l0, r1, l1);
   }
   return { vertices, uvs, indices };
 }
@@ -219,20 +235,32 @@ function hair(
   };
 }
 
-// ParamHairSwayX (driven by the PhysicsMotion spring) rotates/translates the
-// side locks so they lag + overshoot the head turn. Both locks sway together.
+// Side-lock motion = two rotate contributions that SUM (the engine adds same-
+// channel bindings):
+//  1. ParamHairSwayX (the PhysicsMotion spring) — lag + overshoot of the turn.
+//  2. ParamAngleX counter-roll — cancels the headDeformer's ±6° head-roll
+//     (bound `from 6 to -6`) with the OPPOSITE `from -6 to 6`, so the locks keep
+//     hanging vertically (gravity feel) instead of tilting with the face when it
+//     turns. The temple still follows the head's translate; only the roll is
+//     neutralised.
 const hairSwayBindings: IkiBinding[] = [
   {
     parameter: StandardParameter.HairSwayX,
     channel: "rotate",
-    from: -8,
-    to: 8,
+    from: -10,
+    to: 10,
   },
   {
     parameter: StandardParameter.HairSwayX,
     channel: "translateX",
-    from: -10,
-    to: 10,
+    from: -4,
+    to: 4,
+  },
+  {
+    parameter: StandardParameter.AngleX,
+    channel: "rotate",
+    from: -6,
+    to: 6,
   },
 ];
 
@@ -471,33 +499,44 @@ export const sampleModel: IkiModel = {
       ),
     ),
 
-    // side framing locks tapering down the cheeks
+    // Long side-framing locks. Each part's ORIGIN sits at the temple (its
+    // `transform`), and the mesh hangs DOWN from there in local coords, so the
+    // `rotate` sway pivots from the root (the strand swings like a pendulum, the
+    // temple stays put) and the tips swish past the jaw.
     hair(
       "sideLockL",
       HAIR,
       9,
-      0,
-      0,
-      polygonMesh([
-        [-250, 206],
-        [-202, 212],
-        [-188, -70],
-        [-232, -30],
-      ]),
+      -215,
+      215,
+      // Hangs straight DOWN from the temple (gravity), then KINKS inward toward
+      // the jaw — local +y is up, so the strand runs into negative y.
+      strandMesh(
+        [
+          [-12, 4],
+          [-10, -190],
+          [10, -360],
+          [40, -470],
+        ],
+        [30, 32, 22, 11],
+      ),
       hairSwayBindings,
     ),
     hair(
       "sideLockR",
       HAIR,
       9,
-      0,
-      0,
-      polygonMesh([
-        [202, 212],
-        [250, 206],
-        [232, -30],
-        [188, -70],
-      ]),
+      215,
+      215,
+      strandMesh(
+        [
+          [12, 4],
+          [10, -190],
+          [-10, -360],
+          [-40, -470],
+        ],
+        [30, 32, 22, 11],
+      ),
       hairSwayBindings,
     ),
   ],
@@ -509,8 +548,8 @@ export const sampleModel: IkiModel = {
       input: { parameter: StandardParameter.AngleX, weight: 1 },
       output: { parameter: StandardParameter.HairSwayX, scale: -10 },
       mass: 1,
-      stiffness: 80,
-      damping: 10,
+      stiffness: 60,
+      damping: 5,
     },
   ],
 };
