@@ -2175,3 +2175,376 @@ describe("physics rigs", () => {
     expect(model.physics).toBeUndefined();
   });
 });
+
+describe("physics chains", () => {
+  /** Build a model with a matrix deformer (headDeformer), params for two segment
+   *  outputs (SegOut0 / SegOut1), one input param (AngleX), and optionally a warp
+   *  deformer (faceWarp). physicsChains is patched in by the callers. */
+  function chainModel(
+    physicsChains: unknown,
+    opts: {
+      flatPhysics?: unknown[];
+      deformerBindings?: {
+        parameter: string;
+        channel: string;
+        from: number;
+        to: number;
+      }[];
+      extraDeformers?: unknown[];
+    } = {},
+  ) {
+    const deformers: unknown[] = [
+      {
+        id: "headDeformer",
+        pivot: { x: 0, y: 0 },
+        bindings: opts.deformerBindings ?? [],
+      },
+      ...(opts.extraDeformers ?? []),
+    ];
+    const m: Record<string, unknown> = {
+      version: IKI_FORMAT_VERSION,
+      name: "chainTest",
+      canvas: { width: 100, height: 100 },
+      parameters: [
+        { id: "AngleX", min: -30, max: 30, default: 0 },
+        { id: "SegOut0", min: -60, max: 60, default: 0 },
+        { id: "SegOut1", min: -60, max: 60, default: 0 },
+      ],
+      parts: [
+        {
+          id: "part1",
+          color: [1, 1, 1, 1],
+          width: 10,
+          height: 10,
+          transform: { x: 0, y: 0 },
+          order: 0,
+        },
+      ],
+      deformers,
+      physicsChains,
+    };
+    if (opts.flatPhysics !== undefined) {
+      m.physics = opts.flatPhysics;
+    }
+    return m;
+  }
+
+  const validChain = {
+    id: "lockL",
+    anchorDeformer: "headDeformer",
+    gravity: { angle: -90, strength: 35 },
+    segments: [
+      {
+        output: { parameter: "SegOut0", scale: 1 },
+        mass: 1,
+        stiffness: 10,
+        damping: 4,
+      },
+      {
+        output: { parameter: "SegOut1", scale: 1 },
+        restAngle: 15,
+        mass: 1,
+        stiffness: 10,
+        damping: 4,
+      },
+    ],
+  };
+
+  it("parses a valid chain and round-trips onto model.physicsChains", () => {
+    const model = parseIkiModel(chainModel([validChain]));
+    expect(model.physicsChains).toHaveLength(1);
+    expect(model.physicsChains?.[0]).toEqual(validChain);
+  });
+
+  it("preserves restAngle omission — no default injected", () => {
+    const model = parseIkiModel(chainModel([validChain]));
+    // seg[0] has no restAngle authored
+    expect(model.physicsChains?.[0].segments[0].restAngle).toBeUndefined();
+    // seg[1] has restAngle: 15 authored — it must survive
+    expect(model.physicsChains?.[0].segments[1].restAngle).toBe(15);
+  });
+
+  it("rejects physicsChains that is not an array", () => {
+    expect(() => parseIkiModel(chainModel("bad"))).toThrow(
+      /physicsChains must be an array/,
+    );
+  });
+
+  it("rejects anchorDeformer that is missing or undeclared", () => {
+    const c = { ...validChain, anchorDeformer: "noSuchDeformer" };
+    expect(() => parseIkiModel(chainModel([c]))).toThrow(
+      /anchorDeformer "noSuchDeformer" must reference a declared matrix deformer/,
+    );
+  });
+
+  it("rejects anchorDeformer pointing at a warp deformer", () => {
+    // faceWarp is a warp deformer; anchoring to it should be rejected
+    const faceWarp = {
+      kind: "warp",
+      id: "faceWarp",
+      grid: {
+        cols: 1,
+        rows: 1,
+        points: [-1, 1, 1, 1, -1, -1, 1, -1],
+      },
+    };
+    const c = { ...validChain, anchorDeformer: "faceWarp" };
+    expect(() =>
+      parseIkiModel(chainModel([c], { extraDeformers: [faceWarp] })),
+    ).toThrow(
+      /anchorDeformer "faceWarp" must reference a declared matrix deformer/,
+    );
+  });
+
+  it("rejects segments with length 0", () => {
+    const c = { ...validChain, segments: [] };
+    expect(() => parseIkiModel(chainModel([c]))).toThrow(
+      /segments must be non-empty/,
+    );
+  });
+
+  it("rejects a segment output.parameter that is not declared", () => {
+    const c = {
+      ...validChain,
+      segments: [
+        {
+          output: { parameter: "Undeclared", scale: 1 },
+          mass: 1,
+          stiffness: 10,
+          damping: 4,
+        },
+      ],
+    };
+    expect(() => parseIkiModel(chainModel([c]))).toThrow(
+      /output\.parameter "Undeclared" is not a declared parameter/,
+    );
+  });
+
+  it("rejects a chain segment output that duplicates a flat physics[] output", () => {
+    const flatRig = {
+      id: "flatRig",
+      input: { parameter: "AngleX", weight: 1 },
+      output: { parameter: "SegOut0", scale: 1 },
+      mass: 1,
+      stiffness: 80,
+      damping: 10,
+    };
+    // SegOut0 is already used by flatRig; chain's seg[0] also writes SegOut0
+    const c = {
+      ...validChain,
+      segments: [
+        {
+          output: { parameter: "SegOut0", scale: 1 },
+          mass: 1,
+          stiffness: 10,
+          damping: 4,
+        },
+        {
+          output: { parameter: "SegOut1", scale: 1 },
+          mass: 1,
+          stiffness: 10,
+          damping: 4,
+        },
+      ],
+    };
+    expect(() =>
+      parseIkiModel(chainModel([c], { flatPhysics: [flatRig] })),
+    ).toThrow(/is already an output of another physics rig/);
+  });
+
+  it("rejects a chain segment output that equals a physics input param", () => {
+    // flatRig uses AngleX as its input; a chain segment that outputs AngleX
+    // would be a feedback loop
+    const flatRig = {
+      id: "flatRig",
+      input: { parameter: "AngleX", weight: 1 },
+      output: { parameter: "SegOut1", scale: 1 },
+      mass: 1,
+      stiffness: 80,
+      damping: 10,
+    };
+    const c = {
+      ...validChain,
+      segments: [
+        {
+          output: { parameter: "AngleX", scale: 1 },
+          mass: 1,
+          stiffness: 10,
+          damping: 4,
+        },
+        {
+          output: { parameter: "SegOut0", scale: 1 },
+          mass: 1,
+          stiffness: 10,
+          damping: 4,
+        },
+      ],
+    };
+    expect(() =>
+      parseIkiModel(chainModel([c], { flatPhysics: [flatRig] })),
+    ).toThrow(/feedback loops are not supported/);
+  });
+
+  it("rejects a chain segment output that drives a param in the anchorDeformer's bindings", () => {
+    // headDeformer has a binding on AngleX; chain seg[0] outputs AngleX → feedback
+    const c = {
+      ...validChain,
+      segments: [
+        {
+          output: { parameter: "AngleX", scale: 1 },
+          mass: 1,
+          stiffness: 10,
+          damping: 4,
+        },
+        {
+          output: { parameter: "SegOut0", scale: 1 },
+          mass: 1,
+          stiffness: 10,
+          damping: 4,
+        },
+      ],
+    };
+    expect(() =>
+      parseIkiModel(
+        chainModel([c], {
+          deformerBindings: [
+            { parameter: "AngleX", channel: "rotate", from: -30, to: 30 },
+          ],
+        }),
+      ),
+    ).toThrow(/feeds its own anchor deformer chain \(feedback\)/);
+  });
+
+  it("rejects a duplicate chain id (also rejects chain id == flat rig id)", () => {
+    const c1 = {
+      ...validChain,
+      id: "lockL",
+      segments: [
+        {
+          output: { parameter: "SegOut0", scale: 1 },
+          mass: 1,
+          stiffness: 10,
+          damping: 4,
+        },
+      ],
+    };
+    const c2 = {
+      ...validChain,
+      id: "lockL",
+      segments: [
+        {
+          output: { parameter: "SegOut1", scale: 1 },
+          mass: 1,
+          stiffness: 10,
+          damping: 4,
+        },
+      ],
+    };
+    expect(() => parseIkiModel(chainModel([c1, c2]))).toThrow(
+      /duplicates an earlier physics rig id/,
+    );
+  });
+
+  it("rejects a chain id that collides with a flat rig id", () => {
+    const flatRig = {
+      id: "lockL",
+      input: { parameter: "AngleX", weight: 1 },
+      output: { parameter: "SegOut1", scale: 1 },
+      mass: 1,
+      stiffness: 80,
+      damping: 10,
+    };
+    const c = {
+      ...validChain,
+      segments: [
+        {
+          output: { parameter: "SegOut0", scale: 1 },
+          mass: 1,
+          stiffness: 10,
+          damping: 4,
+        },
+      ],
+    };
+    expect(() =>
+      parseIkiModel(chainModel([c], { flatPhysics: [flatRig] })),
+    ).toThrow(/duplicates an earlier physics rig id/);
+  });
+
+  it("rejects mass <= 0 in a segment", () => {
+    const c = {
+      ...validChain,
+      segments: [
+        {
+          output: { parameter: "SegOut0", scale: 1 },
+          mass: 0,
+          stiffness: 10,
+          damping: 4,
+        },
+      ],
+    };
+    expect(() => parseIkiModel(chainModel([c]))).toThrow(/\.mass must be > 0/);
+  });
+
+  it("rejects stiffness < 0 in a segment", () => {
+    const c = {
+      ...validChain,
+      segments: [
+        {
+          output: { parameter: "SegOut0", scale: 1 },
+          mass: 1,
+          stiffness: -1,
+          damping: 4,
+        },
+      ],
+    };
+    expect(() => parseIkiModel(chainModel([c]))).toThrow(
+      /\.stiffness must be >= 0/,
+    );
+  });
+
+  it("allows stiffness === 0 in a segment (pure gravity-hang)", () => {
+    const c = {
+      ...validChain,
+      segments: [
+        {
+          output: { parameter: "SegOut0", scale: 1 },
+          mass: 1,
+          stiffness: 0,
+          damping: 4,
+        },
+      ],
+    };
+    expect(() => parseIkiModel(chainModel([c]))).not.toThrow();
+  });
+
+  it("rejects damping < 0 in a segment", () => {
+    const c = {
+      ...validChain,
+      segments: [
+        {
+          output: { parameter: "SegOut0", scale: 1 },
+          mass: 1,
+          stiffness: 10,
+          damping: -1,
+        },
+      ],
+    };
+    expect(() => parseIkiModel(chainModel([c]))).toThrow(
+      /\.damping must be >= 0/,
+    );
+  });
+
+  it("rejects gravity.strength < 0", () => {
+    const c = { ...validChain, gravity: { angle: -90, strength: -1 } };
+    expect(() => parseIkiModel(chainModel([c]))).toThrow(
+      /gravity\.strength must be >= 0/,
+    );
+  });
+
+  it("rejects non-finite gravity.angle (NaN representative)", () => {
+    const c = { ...validChain, gravity: { angle: NaN, strength: 35 } };
+    expect(() => parseIkiModel(chainModel([c]))).toThrow(
+      /gravity\.angle must be a finite number/,
+    );
+  });
+});

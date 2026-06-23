@@ -15,6 +15,8 @@ import {
   type IkiParameter,
   type IkiPart,
   type IkiPhysics,
+  type IkiPhysicsChain,
+  type IkiPhysicsChainSegment,
   type IkiTexture,
   type IkiTransform,
   type IkiTransformChannel,
@@ -633,6 +635,86 @@ function parsePhysics(
   };
 }
 
+function parsePhysicsChainSegment(
+  value: unknown,
+  path: string,
+  validParameters: ReadonlySet<string>,
+): IkiPhysicsChainSegment {
+  if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
+  if (!isObject(value.output)) {
+    throw new IkiFormatError(`${path}.output must be an object`);
+  }
+  const outputParameter = str(
+    value.output.parameter,
+    `${path}.output.parameter`,
+  );
+  if (!validParameters.has(outputParameter)) {
+    throw new IkiFormatError(
+      `${path}.output.parameter "${outputParameter}" is not a declared parameter`,
+    );
+  }
+  const scale = num(value.output.scale, `${path}.output.scale`);
+  const restAngle =
+    value.restAngle === undefined
+      ? undefined
+      : num(value.restAngle, `${path}.restAngle`);
+  const mass = num(value.mass, `${path}.mass`);
+  const stiffness = num(value.stiffness, `${path}.stiffness`);
+  const damping = num(value.damping, `${path}.damping`);
+  if (mass <= 0) throw new IkiFormatError(`${path}.mass must be > 0`);
+  if (stiffness < 0) throw new IkiFormatError(`${path}.stiffness must be >= 0`);
+  if (damping < 0) throw new IkiFormatError(`${path}.damping must be >= 0`);
+  return {
+    output: { parameter: outputParameter, scale },
+    restAngle,
+    mass,
+    stiffness,
+    damping,
+  };
+}
+
+function parsePhysicsChain(
+  value: unknown,
+  path: string,
+  validParameters: ReadonlySet<string>,
+  matrixDeformerIds: ReadonlySet<string>,
+): IkiPhysicsChain {
+  if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
+  const id = str(value.id, `${path}.id`);
+  if (!isObject(value.gravity)) {
+    throw new IkiFormatError(`${path}.gravity must be an object`);
+  }
+  const gravityAngle = num(value.gravity.angle, `${path}.gravity.angle`);
+  const gravityStrength = num(
+    value.gravity.strength,
+    `${path}.gravity.strength`,
+  );
+  if (gravityStrength < 0) {
+    throw new IkiFormatError(`${path}.gravity.strength must be >= 0`);
+  }
+  const anchorDeformer = str(value.anchorDeformer, `${path}.anchorDeformer`);
+  if (!matrixDeformerIds.has(anchorDeformer)) {
+    throw new IkiFormatError(
+      `${path}.anchorDeformer "${anchorDeformer}" must reference a declared matrix deformer`,
+    );
+  }
+  if (!Array.isArray(value.segments)) {
+    throw new IkiFormatError(`${path}.segments must be an array`);
+  }
+  if (value.segments.length < 1) {
+    throw new IkiFormatError(`${path}.segments must be non-empty`);
+  }
+  const segments = value.segments.map((s, i) =>
+    parsePhysicsChainSegment(s, `${path}.segments[${i}]`, validParameters),
+  );
+  return {
+    id,
+    anchorDeformer,
+    gravity: { angle: gravityAngle, strength: gravityStrength },
+    segments,
+  };
+}
+
 function parseTransform(value: unknown, path: string): IkiTransform {
   if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
   return {
@@ -1005,9 +1087,16 @@ export function parseIkiModel(input: unknown): IkiModel {
 
   // Build set of warp-deformer ids for the mesh-required cross-check
   const warpDeformerIds = new Set<string>();
+  // Build set of matrix-deformer ids for physicsChains anchorDeformer validation
+  const matrixDeformerIds = new Set<string>();
   if (deformers) {
     for (const d of deformers) {
-      if (d.kind === "warp") warpDeformerIds.add(d.id);
+      if (d.kind === "warp") {
+        warpDeformerIds.add(d.id);
+      } else {
+        // kind === undefined or "matrix"
+        matrixDeformerIds.add(d.id);
+      }
     }
   }
 
@@ -1066,6 +1155,7 @@ export function parseIkiModel(input: unknown): IkiModel {
     }
   }
 
+  // Parse flat physics rigs independently (no cross-rig checks here yet)
   let physics: IkiPhysics[] | undefined;
   if (input.physics !== undefined) {
     if (!Array.isArray(input.physics)) {
@@ -1074,21 +1164,45 @@ export function parseIkiModel(input: unknown): IkiModel {
     physics = input.physics.map((p, i) =>
       parsePhysics(p, `physics[${i}]`, declaredIds),
     );
-    // Cross-rig checks: rig ids must be unique (commands key on them, like
-    // parameter and part ids), an output param may be written by at most one
-    // rig, and no rig's output may feed any rig's input (feedback unsupported).
-    const physicsInputIds = new Set(physics.map((r) => r.input.parameter));
+  }
+
+  // Parse physicsChains independently
+  let physicsChains: IkiPhysicsChain[] | undefined;
+  if (input.physicsChains !== undefined) {
+    if (!Array.isArray(input.physicsChains)) {
+      throw new IkiFormatError("physicsChains must be an array");
+    }
+    physicsChains = input.physicsChains.map((c, i) =>
+      parsePhysicsChain(
+        c,
+        `physicsChains[${i}]`,
+        declaredIds,
+        matrixDeformerIds,
+      ),
+    );
+  }
+
+  // One unconditional shared cross-rig pass over flat physics[] and physicsChains[].
+  // Checks: rig/chain id uniqueness (shared seenIds — chain ids must be unique vs
+  // flat rig ids too), output-param uniqueness (shared seenOutputs), and no output
+  // may equal a flat rig's input (feedback loops unsupported).
+  {
+    // physicsInputIds: input parameters of flat rigs only (chains have no explicit input param)
+    const physicsInputIds = new Set(
+      (physics ?? []).map((r) => r.input.parameter),
+    );
     const seenIds = new Set<string>();
     const seenOutputs = new Set<string>();
-    for (let i = 0; i < physics.length; i++) {
-      const rigId = physics[i].id;
-      if (seenIds.has(rigId)) {
+
+    for (let i = 0; i < (physics ?? []).length; i++) {
+      const rig = physics![i];
+      if (seenIds.has(rig.id)) {
         throw new IkiFormatError(
-          `physics[${i}].id "${rigId}" duplicates an earlier physics rig id`,
+          `physics[${i}].id "${rig.id}" duplicates an earlier physics rig id`,
         );
       }
-      seenIds.add(rigId);
-      const outId = physics[i].output.parameter;
+      seenIds.add(rig.id);
+      const outId = rig.output.parameter;
       if (seenOutputs.has(outId)) {
         throw new IkiFormatError(
           `physics[${i}].output.parameter "${outId}" is already an output of another physics rig`,
@@ -1099,6 +1213,72 @@ export function parseIkiModel(input: unknown): IkiModel {
         throw new IkiFormatError(
           `physics[${i}].output.parameter "${outId}" is used as a physics input (feedback loops are not supported)`,
         );
+      }
+    }
+
+    for (let i = 0; i < (physicsChains ?? []).length; i++) {
+      const chain = physicsChains![i];
+      if (seenIds.has(chain.id)) {
+        throw new IkiFormatError(
+          `physicsChains[${i}].id "${chain.id}" duplicates an earlier physics rig id`,
+        );
+      }
+      seenIds.add(chain.id);
+      for (let j = 0; j < chain.segments.length; j++) {
+        const outId = chain.segments[j].output.parameter;
+        if (seenOutputs.has(outId)) {
+          throw new IkiFormatError(
+            `physicsChains[${i}].segments[${j}].output.parameter "${outId}" is already an output of another physics rig`,
+          );
+        }
+        seenOutputs.add(outId);
+        if (physicsInputIds.has(outId)) {
+          throw new IkiFormatError(
+            `physicsChains[${i}].segments[${j}].output.parameter "${outId}" is used as a physics input (feedback loops are not supported)`,
+          );
+        }
+      }
+    }
+  }
+
+  // Implicit-anchor-feedback check: a chain's anchor deformer's world transform is
+  // derived from the anchor's bindings AND every matrix ancestor's bindings. Any
+  // segment output parameter that appears in those bindings would create a feedback
+  // loop (the chain's output would indirectly drive its own anchor orientation).
+  if (physicsChains && deformers) {
+    // Build parent map and bindings-parameter set per deformer
+    const deformerParentOf = new Map<string, string>();
+    const deformerBindingParams = new Map<string, Set<string>>();
+    for (const d of deformers) {
+      if (d.parent !== undefined) deformerParentOf.set(d.id, d.parent);
+      if (d.kind !== "warp" && d.bindings) {
+        deformerBindingParams.set(
+          d.id,
+          new Set(d.bindings.map((b) => b.parameter)),
+        );
+      }
+    }
+
+    for (let i = 0; i < physicsChains.length; i++) {
+      const chain = physicsChains[i];
+      // Collect all params referenced by the anchor and its matrix ancestors
+      const anchorChainParams = new Set<string>();
+      let cur: string | undefined = chain.anchorDeformer;
+      while (cur !== undefined) {
+        const bParams = deformerBindingParams.get(cur);
+        if (bParams) {
+          for (const p of bParams) anchorChainParams.add(p);
+        }
+        cur = deformerParentOf.get(cur);
+      }
+      // Reject any segment output that appears in the anchor chain's bindings
+      for (let j = 0; j < chain.segments.length; j++) {
+        const outId = chain.segments[j].output.parameter;
+        if (anchorChainParams.has(outId)) {
+          throw new IkiFormatError(
+            `physicsChains[${i}].segments[${j}].output.parameter "${outId}" feeds its own anchor deformer chain (feedback)`,
+          );
+        }
       }
     }
   }
@@ -1115,6 +1295,7 @@ export function parseIkiModel(input: unknown): IkiModel {
     parts,
     deformers,
     physics,
+    physicsChains,
   };
 }
 

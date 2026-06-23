@@ -323,6 +323,58 @@ export interface IkiPhysics {
   damping: number;
 }
 
+/**
+ * One segment in a multi-segment angular-pendulum chain rig ({@link IkiPhysicsChain}).
+ *
+ * ANGLE CONVENTION: θ is the segment's DISPLACEMENT from its authored rest
+ * orientation. The spring restores θ → 0 (NOT toward `restAngle`). The OUTPUT
+ * PARAM receives θ in DEGREES so a `rotate` binding at rest reads 0. `restAngle`
+ * (in degrees) enters ONLY the world-angle sum used for gravity:
+ *   Φ_i = anchorWorldAngle + Σ_{j≤i}(restAngle_j + θ_j)
+ * Absence of `restAngle` is preserved — the driver defaults it to 0 at runtime.
+ */
+export interface IkiPhysicsChainSegment {
+  /** Driven parameter; receives θ (displacement from rest) in DEGREES. */
+  output: { parameter: string; scale: number };
+  /**
+   * Authored local rest angle of this segment in DEGREES. Optional — absence
+   * means the driver uses 0. Appears only in the world-angle sum for gravity,
+   * NOT in the spring term.
+   */
+  restAngle?: number;
+  /** Segment mass (> 0). */
+  mass: number;
+  /** Spring stiffness (>= 0; 0 = pure gravity-hang, no spring). */
+  stiffness: number;
+  /** Damping coefficient (>= 0). */
+  damping: number;
+}
+
+/**
+ * A multi-segment angular-pendulum chain secondary-motion rig.
+ *
+ * The chain follows the anchor deformer's MATRIX transform only — it does not
+ * ride a warp deformer's foreshorten, so the strand hangs in world space.
+ * Segments are ordered root → tip; each emits its angular displacement θ (in
+ * degrees) on its output parameter.
+ */
+export interface IkiPhysicsChain {
+  id: string;
+  /**
+   * Id of the matrix deformer that acts as the attachment point (root pivot).
+   * Must reference a declared matrix deformer (not a warp deformer).
+   */
+  anchorDeformer: string;
+  /**
+   * World gravity direction and strength.
+   * `angle` = the downward direction in degrees (e.g. -90 = straight down in
+   * +y-up space); `strength` >= 0.
+   */
+  gravity: { angle: number; strength: number };
+  /** Non-empty ordered list of chain segments (root → tip). */
+  segments: IkiPhysicsChainSegment[];
+}
+
 /** A complete `.iki` puppet model. */
 export interface IkiModel {
   /** Format version; see {@link IKI_FORMAT_VERSION}. */
@@ -337,4 +389,6 @@ export interface IkiModel {
   deformers?: IkiDeformer[];
   /** Optional spring-mass-damper secondary-motion rigs. */
   physics?: IkiPhysics[];
+  /** Optional multi-segment angular-chain secondary-motion rigs. */
+  physicsChains?: IkiPhysicsChain[];
 }

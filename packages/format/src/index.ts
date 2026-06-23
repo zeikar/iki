@@ -16,6 +16,8 @@ export {
   type IkiParameter,
   type IkiPart,
   type IkiPhysics,
+  type IkiPhysicsChain,
+  type IkiPhysicsChainSegment,
   type IkiTexture,
   type IkiTransform,
   type IkiTransformChannel,
