@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { IKI_FORMAT_VERSION, IkiFormatError } from "@iki/format";
-import type { IkiModel, IkiPhysics } from "@iki/format";
+import type { IkiModel, IkiPhysics, IkiPhysicsChain } from "@iki/format";
 import {
   AddPhysicsRig,
   DeletePhysicsRig,
@@ -298,5 +298,104 @@ describe("physics round-trips through serialize()", () => {
     doc.execute(new AddPhysicsRig(rig()));
     const parsed = JSON.parse(doc.serialize()) as IkiModel;
     expect(parsed.physics).toEqual([rig()]);
+  });
+});
+
+// ── Cross-rig collision with physicsChains ────────────────────────────────────
+// Verifies that validatePhysicsCandidate includes the model's existing
+// physicsChains (and deformers) so AddPhysicsRig / SetPhysicsRig REJECT a flat
+// rig that collides with a chain id or a chain segment output.
+
+/** Base model that also has a matrix deformer + one physicsChains chain. */
+function baseModelWithChain(): IkiModel {
+  // Needs: ParamAngleX (flat rig input), ParamHairSwayX (flat rig output),
+  // ParamBlink (flat rig spare), ParamHairSeg0/ParamHairSeg1 (chain segment
+  // outputs), ParamChainIn (spare for flat-rig collision tests).
+  return {
+    version: IKI_FORMAT_VERSION,
+    name: "base-with-chain",
+    canvas: { width: 1000, height: 1000 },
+    parameters: [
+      { id: "ParamAngleX", min: -30, max: 30, default: 0 },
+      { id: "ParamHairSwayX", min: -20, max: 20, default: 0 },
+      { id: "ParamBlink", min: 0, max: 1, default: 0 },
+      { id: "ParamHairSeg0", min: -30, max: 30, default: 0 },
+      { id: "ParamHairSeg1", min: -30, max: 30, default: 0 },
+    ],
+    parts: [
+      {
+        id: "quad",
+        color: [1, 1, 1, 1],
+        width: 100,
+        height: 100,
+        transform: { x: 0, y: 0 },
+        order: 0,
+      },
+    ],
+    deformers: [
+      { kind: "matrix" as const, id: "hair_bone", pivot: { x: 0, y: 0 } },
+    ],
+    physicsChains: [
+      {
+        id: "chain1",
+        anchorDeformer: "hair_bone",
+        gravity: { angle: -90, strength: 9.8 },
+        segments: [
+          {
+            output: { parameter: "ParamHairSeg0", scale: 1 },
+            mass: 1,
+            stiffness: 40,
+            damping: 5,
+          },
+          {
+            output: { parameter: "ParamHairSeg1", scale: 1 },
+            mass: 1,
+            stiffness: 40,
+            damping: 5,
+          },
+        ],
+      } satisfies IkiPhysicsChain,
+    ],
+  };
+}
+
+describe("AddPhysicsRig / SetPhysicsRig cross-chain collision checks", () => {
+  it("AddPhysicsRig rejects a flat rig whose output collides with a chain segment output", () => {
+    const doc = new EditorDocument(baseModelWithChain());
+    // ParamHairSeg0 is already driven by chain1's first segment
+    expect(() =>
+      doc.execute(
+        new AddPhysicsRig(
+          rig({ id: "new", output: { parameter: "ParamHairSeg0", scale: 1 } }),
+        ),
+      ),
+    ).toThrow(IkiFormatError);
+    expect(doc.getModel().physics).toBeUndefined();
+  });
+
+  it("AddPhysicsRig rejects a flat rig whose id duplicates a chain id", () => {
+    const doc = new EditorDocument(baseModelWithChain());
+    // "chain1" is the id of the existing physicsChain
+    expect(() => doc.execute(new AddPhysicsRig(rig({ id: "chain1" })))).toThrow(
+      IkiFormatError,
+    );
+    expect(doc.getModel().physics).toBeUndefined();
+  });
+
+  it("SetPhysicsRig rejects an edit that makes the flat rig output collide with a chain segment output", () => {
+    const doc = new EditorDocument(baseModelWithChain());
+    // First add a valid flat rig
+    doc.execute(new AddPhysicsRig(rig({ id: "r1" }))); // out: ParamHairSwayX
+    // Now try to set it so its output collides with chain1's segment output
+    expect(() =>
+      doc.execute(
+        new SetPhysicsRig(
+          "r1",
+          rig({ id: "r1", output: { parameter: "ParamHairSeg1", scale: -10 } }),
+        ),
+      ),
+    ).toThrow(IkiFormatError);
+    // Model unchanged — still outputs ParamHairSwayX
+    expect(doc.findPhysicsRig("r1").output.parameter).toBe("ParamHairSwayX");
   });
 });

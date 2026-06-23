@@ -1,4 +1,9 @@
-import { IkiPlayer, IdleMotion, PhysicsMotion } from "@iki/engine";
+import {
+  IkiPlayer,
+  IdleMotion,
+  PhysicsMotion,
+  HairChainMotion,
+} from "@iki/engine";
 import { StandardParameter } from "@iki/format";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 
@@ -133,22 +138,36 @@ export function Preview({ playerRef }: PreviewProps) {
       drive,
     );
 
+    // Multi-segment angular-chain driver (peer of PhysicsMotion). A model without
+    // physicsChains is a no-op (empty array). Chain segment outputs are restored
+    // on cleanup alongside physics and idle params.
+    const chains = useEditorStore.getState().doc.getModel().physicsChains ?? [];
+    const chainMotion = new HairChainMotion(
+      chains,
+      descriptors,
+      useEditorStore.getState().doc.getModel().deformers ?? [],
+      (id) => current[id] ?? clampParam(id, byId.get(id)?.default ?? 0),
+      drive,
+    );
+
     let frame = requestAnimationFrame(function tick() {
       const now = performance.now();
       idle.update(now);
       physics.update(now);
+      chainMotion.update(now);
       frame = requestAnimationFrame(tick);
     });
 
     return () => {
       cancelAnimationFrame(frame);
       // Restore the authored pose on the SAME player the loop drove — both the
-      // idle params and the physics OUTPUT params the spring overwrote. Only
-      // touch ids the loaded model declares — never `.default` on an absent one.
+      // idle params and the physics/chain OUTPUT params the drivers overwrote.
+      // Only touch ids the loaded model declares — never `.default` on an absent one.
       const { params } = useEditorStore.getState();
       const restoreIds = new Set<string>([
         ...IDLE_PARAM_IDS,
         ...rigs.map((r) => r.output.parameter),
+        ...chains.flatMap((c) => c.segments.map((s) => s.output.parameter)),
       ]);
       for (const id of restoreIds) {
         if (byId.has(id)) {

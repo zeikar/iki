@@ -1191,7 +1191,9 @@ function validatePhysicsCandidate(
     canvas: { width: 1, height: 1 },
     parameters: doc.getModel().parameters,
     parts: [candidatePart],
+    deformers: doc.getModel().deformers,
     physics: candidatePhysics,
+    physicsChains: doc.getModel().physicsChains,
   };
   try {
     parseIkiModel(candidate);
