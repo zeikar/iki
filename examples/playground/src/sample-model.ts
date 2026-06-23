@@ -243,6 +243,15 @@ function hair(
 const LOCK_PARAM_MIN = -60;
 const LOCK_PARAM_MAX = 60;
 
+// The chain rides headDeformer's rigid matrix, NOT faceWarp's cylinder bend, so
+// on a head turn the lock would float off the warp-COMPRESSED face edge (the
+// receding side compresses inward, the lock does not). This AngleX-driven
+// translateX on each lock's ROOT segment pulls the strand back toward the face
+// to track that compression (a position counterpart of the head-roll counter on
+// the old single-strand locks). Antisymmetric + zero at AngleX=0, so the rest
+// pose is unchanged; each lock pulls inward on the turn that makes its side recede.
+const LOCK_TURN_TRACK = 42;
+
 // Lock segment output param ids (no StandardParameter enum entry — these are
 // chain-only outputs not driven by the host).
 const ParamLockL0 = "ParamLockL0";
@@ -409,6 +418,15 @@ export const sampleModel: IkiModel = {
           from: LOCK_PARAM_MIN,
           to: LOCK_PARAM_MAX,
         },
+        {
+          // Track the warped face edge on turn (see LOCK_TURN_TRACK). Same sign
+          // as the right lock: both counter headDeformer's rigid translateX, which
+          // over-shifts the (warp-less) locks past the compressed face on a turn.
+          parameter: StandardParameter.AngleX,
+          channel: "translateX" as const,
+          from: LOCK_TURN_TRACK,
+          to: -LOCK_TURN_TRACK,
+        },
       ],
     },
     {
@@ -437,6 +455,13 @@ export const sampleModel: IkiModel = {
           channel: "rotate" as const,
           from: LOCK_PARAM_MIN,
           to: LOCK_PARAM_MAX,
+        },
+        {
+          // Mirror of the left lock's turn-tracking translate.
+          parameter: StandardParameter.AngleX,
+          channel: "translateX" as const,
+          from: LOCK_TURN_TRACK,
+          to: -LOCK_TURN_TRACK,
         },
       ],
     },
