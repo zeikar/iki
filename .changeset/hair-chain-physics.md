@@ -1,0 +1,6 @@
+---
+"@iki/format": minor
+"@iki/engine": minor
+---
+
+Multi-segment hair-chain secondary motion + gravity. `@iki/format` adds an optional `model.physicsChains` (`IkiPhysicsChain[]`): each chain anchors to a matrix deformer and carries `gravity { angle, strength }` plus ordered `segments[]`, where every segment emits a per-segment rotation output param (θ as displacement-from-rest, in degrees) — validated with path-qualified `IkiFormatError` and cross-checked against the flat `physics[]` rigs (shared id/output uniqueness + output-as-input feedback, plus an implicit anchor-deformer feedback check). `@iki/engine` adds a new host-agnostic `HairChainMotion` peer driver (sibling of `PhysicsMotion`; `player.ts` untouched): an angular pendulum chain where each segment is a spring toward rest plus a world-down gravity torque, integrated with the same fixed 1/60 s semi-implicit-Euler discipline + finiteness guards, so a strand bends at its joints and hangs toward world-vertical regardless of head turn. The driver self-computes its anchor's world rotation via `resolveDeformerWorlds`, so hosts only call `update(now)`. Additive — no `IKI_FORMAT_VERSION` bump. A chain follows its anchor's matrix transform only (it does not ride a warp's foreshorten — gravity hair hangs in world space).
