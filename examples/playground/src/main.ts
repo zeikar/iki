@@ -1,4 +1,9 @@
-import { IdleMotion, IkiPlayer, PhysicsMotion } from "@iki/engine";
+import {
+  HairChainMotion,
+  IdleMotion,
+  IkiPlayer,
+  PhysicsMotion,
+} from "@iki/engine";
 import { parseIkiModel } from "@iki/format";
 import { sampleModel } from "./sample-model";
 
@@ -113,6 +118,16 @@ function startIdle(): void {
     (id) => current[id] ?? 0,
     mirrorParam,
   );
+  // Peer driver for multi-segment hair chains: self-computes its anchor's world
+  // rotation from the deformers + current params, so it only needs the same
+  // read/sink. Empty physicsChains is a harmless no-op.
+  const chains = new HairChainMotion(
+    parsedModel?.physicsChains ?? [],
+    parsedModel?.parameters ?? [],
+    parsedModel?.deformers ?? [],
+    (id) => current[id] ?? 0,
+    mirrorParam,
+  );
 
   function frame(): void {
     // One clock read per frame keeps both drivers' dt in lockstep. Physics runs
@@ -122,6 +137,7 @@ function startIdle(): void {
     const now = performance.now();
     idle.update(now);
     physics.update(now);
+    chains.update(now);
     idleRafId = requestAnimationFrame(frame);
   }
   idleRafId = requestAnimationFrame(frame);
