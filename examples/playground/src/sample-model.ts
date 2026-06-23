@@ -654,7 +654,12 @@ export const sampleModel: IkiModel = {
       gravity: { angle: -90, strength: 50 },
       segments: [
         {
+          // restAngle = the segment's REST world direction: the strand hangs
+          // straight DOWN, which is -90° (the gravity.angle), so Φ_rest matches
+          // gravity → zero torque at rest (no yank). seg1 continues straight, so
+          // its restAngle stays 0 (omitted).
           output: { parameter: ParamLockL0, scale: 1 },
+          restAngle: -90,
           mass: 1,
           stiffness: 8,
           damping: 5,
@@ -673,7 +678,9 @@ export const sampleModel: IkiModel = {
       gravity: { angle: -90, strength: 50 },
       segments: [
         {
+          // Rest world direction is straight down (-90° = gravity.angle).
           output: { parameter: ParamLockR0, scale: 1 },
+          restAngle: -90,
           mass: 1,
           stiffness: 8,
           damping: 5,
