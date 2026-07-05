@@ -41,6 +41,8 @@ const LASH: [number, number, number, number] = [0.18, 0.13, 0.16, 1];
 const BLUSH: [number, number, number, number] = [1.0, 0.62, 0.62, 0.55];
 const NOSE: [number, number, number, number] = [0.92, 0.72, 0.66, 1];
 const LIP: [number, number, number, number] = [0.83, 0.36, 0.42, 1];
+const CAVITY: [number, number, number, number] = [0.45, 0.16, 0.2, 1];
+const TONGUE: [number, number, number, number] = [0.95, 0.55, 0.58, 1];
 const HIGHLIGHT: [number, number, number, number] = [1.0, 1.0, 1.0, 0.92];
 
 // --- mesh helpers -----------------------------------------------------------
@@ -125,13 +127,80 @@ function strandMesh(
   return { vertices, uvs, indices };
 }
 
+/**
+ * A horizontal arched band: one column per `xs` entry, each with its own
+ * centerline height (`ys`) and vertical half-thickness. Strip-triangulated
+ * left→right. Thick center + near-zero ends gives the tapered curves the
+ * ellipse parts can't: upper lashes, visible eyebrows, the closed-eye line.
+ */
+function arcBandMesh(
+  xs: number[],
+  ys: number[],
+  halfThicknesses: number[],
+): IkiMesh {
+  const vertices: number[] = [];
+  const uvs: number[] = [];
+  for (let i = 0; i < xs.length; i++) {
+    const t = halfThicknesses[i];
+    vertices.push(xs[i], ys[i] + t, xs[i], ys[i] - t);
+    uvs.push(0.5, 0.5, 0.5, 0.5);
+  }
+  const indices: number[] = [];
+  for (let i = 0; i < xs.length - 1; i++) {
+    const t0 = 2 * i;
+    const b0 = 2 * i + 1;
+    const t1 = 2 * i + 2;
+    const b1 = 2 * i + 3;
+    indices.push(t0, b0, b1);
+    indices.push(t0, b1, t1);
+  }
+  return { vertices, uvs, indices };
+}
+
 // --- per-feature binding builders ------------------------------------------
+// Fully collapse the eyeball parts at EyeOpen=0 (scaleY 0) — the dropped lash
+// arc alone forms the closed-eye line, with no squashed sliver peeking below.
 const blink = (eye: string): IkiBinding => ({
   parameter: eye,
   channel: "scaleY",
-  from: -0.85,
+  from: -1,
   to: 0,
 });
+// Yaw parallax: the eye on the receding side narrows, the near side widens a
+// touch. `sign` is +1 for left-of-canvas parts, -1 for right; antisymmetric
+// endpoints keep the rest pose untouched (offset 0 at AngleX=0).
+const eyeTurnNarrow = (sign: 1 | -1): IkiBinding => ({
+  parameter: StandardParameter.AngleX,
+  channel: "scaleX",
+  from: 0.12 * sign,
+  to: -0.12 * sign,
+});
+// Smile squint lives on the LASH (translateY droop), NOT on the eyeball parts:
+// any scaleY offset with a nonzero rest value stacks with the blink offset and
+// flips the collapsed eye to a negative scale (a mirrored sliver leaks out).
+const smileSquint = (): IkiBinding => ({
+  parameter: StandardParameter.MouthForm,
+  channel: "translateY",
+  from: 4,
+  to: -8,
+});
+// Shared MouthForm shaping for every part of the mouth stack, so lip, cavity,
+// and tongue move as one mouth. The +2 rest offset of the translateY endpoints
+// is baked out of each part's y placement.
+const mouthForm = (): IkiBinding[] => [
+  {
+    parameter: StandardParameter.MouthForm,
+    channel: "scaleX",
+    from: -0.2,
+    to: 0.4,
+  },
+  {
+    parameter: StandardParameter.MouthForm,
+    channel: "translateY",
+    from: -4,
+    to: 8,
+  },
+];
 const gaze = (): IkiBinding[] => [
   {
     parameter: StandardParameter.EyeballX,
@@ -270,7 +339,7 @@ const LOCK_TURN_TRACK = 42;
 // Strand centerline in part-LOCAL model px (top → tip) for the LEFT lock, each
 // point with a half-width (taper). Band count = points − 1. Right lock mirrors x.
 const LOCK_CENTERLINE: ReadonlyArray<readonly [number, number]> = [
-  [-12, 4],
+  [-10, -6],
   [-12, -90],
   [-8, -190],
   [0, -290],
@@ -278,9 +347,12 @@ const LOCK_CENTERLINE: ReadonlyArray<readonly [number, number]> = [
   [28, -460],
   [48, -540],
 ];
-const LOCK_HALF_WIDTHS = [30, 33, 32, 28, 22, 15, 8];
+const LOCK_HALF_WIDTHS = [26, 33, 32, 28, 22, 15, 8];
 // Part transform placing the local strand at the LEFT temple (right negates x).
-const LOCK_ORIGIN = { x: -215, y: 215 };
+// Inboard enough that the root band's top row stays fully under the topHair
+// ellipse — a wider/outboard root pokes a bare rectangle out of the crown
+// silhouette the moment the head turns.
+const LOCK_ORIGIN = { x: -198, y: 215 };
 // Per-band physics (length = band count). θ ACCUMULATES down the chain, so the
 // tip already moves most on its own — the ramp therefore FIRMS the lower bands
 // (rising damping + held-up stiffness toward the tip) so the tip swishes gently
@@ -512,12 +584,29 @@ export const sampleModel: IkiModel = {
     ...lockR.deformers,
   ],
   parts: [
-    // back hair mass (behind everything)
-    hair("backHair", HAIR_DARK, 0, 0, 25, ellipseMesh(305, 345)),
+    // ears (behind the back hair mass, so they are truly masked at rest). The
+    // AngleX translateX slides the FAR ear outward past the backHair edge on a
+    // turn (same-sign endpoints on both sides — each ear peeks on the turn
+    // that makes its side recede, and tucks inboard when it is the near side).
+    feature("earL", SKIN_SHADOW, 0, -238, 5, ellipseMesh(38, 52), [
+      {
+        parameter: StandardParameter.AngleX,
+        channel: "translateX",
+        from: 45,
+        to: -45,
+      },
+    ]),
+    feature("earR", SKIN_SHADOW, 0, 238, 5, ellipseMesh(38, 52), [
+      {
+        parameter: StandardParameter.AngleX,
+        channel: "translateX",
+        from: 45,
+        to: -45,
+      },
+    ]),
 
-    // ears (ride the face turn)
-    feature("earL", SKIN_SHADOW, 1, -222, 5, ellipseMesh(34, 48)),
-    feature("earR", SKIN_SHADOW, 1, 222, 5, ellipseMesh(34, 48)),
+    // back hair mass (behind everything except the ears it masks)
+    hair("backHair", HAIR_DARK, 1, 0, 25, ellipseMesh(305, 345)),
 
     // face skin
     feature("faceSkin", SKIN, 2, 0, -8, ellipseMesh(220, 286)),
@@ -529,86 +618,175 @@ export const sampleModel: IkiModel = {
     // eye whites
     feature("eyeWhiteL", WHITE, 4, -108, 52, ellipseMesh(54, 46), [
       blink(StandardParameter.EyeOpenLeft),
+      eyeTurnNarrow(1),
     ]),
     feature("eyeWhiteR", WHITE, 4, 108, 52, ellipseMesh(54, 46), [
       blink(StandardParameter.EyeOpenRight),
+      eyeTurnNarrow(-1),
     ]),
 
     // iris
     feature("irisL", IRIS, 5, -108, 50, ellipseMesh(40, 44), [
       blink(StandardParameter.EyeOpenLeft),
+      eyeTurnNarrow(1),
       ...gaze(),
     ]),
     feature("irisR", IRIS, 5, 108, 50, ellipseMesh(40, 44), [
       blink(StandardParameter.EyeOpenRight),
+      eyeTurnNarrow(-1),
       ...gaze(),
     ]),
 
     // pupil
     feature("pupilL", PUPIL, 6, -108, 48, ellipseMesh(18, 24), [
       blink(StandardParameter.EyeOpenLeft),
+      eyeTurnNarrow(1),
       ...gaze(),
     ]),
     feature("pupilR", PUPIL, 6, 108, 48, ellipseMesh(18, 24), [
       blink(StandardParameter.EyeOpenRight),
+      eyeTurnNarrow(-1),
       ...gaze(),
     ]),
 
-    // eye highlight (sparkle, upper-left of each pupil)
-    feature("highlightL", HIGHLIGHT, 7, -120, 68, ellipseMesh(16, 18), [
+    // eye highlights: a large upper-left sparkle + a small lower-right echo,
+    // both offset the SAME way on both eyes (one implied light source) and
+    // sized to sit fully inside the iris.
+    feature("highlightL", HIGHLIGHT, 7, -120, 64, ellipseMesh(20, 22), [
       blink(StandardParameter.EyeOpenLeft),
+      eyeTurnNarrow(1),
       ...gaze(),
     ]),
-    feature("highlightR", HIGHLIGHT, 7, 96, 68, ellipseMesh(16, 18), [
+    feature("highlightR", HIGHLIGHT, 7, 96, 64, ellipseMesh(20, 22), [
       blink(StandardParameter.EyeOpenRight),
+      eyeTurnNarrow(-1),
+      ...gaze(),
+    ]),
+    feature("highlightL2", HIGHLIGHT, 7, -94, 32, ellipseMesh(7, 8), [
+      blink(StandardParameter.EyeOpenLeft),
+      eyeTurnNarrow(1),
+      ...gaze(),
+    ]),
+    feature("highlightR2", HIGHLIGHT, 7, 122, 32, ellipseMesh(7, 8), [
+      blink(StandardParameter.EyeOpenRight),
+      eyeTurnNarrow(-1),
       ...gaze(),
     ]),
 
-    // upper lash line (drops a touch when the eye closes)
-    feature("lashL", LASH, 7, -108, 84, ellipseMesh(58, 11), [
-      {
-        parameter: StandardParameter.EyeOpenLeft,
-        channel: "translateY",
-        from: -30,
-        to: 0,
-      },
-    ]),
-    feature("lashR", LASH, 7, 108, 84, ellipseMesh(58, 11), [
-      {
-        parameter: StandardParameter.EyeOpenRight,
-        channel: "translateY",
-        from: -30,
-        to: 0,
-      },
-    ]),
+    // upper lash line: a tapered arch (thick center, pointed drooping ends)
+    // riding above the iris so most of it stays visible. On a blink it drops
+    // onto the collapsed eye and reads as the closed-eye crescent by itself.
+    feature(
+      "lashL",
+      LASH,
+      7,
+      -108,
+      94,
+      arcBandMesh(
+        [-56, -34, 0, 34, 56],
+        [-6, 4, 8, 4, -6],
+        [1.5, 5, 7, 5, 1.5],
+      ),
+      [
+        {
+          parameter: StandardParameter.EyeOpenLeft,
+          channel: "translateY",
+          from: -30,
+          to: 0,
+        },
+        smileSquint(),
+      ],
+    ),
+    feature(
+      "lashR",
+      LASH,
+      7,
+      108,
+      94,
+      arcBandMesh(
+        [-56, -34, 0, 34, 56],
+        [-6, 4, 8, 4, -6],
+        [1.5, 5, 7, 5, 1.5],
+      ),
+      [
+        {
+          parameter: StandardParameter.EyeOpenRight,
+          channel: "translateY",
+          from: -30,
+          to: 0,
+        },
+        smileSquint(),
+      ],
+    ),
 
-    // eyebrows
-    feature("browL", HAIR, 8, -108, 120, ellipseMesh(44, 8)),
-    feature("browR", HAIR, 8, 108, 120, ellipseMesh(44, 8)),
+    // eyebrows — lash-dark and low enough to clear the fringe (hair-colored
+    // brows against hair are invisible, and the face reads angry without them)
+    feature(
+      "browL",
+      LASH,
+      8,
+      -108,
+      118,
+      arcBandMesh([-44, -24, 0, 24, 44], [-4, 2, 5, 2, -4], [2, 4, 5, 4, 2]),
+    ),
+    feature(
+      "browR",
+      LASH,
+      8,
+      108,
+      118,
+      arcBandMesh([-44, -24, 0, 24, 44], [-4, 2, 5, 2, -4], [2, 4, 5, 4, 2]),
+    ),
 
     // nose (subtle)
     feature("nose", NOSE, 5, 0, -12, ellipseMesh(7, 9)),
 
-    // mouth
-    feature("mouth", LIP, 6, 0, -120, ellipseMesh(38, 12), [
+    // mouth — a three-part stack so opening reveals an interior instead of a
+    // flat colored hole: lip rim (back), dark oral cavity, tongue (front).
+    feature("mouthLip", LIP, 6, 0, -122, ellipseMesh(36, 9), [
       {
         parameter: StandardParameter.MouthOpen,
         channel: "scaleY",
         from: 0,
-        to: 3,
+        to: 4.2,
+      },
+      ...mouthForm(),
+    ]),
+    // Rest: a thin dark line inside the lip (scaleY 0.1). Open: the cavity
+    // grows just short of the lip so the lip keeps a visible rim.
+    feature("mouthCavity", CAVITY, 7, 0, -124, ellipseMesh(31, 7), [
+      {
+        parameter: StandardParameter.MouthOpen,
+        channel: "scaleY",
+        from: -0.9,
+        to: 3.9,
+      },
+      ...mouthForm(),
+    ]),
+    // Hidden at rest; rises and settles toward the cavity floor as the mouth
+    // opens.
+    feature("tongue", TONGUE, 8, 0, -134, ellipseMesh(20, 8), [
+      {
+        parameter: StandardParameter.MouthOpen,
+        channel: "scaleY",
+        from: -0.95,
+        to: 1.4,
       },
       {
-        parameter: StandardParameter.MouthForm,
-        channel: "scaleX",
-        from: -0.2,
-        to: 0.4,
+        parameter: StandardParameter.MouthOpen,
+        channel: "translateY",
+        from: 0,
+        to: -14,
       },
+      ...mouthForm(),
     ]),
 
     // scalp / hairline cap (in front of the upper face)
     hair("topHair", HAIR, 10, 0, 246, ellipseMesh(256, 118)),
 
-    // front bangs — one solid scalloped fringe (no skin gaps between locks)
+    // front bangs — one solid scalloped fringe (no skin gaps between locks).
+    // Finer columns with a gentler amplitude than the original zigzag: 32px
+    // swings between 54px columns read as harsh sawteeth, not hair.
     hair(
       "bangFront",
       HAIR,
@@ -616,9 +794,12 @@ export const sampleModel: IkiModel = {
       0,
       0,
       fringeMesh(
-        [-215, -160, -108, -54, 0, 54, 108, 160, 215],
+        [-215, -172, -129, -86, -43, 0, 43, 86, 129, 172, 215],
         262,
-        [120, 96, 128, 100, 132, 100, 128, 96, 120],
+        // Deep dips only OUTSIDE the brow zone (|x| ≈ 64..152) — a scallop
+        // hanging below y≈120 there hides the inner brow halves and the
+        // remaining outer diagonals read as angry brows.
+        [124, 108, 128, 126, 112, 124, 112, 126, 128, 108, 124],
       ),
     ),
 
