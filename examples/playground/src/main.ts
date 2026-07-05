@@ -168,6 +168,63 @@ idleLabel.append(idleLabelText, idleCheckbox);
 idleRow.append(idleLabel);
 panel.insertBefore(idleRow, controls);
 
+// Model picker: the hand-authored vector sample vs the generated textured
+// sample (public/textured-sample.iki). Built once, like the Idle row, so it
+// survives the per-model control rebuilds.
+const modelRow = document.createElement("div");
+modelRow.className = "control";
+const modelLabel = document.createElement("label");
+const modelLabelText = document.createElement("span");
+modelLabelText.textContent = "Model";
+const modelSelect = document.createElement("select");
+for (const [value, text] of [
+  ["vector", "Vector sample"],
+  ["textured", "Textured sample"],
+] as const) {
+  const opt = document.createElement("option");
+  opt.value = value;
+  opt.textContent = text;
+  modelSelect.append(opt);
+}
+modelSelect.addEventListener("change", () => {
+  void switchModel(modelSelect.value);
+});
+modelLabel.append(modelLabelText, modelSelect);
+modelRow.append(modelLabel);
+panel.insertBefore(modelRow, controls);
+
+// Monotonic token so a slow fetch can't clobber a newer selection: only the
+// most recent switchModel call is allowed to load and restart the drivers.
+let modelSwitchSeq = 0;
+// The picker value of the model actually loaded — the failure path rolls the
+// select back to this so the UI never claims a model that didn't load.
+let loadedModelValue = "vector";
+
+async function switchModel(which: string): Promise<void> {
+  const seq = ++modelSwitchSeq;
+  try {
+    let raw: unknown = sampleModel;
+    if (which === "textured") {
+      const res = await fetch("/textured-sample.iki");
+      if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+      raw = await res.json();
+    }
+    if (seq !== modelSwitchSeq) return; // superseded while fetching
+    await loadModel(raw);
+    if (seq !== modelSwitchSeq) return; // superseded while loading
+    loadedModelValue = which;
+    // Reconstruct the idle/physics drivers against the new model's rigs.
+    if (idleCheckbox.checked) {
+      stopIdle();
+      startIdle();
+    }
+  } catch (err) {
+    // Keep the current model on a failed switch; the console explains why.
+    console.error("Iki: model switch failed", err);
+    if (seq === modelSwitchSeq) modelSelect.value = loadedModelValue;
+  }
+}
+
 // Validate the model through the format parser — a real host does this for any
 // untrusted .iki source. IkiFormatError is thrown here if the model is malformed.
 // load() resolves to a report of any textures that failed to decode/upload; the
