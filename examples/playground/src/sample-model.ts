@@ -44,6 +44,8 @@ const LIP: [number, number, number, number] = [0.83, 0.36, 0.42, 1];
 const CAVITY: [number, number, number, number] = [0.45, 0.16, 0.2, 1];
 const TONGUE: [number, number, number, number] = [0.95, 0.55, 0.58, 1];
 const HIGHLIGHT: [number, number, number, number] = [1.0, 1.0, 1.0, 0.92];
+const CLOTH: [number, number, number, number] = [0.47, 0.56, 0.7, 1];
+const CLOTH_DARK: [number, number, number, number] = [0.36, 0.45, 0.6, 1];
 
 // --- mesh helpers -----------------------------------------------------------
 // uvs are required by the format (length === vertices length, each in 0..1) but
@@ -309,6 +311,29 @@ function hair(
   };
 }
 
+// A body part rides bodyDeformer (breath rise + a slight lean with the head
+// turn) — NOT headDeformer/faceWarp, so the torso stays put when the head
+// turns and bobs.
+function body(
+  id: string,
+  color: [number, number, number, number],
+  order: number,
+  x: number,
+  y: number,
+  mesh: IkiMesh,
+): IkiPart {
+  return {
+    id,
+    color,
+    width: 1,
+    height: 1,
+    order,
+    transform: { x, y },
+    deformer: "bodyDeformer",
+    mesh,
+  };
+}
+
 // Side-lock chain params. Each segment emits its angular displacement θ
 // (degrees) via HairChainMotion. The rotate binding maps the param 1:1 to
 // degrees because the binding range {from:-60,to:60} equals the param's own
@@ -571,6 +596,27 @@ export const sampleModel: IkiModel = {
         },
       ],
     },
+    // The torso: breath gently lifts the chest, and a small same-direction
+    // rotate leans the body with the head turn (much weaker than the head's
+    // own 6° so the neck visibly articulates).
+    {
+      id: "bodyDeformer",
+      pivot: { x: 0, y: -520 },
+      bindings: [
+        {
+          parameter: StandardParameter.Breath,
+          channel: "translateY",
+          from: 0,
+          to: 6,
+        },
+        {
+          parameter: StandardParameter.AngleX,
+          channel: "rotate",
+          from: 1.2,
+          to: -1.2,
+        },
+      ],
+    },
     {
       kind: "warp" as const,
       id: "faceWarp",
@@ -605,8 +651,50 @@ export const sampleModel: IkiModel = {
       },
     ]),
 
-    // back hair mass (behind everything except the ears it masks)
+    // back hair mass (behind everything except the ears it masks; the torso
+    // draws over its lower reach, so the hair visually ends at the shoulders)
     hair("backHair", HAIR_DARK, 1, 0, 25, ellipseMesh(305, 345)),
+
+    // neck + torso. Same order as faceSkin but declared first, so the chin
+    // overlaps the neck top; the crew-neck dip in the shoulder line keeps a
+    // stretch of neck visible above the collar.
+    body("neck", SKIN, 2, 0, -340, ellipseMesh(82, 105)),
+    // Chin-cast shadow: rides the RIGID head matrix (not the body, or it gets
+    // stranded mid-neck when the head lifts; not faceWarp, or it curves).
+    {
+      id: "neckShadow",
+      color: SKIN_SHADOW,
+      width: 1,
+      height: 1,
+      order: 2,
+      transform: { x: 0, y: -302 },
+      deformer: "headDeformer",
+      mesh: ellipseMesh(66, 26),
+    },
+    body(
+      "bust",
+      CLOTH,
+      2,
+      0,
+      0,
+      fringeMesh(
+        [-285, -228, -171, -114, -57, 0, 57, 114, 171, 228, 285],
+        -520,
+        [-455, -420, -385, -345, -365, -370, -365, -345, -385, -420, -455],
+      ),
+    ),
+    body(
+      "collar",
+      CLOTH_DARK,
+      2,
+      0,
+      0,
+      arcBandMesh(
+        [-120, -60, 0, 60, 120],
+        [-348, -364, -370, -364, -348],
+        [4, 7, 8, 7, 4],
+      ),
+    ),
 
     // face skin
     feature("faceSkin", SKIN, 2, 0, -8, ellipseMesh(220, 286)),
