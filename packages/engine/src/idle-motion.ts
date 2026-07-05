@@ -18,6 +18,16 @@ const GAZE_RETARGET_MAX_MS = 3000;
 // Chosen so a typical 16ms frame moves ~1.5 % of remaining distance.
 const GAZE_EASE_RATE = 0.001;
 
+// Head sway: sums of slow sines with near-coprime periods, so the drift never
+// visibly repeats. Degrees — small against the ±30° standard AngleX/Y range,
+// but enough continuous head motion to keep hair physics from sleeping.
+const SWAY_X_AMP_A_DEG = 2.2;
+const SWAY_X_PERIOD_A_MS = 6100;
+const SWAY_X_AMP_B_DEG = 1.3;
+const SWAY_X_PERIOD_B_MS = 9700;
+const SWAY_Y_AMP_DEG = 1.6;
+const SWAY_Y_PERIOD_MS = 7300;
+
 // --- Small pure helpers -------------------------------------------------------
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -51,9 +61,9 @@ export interface IdleMotionOptions {
 }
 
 /**
- * Pure-logic idle-animation driver. Animates the five "life" parameters
- * (eyes, breath, gaze) on an internal clock so tab-backgrounding or
- * irregular frame delivery can't produce teleports or snap-close blinks.
+ * Pure-logic idle-animation driver. Animates the seven "life" parameters
+ * (eyes, breath, gaze, head sway) on an internal clock so tab-backgrounding
+ * or irregular frame delivery can't produce teleports or snap-close blinks.
  *
  * Usage:
  *   const idle = new IdleMotion(player.setParameter.bind(player));
@@ -140,6 +150,12 @@ export class IdleMotion {
     this.sink(StandardParameter.Breath, breath);
     this.sink(StandardParameter.EyeballX, this.gazeCurrentX);
     this.sink(StandardParameter.EyeballY, this.gazeCurrentY);
+
+    // Head sway keeps the character (and any hair physics reading AngleX/Y)
+    // from freezing solid between blinks. Models without these parameters
+    // ignore the writes (ParameterStore drops unknown ids).
+    this.sink(StandardParameter.AngleX, this.swayX());
+    this.sink(StandardParameter.AngleY, this.swayY());
   }
 
   // ---------------------------------------------------------------------------
@@ -153,6 +169,9 @@ export class IdleMotion {
     this.sink(StandardParameter.Breath, 0.5);
     this.sink(StandardParameter.EyeballX, 0);
     this.sink(StandardParameter.EyeballY, 0);
+    // Sway sines are all 0 at clock 0 — the head starts centered.
+    this.sink(StandardParameter.AngleX, 0);
+    this.sink(StandardParameter.AngleY, 0);
   }
 
   /** Returns the current eye-open value (0..1) and advances blink state. */
@@ -187,6 +206,22 @@ export class IdleMotion {
   private advanceBreath(): number {
     return (
       0.5 + 0.5 * Math.sin((2 * Math.PI * this.clockMs) / BREATH_PERIOD_MS)
+    );
+  }
+
+  /** Horizontal head sway in degrees, pure function of the internal clock. */
+  private swayX(): number {
+    const t = 2 * Math.PI * this.clockMs;
+    return (
+      SWAY_X_AMP_A_DEG * Math.sin(t / SWAY_X_PERIOD_A_MS) +
+      SWAY_X_AMP_B_DEG * Math.sin(t / SWAY_X_PERIOD_B_MS)
+    );
+  }
+
+  /** Vertical head sway in degrees, pure function of the internal clock. */
+  private swayY(): number {
+    return (
+      SWAY_Y_AMP_DEG * Math.sin((2 * Math.PI * this.clockMs) / SWAY_Y_PERIOD_MS)
     );
   }
 

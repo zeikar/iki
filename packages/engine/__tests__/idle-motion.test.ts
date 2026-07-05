@@ -7,13 +7,19 @@ const BLINK_DURATION_MS = 120;
 const BREATH_PERIOD_MS = 3500;
 const GAZE_RADIUS = 0.3;
 
-const FIVE_IDS = new Set([
+const EMITTED_IDS = new Set([
   StandardParameter.EyeOpenLeft,
   StandardParameter.EyeOpenRight,
   StandardParameter.Breath,
   StandardParameter.EyeballX,
   StandardParameter.EyeballY,
+  StandardParameter.AngleX,
+  StandardParameter.AngleY,
 ]);
+
+// Head-sway envelope bounds matching the impl's intent — NOT imported from impl.
+const SWAY_X_MAX_DEG = 2.2 + 1.3;
+const SWAY_Y_MAX_DEG = 1.6;
 
 /** Build a capturing sink → Map<id, emitted values in order>. */
 function makeSink(): {
@@ -60,12 +66,12 @@ function timestamps(startMs: number, count: number, stepMs: number): number[] {
 // ---------------------------------------------------------------------------
 
 describe("sink-only contract", () => {
-  it("emits exactly the 5 standard parameter ids", () => {
+  it("emits exactly the 7 standard parameter ids", () => {
     const emissions = drive(timestamps(0, 10, 100), cyclingRng([0.5]));
-    expect(new Set(emissions.keys())).toEqual(FIVE_IDS);
+    expect(new Set(emissions.keys())).toEqual(EMITTED_IDS);
   });
 
-  it("first update emits resting pose: eyes=1, breath=0.5, gaze=0,0", () => {
+  it("first update emits resting pose: eyes=1, breath=0.5, gaze=0,0, sway=0,0", () => {
     const { sink, emissions } = makeSink();
     const motion = new IdleMotion(sink, { rng: cyclingRng([0.5]) });
     motion.update(1000);
@@ -74,10 +80,12 @@ describe("sink-only contract", () => {
     expect(emissions.get(StandardParameter.Breath)![0]).toBe(0.5);
     expect(emissions.get(StandardParameter.EyeballX)![0]).toBe(0);
     expect(emissions.get(StandardParameter.EyeballY)![0]).toBe(0);
+    expect(emissions.get(StandardParameter.AngleX)![0]).toBe(0);
+    expect(emissions.get(StandardParameter.AngleY)![0]).toBe(0);
   });
 
-  it("every update (including first) emits exactly all 5 ids", () => {
-    // Verify counts are equal across all 5 params after N updates.
+  it("every update (including first) emits exactly all 7 ids", () => {
+    // Verify counts are equal across all 7 params after N updates.
     const N = 20;
     const emissions = drive(timestamps(0, N, 100), cyclingRng([0.5]));
     const counts = [...emissions.values()].map((v) => v.length);
@@ -218,6 +226,47 @@ describe("gaze", () => {
 });
 
 // ---------------------------------------------------------------------------
+// head sway
+// ---------------------------------------------------------------------------
+
+describe("head sway", () => {
+  it("stays within the summed sine amplitudes on both axes", () => {
+    const eps = 0.001;
+    // 12s of driving at 50ms — covers more than one period of every sway sine.
+    const emissions = drive(timestamps(0, 240, 50), cyclingRng([0.5]));
+    for (const v of emissions.get(StandardParameter.AngleX)!) {
+      expect(Math.abs(v)).toBeLessThanOrEqual(SWAY_X_MAX_DEG + eps);
+    }
+    for (const v of emissions.get(StandardParameter.AngleY)!) {
+      expect(Math.abs(v)).toBeLessThanOrEqual(SWAY_Y_MAX_DEG + eps);
+    }
+  });
+
+  it("actually sways: both axes visit both sides of center", () => {
+    const emissions = drive(timestamps(0, 240, 50), cyclingRng([0.5]));
+    const xs = emissions.get(StandardParameter.AngleX)!;
+    const ys = emissions.get(StandardParameter.AngleY)!;
+    expect(Math.max(...xs)).toBeGreaterThan(1);
+    expect(Math.min(...xs)).toBeLessThan(-1);
+    expect(Math.max(...ys)).toBeGreaterThan(0.5);
+    expect(Math.min(...ys)).toBeLessThan(-0.5);
+  });
+
+  it("a huge dt pause cannot teleport the head", () => {
+    const { sink, emissions } = makeSink();
+    const motion = new IdleMotion(sink, { rng: cyclingRng([0.5]) });
+    motion.update(0); // anchor
+    motion.update(16);
+    const before = emissions.get(StandardParameter.AngleX)!.at(-1)!;
+    // 60-second freeze: dt clamps to 100ms, so the sway phase advances one
+    // normal step at most.
+    motion.update(60016);
+    const after = emissions.get(StandardParameter.AngleX)!.at(-1)!;
+    expect(Math.abs(after - before)).toBeLessThan(0.5);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // clamped pause / time base
 // ---------------------------------------------------------------------------
 
@@ -284,7 +333,7 @@ describe("determinism", () => {
     const emissionsA = drive(ts, cyclingRng(rngValues));
     const emissionsB = drive(ts, cyclingRng(rngValues));
 
-    for (const id of FIVE_IDS) {
+    for (const id of EMITTED_IDS) {
       expect(emissionsA.get(id)).toEqual(emissionsB.get(id));
     }
   });

@@ -11,7 +11,7 @@ import { GridOverlay } from "./GridOverlay";
 import { PivotOverlay } from "./PivotOverlay";
 import { useEditorStore } from "./store";
 
-// The five "life" parameters the idle driver writes. Restore touches only ids
+// The seven "life" parameters the idle driver writes. Restore touches only ids
 // the loaded model actually declares.
 const IDLE_PARAM_IDS = [
   StandardParameter.EyeOpenLeft,
@@ -19,6 +19,8 @@ const IDLE_PARAM_IDS = [
   StandardParameter.Breath,
   StandardParameter.EyeballX,
   StandardParameter.EyeballY,
+  StandardParameter.AngleX,
+  StandardParameter.AngleY,
 ] as const;
 
 interface PreviewProps {
