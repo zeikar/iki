@@ -103,7 +103,14 @@ export class IkiPlayer {
   constructor(private readonly canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", {
       alpha: true,
-      premultipliedAlpha: false,
+      // The whole pipeline is premultiplied-alpha: the fragment shader
+      // multiplies rgb by alpha, the blend function is ONE /
+      // ONE_MINUS_SRC_ALPHA, and the page compositor reads the framebuffer
+      // as premultiplied. Straight-alpha (`premultipliedAlpha: false`) cannot
+      // be made consistent with SRC_ALPHA-style blending: semi-transparent
+      // pixels over a transparent background come out premultiplied anyway
+      // and composite too dark.
+      premultipliedAlpha: true,
       // Stencil buffer backs clip masks (a part rendered only inside its masks'
       // coverage). Granted by every modern browser; the load() guard reports if not.
       stencil: true,
@@ -129,7 +136,10 @@ export class IkiPlayer {
     this.quad = createUnitQuad(gl);
 
     gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    // Premultiplied-alpha "over": the shader already multiplied rgb by alpha.
+    // (See the premultipliedAlpha context note above — SRC_ALPHA blending into
+    // a straight-alpha canvas darkens semi-transparent parts.)
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   }
 
   /**
@@ -686,10 +696,13 @@ in vec2 v_uv;
 out vec4 outColor;
 void main() {
   vec4 base = u_useTexture ? texture(u_tex, v_uv) : vec4(1.0);
-  outColor = base * u_color;
+  vec4 tinted = base * u_color;
   // 0 for normal draws (no-op); raised during the stencil mask-write pass so
   // only opaque mask coverage marks the stencil (the transparent fringe is cut).
-  if (outColor.a < u_alphaCutoff) discard;
+  if (tinted.a < u_alphaCutoff) discard;
+  // Premultiply: the blend function and the canvas compositing contract
+  // (premultipliedAlpha: true) both expect rgb already scaled by alpha.
+  outColor = vec4(tinted.rgb * tinted.a, tinted.a);
 }`;
 
 /**
