@@ -55,6 +55,12 @@ export function useReloadPreview(
       // load() rejects on fatal mesh-buffer allocation failure. Callers invoke
       // this as `void reload()`, so without this catch the rejection goes
       // unhandled and the stale preview stays on screen with nothing said.
+      //
+      // Same generation guard as the success path below: a reload that has
+      // already been superseded must not post its failure over the newer one's
+      // state, or a stale banner outlives the edit that fixed it.
+      if (generation !== generationRef.current) return;
+      if (playerRef.current !== player) return;
       store.setExportError(
         `preview load failed: ${e instanceof Error ? e.message : String(e)}`,
       );

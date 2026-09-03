@@ -35,15 +35,15 @@ range; unknown ids and non-finite values are ignored.
 
 ## API
 
-| Export                                           | What it is                                                                             |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| `IkiPlayer`                                      | The renderer: `load` / `start` / `stop` / `setParameter` / `getParameters` / `destroy` |
-| `IkiLoadResult`                                  | `{ failedTextures: number[] }` returned by `load()`                                    |
-| `ParameterStore`                                 | The clamped parameter map the player drives                                            |
-| `IdleMotion`                                     | Auto-blink / breath / gaze-drift driver                                                |
-| `PhysicsMotion`                                  | Spring-mass-damper secondary motion (`model.physics`)                                  |
-| `HairChainMotion`                                | Multi-segment angular chain with gravity (`model.physicsChains`)                       |
-| `translate` `rotate` `scale` `multiply` `toMat3` | The 2D affine helpers the engine itself uses                                           |
+| Export                                           | What it is                                                                                              |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `IkiPlayer`                                      | The renderer: `load` / `start` / `stop` / `setParameter` / `getParameter` / `getParameters` / `destroy` |
+| `IkiLoadResult`                                  | `{ failedTextures, superseded }` returned by `load()`                                                   |
+| `ParameterStore`                                 | The clamped parameter map the player drives                                                             |
+| `IdleMotion`                                     | Auto-blink / breath / gaze-drift driver                                                                 |
+| `PhysicsMotion`                                  | Spring-mass-damper secondary motion (`model.physics`)                                                   |
+| `HairChainMotion`                                | Multi-segment angular chain with gravity (`model.physicsChains`)                                        |
+| `translate` `rotate` `scale` `multiply` `toMat3` | The 2D affine helpers the engine itself uses                                                            |
 
 ## Motion drivers
 
@@ -55,26 +55,23 @@ and lets a host override or omit any of them.
 ```ts
 import { HairChainMotion, IdleMotion, PhysicsMotion } from "@ikijs/engine";
 
-// The drivers read and write parameters through the host, so keep a mirror of
-// the current pose alongside the player.
-const current = new Map<string, number>();
-const drive = (id: string, value: number) => {
-  current.set(id, value);
-  player.setParameter(id, value);
-};
+// The drivers read the live pose and write the next one, both through the
+// player — no host-side copy of the parameter state to keep in sync.
+const drive = (id: string, value: number) => player.setParameter(id, value);
+const read = (id: string) => player.getParameter(id);
 
 const idle = new IdleMotion(drive);
 const physics = new PhysicsMotion(
   model.physics ?? [],
   model.parameters,
-  (id) => current.get(id) ?? 0,
+  read,
   drive,
 );
 const chains = new HairChainMotion(
   model.physicsChains ?? [],
   model.parameters,
   model.deformers ?? [],
-  (id) => current.get(id) ?? 0,
+  read,
   drive,
 );
 

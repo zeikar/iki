@@ -44,6 +44,7 @@ leaves the document untouched.
 | Atlas              | `packAtlas`, `uvRectFor`, `ATLAS_PADDING`, `UV_INSET_PX`                                                                                                          |
 | Grid keyforms      | `computeGridOffsets`, `interpolateGridOffsets`, `upsertGridKeyform`                                                                                               |
 | Factories          | `createDefaultPart`, `createDefaultMatrixDeformer`, `createDefaultWarpDeformer`, `createGridMesh`                                                                 |
+| Pixels             | `detectAlphaBbox`, `ALPHA_BBOX_THRESHOLD`, `AlphaBbox`                                                                                                            |
 | Auto-rig           | `generateIkiFromLayerSet`, `parseLayerRoles`                                                                                                                      |
 | Bindings           | `captureBindingEndpoint`                                                                                                                                          |
 

@@ -87,9 +87,12 @@ the character's left eye is the part at **positive x**.
 
 ## Stability
 
-`IKI_FORMAT_VERSION` identifies the `.iki` contract: any breaking change to the
-schema bumps it. The npm package itself is still pre-1.0, so the TypeScript
-surface around that contract can still shift between minor versions.
+`IKI_FORMAT_VERSION` identifies the `.iki` contract, and from the first
+published release on, any breaking schema change bumps it. Validation did
+tighten within v1 during pre-release development — canvas extents must now be
+`> 0`, for instance — so a model that loaded in an unpublished build may not.
+The npm package itself is pre-1.0, so the TypeScript surface around the
+contract can still shift between minor versions.
 
 ## License
 

@@ -93,9 +93,11 @@ any host can drive any model without per-model wiring. `Left`/`Right` in those
 ids name the **character's** side, so the character's left eye is the part at
 positive x (the viewer's right).
 
-> **Stability:** `IKI_FORMAT_VERSION` identifies the `.iki` contract and any
-> breaking schema change bumps it. The npm packages are pre-1.0, so the
-> TypeScript surface around that contract can still shift between minors.
+> **Stability:** `IKI_FORMAT_VERSION` identifies the `.iki` contract, and from
+> the first published release on, any breaking schema change bumps it.
+> Validation did tighten within v1 before that first release, so a model that
+> loaded in an unpublished build may not. The npm packages are pre-1.0, so the
+> TypeScript surface around the contract can still shift between minors.
 
 ## Roadmap
 

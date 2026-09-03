@@ -85,8 +85,11 @@ export function validateDeformerReparent(
  * lets through does not fail now — it strands the document in a state
  * `toIkiModel()` refuses.
  *
- * Note: there is no validatePartDelete — nothing in the model contract
- * references a part by id, so deleting a part cannot create dangling refs.
+ * Note: there is no validatePartDelete here, but NOT because parts are
+ * unreferenced — `clip.masks` names parts by id. That invariant is enforced
+ * closer to the edits that could break it: `DeletePart` refuses to remove a
+ * part still used as a mask, and `SetPartMesh` refuses to strip the mesh off
+ * one (masks must be mesh parts). No command creates or edits `clip`.
  */
 export function validateDeformerDelete(
   deformers: IkiDeformer[],

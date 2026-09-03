@@ -463,22 +463,61 @@ export class SetDeformerBindings implements EditCommand {
   apply(doc: EditorDocument): void {
     const deformer = doc.findMatrixDeformer(this.deformerId);
 
-    // Validate a candidate BEFORE capture/mutate, the same rule {@link AddPart}
-    // and {@link SetPartMesh} follow. The Inspector offers every parameter in
-    // the model, so an undeclared id, a non-finite endpoint, or a binding that
-    // feeds a physics chain's own anchor would otherwise enter the document and
-    // surface only at export, with undo the sole way back.
-    const candidate = structuredClone(doc.getModel());
-    const candidateDeformer = candidate.deformers!.find(
-      (d): d is IkiMatrixDeformer =>
-        d.id === this.deformerId && d.kind !== "warp",
-    )!;
+    // Validate a NARROW synthetic candidate before capture/mutate, exactly as
+    // {@link SetPartBindings} does and for the same reason: a full
+    // structuredClone(doc.getModel()) would also validate parts and deformers
+    // the user is not editing, and those routinely hold in-flight `NaN` from an
+    // emptied numeric input — so an unrelated blank field would refuse this
+    // edit, and report it against the wrong object. The Inspector offers every
+    // parameter in the model, so an undeclared id, a non-finite endpoint, or a
+    // non-matrix channel must still be caught here.
+    //
+    // NOT covered by this shape: a binding that feeds a physics chain's own
+    // anchor. That rule needs the whole deformer hierarchy, and reproducing it
+    // over a sanitized model would mean hand-maintaining a second model shape
+    // beside the validator. It stays an export-time check in `toIkiModel()`.
+    // Parts and deformers share one flat id namespace, so the two synthetic
+    // objects below must not both be "_".
+    const candidateDeformer: Record<string, unknown> = {
+      kind: "matrix",
+      id: "_d",
+      pivot: { x: 0, y: 0 },
+    };
     if (this.bindings.length > 0) {
       candidateDeformer.bindings = this.bindings.map((b) => ({ ...b }));
-    } else {
-      delete candidateDeformer.bindings;
     }
-    parseIkiModel(candidate);
+    const candidate = {
+      version: IKI_FORMAT_VERSION,
+      name: "_",
+      canvas: { width: 1, height: 1 },
+      parameters: doc.getModel().parameters,
+      parts: [
+        {
+          id: "_",
+          color: [0, 0, 0, 1],
+          width: 1,
+          height: 1,
+          transform: { x: 0, y: 0 },
+          order: 0,
+        },
+      ],
+      deformers: [candidateDeformer],
+    };
+    // The synthetic deformer is always at deformers[0]; rewrite that prefix so
+    // the surfaced error names the real target.
+    try {
+      parseIkiModel(candidate);
+    } catch (e) {
+      if (e instanceof IkiFormatError) {
+        throw new IkiFormatError(
+          e.message.replace(
+            /^deformers\[0\]/,
+            `deformers."${this.deformerId}"`,
+          ),
+        );
+      }
+      throw e;
+    }
 
     if (!this.captured) {
       // Preserve the original absent-vs-empty distinction.
@@ -540,20 +579,13 @@ export class SetDeformerParent implements EditCommand {
       this.newParentId,
     );
 
-    // Cycle and matrix-parent rules pass, but a new ANCESTOR can still bind a
-    // parameter that a physics chain anchored here emits, which is feedback the
-    // format rejects. Only a full candidate parse sees the whole path.
-    const candidate = structuredClone(doc.getModel());
-    const candidateDeformer = candidate.deformers!.find(
-      (d) => d.id === this.deformerId,
-    )!;
-    if (this.newParentId !== undefined) {
-      candidateDeformer.parent = this.newParentId;
-    } else {
-      delete candidateDeformer.parent;
-    }
-    parseIkiModel(candidate);
-
+    // A new ANCESTOR can still bind a parameter that a physics chain anchored
+    // here emits, which the format rejects as feedback. That rule needs the
+    // whole hierarchy, and validating a full clone of the document here refuses
+    // the edit whenever any unrelated part or deformer holds in-flight `NaN`
+    // from an emptied numeric input — reporting it against the wrong object.
+    // So the feedback case stays an export-time check in `toIkiModel()`, where
+    // it was before, rather than trading a rare corruption for a common block.
     const deformer = doc.findDeformer(this.deformerId);
     if (!this.captured) {
       this.prevHadParent = Object.prototype.hasOwnProperty.call(

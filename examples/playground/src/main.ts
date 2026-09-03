@@ -211,8 +211,12 @@ async function switchModel(which: string): Promise<void> {
 // parameters the loaded model declares.
 async function loadModel(rawModel: unknown): Promise<void> {
   const parsed = parseIkiModel(rawModel);
+  const { failedTextures, superseded } = await player.load(parsed);
+  // A newer load() overtook this one, so the player never adopted `parsed`.
+  // Adopting it here anyway would point the driver model at something that is
+  // not on screen and rebuild the sliders from the wrong descriptors.
+  if (superseded) return;
   parsedModel = parsed;
-  const { failedTextures } = await player.load(parsed);
   buildControls();
   if (failedTextures.length > 0) {
     console.warn(
