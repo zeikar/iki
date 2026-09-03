@@ -1,7 +1,7 @@
 {
   "name": "@ikijs/editor",
   "version": "0.0.0",
-  "description": "Iki editor core — DOM-free editing commands, undo/redo, and validated .iki export",
+  "description": "Headless editing core for .iki models — DOM-free commands, undo/redo, auto-rigger",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",

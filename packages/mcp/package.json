@@ -1,7 +1,7 @@
 {
   "name": "@ikijs/mcp",
   "version": "0.0.0",
-  "description": "stdio MCP server exposing Iki .iki read/validate tools to agents",
+  "description": "stdio MCP server giving agents .iki read/validate tools and PNG-layer auto-rigging",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
