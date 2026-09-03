@@ -29,6 +29,7 @@
   },
   "license": "MIT",
   "type": "module",
+  "packageManager": "pnpm@10.34.5",
   "scripts": {
     "build": "pnpm -r --filter './packages/*' build",
     "dev": "pnpm -r --parallel dev",
@@ -39,9 +40,10 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "playground": "pnpm --filter @ikijs/playground dev",
+    "pack:check": "node ./scripts/check-packages.mjs",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "pnpm verify && pnpm test && changeset publish",
+    "release": "pnpm verify && pnpm test && pnpm pack:check && changeset publish",
     "clean": "pnpm -r exec rm -rf dist",
     "verify": "pnpm build && pnpm typecheck && pnpm format:check"
   },
@@ -57,6 +59,6 @@
   },
   "engines": {
     "node": ">=20.0.0",
-    "pnpm": ">=8.0.0"
+    "pnpm": ">=10.0.0"
   }
 }

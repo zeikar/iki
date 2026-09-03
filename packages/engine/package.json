@@ -13,7 +13,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/metafile-*.json"
   ],
   "scripts": {
     "build": "tsup",
