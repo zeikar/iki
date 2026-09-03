@@ -264,10 +264,10 @@ const hairSwayBindings: IkiBinding[] = [
 
 // Eye meshes are shared between each part and its fold warp: the warp's per-vertex
 // offsets must line up with the part's own mesh vertices.
-const eyeWhiteMeshL = ellipseMesh(54, 46);
 const eyeWhiteMeshR = ellipseMesh(54, 46);
-const lashMeshL = ellipseMesh(58, 11);
+const eyeWhiteMeshL = ellipseMesh(54, 46);
 const lashMeshR = ellipseMesh(58, 11);
+const lashMeshL = ellipseMesh(58, 11);
 
 export const sampleModel: IkiModel = {
   version: 1,
@@ -408,42 +408,24 @@ export const sampleModel: IkiModel = {
     hair("backHair", HAIR_DARK, 0, 0, 25, ellipseMesh(305, 345)),
 
     // ears (ride the face turn)
-    feature("earL", SKIN_SHADOW, 1, -222, 5, ellipseMesh(34, 48)),
-    feature("earR", SKIN_SHADOW, 1, 222, 5, ellipseMesh(34, 48)),
+    feature("earR", SKIN_SHADOW, 1, -222, 5, ellipseMesh(34, 48)),
+    feature("earL", SKIN_SHADOW, 1, 222, 5, ellipseMesh(34, 48)),
 
     // face skin
     feature("faceSkin", SKIN, 2, 0, -8, ellipseMesh(220, 286)),
 
     // blush
-    feature("blushL", BLUSH, 3, -128, -54, ellipseMesh(46, 26)),
-    feature("blushR", BLUSH, 3, 128, -54, ellipseMesh(46, 26)),
+    feature("blushR", BLUSH, 3, -128, -54, ellipseMesh(46, 26)),
+    feature("blushL", BLUSH, 3, 128, -54, ellipseMesh(46, 26)),
 
     // eye whites (sclera). They double as the clip mask for iris/pupil/highlight
     // AND fold closed on blink: collapsing the white shuts the clip region, so
     // the eyeball vanishes under the descending lid (Live2D-style).
     feature(
-      "eyeWhiteL",
-      WHITE,
-      4,
-      -108,
-      52,
-      eyeWhiteMeshL,
-      undefined,
-      undefined,
-      [
-        foldWarp(
-          StandardParameter.EyeOpenLeft,
-          EYE_CREASE_Y,
-          52,
-          eyeWhiteMeshL,
-        ),
-      ],
-    ),
-    feature(
       "eyeWhiteR",
       WHITE,
       4,
-      108,
+      -108,
       52,
       eyeWhiteMeshR,
       undefined,
@@ -457,47 +439,56 @@ export const sampleModel: IkiModel = {
         ),
       ],
     ),
+    feature(
+      "eyeWhiteL",
+      WHITE,
+      4,
+      108,
+      52,
+      eyeWhiteMeshL,
+      undefined,
+      undefined,
+      [
+        foldWarp(
+          StandardParameter.EyeOpenLeft,
+          EYE_CREASE_Y,
+          52,
+          eyeWhiteMeshL,
+        ),
+      ],
+    ),
 
     // iris / pupil / highlight are clipped to the eye-white sclera. They stay
     // STATIC and round — they do NOT fold. As the white folds shut, its clip
     // region closes top-down and CUTS the round iris away (it is hidden, never
     // squashed). They also keep gaze (translate within the open sclera).
-    feature("irisL", IRIS, 5, -108, 50, ellipseMesh(40, 44), gaze(), {
-      masks: ["eyeWhiteL"],
-    }),
-    feature("irisR", IRIS, 5, 108, 50, ellipseMesh(40, 44), gaze(), {
+    feature("irisR", IRIS, 5, -108, 50, ellipseMesh(40, 44), gaze(), {
       masks: ["eyeWhiteR"],
+    }),
+    feature("irisL", IRIS, 5, 108, 50, ellipseMesh(40, 44), gaze(), {
+      masks: ["eyeWhiteL"],
     }),
 
     // pupil
-    feature("pupilL", PUPIL, 6, -108, 48, ellipseMesh(18, 24), gaze(), {
-      masks: ["eyeWhiteL"],
-    }),
-    feature("pupilR", PUPIL, 6, 108, 48, ellipseMesh(18, 24), gaze(), {
+    feature("pupilR", PUPIL, 6, -108, 48, ellipseMesh(18, 24), gaze(), {
       masks: ["eyeWhiteR"],
+    }),
+    feature("pupilL", PUPIL, 6, 108, 48, ellipseMesh(18, 24), gaze(), {
+      masks: ["eyeWhiteL"],
     }),
 
     // eye highlight (sparkle, upper-left of each pupil)
-    feature("highlightL", HIGHLIGHT, 7, -120, 68, ellipseMesh(16, 18), gaze(), {
-      masks: ["eyeWhiteL"],
-    }),
-    feature("highlightR", HIGHLIGHT, 7, 96, 68, ellipseMesh(16, 18), gaze(), {
+    feature("highlightR", HIGHLIGHT, 7, -120, 68, ellipseMesh(16, 18), gaze(), {
       masks: ["eyeWhiteR"],
+    }),
+    feature("highlightL", HIGHLIGHT, 7, 96, 68, ellipseMesh(16, 18), gaze(), {
+      masks: ["eyeWhiteL"],
     }),
 
     // upper lash line — rests as the arc over the open eye, then FOLDS down to
     // the crease as the eye closes (the visible closed-eye line). Same fold as
     // the sclera, so they shut together.
-    feature("lashL", LASH, 7.6, -108, 84, lashMeshL, undefined, undefined, [
-      foldWarp(
-        StandardParameter.EyeOpenLeft,
-        EYE_CREASE_Y,
-        84,
-        lashMeshL,
-        0.18,
-      ),
-    ]),
-    feature("lashR", LASH, 7.6, 108, 84, lashMeshR, undefined, undefined, [
+    feature("lashR", LASH, 7.6, -108, 84, lashMeshR, undefined, undefined, [
       foldWarp(
         StandardParameter.EyeOpenRight,
         EYE_CREASE_Y,
@@ -506,23 +497,18 @@ export const sampleModel: IkiModel = {
         0.18,
       ),
     ]),
+    feature("lashL", LASH, 7.6, 108, 84, lashMeshL, undefined, undefined, [
+      foldWarp(
+        StandardParameter.EyeOpenLeft,
+        EYE_CREASE_Y,
+        84,
+        lashMeshL,
+        0.18,
+      ),
+    ]),
 
     // eyebrows
-    feature("browL", HAIR, 8, -108, 120, ellipseMesh(44, 8), [
-      {
-        parameter: StandardParameter.BrowLeftY,
-        channel: "translateY",
-        from: -14,
-        to: 14,
-      },
-      {
-        parameter: StandardParameter.BrowLeftAngle,
-        channel: "rotate",
-        from: -12,
-        to: 12,
-      },
-    ]),
-    feature("browR", HAIR, 8, 108, 120, ellipseMesh(44, 8), [
+    feature("browR", HAIR, 8, -108, 120, ellipseMesh(44, 8), [
       {
         parameter: StandardParameter.BrowRightY,
         channel: "translateY",
@@ -531,6 +517,20 @@ export const sampleModel: IkiModel = {
       },
       {
         parameter: StandardParameter.BrowRightAngle,
+        channel: "rotate",
+        from: -12,
+        to: 12,
+      },
+    ]),
+    feature("browL", HAIR, 8, 108, 120, ellipseMesh(44, 8), [
+      {
+        parameter: StandardParameter.BrowLeftY,
+        channel: "translateY",
+        from: -14,
+        to: 14,
+      },
+      {
+        parameter: StandardParameter.BrowLeftAngle,
         channel: "rotate",
         from: -12,
         to: 12,
@@ -575,7 +575,7 @@ export const sampleModel: IkiModel = {
 
     // side framing locks tapering down the cheeks
     hair(
-      "sideLockL",
+      "sideLockR",
       HAIR,
       9,
       0,
@@ -589,7 +589,7 @@ export const sampleModel: IkiModel = {
       hairSwayBindings,
     ),
     hair(
-      "sideLockR",
+      "sideLockL",
       HAIR,
       9,
       0,

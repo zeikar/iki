@@ -169,7 +169,8 @@ const blink = (eye: string): IkiBinding => ({
   to: 0,
 });
 // Yaw parallax: the eye on the receding side narrows, the near side widens a
-// touch. `sign` is +1 for left-of-canvas parts, -1 for right; antisymmetric
+// touch. `sign` follows CANVAS position, not the part's L/R name (those name the
+// character's side): +1 for parts at -x, -1 for parts at +x. Antisymmetric
 // endpoints keep the rest pose untouched (offset 0 at AngleX=0).
 const eyeTurnNarrow = (sign: 1 | -1): IkiBinding => ({
   parameter: StandardParameter.AngleX,
@@ -373,7 +374,9 @@ const LOCK_CENTERLINE: ReadonlyArray<readonly [number, number]> = [
   [48, -540],
 ];
 const LOCK_HALF_WIDTHS = [26, 33, 32, 28, 22, 15, 8];
-// Part transform placing the local strand at the LEFT temple (right negates x).
+// Part transform placing the local strand at the temple on the viewer's left —
+// which is the CHARACTER's right, so `buildLock("R")` is the side that uses it
+// unnegated (see the side convention on @iki/format's StandardParameter).
 // Inboard enough that the root band's top row stays fully under the topHair
 // ellipse — a wider/outboard root pokes a bare rectangle out of the crown
 // silhouette the moment the head turns.
@@ -394,7 +397,9 @@ function buildLock(side: "L" | "R"): {
   parts: IkiPart[];
   chain: IkiPhysicsChain;
 } {
-  const sign = side === "L" ? 1 : -1;
+  // LOCK_ORIGIN/LOCK_CENTERLINE are authored on the viewer's left, i.e. the
+  // character's RIGHT — so "R" takes them as-is and "L" mirrors them to +x.
+  const sign = side === "R" ? 1 : -1;
   const origin = { x: LOCK_ORIGIN.x * sign, y: LOCK_ORIGIN.y };
   const centerline = LOCK_CENTERLINE.map(([x, y]) => [x * sign, y] as const);
   const bandCount = centerline.length - 1;
@@ -634,7 +639,7 @@ export const sampleModel: IkiModel = {
     // AngleX translateX slides the FAR ear outward past the backHair edge on a
     // turn (same-sign endpoints on both sides — each ear peeks on the turn
     // that makes its side recede, and tucks inboard when it is the near side).
-    feature("earL", SKIN_SHADOW, 0, -238, 5, ellipseMesh(38, 52), [
+    feature("earR", SKIN_SHADOW, 0, -238, 5, ellipseMesh(38, 52), [
       {
         parameter: StandardParameter.AngleX,
         channel: "translateX",
@@ -642,7 +647,7 @@ export const sampleModel: IkiModel = {
         to: -45,
       },
     ]),
-    feature("earR", SKIN_SHADOW, 0, 238, 5, ellipseMesh(38, 52), [
+    feature("earL", SKIN_SHADOW, 0, 238, 5, ellipseMesh(38, 52), [
       {
         parameter: StandardParameter.AngleX,
         channel: "translateX",
@@ -700,39 +705,39 @@ export const sampleModel: IkiModel = {
     feature("faceSkin", SKIN, 2, 0, -8, ellipseMesh(220, 286)),
 
     // blush
-    feature("blushL", BLUSH, 3, -128, -54, ellipseMesh(46, 26)),
-    feature("blushR", BLUSH, 3, 128, -54, ellipseMesh(46, 26)),
+    feature("blushR", BLUSH, 3, -128, -54, ellipseMesh(46, 26)),
+    feature("blushL", BLUSH, 3, 128, -54, ellipseMesh(46, 26)),
 
     // eye whites
-    feature("eyeWhiteL", WHITE, 4, -108, 52, ellipseMesh(54, 46), [
-      blink(StandardParameter.EyeOpenLeft),
+    feature("eyeWhiteR", WHITE, 4, -108, 52, ellipseMesh(54, 46), [
+      blink(StandardParameter.EyeOpenRight),
       eyeTurnNarrow(1),
     ]),
-    feature("eyeWhiteR", WHITE, 4, 108, 52, ellipseMesh(54, 46), [
-      blink(StandardParameter.EyeOpenRight),
+    feature("eyeWhiteL", WHITE, 4, 108, 52, ellipseMesh(54, 46), [
+      blink(StandardParameter.EyeOpenLeft),
       eyeTurnNarrow(-1),
     ]),
 
     // iris
-    feature("irisL", IRIS, 5, -108, 50, ellipseMesh(40, 44), [
-      blink(StandardParameter.EyeOpenLeft),
+    feature("irisR", IRIS, 5, -108, 50, ellipseMesh(40, 44), [
+      blink(StandardParameter.EyeOpenRight),
       eyeTurnNarrow(1),
       ...gaze(),
     ]),
-    feature("irisR", IRIS, 5, 108, 50, ellipseMesh(40, 44), [
-      blink(StandardParameter.EyeOpenRight),
+    feature("irisL", IRIS, 5, 108, 50, ellipseMesh(40, 44), [
+      blink(StandardParameter.EyeOpenLeft),
       eyeTurnNarrow(-1),
       ...gaze(),
     ]),
 
     // pupil
-    feature("pupilL", PUPIL, 6, -108, 48, ellipseMesh(18, 24), [
-      blink(StandardParameter.EyeOpenLeft),
+    feature("pupilR", PUPIL, 6, -108, 48, ellipseMesh(18, 24), [
+      blink(StandardParameter.EyeOpenRight),
       eyeTurnNarrow(1),
       ...gaze(),
     ]),
-    feature("pupilR", PUPIL, 6, 108, 48, ellipseMesh(18, 24), [
-      blink(StandardParameter.EyeOpenRight),
+    feature("pupilL", PUPIL, 6, 108, 48, ellipseMesh(18, 24), [
+      blink(StandardParameter.EyeOpenLeft),
       eyeTurnNarrow(-1),
       ...gaze(),
     ]),
@@ -740,23 +745,23 @@ export const sampleModel: IkiModel = {
     // eye highlights: a large upper-left sparkle + a small lower-right echo,
     // both offset the SAME way on both eyes (one implied light source) and
     // sized to sit fully inside the iris.
-    feature("highlightL", HIGHLIGHT, 7, -120, 64, ellipseMesh(20, 22), [
-      blink(StandardParameter.EyeOpenLeft),
+    feature("highlightR", HIGHLIGHT, 7, -120, 64, ellipseMesh(20, 22), [
+      blink(StandardParameter.EyeOpenRight),
       eyeTurnNarrow(1),
       ...gaze(),
     ]),
-    feature("highlightR", HIGHLIGHT, 7, 96, 64, ellipseMesh(20, 22), [
-      blink(StandardParameter.EyeOpenRight),
+    feature("highlightL", HIGHLIGHT, 7, 96, 64, ellipseMesh(20, 22), [
+      blink(StandardParameter.EyeOpenLeft),
       eyeTurnNarrow(-1),
       ...gaze(),
     ]),
-    feature("highlightL2", HIGHLIGHT, 7, -94, 32, ellipseMesh(7, 8), [
-      blink(StandardParameter.EyeOpenLeft),
+    feature("highlightR2", HIGHLIGHT, 7, -94, 32, ellipseMesh(7, 8), [
+      blink(StandardParameter.EyeOpenRight),
       eyeTurnNarrow(1),
       ...gaze(),
     ]),
-    feature("highlightR2", HIGHLIGHT, 7, 122, 32, ellipseMesh(7, 8), [
-      blink(StandardParameter.EyeOpenRight),
+    feature("highlightL2", HIGHLIGHT, 7, 122, 32, ellipseMesh(7, 8), [
+      blink(StandardParameter.EyeOpenLeft),
       eyeTurnNarrow(-1),
       ...gaze(),
     ]),
@@ -765,31 +770,10 @@ export const sampleModel: IkiModel = {
     // riding above the iris so most of it stays visible. On a blink it drops
     // onto the collapsed eye and reads as the closed-eye crescent by itself.
     feature(
-      "lashL",
-      LASH,
-      7,
-      -108,
-      94,
-      arcBandMesh(
-        [-56, -34, 0, 34, 56],
-        [-6, 4, 8, 4, -6],
-        [1.5, 5, 7, 5, 1.5],
-      ),
-      [
-        {
-          parameter: StandardParameter.EyeOpenLeft,
-          channel: "translateY",
-          from: -30,
-          to: 0,
-        },
-        smileSquint(),
-      ],
-    ),
-    feature(
       "lashR",
       LASH,
       7,
-      108,
+      -108,
       94,
       arcBandMesh(
         [-56, -34, 0, 34, 56],
@@ -806,11 +790,32 @@ export const sampleModel: IkiModel = {
         smileSquint(),
       ],
     ),
+    feature(
+      "lashL",
+      LASH,
+      7,
+      108,
+      94,
+      arcBandMesh(
+        [-56, -34, 0, 34, 56],
+        [-6, 4, 8, 4, -6],
+        [1.5, 5, 7, 5, 1.5],
+      ),
+      [
+        {
+          parameter: StandardParameter.EyeOpenLeft,
+          channel: "translateY",
+          from: -30,
+          to: 0,
+        },
+        smileSquint(),
+      ],
+    ),
 
     // eyebrows — lash-dark and low enough to clear the fringe (hair-colored
     // brows against hair are invisible, and the face reads angry without them)
     feature(
-      "browL",
+      "browR",
       LASH,
       8,
       -108,
@@ -818,7 +823,7 @@ export const sampleModel: IkiModel = {
       arcBandMesh([-44, -24, 0, 24, 44], [-4, 2, 5, 2, -4], [2, 4, 5, 4, 2]),
     ),
     feature(
-      "browR",
+      "browL",
       LASH,
       8,
       108,

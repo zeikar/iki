@@ -20,10 +20,17 @@ export class ParameterStore {
     }
   }
 
-  /** Set a parameter's value, clamped to its range. Unknown ids are ignored. */
+  /**
+   * Set a parameter's value, clamped to its range. Unknown ids are ignored, as
+   * are non-finite values: this is the boundary a host drives with live signals,
+   * and `clamp` cannot filter NaN (`Math.max(min, Math.min(max, NaN))` is NaN),
+   * so one bad lip-sync/gaze frame would otherwise poison every binding that
+   * reads the parameter. A dropped write holds the last good pose.
+   */
   set(id: string, value: number): void {
     const param = this.params.get(id);
     if (!param) return;
+    if (!Number.isFinite(value)) return;
     this.values.set(id, clamp(value, param.min, param.max));
   }
 

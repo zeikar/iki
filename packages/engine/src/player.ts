@@ -374,7 +374,10 @@ export class IkiPlayer {
     this.rafId = undefined;
   }
 
-  /** Set a parameter value (clamped to its range). Unknown ids are ignored. */
+  /**
+   * Set a parameter value (clamped to its range). Unknown ids and non-finite
+   * values are ignored — see {@link ParameterStore.set}.
+   */
   setParameter(id: string, value: number): void {
     this.params.set(id, value);
   }

@@ -136,8 +136,9 @@ export class PhysicsMotion {
       // The fixed 1/60s sub-step can diverge for an extreme-but-parse-valid rig
       // (tiny mass / huge stiffness push ω·dt past the explicit-integrator
       // stability limit). If state goes non-finite, snap back to rest at the
-      // current target so a validated model can never poison the sink with
-      // NaN/Infinity (ParameterStore.clamp(NaN) would store NaN).
+      // current target: the store DROPS a non-finite write, so an un-reset rig
+      // would emit NaN every frame and silently freeze the part at its last
+      // good pose instead of visibly diverging.
       if (!Number.isFinite(st.x) || !Number.isFinite(st.v)) {
         st.x = Number.isFinite(targets[i]) ? targets[i] : 0;
         st.v = 0;
@@ -171,8 +172,8 @@ export class PhysicsMotion {
       : 0;
     const value = outDefault + st.x * rig.output.scale;
     // Final guard: even a finite-but-enormous `x` could overflow the product to
-    // ±Infinity. Emit the rest pose rather than ever handing a non-finite value
-    // to the sink — ParameterStore.clamp(NaN) would otherwise store NaN.
+    // ±Infinity. Emit the rest pose rather than hand a non-finite value to the
+    // sink, which would drop the write and leave the output stuck where it was.
     this.sink(
       rig.output.parameter,
       Number.isFinite(value) ? value : outDefault,

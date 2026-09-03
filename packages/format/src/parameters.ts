@@ -5,6 +5,14 @@
  * adapter, the editor's preview, an AI generator — without per-model wiring.
  * The names intentionally echo Live2D's standard parameters so the mental
  * model (and future imports) carry over.
+ *
+ * SIDE CONVENTION — `Left`/`Right` name the CHARACTER's own side, not the
+ * viewer's, matching Live2D. Since model space is +x-right as seen by the
+ * viewer, the character's left eye/brow is the one at POSITIVE x (screen
+ * right). A model that binds `EyeOpenLeft` to its screen-left eye is wired
+ * backwards: a host winking one eye would close the wrong one. Authoring
+ * tools follow the same rule — auto-rig's `*_L` role layers are the
+ * character's left.
  */
 export const StandardParameter = {
   /** Mouth open amount for lip-sync (0 closed .. 1 open). */

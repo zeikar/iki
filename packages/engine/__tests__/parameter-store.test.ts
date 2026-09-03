@@ -48,6 +48,21 @@ describe("ParameterStore.set", () => {
     expect(() => s.set("nope", 1)).not.toThrow();
     expect(s.get("nope")).toBe(0);
   });
+
+  it("drops non-finite writes and holds the last good value", () => {
+    const s = store();
+    s.set("angle", 10);
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      s.set("angle", bad);
+      expect(s.get("angle")).toBe(10);
+    }
+  });
+
+  it("keeps normalized() finite after a non-finite write", () => {
+    const s = store();
+    s.set("angle", NaN);
+    expect(Number.isFinite(s.normalized("angle"))).toBe(true);
+  });
 });
 
 describe("ParameterStore.normalized", () => {

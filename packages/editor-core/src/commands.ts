@@ -458,6 +458,24 @@ export class SetDeformerBindings implements EditCommand {
 
   apply(doc: EditorDocument): void {
     const deformer = doc.findMatrixDeformer(this.deformerId);
+
+    // Validate a candidate BEFORE capture/mutate, the same rule {@link AddPart}
+    // and {@link SetPartMesh} follow. The Inspector offers every parameter in
+    // the model, so an undeclared id, a non-finite endpoint, or a binding that
+    // feeds a physics chain's own anchor would otherwise enter the document and
+    // surface only at export, with undo the sole way back.
+    const candidate = structuredClone(doc.getModel());
+    const candidateDeformer = candidate.deformers!.find(
+      (d): d is IkiMatrixDeformer =>
+        d.id === this.deformerId && d.kind !== "warp",
+    )!;
+    if (this.bindings.length > 0) {
+      candidateDeformer.bindings = this.bindings.map((b) => ({ ...b }));
+    } else {
+      delete candidateDeformer.bindings;
+    }
+    parseIkiModel(candidate);
+
     if (!this.captured) {
       // Preserve the original absent-vs-empty distinction.
       this.prevBindings =
@@ -517,6 +535,21 @@ export class SetDeformerParent implements EditCommand {
       this.deformerId,
       this.newParentId,
     );
+
+    // Cycle and matrix-parent rules pass, but a new ANCESTOR can still bind a
+    // parameter that a physics chain anchored here emits, which is feedback the
+    // format rejects. Only a full candidate parse sees the whole path.
+    const candidate = structuredClone(doc.getModel());
+    const candidateDeformer = candidate.deformers!.find(
+      (d) => d.id === this.deformerId,
+    )!;
+    if (this.newParentId !== undefined) {
+      candidateDeformer.parent = this.newParentId;
+    } else {
+      delete candidateDeformer.parent;
+    }
+    parseIkiModel(candidate);
+
     const deformer = doc.findDeformer(this.deformerId);
     if (!this.captured) {
       this.prevHadParent = Object.prototype.hasOwnProperty.call(
@@ -755,9 +788,9 @@ export class DeletePart implements EditCommand {
 
 /**
  * Delete a deformer by id. Calls {@link validateDeformerDelete} FIRST so the
- * delete is refused when other deformers are parented to it or parts are still
- * attached — enforcing the same referential safety as {@link SetDeformerParent}
- * and {@link SetPartDeformer}.
+ * delete is refused while anything still references it — a child deformer, an
+ * attached part, or a physics chain anchored to it — enforcing the same
+ * referential safety as {@link SetDeformerParent} and {@link SetPartDeformer}.
  *
  * `invert` re-inserts the deformer at its original index. The `??=` on
  * `model.deformers` is defensive — a deformer existed to delete so the array is
@@ -775,7 +808,12 @@ export class DeleteDeformer implements EditCommand {
   apply(doc: EditorDocument): void {
     const model = doc.getModel();
     // Validate FIRST — throws before capture/mutate on any referential violation.
-    validateDeformerDelete(model.deformers ?? [], model.parts, this.deformerId);
+    validateDeformerDelete(
+      model.deformers ?? [],
+      model.parts,
+      model.physicsChains ?? [],
+      this.deformerId,
+    );
     // validateDeformerDelete guarantees the deformer (and thus the array) exists.
     const arr = model.deformers!;
     const i = arr.findIndex((d) => d.id === this.deformerId);

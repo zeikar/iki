@@ -1,4 +1,4 @@
-import type { IkiDeformer, IkiPart } from "@iki/format";
+import type { IkiDeformer, IkiPart, IkiPhysicsChain } from "@iki/format";
 
 /**
  * Pure, DOM-free validation helpers for deformer reparenting and part attachment.
@@ -77,7 +77,13 @@ export function validateDeformerReparent(
 /**
  * Validate that deleting `deformerId` is safe. Throws when the deformer does
  * not exist, when another deformer is parented to it (must be reparented or
- * detached first), or when a part is attached to it (must be detached first).
+ * detached first), when a part is attached to it (must be detached first), or
+ * when a physics chain anchors to it (must be re-anchored or deleted first).
+ *
+ * Every id that can reference a deformer must be covered here: the format
+ * validator rejects a dangling reference at export, so a delete this function
+ * lets through does not fail now — it strands the document in a state
+ * `toIkiModel()` refuses.
  *
  * Note: there is no validatePartDelete — nothing in the model contract
  * references a part by id, so deleting a part cannot create dangling refs.
@@ -85,6 +91,7 @@ export function validateDeformerReparent(
 export function validateDeformerDelete(
   deformers: IkiDeformer[],
   parts: IkiPart[],
+  physicsChains: IkiPhysicsChain[],
   deformerId: string,
 ): void {
   // (1) Target deformer must exist.
@@ -106,6 +113,16 @@ export function validateDeformerDelete(
   if (attachedPart !== undefined) {
     throw new Error(
       `deformers."${deformerId}": cannot delete — part "${attachedPart.id}" is attached to it; detach it first`,
+    );
+  }
+
+  // (4) No physics chain may anchor to it.
+  const anchoredChain = physicsChains.find(
+    (c) => c.anchorDeformer === deformerId,
+  );
+  if (anchoredChain !== undefined) {
+    throw new Error(
+      `deformers."${deformerId}": cannot delete — physics chain "${anchoredChain.id}" anchors to it; re-anchor or delete the chain first`,
     );
   }
 }
