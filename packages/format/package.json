@@ -1,6 +1,6 @@
 {
   "name": "@ikijs/format",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "The .iki model format — schema, TypeScript types, loader, and validator",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
