@@ -83,6 +83,25 @@ describe("ParameterStore.normalized", () => {
   });
 });
 
+describe("ParameterStore with a non-finite declared default", () => {
+  // parseIkiModel requires a finite default, so this only reaches a host that
+  // builds a store from unvalidated descriptors — but reset() would otherwise
+  // re-install NaN over any number of good writes.
+  const bad = () =>
+    new ParameterStore([{ id: "p", min: -30, max: 30, default: NaN }]);
+
+  it("seeds a finite resting value instead of NaN", () => {
+    expect(bad().get("p")).toBe(0);
+  });
+
+  it("reset() does not re-install the bad default", () => {
+    const s = bad();
+    s.set("p", 12);
+    s.reset();
+    expect(Number.isFinite(s.get("p"))).toBe(true);
+  });
+});
+
 describe("ParameterStore.reset", () => {
   it("restores every parameter to its clamped default", () => {
     const s = store();

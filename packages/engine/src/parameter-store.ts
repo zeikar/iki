@@ -2,6 +2,20 @@ import type { IkiParameter } from "@ikijs/format";
 import { clamp } from "./math";
 
 /**
+ * Resting value for a parameter: its declared default clamped into range.
+ *
+ * A non-finite default falls back to the mid-range-safe `clamp(0, min, max)`
+ * rather than propagating NaN. `parseIkiModel` already requires a finite
+ * default, so this only bites a host that builds a store from unvalidated
+ * descriptors — but without it `reset()` would re-install NaN after any number
+ * of good writes, quietly undoing the guard on {@link ParameterStore.set}.
+ */
+function restOf(param: IkiParameter): number {
+  const base = Number.isFinite(param.default) ? param.default : 0;
+  return clamp(base, param.min, param.max);
+}
+
+/**
  * Holds the live value of every model parameter, clamped to its declared
  * range. This is the single surface a host drives (lip-sync, gaze, blink) and
  * the engine reads each frame to evaluate bindings.
@@ -13,7 +27,7 @@ export class ParameterStore {
   constructor(parameters: IkiParameter[]) {
     for (const param of parameters) {
       this.params.set(param.id, param);
-      this.values.set(param.id, clamp(param.default, param.min, param.max));
+      this.values.set(param.id, restOf(param));
     }
   }
 
@@ -46,7 +60,7 @@ export class ParameterStore {
   /** Reset every parameter to its declared default. */
   reset(): void {
     for (const param of this.params.values()) {
-      this.values.set(param.id, clamp(param.default, param.min, param.max));
+      this.values.set(param.id, restOf(param));
     }
   }
 

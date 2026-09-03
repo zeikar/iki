@@ -62,11 +62,15 @@ for (const dirent of packageDirs) {
     }
   }
 
-  // A published package with no README renders as a blank page on npm.
-  try {
-    await access(path.join(packageDir, "README.md"), constants.F_OK);
-  } catch {
-    failures.push(`${packageJson.name}: missing README.md`);
+  // npm only picks up a package-ROOT README/LICENSE: a repo-root LICENSE never
+  // reaches the tarball, and a symlink is not followed by `npm pack`. A missing
+  // README also renders the npm page blank.
+  for (const required of ["README.md", "LICENSE"]) {
+    try {
+      await access(path.join(packageDir, required), constants.F_OK);
+    } catch {
+      failures.push(`${packageJson.name}: missing ${required}`);
+    }
   }
 
   const declaredEntryFields = ["main", "module", "types"];
