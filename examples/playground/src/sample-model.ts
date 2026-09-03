@@ -362,8 +362,10 @@ const LOCK_TURN_TRACK = 42;
 // LBS); HairChainMotion drives each band's rotation param. Solid color + many
 // fine bands ⇒ the slices read as one continuous flowing lock.
 
-// Strand centerline in part-LOCAL model px (top → tip) for the LEFT lock, each
-// point with a half-width (taper). Band count = points − 1. Right lock mirrors x.
+// Strand centerline in part-LOCAL model px (top → tip), each point with a
+// half-width (taper). Band count = points − 1. Authored for the lock on the
+// viewer's left — the CHARACTER's right, i.e. `buildLock("R")`; the other side
+// mirrors x. (See the placement note on LOCK_ORIGIN below.)
 const LOCK_CENTERLINE: ReadonlyArray<readonly [number, number]> = [
   [-10, -6],
   [-12, -90],

@@ -49,6 +49,23 @@ describe("playground sample: standard-parameter side convention", () => {
     }
   });
 
+  it("names every side-suffixed part for the character's side it sits on", () => {
+    // The binding check above only sees parts driven by a side-typed parameter,
+    // so ids like blush/brow/ear — and any part whose name and parameter
+    // disagree — would slip through. The name is what a human reads, so pin it.
+    const suffixed = sampleModel.parts.filter((p) => /[LR]\d*$/.test(p.id));
+    expect(suffixed.length).toBeGreaterThan(0);
+    for (const part of suffixed) {
+      // Parts whose geometry lives in the mesh sit at x: 0; their transform
+      // says nothing about which side they are on.
+      if (part.transform.x === 0) continue;
+      const side = /L\d*$/.test(part.id) ? "left" : "right";
+      const expected = side === "left" ? "positive" : "negative";
+      const actual = part.transform.x > 0 ? "positive" : "negative";
+      expect(`${part.id} -> ${actual}`).toBe(`${part.id} -> ${expected}`);
+    }
+  });
+
   it("places character-left parts at +x and character-right parts at -x", () => {
     for (const { part, sides } of driven) {
       const side = [...sides][0];

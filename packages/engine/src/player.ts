@@ -187,7 +187,19 @@ export class IkiPlayer {
 
     // Queried once per load, not per texture: a GL parameter read is a driver
     // round-trip and this bound is constant for the context's lifetime.
-    const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+    // `getParameter` yields null on a LOST context — reachable here, because
+    // load() awaits decoding — and `width > null` coerces to `width > 0`, which
+    // would reject every texture and blame a "nullpx limit". Skip the bound
+    // instead when it is unavailable; the upload path below reports the real
+    // failure.
+    const maxTextureSizeRaw: unknown = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    const maxTextureSize =
+      typeof maxTextureSizeRaw === "number" ? maxTextureSizeRaw : undefined;
+
+    // [7] getError returns the OLDEST latched error and says nothing about which
+    // call produced it, so anything the render loop left pending during the
+    // await would be pinned on the first texture. Start from a clean slate.
+    drainGlErrors(gl);
 
     const uploaded: (WebGLTexture | null)[] = decoded.map((result, i) => {
       if (result.status === "rejected") {
@@ -201,7 +213,10 @@ export class IkiPlayer {
       // An atlas wider than the driver's limit uploads as a GL error and leaves
       // a non-null but unsamplable texture, which would then render as black
       // rather than being reported. Reject it up front instead.
-      if (bitmap.width > maxTextureSize || bitmap.height > maxTextureSize) {
+      if (
+        maxTextureSize !== undefined &&
+        (bitmap.width > maxTextureSize || bitmap.height > maxTextureSize)
+      ) {
         console.error(
           `Iki: textures[${i}] is ${bitmap.width}x${bitmap.height}, over this device's ${maxTextureSize}px limit`,
         );
@@ -218,6 +233,8 @@ export class IkiPlayer {
       gl.bindTexture(gl.TEXTURE_2D, texture);
       gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      // Clear again so the check after texImage2D can only reflect texImage2D.
+      drainGlErrors(gl);
       gl.texImage2D(
         gl.TEXTURE_2D,
         0,
@@ -790,6 +807,17 @@ function createUnitQuad(gl: WebGL2RenderingContext): WebGLBuffer {
   // Attribute pointers are set explicitly in renderFrame per draw path;
   // createUnitQuad only owns buffer allocation and data upload.
   return buffer;
+}
+
+/**
+ * Clear every latched GL error so the next `getError()` reflects only the call
+ * that follows this one. A lost context reports CONTEXT_LOST_WEBGL once and
+ * NO_ERROR after, so this terminates.
+ */
+function drainGlErrors(gl: WebGL2RenderingContext): void {
+  while (gl.getError() !== gl.NO_ERROR) {
+    /* discard */
+  }
 }
 
 /** Delete all position/uv/index buffers stored in a PartMesh map. */
