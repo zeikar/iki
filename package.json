@@ -41,7 +41,7 @@
     "playground": "pnpm --filter @ikijs/playground dev",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "pnpm build && changeset publish",
+    "release": "pnpm verify && pnpm test && changeset publish",
     "clean": "pnpm -r exec rm -rf dist",
     "verify": "pnpm build && pnpm typecheck && pnpm format:check"
   },

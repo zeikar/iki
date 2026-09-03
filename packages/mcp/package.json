@@ -25,8 +25,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ikijs/editor-core": "workspace:*",
-    "@ikijs/format": "workspace:*",
+    "@ikijs/editor-core": "workspace:^",
+    "@ikijs/format": "workspace:^",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "sharp": "^0.33.5",
     "zod": "^3.25"

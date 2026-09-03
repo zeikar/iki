@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # commit the version bump, create GitHub releases
+      pull-requests: write # open/update the release PR
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22.x"
+          cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # With changesets pending, this opens/updates a release PR that applies
+      # them (versions + CHANGELOGs). Merging that PR lands a main push with no
+      # changesets left, and this same step then runs `pnpm release` to publish.
+      #
+      # `version:` is spelled out because `pnpm version` would hit pnpm's
+      # built-in version command instead of the root script.
+      #
+      # Auth is the NPM_TOKEN secret via NODE_AUTH_TOKEN (setup-node's
+      # registry-url wrote the matching .npmrc). To move to npm trusted
+      # publishing (OIDC) like charivo: add `id-token: write` to permissions,
+      # add a `npm install -g npm@11` step (OIDC needs npm 11.5.1+; the runner
+      # ships npm 10), register this workflow on each package in npm, then drop
+      # NODE_AUTH_TOKEN below.
+      - name: Create release PR or publish to npm
+        uses: changesets/action@v1
+        with:
+          version: pnpm changeset version
+          publish: pnpm release
+          title: "chore: release packages"
+          commit: "chore: release packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

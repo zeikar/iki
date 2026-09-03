@@ -22,7 +22,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ikijs/format": "workspace:*"
+    "@ikijs/format": "workspace:^"
   },
   "devDependencies": {
     "tsup": "^8.5.0",

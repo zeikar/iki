@@ -92,7 +92,7 @@ importers:
   packages/editor-core:
     dependencies:
       '@ikijs/format':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../format
     devDependencies:
       tsup:
@@ -105,7 +105,7 @@ importers:
   packages/engine:
     dependencies:
       '@ikijs/format':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../format
     devDependencies:
       tsup:
@@ -127,10 +127,10 @@ importers:
   packages/mcp:
     dependencies:
       '@ikijs/editor-core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../editor-core
       '@ikijs/format':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../format
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
