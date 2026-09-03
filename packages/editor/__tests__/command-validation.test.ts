@@ -104,6 +104,55 @@ describe("SetDeformerBindings validates before mutating", () => {
     expect(() => doc.toIkiModel()).not.toThrow();
   });
 
+  // The prefix rewrite exists ONLY for this message: the validator sees the
+  // deformer at deformers[0] of a synthetic model, an object the user's document
+  // does not contain. Without this assertion the whole rewrite can be deleted
+  // and the suite stays green.
+  it("names the real deformer, not the synthetic deformers[0]", () => {
+    const doc = new EditorDocument(chainModel());
+    expect(() =>
+      doc.execute(
+        new SetDeformerBindings("swayer", [
+          { parameter: "ParamNope", channel: "rotate", from: 0, to: 1 },
+        ]),
+      ),
+    ).toThrow(/deformers\."swayer"/);
+    expect(() =>
+      doc.execute(
+        new SetDeformerBindings("swayer", [
+          { parameter: "ParamNope", channel: "rotate", from: 0, to: 1 },
+        ]),
+      ),
+    ).not.toThrow(/deformers\[0\]/);
+  });
+
+  it("rejects a channel a deformer cannot drive", () => {
+    const doc = new EditorDocument(chainModel());
+    expect(() =>
+      doc.execute(
+        new SetDeformerBindings("swayer", [
+          // opacity is a PART channel; a matrix deformer cannot express it.
+          { parameter: "ParamAngleX", channel: "opacity", from: 0, to: 1 },
+        ] as never),
+      ),
+    ).toThrow();
+    expect(doc.findMatrixDeformer("swayer").bindings?.[0].parameter).toBe(
+      "ParamLock0",
+    );
+  });
+
+  it("clears bindings with an empty array and round-trips", () => {
+    const doc = new EditorDocument(chainModel());
+    doc.execute(new SetDeformerBindings("swayer", []));
+    // Absent key, not an empty array — the format has no empty-bindings shape.
+    expect("bindings" in doc.findMatrixDeformer("swayer")).toBe(false);
+    expect(() => doc.toIkiModel()).not.toThrow();
+    doc.undo();
+    expect(doc.findMatrixDeformer("swayer").bindings?.[0].parameter).toBe(
+      "ParamLock0",
+    );
+  });
+
   it("rejects a non-finite endpoint", () => {
     const doc = new EditorDocument(chainModel());
     expect(() =>

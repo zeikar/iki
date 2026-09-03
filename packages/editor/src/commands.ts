@@ -586,6 +586,13 @@ export class SetDeformerParent implements EditCommand {
     // from an emptied numeric input — reporting it against the wrong object.
     // So the feedback case stays an export-time check in `toIkiModel()`, where
     // it was before, rather than trading a rare corruption for a common block.
+    //
+    // Known cost of that trade: the host surfaces the export error (the editor
+    // app re-exports on a ~200ms debounce), but the message names the CHAIN, not
+    // the edit — reparent `headDeformer` and you get
+    // `physicsChains[0].segments[1].output.parameter "..." feeds its own anchor
+    // deformer chain (feedback)`, which reads as a complaint about a hair lock.
+    // If a friendlier error surface ever lands, this is the message to special-case.
     const deformer = doc.findDeformer(this.deformerId);
     if (!this.captured) {
       this.prevHadParent = Object.prototype.hasOwnProperty.call(
