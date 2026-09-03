@@ -418,10 +418,10 @@ export function createPixelGridMesh(
  * At theta=0 the center keyform is all-zero (xPrime === x by identity).
  *
  * RADIUS is derived from the grid's own half-width (same 0.6/0.5 margin ratio
- * as bakeHeadTurnGridWarp in the editor example) so asin stays clear of ±1.
+ * as bakeHeadTurnGridWarp in the example app) so asin stays clear of ±1.
  *
- * NOTE: Copy (not import) of the example's bakeHeadTurnGridWarp — editor
- * must not depend on the examples directory.
+ * NOTE: Copy (not import) of the example's bakeHeadTurnGridWarp —
+ * `@ikijs/editor` must not depend on the examples directory.
  */
 export function bakeHeadTurnGridWarpCentered(
   grid: IkiWarpGrid,

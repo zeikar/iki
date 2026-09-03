@@ -537,8 +537,9 @@ export const useEditorStore = create<EditorState>((set, get) => {
     deletePart: (id) => {
       clearCapture();
       // UX pre-check: refuse with a friendly message before constructing a throwing
-      // command. DeletePart.apply enforces the same texture guard at the editor
-      // boundary, so this check is belt-and-suspenders — the real invariant lives in
+      // command. DeletePart.apply enforces the same texture guard at the
+      // `@ikijs/editor` boundary, so this check is belt-and-suspenders — the
+      // real invariant lives in
       // the command. Both clear paths are NON-undoable: clearPartTexture for imported
       // images; clearModelTexture for model-committed textures. The prune sweep in
       // undo/redo covers those directions, which cannot refuse.

@@ -312,7 +312,7 @@ export class EditorDocument {
    * Replacing the whole object (rather than individual channels) preserves any
    * optional keys already absent from the incoming value.
    *
-   * Deliberately NON-undoable — used ONLY for the editor's transient capture
+   * Deliberately NON-undoable — used ONLY for an editor app's transient capture
    * pose. Does NOT push to or clear undoStack/redoStack (sibling to
    * {@link applyAtlas}'s non-undoable boundary). The caller is responsible for
    * restoring the exact prior snapshot when the capture pose ends.
@@ -332,7 +332,7 @@ export class EditorDocument {
    * one that never had a transform (absent-vs-present matters for downstream
    * renderers).
    *
-   * Deliberately NON-undoable — used ONLY for the editor's transient capture
+   * Deliberately NON-undoable — used ONLY for an editor app's transient capture
    * pose. Does NOT push to or clear undoStack/redoStack (sibling to
    * {@link applyAtlas}'s non-undoable boundary). The caller is responsible for
    * restoring the exact prior snapshot when the capture pose ends.
@@ -356,7 +356,7 @@ export class EditorDocument {
    * Overwrite a part's whole bindings array with a fresh deep copy, or delete
    * the key when `bindings` is empty.
    *
-   * Deliberately NON-undoable — used ONLY for the editor's transient capture
+   * Deliberately NON-undoable — used ONLY for an editor app's transient capture
    * neutralization (zeroing the row being recaptured so the preview reflects
    * base-only during posing). Does NOT push to or clear undoStack/redoStack.
    * The caller is responsible for restoring the original bindings when the
@@ -375,7 +375,7 @@ export class EditorDocument {
    * Overwrite a matrix deformer's whole bindings array with a fresh deep copy,
    * or delete the key when `bindings` is empty.
    *
-   * Deliberately NON-undoable — used ONLY for the editor's transient capture
+   * Deliberately NON-undoable — used ONLY for an editor app's transient capture
    * neutralization (zeroing the row being recaptured so the preview reflects
    * base-only during posing). Does NOT push to or clear undoStack/redoStack.
    * The caller is responsible for restoring the original bindings when the

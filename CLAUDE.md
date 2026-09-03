@@ -23,6 +23,6 @@ Read [README.md](./README.md) first for what Iki is, the package map, and the ro
 
 ## Versioning (packages)
 
-- Publishable packages (`@ikijs/*`, excluding the playground) use Changesets. Add one with `pnpm changeset` when a package changes in a way that should reach npm.
+- Publishable packages (`@ikijs/*`, excluding the private examples `@ikijs/playground` and `@ikijs/editor-app`) use Changesets. Add one with `pnpm changeset` when a package changes in a way that should reach npm.
 - Use `minor` for public API or `.iki` format-contract changes, `patch` for fixes and non-breaking updates.
 - Do not add a changeset for example-only or docs-only changes.

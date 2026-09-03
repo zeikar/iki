@@ -2,8 +2,9 @@ import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-// Resolve workspace packages to their source so editing the engine, format,
-// or editor hot-reloads here instantly — no rebuild step while developing.
+// Resolve workspace packages to their source so editing `@ikijs/engine`,
+// `@ikijs/format`, or `@ikijs/editor` hot-reloads here instantly — no rebuild
+// step while developing.
 export default defineConfig({
   plugins: [react()],
   resolve: {
