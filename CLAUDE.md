@@ -13,8 +13,8 @@ Read [README.md](./README.md) first for what Iki is, the package map, and the ro
 ## Format versioning
 
 - `IKI_FORMAT_VERSION` identifies the `.iki` model contract.
-- **Before** the first published release, v1 is unstable: the schema may change (including tightening or removing fields) without a version bump. Do not treat such changes as breaking yet.
-- **After** the first published release, any breaking change to the `.iki` schema must bump `IKI_FORMAT_VERSION`.
+- **Before 1.0**, v1 is unstable: the schema may change (including tightening or removing fields) without a version bump. The packages are published from 0.1.0 on, so such a change DOES reach users — a 0.x release can reject a model an earlier one accepted. Call it out in the changeset even though no bump is required.
+- **From 1.0 on**, any breaking change to the `.iki` schema must bump `IKI_FORMAT_VERSION`.
 
 ## Validation
 

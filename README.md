@@ -94,10 +94,11 @@ ids name the **character's** side, so the character's left eye is the part at
 positive x (the viewer's right).
 
 > **Stability:** `IKI_FORMAT_VERSION` identifies the `.iki` contract, and from
-> the first published release on, any breaking schema change bumps it.
-> Validation did tighten within v1 before that first release, so a model that
-> loaded in an unpublished build may not. The npm packages are pre-1.0, so the
-> TypeScript surface around the contract can still shift between minors.
+> 1.0 on, any breaking schema change bumps it. Until then the v1 schema is still
+> settling: a 0.x release may tighten validation and reject a model an earlier
+> one accepted (canvas extents must now be `> 0`, for instance). Such changes
+> are called out in the changelog. The TypeScript surface can likewise shift
+> between 0.x minors.
 
 ## Roadmap
 
