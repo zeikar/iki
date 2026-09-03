@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -47,7 +50,14 @@ describe("resolveInputPath", () => {
   // Reads are deliberately NOT confined to cwd — see the note on
   // resolveInputPath. Locking this in so the asymmetry is a decision, not drift.
   it("accepts a readable file outside the working directory", () => {
-    expect(resolveInputPath("/etc/hosts")).toBe("/etc/hosts");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "iki-limits-"));
+    const outside = path.join(dir, "layer.png");
+    fs.writeFileSync(outside, "");
+    try {
+      expect(resolveInputPath(outside)).toBe(outside);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

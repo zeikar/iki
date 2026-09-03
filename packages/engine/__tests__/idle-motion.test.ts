@@ -65,6 +65,20 @@ function timestamps(startMs: number, count: number, stepMs: number): number[] {
 // sink-only contract
 // ---------------------------------------------------------------------------
 
+describe("IdleMotion survives a non-finite timestamp", () => {
+  // `clockMs += NaN` sticks, and every blink/gaze schedule reads clockMs — one
+  // bad frame would leave the face permanently still.
+  it("drops the bad frame and keeps animating", () => {
+    const seen = new Map<string, number>();
+    const idle = new IdleMotion((id, v) => seen.set(id, v), { rng: () => 0.5 });
+    idle.update(0);
+    idle.update(NaN);
+    const afterBadFrame = JSON.stringify([...seen]);
+    for (let t = 100; t <= 4000; t += 100) idle.update(t);
+    expect(JSON.stringify([...seen])).not.toBe(afterBadFrame);
+  });
+});
+
 describe("sink-only contract", () => {
   it("emits exactly the 7 standard parameter ids", () => {
     const emissions = drive(timestamps(0, 10, 100), cyclingRng([0.5]));

@@ -121,6 +121,12 @@ export class IdleMotion {
    * negative raw delta that the clamp floors to 0 — no rewind.
    */
   update(nowMs: number): void {
+    // Host-supplied timestamp, same boundary rule as FixedStepClock.advance and
+    // ParameterStore.set: drop the frame, touch nothing. `clockMs += NaN` would
+    // stick, and every blink/gaze schedule reads clockMs — the face would go
+    // still permanently. A host driving from media time hands you NaN through an
+    // ordinary path (`duration * pct` before metadata loads).
+    if (!Number.isFinite(nowMs)) return;
     if (this.prevNowMs === undefined) {
       this.prevNowMs = nowMs;
       // Emit resting pose so the host mirror stays in sync from frame 1.
