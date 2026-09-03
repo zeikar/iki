@@ -35,13 +35,13 @@ importers:
 
   examples/editor:
     dependencies:
-      '@iki/editor-core':
+      '@ikijs/editor-core':
         specifier: workspace:*
         version: link:../../packages/editor-core
-      '@iki/engine':
+      '@ikijs/engine':
         specifier: workspace:*
         version: link:../../packages/engine
-      '@iki/format':
+      '@ikijs/format':
         specifier: workspace:*
         version: link:../../packages/format
       ag-psd:
@@ -75,10 +75,10 @@ importers:
 
   examples/playground:
     dependencies:
-      '@iki/engine':
+      '@ikijs/engine':
         specifier: workspace:*
         version: link:../../packages/engine
-      '@iki/format':
+      '@ikijs/format':
         specifier: workspace:*
         version: link:../../packages/format
     devDependencies:
@@ -91,7 +91,7 @@ importers:
 
   packages/editor-core:
     dependencies:
-      '@iki/format':
+      '@ikijs/format':
         specifier: workspace:*
         version: link:../format
     devDependencies:
@@ -104,7 +104,7 @@ importers:
 
   packages/engine:
     dependencies:
-      '@iki/format':
+      '@ikijs/format':
         specifier: workspace:*
         version: link:../format
     devDependencies:
@@ -126,10 +126,10 @@ importers:
 
   packages/mcp:
     dependencies:
-      '@iki/editor-core':
+      '@ikijs/editor-core':
         specifier: workspace:*
         version: link:../editor-core
-      '@iki/format':
+      '@ikijs/format':
         specifier: workspace:*
         version: link:../format
       '@modelcontextprotocol/sdk':

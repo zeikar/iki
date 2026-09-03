@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { IKI_FORMAT_VERSION, parseIkiModel } from "@iki/format";
-import type { IkiGridKeyform, IkiModel } from "@iki/format";
+import { IKI_FORMAT_VERSION, parseIkiModel } from "@ikijs/format";
+import type { IkiGridKeyform, IkiModel } from "@ikijs/format";
 import {
   CaptureGridKeyform,
   EditorDocument,
   computeGridOffsets,
   interpolateGridOffsets,
   upsertGridKeyform,
-} from "@iki/editor-core";
+} from "@ikijs/editor-core";
 
 // ── Pure helpers ────────────────────────────────────────────────────────────
 

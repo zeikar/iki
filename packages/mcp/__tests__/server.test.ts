@@ -4,7 +4,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { IKI_FORMAT_VERSION } from "@iki/format";
+import { IKI_FORMAT_VERSION } from "@ikijs/format";
 import { createIkiMcpServer } from "../src/server";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 

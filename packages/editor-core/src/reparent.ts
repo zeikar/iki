@@ -1,4 +1,4 @@
-import type { IkiDeformer, IkiPart, IkiPhysicsChain } from "@iki/format";
+import type { IkiDeformer, IkiPart, IkiPhysicsChain } from "@ikijs/format";
 
 /**
  * Pure, DOM-free validation helpers for deformer reparenting and part attachment.

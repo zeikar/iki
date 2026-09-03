@@ -4,7 +4,7 @@ import type {
   IkiPart,
   IkiWarp,
   IkiWarpDeformer,
-} from "@iki/format";
+} from "@ikijs/format";
 import { ParameterStore } from "./parameter-store";
 import { multiply, rotate, scale, toMat3, translate } from "./affine";
 import { evaluateTransform, resolveDeformerWorlds } from "./deform";
@@ -153,7 +153,7 @@ export class IkiPlayer {
    * via `console.error`, the affected parts are skipped, and `load()` still
    * resolves — the returned {@link IkiLoadResult} lists the indices of any
    * textures that failed, so a host can detect and report a partial load. The
-   * model is assumed already validated by `@iki/format`.
+   * model is assumed already validated by `@ikijs/format`.
    *
    * Mesh buffer allocation failure IS fatal (unlike per-texture skip) because
    * textures have an `IkiLoadResult.failedTextures` reporting surface and mesh

@@ -7,7 +7,7 @@ import {
   StandardParameter,
   type IkiModel,
   type IkiDeformer,
-} from "@iki/format";
+} from "@ikijs/format";
 import {
   EditorDocument,
   packAtlas,
@@ -16,7 +16,7 @@ import {
   parseLayerRoles,
   type LayerInput,
   type AtlasAssignment,
-} from "@iki/editor-core";
+} from "@ikijs/editor-core";
 import {
   decodePng,
   detectAlphaBbox,
@@ -267,7 +267,7 @@ function expectInput<T>(label: string, fn: () => T): T {
  *
  * Re-host of examples/editor/src/store.ts `importLayerSet` with the three DOM
  * pixel functions swapped for the sharp-backed ./node-images helpers; the pure
- * model math is reused from @iki/editor-core.
+ * model math is reused from @ikijs/editor-core.
  *
  * Error boundary: ONLY AutoRigInputError (caller input / filesystem) → `{ ok:false }`;
  * any other throw (invariant break, programmer bug) propagates to `isError`.

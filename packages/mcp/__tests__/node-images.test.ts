@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import sharp from "sharp";
-import { packAtlas } from "@iki/editor-core";
+import { packAtlas } from "@ikijs/editor-core";
 import { AutoRigInputError } from "../src/limits";
 import {
   decodePng,

@@ -1,9 +1,9 @@
-import type { IkiUvRect } from "@iki/format";
+import type { IkiUvRect } from "@ikijs/format";
 
 /**
  * Affinely map a mesh's BASE local UVs into an atlas sub-rectangle.
  *
- * Per the `@iki/format` UV convention (top-left origin, +y down, 0..1; see
+ * Per the `@ikijs/format` UV convention (top-left origin, +y down, 0..1; see
  * {@link IkiUvRect}/{@link IkiMesh}), the input is the part's BASE local uvs and
  * the output places each component into `rect` with NO flip — base UV space and
  * `rect` share the same orientation:

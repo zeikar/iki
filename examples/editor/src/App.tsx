@@ -1,5 +1,5 @@
-import type { IkiPlayer } from "@iki/engine";
-import { IkiFormatError } from "@iki/format";
+import type { IkiPlayer } from "@ikijs/engine";
+import { IkiFormatError } from "@ikijs/format";
 import { useRef } from "react";
 
 import { Inspector } from "./Inspector";

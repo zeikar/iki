@@ -1,5 +1,5 @@
 {
-  "name": "@iki/editor-core",
+  "name": "@ikijs/editor-core",
   "version": "0.0.0",
   "description": "Iki editor core — DOM-free editing commands, undo/redo, and validated .iki export",
   "main": "dist/index.js",
@@ -22,7 +22,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@iki/format": "workspace:*"
+    "@ikijs/format": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8.5.0",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { IkiParameter } from "@iki/format";
-import { ParameterStore } from "@iki/engine";
+import type { IkiParameter } from "@ikijs/format";
+import { ParameterStore } from "@ikijs/engine";
 
 const params: IkiParameter[] = [
   { id: "open", min: 0, max: 1, default: 0.25 },

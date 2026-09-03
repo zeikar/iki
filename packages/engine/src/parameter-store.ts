@@ -1,4 +1,4 @@
-import type { IkiParameter } from "@iki/format";
+import type { IkiParameter } from "@ikijs/format";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));

@@ -4,8 +4,8 @@ import type {
   IkiGrid2DKeyform,
   IkiParameter,
   IkiWarpGrid,
-} from "@iki/format";
-import { ParameterStore } from "@iki/engine";
+} from "@ikijs/format";
+import { ParameterStore } from "@ikijs/engine";
 import { accumulate2DKeyformOffsets } from "../src/warp";
 import { resolveDeformerWorlds } from "../src/deform";
 import type { Affine } from "../src/affine";

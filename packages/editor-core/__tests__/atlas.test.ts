@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { IKI_FORMAT_VERSION, parseIkiModel } from "@iki/format";
-import type { IkiModel } from "@iki/format";
+import { IKI_FORMAT_VERSION, parseIkiModel } from "@ikijs/format";
+import type { IkiModel } from "@ikijs/format";
 import {
   ATLAS_PADDING,
   UV_INSET_PX,
   packAtlas,
   uvRectFor,
-} from "@iki/editor-core";
-import type { AtlasPlacement } from "@iki/editor-core";
+} from "@ikijs/editor-core";
+import type { AtlasPlacement } from "@ikijs/editor-core";
 
 // Sources of intentionally different sizes. Their combined padded area forces
 // targetWidth = ceil(sqrt(total)) which is narrower than placing all on one

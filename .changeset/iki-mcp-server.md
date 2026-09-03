@@ -1,5 +1,5 @@
 ---
-"@iki/mcp": minor
+"@ikijs/mcp": minor
 ---
 
-Add @iki/mcp: stdio MCP server with validate/describe/list tools.
+Add @ikijs/mcp: stdio MCP server with validate/describe/list tools.

@@ -1,4 +1,4 @@
-import { StandardParameter, parseIkiModel } from "@iki/format";
+import { StandardParameter, parseIkiModel } from "@ikijs/format";
 import { describe, expect, it } from "vitest";
 import {
   ROLE_TABLE,

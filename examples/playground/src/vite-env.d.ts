@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
-import type { IkiPlayer } from "@iki/engine";
-import type { IkiParameter } from "@iki/format";
+import type { IkiPlayer } from "@ikijs/engine";
+import type { IkiParameter } from "@ikijs/format";
 
 declare global {
   interface Window {

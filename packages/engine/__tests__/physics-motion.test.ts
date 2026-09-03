@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { IkiParameter, IkiPhysics } from "@iki/format";
-import { PhysicsMotion } from "@iki/engine";
+import type { IkiParameter, IkiPhysics } from "@ikijs/format";
+import { PhysicsMotion } from "@ikijs/engine";
 
 // --- Test harness (makeSink + timestamps copied from idle-motion.test.ts) -----
 

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { StandardParameter, parseIkiModel, type IkiPart } from "@iki/format";
+import { StandardParameter, parseIkiModel, type IkiPart } from "@ikijs/format";
 import { sampleModel } from "../src/sample-model";
 
 /**
  * `Left`/`Right` standard parameters name the CHARACTER's side, so the part
  * they drive must sit on the opposite screen side: character-left = +x.
- * See the SIDE CONVENTION block in @iki/format's parameters.ts.
+ * See the SIDE CONVENTION block in @ikijs/format's parameters.ts.
  */
 const SIDE_OF = new Map<string, "left" | "right">([
   [StandardParameter.EyeOpenLeft, "left"],

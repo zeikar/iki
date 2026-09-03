@@ -1,8 +1,8 @@
-import type { IkiTransformChannel } from "@iki/format";
+import type { IkiTransformChannel } from "@ikijs/format";
 
 /**
  * Pure, binding-value logic for computing an endpoint (rest-to-posed delta or
- * ratio) when capturing a transform channel binding. No DOM, no @iki/engine —
+ * ratio) when capturing a transform channel binding. No DOM, no @ikijs/engine —
  * the single home of the additive-vs-multiplicative rule, reused by both the
  * part and deformer capture paths.
  *

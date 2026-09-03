@@ -1,5 +1,5 @@
-import type { IkiPlayer } from "@iki/engine";
-import { IkiFormatError } from "@iki/format";
+import type { IkiPlayer } from "@ikijs/engine";
+import { IkiFormatError } from "@ikijs/format";
 import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
 
 import { useEditorStore } from "./store";

@@ -5,14 +5,14 @@
  *   - decode + alpha-bbox + crop  ← examples/editor/src/auto-rig-image.ts
  *   - atlas render + edge-extrude  ← examples/editor/src/atlas-image.ts
  * The pure parts (packAtlas / uvRectFor / generateIkiFromLayerSet / role parsing
- * / bbox→model math) are reused from @iki/editor-core, not reimplemented here.
+ * / bbox→model math) are reused from @ikijs/editor-core, not reimplemented here.
  *
- * `sharp` is a heavy native dependency and MUST stay confined to @iki/mcp — it
- * may never reach @iki/editor-core, @iki/engine, or @iki/format.
+ * `sharp` is a heavy native dependency and MUST stay confined to @ikijs/mcp — it
+ * may never reach @ikijs/editor-core, @ikijs/engine, or @ikijs/format.
  */
 
 import sharp from "sharp";
-import type { AtlasLayout } from "@iki/editor-core";
+import type { AtlasLayout } from "@ikijs/editor-core";
 import { AutoRigInputError, MAX_INPUT_PIXELS } from "./limits";
 
 // Pixels with alpha < ALPHA_THRESHOLD are treated as transparent. MUST stay

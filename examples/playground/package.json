@@ -1,5 +1,5 @@
 {
-  "name": "@iki/playground",
+  "name": "@ikijs/playground",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,8 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@iki/engine": "workspace:*",
-    "@iki/format": "workspace:*"
+    "@ikijs/engine": "workspace:*",
+    "@ikijs/format": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.2",

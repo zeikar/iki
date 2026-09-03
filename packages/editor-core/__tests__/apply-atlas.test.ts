@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { IKI_FORMAT_VERSION } from "@iki/format";
-import type { IkiModel, IkiUvRect } from "@iki/format";
+import { IKI_FORMAT_VERSION } from "@ikijs/format";
+import type { IkiModel, IkiUvRect } from "@ikijs/format";
 import {
   EditorDocument,
   SetPartWidth,
   type ApplyAtlasInput,
-} from "@iki/editor-core";
+} from "@ikijs/editor-core";
 
 const VALID_UV: IkiUvRect = { x: 0.1, y: 0.1, width: 0.5, height: 0.5 };
 

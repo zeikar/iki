@@ -3,7 +3,7 @@ import type {
   IkiParameter,
   IkiPhysicsChain,
   IkiPhysicsChainSegment,
-} from "@iki/format";
+} from "@ikijs/format";
 import type { Affine } from "./affine";
 import { resolveDeformerWorlds } from "./deform";
 import { ParameterStore } from "./parameter-store";

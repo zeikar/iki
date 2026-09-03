@@ -38,7 +38,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "playground": "pnpm --filter @iki/playground dev",
+    "playground": "pnpm --filter @ikijs/playground dev",
     "changeset": "changeset",
     "version": "changeset version",
     "release": "pnpm build && changeset publish",

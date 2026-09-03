@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { IkiDeformer, IkiParameter } from "@iki/format";
-import { ParameterStore } from "@iki/engine";
+import type { IkiDeformer, IkiParameter } from "@ikijs/format";
+import { ParameterStore } from "@ikijs/engine";
 import { evaluateTransform, resolveDeformerWorlds } from "../src/deform";
 import type { Affine } from "../src/affine";
 

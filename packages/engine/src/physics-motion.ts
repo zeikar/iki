@@ -1,4 +1,4 @@
-import type { IkiParameter, IkiPhysics } from "@iki/format";
+import type { IkiParameter, IkiPhysics } from "@ikijs/format";
 
 // --- Module-internal timing/integration constants ----------------------------
 // Private by design; tests assert observable behavior, not config.

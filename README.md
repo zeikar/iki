@@ -28,9 +28,9 @@ drives those parameters from lip-sync, gaze, blink, and expressions.
 
 | Package                                        | What it is                                                                                                                                                           |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`@iki/format`](./packages/format)             | The `.iki` model schema, types, loader, and validator                                                                                                                |
-| [`@iki/engine`](./packages/engine)             | WebGL2 runtime that plays a `.iki` model                                                                                                                             |
-| [`@iki/editor-core`](./packages/editor-core)   | DOM-free editing core: EditorDocument, part-edit commands, undo/redo, atlas layout/UV helpers, toIkiModel/serialize round-trip (depends only on @iki/format)         |
+| [`@ikijs/format`](./packages/format)           | The `.iki` model schema, types, loader, and validator                                                                                                                |
+| [`@ikijs/engine`](./packages/engine)           | WebGL2 runtime that plays a `.iki` model                                                                                                                             |
+| [`@ikijs/editor-core`](./packages/editor-core) | DOM-free editing core: EditorDocument, part-edit commands, undo/redo, atlas layout/UV helpers, toIkiModel/serialize round-trip (depends only on @ikijs/format)       |
 | [`examples/playground`](./examples/playground) | Slider-driven demo of a hand-authored model                                                                                                                          |
 | [`examples/editor`](./examples/editor)         | Private React+Zustand app — load sample model, numeric part edit, per-part texture drop (quad + mesh, rides the warp), live IkiPlayer preview, validated .iki export |
 
@@ -48,7 +48,7 @@ A model is a flat list of parts composited back-to-front, plus parameters wired
 to those parts through linear bindings:
 
 ```ts
-import { StandardParameter, type IkiModel } from "@iki/format";
+import { StandardParameter, type IkiModel } from "@ikijs/format";
 
 const model: IkiModel = {
   version: 1,

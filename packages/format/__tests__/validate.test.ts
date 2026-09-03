@@ -4,7 +4,7 @@ import {
   IkiFormatError,
   loadIkiModel,
   parseIkiModel,
-} from "@iki/format";
+} from "@ikijs/format";
 
 /** A minimal model that exercises every required field plus one binding. */
 function validModel() {

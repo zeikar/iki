@@ -6,7 +6,7 @@ import type {
   IkiUvRect,
   IkiWarp,
   IkiWarpGrid,
-} from "@iki/format";
+} from "@ikijs/format";
 
 /**
  * Generate a regular grid mesh in part LOCAL space (±0.5 unit frame).

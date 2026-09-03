@@ -1,5 +1,5 @@
 // Compose AI-generated part PNGs into canvas-aligned, role-named layers for the
-// Iki auto-rig (`auto_rig_from_layers` MCP tool / `@iki/editor-core`
+// Iki auto-rig (`auto_rig_from_layers` MCP tool / `@ikijs/editor-core`
 // generateIkiFromLayerSet). Each part is alpha-trimmed, resized to a target
 // width, optionally mirrored, and pasted at a chosen center on a shared
 // transparent canvas of CANVAS x CANVAS px.
@@ -51,7 +51,7 @@ const LAYOUT = {
   hair_front: { src: "hair_front.png", cx: 500, cy: 330, w: 660 },
 };
 
-// Draw order (back -> front), mirrors @iki/editor-core ROLE_TABLE order.
+// Draw order (back -> front), mirrors @ikijs/editor-core ROLE_TABLE order.
 const ORDER = [
   "face",
   "mouth",

@@ -1,8 +1,8 @@
-import type { IkiGridKeyform } from "@iki/format";
+import type { IkiGridKeyform } from "@ikijs/format";
 
 /**
  * Pure, grid-size-agnostic keyform/offset math for authoring a warp-deformer
- * grid by dragging. No DOM, no `@iki/engine` — the load-bearing testable core.
+ * grid by dragging. No DOM, no `@ikijs/engine` — the load-bearing testable core.
  * Constraints derive only from the input array lengths, never the sample grid.
  */
 

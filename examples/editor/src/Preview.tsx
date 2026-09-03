@@ -3,8 +3,8 @@ import {
   IdleMotion,
   PhysicsMotion,
   HairChainMotion,
-} from "@iki/engine";
-import { StandardParameter } from "@iki/format";
+} from "@ikijs/engine";
+import { StandardParameter } from "@ikijs/format";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 
 import { GridOverlay } from "./GridOverlay";

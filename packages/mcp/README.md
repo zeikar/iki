@@ -1,4 +1,4 @@
-# @iki/mcp
+# @ikijs/mcp
 
 A stdio [MCP](https://modelcontextprotocol.io/) server that exposes `.iki` model tools to AI agents (Claude, LLMs, and any MCP-compatible client): read/validate a model, and auto-rig one from role-named PNG layers.
 
@@ -21,20 +21,20 @@ Turns a set of role-named, full-canvas transparent PNG layers into a renderable,
 - **`outputPath`** — optional `.iki` output path (resolved against the working directory; the parent directory must already exist, and the path must end in `.iki`). Defaults to `auto-rigged-model.iki`.
 - **Result** — on success the result text is the written file path and `structuredContent` carries `{ ok: true, path, canvas, partCount, atlasBytes }`. The (potentially multi-MB) model is written to disk, not inlined. Invalid input (unknown/missing role, empty layer, mismatched sizes, bad path, oversized atlas) returns `{ ok: false, error }` with a `INVALID: …` text — not a protocol error.
 
-The decode/atlas pipeline runs in Node via `sharp` (a native dependency confined to this package); it mirrors the browser editor's import flow and reuses the pure `@iki/editor-core` model + atlas math, so both paths produce the same rig.
+The decode/atlas pipeline runs in Node via `sharp` (a native dependency confined to this package); it mirrors the browser editor's import flow and reuses the pure `@ikijs/editor-core` model + atlas math, so both paths produce the same rig.
 
 ## Usage
 
 Run directly with npx (no install needed):
 
 ```bash
-npx -y @iki/mcp
+npx -y @ikijs/mcp
 ```
 
 Or install globally and use the `iki-mcp` bin:
 
 ```bash
-npm install -g @iki/mcp
+npm install -g @ikijs/mcp
 iki-mcp
 ```
 
@@ -43,7 +43,7 @@ iki-mcp
 Add to your MCP server config:
 
 ```json
-{ "mcpServers": { "iki": { "command": "npx", "args": ["-y", "@iki/mcp"] } } }
+{ "mcpServers": { "iki": { "command": "npx", "args": ["-y", "@ikijs/mcp"] } } }
 ```
 
 For Claude Desktop this goes in `claude_desktop_config.json`; for Claude Code it goes in `.claude/mcp.json` (or the equivalent per-project config).

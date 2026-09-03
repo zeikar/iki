@@ -5,8 +5,8 @@
  * request fails fast with a path-qualified message rather than exhausting memory
  * or producing a multi-MB MCP response. All guards REJECT (never downscale).
  *
- * `sharp` must stay confined to @iki/mcp — none of @iki/engine, @iki/editor-core,
- * or @iki/format may take a heavy Node image dependency.
+ * `sharp` must stay confined to @ikijs/mcp — none of @ikijs/engine, @ikijs/editor-core,
+ * or @ikijs/format may take a heavy Node image dependency.
  */
 
 import fs from "node:fs";

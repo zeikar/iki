@@ -1,5 +1,5 @@
 ---
-"@iki/engine": minor
+"@ikijs/engine": minor
 ---
 
 `IdleMotion` now drives a gentle head sway on `ParamAngleX` / `ParamAngleY`

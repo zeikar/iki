@@ -4,7 +4,7 @@ import type {
   IkiModel,
   IkiPart,
   IkiWarpDeformer,
-} from "@iki/format";
+} from "@ikijs/format";
 
 /**
  * Pure, DOM-free factory helpers for creating new model objects from scratch.

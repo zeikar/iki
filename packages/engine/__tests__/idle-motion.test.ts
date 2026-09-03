@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { StandardParameter } from "@iki/format";
-import { IdleMotion } from "@iki/engine";
+import { StandardParameter } from "@ikijs/format";
+import { IdleMotion } from "@ikijs/engine";
 
 // Local timing literals matching the impl's intent — NOT imported from impl.
 const BLINK_DURATION_MS = 120;

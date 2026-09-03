@@ -1,4 +1,4 @@
-import type { IkiDeformer, IkiWarpGrid } from "@iki/format";
+import type { IkiDeformer, IkiWarpGrid } from "@ikijs/format";
 import type { Affine } from "./affine";
 import type { ParameterStore } from "./parameter-store";
 import { accumulate2DKeyformOffsets, accumulateKeyformOffsets } from "./warp";

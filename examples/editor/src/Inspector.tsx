@@ -17,7 +17,7 @@ import {
   type DeformerTransformChannel,
   type EditCommand,
   type EditTransformChannel,
-} from "@iki/editor-core";
+} from "@ikijs/editor-core";
 import type {
   IkiBinding,
   IkiDeformer,
@@ -28,7 +28,7 @@ import type {
   IkiPart,
   IkiPhysics,
   IkiTransformChannel,
-} from "@iki/format";
+} from "@ikijs/format";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 import { decodeImageFile } from "./atlas-image";

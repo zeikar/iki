@@ -8,7 +8,7 @@ import {
   type IkiPart,
   type IkiWarp,
   type IkiWarpGrid,
-} from "@iki/format";
+} from "@ikijs/format";
 import { bakeHeadTurnGridWarp } from "./mesh-generator";
 
 /**

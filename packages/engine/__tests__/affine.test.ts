@@ -6,7 +6,7 @@ import {
   scale,
   toMat3,
   translate,
-} from "@iki/engine";
+} from "@ikijs/engine";
 
 const IDENTITY: Affine = [1, 0, 0, 1, 0, 0];
 

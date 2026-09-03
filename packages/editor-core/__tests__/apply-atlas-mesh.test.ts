@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { IKI_FORMAT_VERSION } from "@iki/format";
-import type { IkiModel, IkiUvRect } from "@iki/format";
-import { EditorDocument } from "@iki/editor-core";
+import { IKI_FORMAT_VERSION } from "@ikijs/format";
+import type { IkiModel, IkiUvRect } from "@ikijs/format";
+import { EditorDocument } from "@ikijs/editor-core";
 import { remapMeshUvsToRect } from "../src/mesh-uv";
 
 // A rect that keeps all remapped UVs within 0..1 (base is 0..1 square).

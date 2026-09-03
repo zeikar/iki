@@ -4,10 +4,10 @@ Read [README.md](./README.md) first for what Iki is, the package map, and the ro
 
 ## Core Rules
 
-- Keep the engine host-agnostic: `@iki/engine` depends only on `@iki/format`. It must never import a host framework (e.g. Charivo); hosts consume Iki through their own thin adapter.
-- Preserve the layering: `@iki/format` (schema/types/validator) -> `@iki/engine` (runtime) -> examples / host adapters. Do not collapse these boundaries.
-- `@iki/format` is the single source of truth for the `.iki` model contract. Engine code reads the format types; it does not redefine them.
-- Validate external/model input in `@iki/format` and throw `IkiFormatError` with a path-qualified message. Never let unchecked data reach the renderer, and do not fail silently.
+- Keep the engine host-agnostic: `@ikijs/engine` depends only on `@ikijs/format`. It must never import a host framework (e.g. Charivo); hosts consume Iki through their own thin adapter.
+- Preserve the layering: `@ikijs/format` (schema/types/validator) -> `@ikijs/engine` (runtime) -> examples / host adapters. Do not collapse these boundaries.
+- `@ikijs/format` is the single source of truth for the `.iki` model contract. Engine code reads the format types; it does not redefine them.
+- Validate external/model input in `@ikijs/format` and throw `IkiFormatError` with a path-qualified message. Never let unchecked data reach the renderer, and do not fail silently.
 - Match the surrounding style. Keep changes surgical — every changed line should trace to the request.
 
 ## Format versioning
@@ -23,6 +23,6 @@ Read [README.md](./README.md) first for what Iki is, the package map, and the ro
 
 ## Versioning (packages)
 
-- Publishable packages (`@iki/*`, excluding the playground) use Changesets. Add one with `pnpm changeset` when a package changes in a way that should reach npm.
+- Publishable packages (`@ikijs/*`, excluding the playground) use Changesets. Add one with `pnpm changeset` when a package changes in a way that should reach npm.
 - Use `minor` for public API or `.iki` format-contract changes, `patch` for fixes and non-breaking updates.
 - Do not add a changeset for example-only or docs-only changes.

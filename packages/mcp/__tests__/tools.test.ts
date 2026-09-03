@@ -7,7 +7,7 @@ import {
   IKI_FORMAT_VERSION,
   StandardParameter,
   parseIkiModel,
-} from "@iki/format";
+} from "@ikijs/format";
 import {
   validateIki,
   describeIki,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { IkiDeformer, IkiParameter, IkiPhysicsChain } from "@iki/format";
-import { HairChainMotion } from "@iki/engine";
+import type { IkiDeformer, IkiParameter, IkiPhysicsChain } from "@ikijs/format";
+import { HairChainMotion } from "@ikijs/engine";
 
 // --- Test harness (copied / adapted from physics-motion.test.ts) --------------
 

@@ -8,10 +8,10 @@ export default defineConfig({
   build: { target: "es2022" },
   resolve: {
     alias: {
-      "@iki/engine": fileURLToPath(
+      "@ikijs/engine": fileURLToPath(
         new URL("../../packages/engine/src/index.ts", import.meta.url),
       ),
-      "@iki/format": fileURLToPath(
+      "@ikijs/format": fileURLToPath(
         new URL("../../packages/format/src/index.ts", import.meta.url),
       ),
     },

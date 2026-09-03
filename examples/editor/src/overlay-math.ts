@@ -1,9 +1,9 @@
-import { type Affine, multiply, rotate, scale, translate } from "@iki/engine";
+import { type Affine, multiply, rotate, scale, translate } from "@ikijs/engine";
 import type {
   IkiDeformerBinding,
   IkiMatrixDeformer,
   IkiParameter,
-} from "@iki/format";
+} from "@ikijs/format";
 
 // ---------------------------------------------------------------------------
 // Overlay coordinate math — affine composition + model↔screen mapping.

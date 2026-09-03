@@ -1,4 +1,4 @@
-import type { IkiUvRect } from "@iki/format";
+import type { IkiUvRect } from "@ikijs/format";
 
 export const ATLAS_PADDING = 2;
 export const UV_INSET_PX = 0.5;

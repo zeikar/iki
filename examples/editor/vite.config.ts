@@ -8,13 +8,13 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@iki/engine": fileURLToPath(
+      "@ikijs/engine": fileURLToPath(
         new URL("../../packages/engine/src/index.ts", import.meta.url),
       ),
-      "@iki/format": fileURLToPath(
+      "@ikijs/format": fileURLToPath(
         new URL("../../packages/format/src/index.ts", import.meta.url),
       ),
-      "@iki/editor-core": fileURLToPath(
+      "@ikijs/editor-core": fileURLToPath(
         new URL("../../packages/editor-core/src/index.ts", import.meta.url),
       ),
     },

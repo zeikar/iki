@@ -2,11 +2,11 @@
  * App-side (DOM) helpers for the auto-rig import flow.
  *
  * DOM is allowed here (canvas / getImageData / ImageBitmap). Pure engine logic
- * lives in @iki/editor-core; this file only handles the pixel-level work that
+ * lives in @ikijs/editor-core; this file only handles the pixel-level work that
  * requires a browser canvas.
  */
 
-import { parseLayerRoles, type LayerInput } from "@iki/editor-core";
+import { parseLayerRoles, type LayerInput } from "@ikijs/editor-core";
 
 // Pixels with alpha < ALPHA_THRESHOLD are treated as transparent.
 const ALPHA_THRESHOLD = 8;

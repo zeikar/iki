@@ -1,5 +1,5 @@
 ---
-"@iki/editor-core": minor
+"@ikijs/editor-core": minor
 ---
 
 Deformer commands no longer strand a document in a state `toIkiModel()` refuses.

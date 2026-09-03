@@ -1,4 +1,4 @@
-import { StandardParameter } from "@iki/format";
+import { StandardParameter } from "@ikijs/format";
 
 // --- Module-internal timing/easing constants -----------------------------------
 // These are intentionally private; tests assert observable behavior, not config.

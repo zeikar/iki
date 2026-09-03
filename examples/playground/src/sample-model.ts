@@ -12,7 +12,7 @@ import {
   type IkiPhysicsChain,
   type IkiPhysicsChainSegment,
   type IkiWarpGrid,
-} from "@iki/format";
+} from "@ikijs/format";
 import { bakeHeadTurnGridWarp2D } from "./mesh-generator";
 
 /**
@@ -376,7 +376,7 @@ const LOCK_CENTERLINE: ReadonlyArray<readonly [number, number]> = [
 const LOCK_HALF_WIDTHS = [26, 33, 32, 28, 22, 15, 8];
 // Part transform placing the local strand at the temple on the viewer's left —
 // which is the CHARACTER's right, so `buildLock("R")` is the side that uses it
-// unnegated (see the side convention on @iki/format's StandardParameter).
+// unnegated (see the side convention on @ikijs/format's StandardParameter).
 // Inboard enough that the root band's top row stays fully under the topHair
 // ellipse — a wider/outboard root pokes a bare rectangle out of the crown
 // silhouette the moment the head turns.

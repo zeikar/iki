@@ -5,7 +5,7 @@ import type {
   IkiDeformerTransform,
   IkiMatrixDeformer,
   IkiTransform,
-} from "@iki/format";
+} from "@ikijs/format";
 import { type Affine, multiply, rotate, scale, translate } from "./affine";
 import type { ParameterStore } from "./parameter-store";
 

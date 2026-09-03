@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { IkiParameter, IkiWarp } from "@iki/format";
-import { ParameterStore } from "@iki/engine";
+import type { IkiParameter, IkiWarp } from "@ikijs/format";
+import { ParameterStore } from "@ikijs/engine";
 import { applyWarps } from "../src/warp";
 
 // --- helpers ------------------------------------------------------------------

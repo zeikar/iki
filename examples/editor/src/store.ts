@@ -22,14 +22,14 @@ import {
   type EditTransformChannel,
   type DeformerTransformChannel,
   type LayerInput,
-} from "@iki/editor-core";
+} from "@ikijs/editor-core";
 import type {
   IkiTransform,
   IkiDeformerTransform,
   IkiTransformChannel,
   IkiBinding,
   IkiDeformerBinding,
-} from "@iki/format";
+} from "@ikijs/format";
 import { create } from "zustand";
 
 import {

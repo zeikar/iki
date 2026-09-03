@@ -3,8 +3,8 @@ import {
   IdleMotion,
   IkiPlayer,
   PhysicsMotion,
-} from "@iki/engine";
-import { parseIkiModel } from "@iki/format";
+} from "@ikijs/engine";
+import { parseIkiModel } from "@ikijs/format";
 import { sampleModel } from "./sample-model";
 
 const canvas = document.getElementById("iki") as HTMLCanvasElement;

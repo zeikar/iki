@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { IKI_FORMAT_VERSION, IkiFormatError, parseIkiModel } from "@iki/format";
-import type { IkiModel } from "@iki/format";
+import {
+  IKI_FORMAT_VERSION,
+  IkiFormatError,
+  parseIkiModel,
+} from "@ikijs/format";
+import type { IkiModel } from "@ikijs/format";
 import {
   AddDeformer,
   EditorDocument,
@@ -8,7 +12,7 @@ import {
   SetPartMesh,
   createDefaultWarpDeformer,
   createGridMesh,
-} from "@iki/editor-core";
+} from "@ikijs/editor-core";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 

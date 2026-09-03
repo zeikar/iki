@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { StandardParameter } from "@iki/format";
+import { StandardParameter } from "@ikijs/format";
 
 describe("StandardParameter", () => {
   it("locks the Live2D-style ids hosts rely on for per-model wiring", () => {

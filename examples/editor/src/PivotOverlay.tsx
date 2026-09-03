@@ -1,8 +1,8 @@
 // Second canvas gizmo: pivot handle for the selected matrix deformer.
 // Distinct from GridOverlay (warp grid). Reuses overlay-math for coordinate math.
 
-import { SetDeformerPivot } from "@iki/editor-core";
-import type { IkiMatrixDeformer } from "@iki/format";
+import { SetDeformerPivot } from "@ikijs/editor-core";
+import type { IkiMatrixDeformer } from "@ikijs/format";
 import { useEffect, useRef, useState } from "react";
 
 import {

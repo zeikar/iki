@@ -9,8 +9,12 @@ import type {
   IkiModel,
   IkiPart,
   IkiPhysics,
-} from "@iki/format";
-import { IKI_FORMAT_VERSION, IkiFormatError, parseIkiModel } from "@iki/format";
+} from "@ikijs/format";
+import {
+  IKI_FORMAT_VERSION,
+  IkiFormatError,
+  parseIkiModel,
+} from "@ikijs/format";
 
 import type { EditorDocument } from "./document";
 import { upsertGridKeyform } from "./grid-keyform";

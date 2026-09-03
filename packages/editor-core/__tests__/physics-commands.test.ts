@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { IKI_FORMAT_VERSION, IkiFormatError } from "@iki/format";
-import type { IkiModel, IkiPhysics, IkiPhysicsChain } from "@iki/format";
+import { IKI_FORMAT_VERSION, IkiFormatError } from "@ikijs/format";
+import type { IkiModel, IkiPhysics, IkiPhysicsChain } from "@ikijs/format";
 import {
   AddPhysicsRig,
   DeletePhysicsRig,
   EditorDocument,
   SetPhysicsRig,
-} from "@iki/editor-core";
+} from "@ikijs/editor-core";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -220,7 +220,7 @@ describe("SetPhysicsRig", () => {
 });
 
 // ── Representative validation-through-command ─────────────────────────────────
-// The exhaustive parsePhysics matrix lives in @iki/format tests; here we only
+// The exhaustive parsePhysics matrix lives in @ikijs/format tests; here we only
 // prove the commands route through validation and rewrite the failing path.
 
 describe("validation surfaced through the commands", () => {

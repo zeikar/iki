@@ -33,15 +33,15 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: "@iki/format",
+        find: "@ikijs/format",
         replacement: resolvePackage("packages/format/src/index.ts"),
       },
       {
-        find: "@iki/engine",
+        find: "@ikijs/engine",
         replacement: resolvePackage("packages/engine/src/index.ts"),
       },
       {
-        find: "@iki/editor-core",
+        find: "@ikijs/editor-core",
         replacement: resolvePackage("packages/editor-core/src/index.ts"),
       },
     ],

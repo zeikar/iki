@@ -1,4 +1,4 @@
-import type { IkiGrid2DKeyform, IkiWarp } from "@iki/format";
+import type { IkiGrid2DKeyform, IkiWarp } from "@ikijs/format";
 import type { ParameterStore } from "./parameter-store";
 
 /**

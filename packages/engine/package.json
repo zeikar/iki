@@ -1,5 +1,5 @@
 {
-  "name": "@iki/engine",
+  "name": "@ikijs/engine",
   "version": "0.0.0",
   "description": "Iki runtime — a WebGL2 player for .iki puppet models",
   "main": "dist/index.js",
@@ -22,7 +22,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@iki/format": "workspace:*"
+    "@ikijs/format": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8.5.0",

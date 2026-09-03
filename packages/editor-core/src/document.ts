@@ -1,4 +1,4 @@
-import { parseIkiModel } from "@iki/format";
+import { parseIkiModel } from "@ikijs/format";
 import type {
   IkiBinding,
   IkiDeformer,
@@ -12,7 +12,7 @@ import type {
   IkiTransform,
   IkiUvRect,
   IkiWarpDeformer,
-} from "@iki/format";
+} from "@ikijs/format";
 
 import type { EditCommand } from "./commands";
 import { remapMeshUvsToRect } from "./mesh-uv";

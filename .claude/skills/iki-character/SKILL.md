@@ -27,7 +27,7 @@ The hard part is **getting clean role-separated parts out of codex-image** (an e
 ## Prerequisites
 
 - **codex-image skill** available (it shells out to `codex exec` with the built-in `image_generation` tool; **billed, takes minutes**, supports background-parallel generation). Confirm the user is OK spending on generation before starting.
-- **`sharp`** resolvable for `compose.cjs`. It is not a repo dependency (sharp is confined to `@iki/mcp`). Run the composer from a scratch dir with sharp installed, e.g.:
+- **`sharp`** resolvable for `compose.cjs`. It is not a repo dependency (sharp is confined to `@ikijs/mcp`). Run the composer from a scratch dir with sharp installed, e.g.:
   ```bash
   mkdir -p /tmp/iki-char/parts && cd /tmp/iki-char && npm i sharp --silent
   ```
@@ -36,13 +36,13 @@ The hard part is **getting clean role-separated parts out of codex-image** (an e
   - The user has the **iki MCP server configured** (a `mcp__*__auto_rig_from_layers` tool is available) — call it directly.
   - Local dev with the server **not** registered: build and drive the **bin** over stdio:
     ```bash
-    pnpm --filter @iki/mcp build   # produces packages/mcp/dist/cli.js
+    pnpm --filter @ikijs/mcp build   # produces packages/mcp/dist/cli.js
     ```
     then send a JSON-RPC `tools/call` to `node packages/mcp/dist/cli.js` (see Step 3). The tool **confines the output `.iki` to the process cwd** (realpath + atomic rename), so launch the bin from the dir you want the model written under.
 
 ## The role set this skill generates (full-expression default)
 
-Mirrors `@iki/editor-core` `ROLE_TABLE` / `REQUIRED_ROLES`. **Required:** `face`, `eye_L`, `eye_R`, `mouth`. The composer additionally emits `iris_L/R` (gaze), `lash_L/R` (blink-fold cover), `brow_L/R` (expression), `hair_front`. That set gives a character that **blinks (eyelid-fold), gazes, opens/forms its mouth, turns its head, and raises/tilts its brows**.
+Mirrors `@ikijs/editor-core` `ROLE_TABLE` / `REQUIRED_ROLES`. **Required:** `face`, `eye_L`, `eye_R`, `mouth`. The composer additionally emits `iris_L/R` (gaze), `lash_L/R` (blink-fold cover), `brow_L/R` (expression), `hair_front`. That set gives a character that **blinks (eyelid-fold), gazes, opens/forms its mouth, turns its head, and raises/tilts its brows**.
 
 | codex-image part                                         | composer output role(s)                              | drives                                                           |
 | -------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------- |
@@ -136,9 +136,9 @@ To feed the disk `.iki` to `load()`: vite blocks `/@fs/` for paths **outside the
 - **Opaque-on-white parts** are handled by `keyWhiteToAlpha` (keys >238 RGB to alpha), but transparent output is cleaner — ask for it. White-rimmed parts (e.g. a white highlight on the iris) can be clipped by the key; prefer transparent generation for those.
 - **MCP output is cwd-confined.** `auto_rig_from_layers` rejects an `outputPath` that escapes the launch cwd (must end in `.iki`, realpath-checked, atomic rename). Launch the bin from where you want the file.
 - **Style drift across parts.** Independent generations can mismatch hue/line-weight. Keep one `<STYLE>` string identical across all six prompts; regenerate the outlier, not the whole set.
-- **Composer needs `sharp`, which is not a repo dep.** Don't `pnpm add sharp` to a workspace package — install it ad hoc in the scratch dir (or use `@iki/mcp`'s copy). sharp stays confined to `@iki/mcp` in the repo.
+- **Composer needs `sharp`, which is not a repo dep.** Don't `pnpm add sharp` to a workspace package — install it ad hoc in the scratch dir (or use `@ikijs/mcp`'s copy). sharp stays confined to `@ikijs/mcp` in the repo.
 - **Don't commit generated character art or reference models.** Generated PNGs and any reference model (e.g. Hiyori) are scratch/gitignored — keep them out of the repo. This slice ships the **skill + composer only**.
 
 ## What this skill does NOT change
 
-No `@iki/*` source changes — this is a skill + a standalone composer script. No changeset. The capability (`auto_rig_from_layers`, the role table, blink-fold/gaze/brow rigging) already shipped in earlier slices; this skill only orchestrates them.
+No `@ikijs/*` source changes — this is a skill + a standalone composer script. No changeset. The capability (`auto_rig_from_layers`, the role table, blink-fold/gaze/brow rigging) already shipped in earlier slices; this skill only orchestrates them.

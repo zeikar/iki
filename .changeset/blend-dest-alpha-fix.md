@@ -1,5 +1,5 @@
 ---
-"@iki/engine": patch
+"@ikijs/engine": patch
 ---
 
 Fix semi-transparent parts rendering darker than specified. The renderer now

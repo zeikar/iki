@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { IKI_FORMAT_VERSION, IkiFormatError } from "@iki/format";
-import type { IkiModel, IkiTransformChannel } from "@iki/format";
+import { IKI_FORMAT_VERSION, IkiFormatError } from "@ikijs/format";
+import type { IkiModel, IkiTransformChannel } from "@ikijs/format";
 import {
   EditorDocument,
   SetDeformerBindings,
@@ -15,7 +15,7 @@ import {
   SetPartOrder,
   SetPartTransform,
   SetPartWidth,
-} from "@iki/editor-core";
+} from "@ikijs/editor-core";
 
 /**
  * A minimal valid IkiModel with two quad parts. No optional fields (textures,
