@@ -34,6 +34,12 @@ export class FixedStepClock {
    * timestamp and returns 0. A non-monotonic `nowMs` floors to 0 — no rewind.
    */
   advance(nowMs: number): number {
+    // Host-supplied timestamp, so the same rule as ParameterStore.set: reject
+    // non-finite input at the boundary. `clamp(NaN, ...)` is NaN, which would
+    // make the accumulator NaN and every `NaN >= FIXED_DT_S` false FOREVER —
+    // the rig would freeze silently with no way back. Pre-existing; hardened
+    // here so both host entry points behave the same way.
+    if (!Number.isFinite(nowMs)) return 0;
     if (this.prevNowMs === undefined) {
       this.prevNowMs = nowMs;
       return 0;

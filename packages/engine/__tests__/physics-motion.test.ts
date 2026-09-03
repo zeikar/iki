@@ -76,6 +76,44 @@ const last = (a: number[]) => a[a.length - 1];
 
 // --- Tests --------------------------------------------------------------------
 
+describe("PhysicsMotion survives a non-finite timestamp", () => {
+  // A NaN accumulator would make every `NaN >= FIXED_DT_S` false forever, so a
+  // single bad frame would freeze the rig with no way back.
+  it("ignores the bad frame and keeps integrating afterwards", () => {
+    const params: IkiParameter[] = [
+      { id: "in", min: -1, max: 1, default: 0 },
+      { id: "out", min: -10, max: 10, default: 0 },
+    ];
+    const rigs: IkiPhysics[] = [
+      {
+        id: "r",
+        input: { parameter: "in", weight: 1 },
+        output: { parameter: "out", scale: 10 },
+        mass: 1,
+        stiffness: 80,
+        damping: 4,
+      },
+    ];
+    const live = new Map<string, number>([
+      ["in", 0],
+      ["out", 0],
+    ]);
+    const m = new PhysicsMotion(
+      rigs,
+      params,
+      (id) => live.get(id) ?? 0,
+      (id, v) => live.set(id, v),
+    );
+    m.update(0);
+    live.set("in", 1);
+    m.update(NaN);
+    m.update(500);
+    m.update(1000);
+    expect(Number.isFinite(live.get("out"))).toBe(true);
+    expect(Math.abs(live.get("out")!)).toBeGreaterThan(0);
+  });
+});
+
 describe("PhysicsMotion", () => {
   it("first update emits no jump (seeds rest at the current target)", () => {
     const emissions = drive(

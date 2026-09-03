@@ -156,10 +156,13 @@ export function Preview({ playerRef }: PreviewProps) {
         }
       }
     };
-    // `revision` rebuilds the loop after a doc edit; `loadGeneration` rebuilds it
-    // again once the reload actually lands, so the drivers never hold the
-    // previous model's descriptors while the new one is still loading.
-  }, [idleOn, gridEditMode, playerRef, revision, loadGeneration]);
+    // Keyed on `loadGeneration` only. `revision` fires the instant the doc
+    // mutates, ~200ms before the debounced reload lands, so keying on both tore
+    // the drivers down TWICE per edit — and each rebuild makes a fresh
+    // FixedStepClock, whose seed frame snaps both integrators back to rest.
+    // The effect reads the model imperatively, so rebuilding when the reload
+    // lands is both sufficient and the only moment the new descriptors exist.
+  }, [idleOn, gridEditMode, playerRef, loadGeneration]);
 
   return (
     <main

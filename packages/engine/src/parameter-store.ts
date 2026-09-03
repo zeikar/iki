@@ -2,20 +2,6 @@ import type { IkiParameter } from "@ikijs/format";
 import { clamp } from "./math";
 
 /**
- * Resting value for a parameter: its declared default clamped into range.
- *
- * A non-finite default falls back to the mid-range-safe `clamp(0, min, max)`
- * rather than propagating NaN. `parseIkiModel` already requires a finite
- * default, so this only bites a host that builds a store from unvalidated
- * descriptors — but without it `reset()` would re-install NaN after any number
- * of good writes, quietly undoing the guard on {@link ParameterStore.set}.
- */
-function restOf(param: IkiParameter): number {
-  const base = Number.isFinite(param.default) ? param.default : 0;
-  return clamp(base, param.min, param.max);
-}
-
-/**
  * Holds the live value of every model parameter, clamped to its declared
  * range. This is the single surface a host drives (lip-sync, gaze, blink) and
  * the engine reads each frame to evaluate bindings.
@@ -23,12 +9,29 @@ function restOf(param: IkiParameter): number {
 export class ParameterStore {
   private readonly params = new Map<string, IkiParameter>();
   private readonly values = new Map<string, number>();
+  /**
+   * Resting value per id: the declared default clamped into range, resolved
+   * ONCE here so `reset()` is a straight copy and a malformed descriptor is
+   * reported once rather than on every reset.
+   */
+  private readonly defaults = new Map<string, number>();
 
   constructor(parameters: IkiParameter[]) {
     for (const param of parameters) {
       this.params.set(param.id, param);
-      this.values.set(param.id, restOf(param));
+      // A non-finite default would survive `clamp` and poison every read, so it
+      // falls back to the neutral in-range value — but say so rather than
+      // repairing a broken descriptor silently. `parseIkiModel` requires a
+      // finite default, so this only reaches a host that skipped the validator.
+      if (!Number.isFinite(param.default)) {
+        console.error(
+          `Iki: parameter "${param.id}" has a non-finite default; resting at the neutral in-range value instead`,
+        );
+      }
+      const base = Number.isFinite(param.default) ? param.default : 0;
+      this.defaults.set(param.id, clamp(base, param.min, param.max));
     }
+    for (const [id, value] of this.defaults) this.values.set(id, value);
   }
 
   /**
@@ -57,11 +60,9 @@ export class ParameterStore {
     return (this.get(id) - param.min) / (param.max - param.min);
   }
 
-  /** Reset every parameter to its declared default. */
+  /** Reset every parameter to its resting value (see `defaults`). */
   reset(): void {
-    for (const param of this.params.values()) {
-      this.values.set(param.id, restOf(param));
-    }
+    for (const [id, value] of this.defaults) this.values.set(id, value);
   }
 
   list(): IkiParameter[] {
