@@ -7,8 +7,9 @@ This package ships no UI. It is the model and command layer an editor is built
 _on_, not an editor you can mount.
 
 Everything here is pure logic — no DOM, no canvas, no WebGL. It depends only on
-[`@ikijs/format`](../format), so the same core backs the browser editor, the
-Node MCP server ([`@ikijs/mcp`](../mcp)), and tests.
+[`@ikijs/format`](../format), so the same core backs this repo's
+browser editor app (`examples/editor`), the Node MCP server
+([`@ikijs/mcp`](../mcp)), and tests.
 
 ## Install
 
@@ -60,7 +61,7 @@ emotes with its brows — including a hair-sway physics rig when a `hair_front`
 layer is present.
 
 It takes **already-decoded** layer geometry (`LayerInput`), never pixels, which
-is what keeps this package free of any image dependency: the browser editor
+is what keeps this package free of any image dependency: the editor app
 decodes with canvas, `@ikijs/mcp` decodes with `sharp`, and both feed the same
 pure function.
 

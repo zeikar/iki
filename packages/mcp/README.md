@@ -21,7 +21,7 @@ Turns a set of role-named, full-canvas transparent PNG layers into a renderable,
 - **`outputPath`** — optional `.iki` output path (resolved against the working directory; the parent directory must already exist, and the path must end in `.iki`). Defaults to `auto-rigged-model.iki`.
 - **Result** — on success the result text is the written file path and `structuredContent` carries `{ ok: true, path, canvas, partCount, atlasBytes }`. The (potentially multi-MB) model is written to disk, not inlined. Invalid input (unknown/missing role, empty layer, mismatched sizes, bad path, oversized atlas) returns `{ ok: false, error }` with a `INVALID: …` text — not a protocol error.
 
-The decode/atlas pipeline runs in Node via `sharp` (a native dependency confined to this package); it mirrors the browser editor's import flow and reuses the pure `@ikijs/editor` model + atlas math, so both paths produce the same rig.
+The decode/atlas pipeline runs in Node via `sharp` (a native dependency confined to this package); it mirrors the browser editor app's import flow and reuses the pure `@ikijs/editor` model + atlas math, so both paths produce the same rig.
 
 ## Usage
 

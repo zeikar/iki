@@ -2,7 +2,7 @@
  * Alpha bounding-box scan shared by every auto-rig ingestion path.
  *
  * The scan itself is environment-free — it only needs indexable RGBA bytes — so
- * the browser editor (canvas `ImageData`) and the Node MCP server (a `sharp`
+ * a browser editor (canvas `ImageData`) and the Node MCP server (a `sharp`
  * raw buffer) run the SAME code instead of two copies that have to be kept
  * byte-identical by hand. Only decoding differs between them.
  */

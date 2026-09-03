@@ -34,7 +34,7 @@ export interface RoleSpec {
 }
 
 /**
- * Input contract from the host app to editor's auto-rig functions.
+ * Input contract from the host app to this package's auto-rig functions.
  * Passed in after the host has decoded PNGs, computed alpha bboxes, and
  * mapped filenames to canonical roles.
  */
@@ -308,7 +308,7 @@ export function validateLayerInputs(
  * This ordering satisfies `checkGridRegularity` in the format validator.
  *
  * Local copy — do NOT import the private `generateRegularGridPoints` from
- * factories.ts; that helper is private to editor's factory layer.
+ * factories.ts; that helper is private to this package's factory layer.
  */
 export function generateGridPoints(
   cols: number,

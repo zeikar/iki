@@ -146,7 +146,7 @@ const errorStyle: CSSProperties = {
 
 /**
  * Numeric property panel for the selected part's lean-5a fields. Each edit
- * dispatches the matching editor command through the store, which mutates
+ * dispatches the matching `@ikijs/editor` command through the store, which mutates
  * the document and bumps `revision`; `useReloadPreview` debounces and reloads.
  */
 export function Inspector() {

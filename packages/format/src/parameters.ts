@@ -2,7 +2,7 @@
  * Recommended parameter ids.
  *
  * Models that use these ids can be driven by any host — Charivo's render
- * adapter, the editor's preview, an AI generator — without per-model wiring.
+ * adapter, the example editor app's preview, an AI generator — without per-model wiring.
  * The names intentionally echo Live2D's standard parameters so the mental
  * model (and future imports) carry over.
  *
