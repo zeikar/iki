@@ -7,8 +7,11 @@ import {
   autoRigFromLayers,
 } from "./tools";
 
+/** Injected by tsup (and vitest) from this package's package.json version. */
+declare const __MCP_VERSION__: string;
+
 export function createIkiMcpServer(): McpServer {
-  const server = new McpServer({ name: "iki", version: "0.0.0" });
+  const server = new McpServer({ name: "iki", version: __MCP_VERSION__ });
 
   server.registerTool(
     "validate_iki",

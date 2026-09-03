@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { configDefaults, defineConfig } from "vitest/config";
 
@@ -5,7 +6,14 @@ import { configDefaults, defineConfig } from "vitest/config";
 // mirroring the tsconfig `paths` aliases.
 const resolvePackage = (p: string) => path.resolve(__dirname, p);
 
+const mcpVersion = JSON.parse(
+  readFileSync(path.resolve(__dirname, "packages/mcp/package.json"), "utf8"),
+) as { version: string };
+
 export default defineConfig({
+  // Mirrors the tsup `define` so @ikijs/mcp's server version is the real one
+  // under test too, instead of throwing on an undeclared global.
+  define: { __MCP_VERSION__: JSON.stringify(mcpVersion.version) },
   test: {
     globals: true,
     environment: "node",
