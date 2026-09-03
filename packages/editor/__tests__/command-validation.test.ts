@@ -6,7 +6,7 @@ import {
   EditorDocument,
   SetDeformerBindings,
   SetDeformerParent,
-} from "@ikijs/editor-core";
+} from "@ikijs/editor";
 
 /**
  * A command must never leave the document in a state `toIkiModel()` rejects.

@@ -42,7 +42,7 @@ The hard part is **getting clean role-separated parts out of codex-image** (an e
 
 ## The role set this skill generates (full-expression default)
 
-Mirrors `@ikijs/editor-core` `ROLE_TABLE` / `REQUIRED_ROLES`. **Required:** `face`, `eye_L`, `eye_R`, `mouth`. The composer additionally emits `iris_L/R` (gaze), `lash_L/R` (blink-fold cover), `brow_L/R` (expression), `hair_front`. That set gives a character that **blinks (eyelid-fold), gazes, opens/forms its mouth, turns its head, and raises/tilts its brows**.
+Mirrors `@ikijs/editor` `ROLE_TABLE` / `REQUIRED_ROLES`. **Required:** `face`, `eye_L`, `eye_R`, `mouth`. The composer additionally emits `iris_L/R` (gaze), `lash_L/R` (blink-fold cover), `brow_L/R` (expression), `hair_front`. That set gives a character that **blinks (eyelid-fold), gazes, opens/forms its mouth, turns its head, and raises/tilts its brows**.
 
 | codex-image part                                         | composer output role(s)                              | drives                                                           |
 | -------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------- |

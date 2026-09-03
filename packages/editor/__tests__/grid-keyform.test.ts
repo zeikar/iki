@@ -7,7 +7,7 @@ import {
   computeGridOffsets,
   interpolateGridOffsets,
   upsertGridKeyform,
-} from "@ikijs/editor-core";
+} from "@ikijs/editor";
 
 // ── Pure helpers ────────────────────────────────────────────────────────────
 

@@ -1,7 +1,10 @@
-# @ikijs/editor-core
+# @ikijs/editor
 
-DOM-free editing core for [`.iki`](../format) models: a document with undo/redo,
-invertible edit commands, atlas layout + UV math, and the auto-rigger.
+**Headless** editing core for [`.iki`](../format) models — a document with
+undo/redo, invertible edit commands, atlas layout + UV math, and the auto-rigger.
+
+This package ships no UI. It is the model and command layer an editor is built
+_on_, not an editor you can mount.
 
 Everything here is pure logic — no DOM, no canvas, no WebGL. It depends only on
 [`@ikijs/format`](../format), so the same core backs the browser editor, the
@@ -10,13 +13,13 @@ Node MCP server ([`@ikijs/mcp`](../mcp)), and tests.
 ## Install
 
 ```bash
-npm install @ikijs/editor-core @ikijs/format
+npm install @ikijs/editor @ikijs/format
 ```
 
 ## Usage
 
 ```ts
-import { EditorDocument, SetPartWidth } from "@ikijs/editor-core";
+import { EditorDocument, SetPartWidth } from "@ikijs/editor";
 
 const doc = new EditorDocument(model);
 

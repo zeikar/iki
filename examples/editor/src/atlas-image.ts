@@ -1,4 +1,4 @@
-import type { AtlasLayout } from "@ikijs/editor-core";
+import type { AtlasLayout } from "@ikijs/editor";
 
 export interface DecodedSource {
   id: string;

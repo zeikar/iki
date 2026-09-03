@@ -7,7 +7,7 @@
     "paths": {
       "@ikijs/format": ["packages/format/src/index.ts"],
       "@ikijs/engine": ["packages/engine/src/index.ts"],
-      "@ikijs/editor-core": ["packages/editor-core/src/index.ts"]
+      "@ikijs/editor": ["packages/editor/src/index.ts"]
     },
     "strict": true,
     "noUnusedLocals": true,

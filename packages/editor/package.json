@@ -1,5 +1,5 @@
 {
-  "name": "@ikijs/editor-core",
+  "name": "@ikijs/editor",
   "version": "0.0.0",
   "description": "Iki editor core — DOM-free editing commands, undo/redo, and validated .iki export",
   "main": "dist/index.js",
@@ -36,7 +36,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/zeikar/iki.git",
-    "directory": "packages/editor-core"
+    "directory": "packages/editor"
   },
   "author": {
     "name": "Zeikar",

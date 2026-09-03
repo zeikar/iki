@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { IKI_FORMAT_VERSION } from "@ikijs/format";
 import type { IkiModel } from "@ikijs/format";
-import { EditorDocument, SetDeformerPivot } from "@ikijs/editor-core";
+import { EditorDocument, SetDeformerPivot } from "@ikijs/editor";
 
 /**
  * Minimal valid model with one matrix deformer carrying pivot { x: 3, y: 7 }.

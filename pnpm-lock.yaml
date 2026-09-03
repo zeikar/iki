@@ -35,9 +35,9 @@ importers:
 
   examples/editor:
     dependencies:
-      '@ikijs/editor-core':
+      '@ikijs/editor':
         specifier: workspace:*
-        version: link:../../packages/editor-core
+        version: link:../../packages/editor
       '@ikijs/engine':
         specifier: workspace:*
         version: link:../../packages/engine
@@ -89,7 +89,7 @@ importers:
         specifier: ^5.4.20
         version: 5.4.21(@types/node@22.19.19)
 
-  packages/editor-core:
+  packages/editor:
     dependencies:
       '@ikijs/format':
         specifier: workspace:^
@@ -126,9 +126,9 @@ importers:
 
   packages/mcp:
     dependencies:
-      '@ikijs/editor-core':
+      '@ikijs/editor':
         specifier: workspace:^
-        version: link:../editor-core
+        version: link:../editor
       '@ikijs/format':
         specifier: workspace:^
         version: link:../format

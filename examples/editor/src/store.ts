@@ -23,7 +23,7 @@ import {
   type EditTransformChannel,
   type DeformerTransformChannel,
   type LayerInput,
-} from "@ikijs/editor-core";
+} from "@ikijs/editor";
 import type {
   IkiTransform,
   IkiDeformerTransform,
@@ -537,7 +537,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     deletePart: (id) => {
       clearCapture();
       // UX pre-check: refuse with a friendly message before constructing a throwing
-      // command. DeletePart.apply enforces the same texture guard at the editor-core
+      // command. DeletePart.apply enforces the same texture guard at the editor
       // boundary, so this check is belt-and-suspenders — the real invariant lives in
       // the command. Both clear paths are NON-undoable: clearPartTexture for imported
       // images; clearModelTexture for model-committed textures. The prune sweep in

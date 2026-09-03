@@ -16,7 +16,7 @@ import {
   parseLayerRoles,
   type LayerInput,
   type AtlasAssignment,
-} from "@ikijs/editor-core";
+} from "@ikijs/editor";
 import {
   decodePng,
   detectAlphaBbox,
@@ -267,7 +267,7 @@ function expectInput<T>(label: string, fn: () => T): T {
  *
  * Re-host of examples/editor/src/store.ts `importLayerSet` with the three DOM
  * pixel functions swapped for the sharp-backed ./node-images helpers; the pure
- * model math is reused from @ikijs/editor-core.
+ * model math is reused from @ikijs/editor.
  *
  * Error boundary: ONLY AutoRigInputError (caller input / filesystem) → `{ ok:false }`;
  * any other throw (invariant break, programmer bug) propagates to `isError`.

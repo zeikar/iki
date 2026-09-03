@@ -6,7 +6,7 @@ import {
   DeletePhysicsRig,
   EditorDocument,
   SetPhysicsRig,
-} from "@ikijs/editor-core";
+} from "@ikijs/editor";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 

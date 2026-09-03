@@ -759,7 +759,7 @@ export class AddDeformer implements EditCommand {
  * delete a part still used as another part's `clip.masks` entry (guard below),
  * so it can never leave a dangling mask ref that would fail `toIkiModel()`.
  *
- * Texture-reference safety (editor-core invariant): `apply` refuses to delete a
+ * Texture-reference safety (editor invariant): `apply` refuses to delete a
  * part that still carries `part.texture`. Texture/atlas state is non-undoable
  * per the 5b boundary; clear the texture first via
  * {@link EditorDocument.clearPartTextureRef} (model-committed) or
@@ -781,7 +781,7 @@ export class DeletePart implements EditCommand {
     // Validate FIRST — throws with path-qualified message if unknown.
     const part = doc.findPart(this.partId);
 
-    // Texture guard — enforced at the editor-core boundary so public callers
+    // Texture guard — enforced at the editor boundary so public callers
     // cannot bypass it (the example store adds a friendly pre-check, but this
     // is the real invariant). Throw before any capture or mutation.
     if (part.texture !== undefined) {

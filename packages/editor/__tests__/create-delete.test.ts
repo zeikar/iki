@@ -14,7 +14,7 @@ import {
   createDefaultMatrixDeformer,
   createDefaultPart,
   createDefaultWarpDeformer,
-} from "@ikijs/editor-core";
+} from "@ikijs/editor";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 

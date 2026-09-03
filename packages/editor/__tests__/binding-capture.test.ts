@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { captureBindingEndpoint } from "@ikijs/editor-core";
+import { captureBindingEndpoint } from "@ikijs/editor";
 
 describe("captureBindingEndpoint", () => {
   describe("additive channels", () => {

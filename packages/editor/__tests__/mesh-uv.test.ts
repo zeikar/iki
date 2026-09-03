@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { packAtlas, uvRectFor } from "@ikijs/editor-core";
+import { packAtlas, uvRectFor } from "@ikijs/editor";
 import { remapMeshUvsToRect } from "../src/mesh-uv";
 
 // Full local 0..1 square — corners at (0,0) and (1,1), plus interior midpoint.

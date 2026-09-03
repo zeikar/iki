@@ -15,7 +15,7 @@ import {
   SetPartOrder,
   SetPartTransform,
   SetPartWidth,
-} from "@ikijs/editor-core";
+} from "@ikijs/editor";
 
 /**
  * A minimal valid IkiModel with two quad parts. No optional fields (textures,

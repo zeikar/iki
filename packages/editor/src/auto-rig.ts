@@ -34,7 +34,7 @@ export interface RoleSpec {
 }
 
 /**
- * Input contract from the host app to editor-core's auto-rig functions.
+ * Input contract from the host app to editor's auto-rig functions.
  * Passed in after the host has decoded PNGs, computed alpha bboxes, and
  * mapped filenames to canonical roles.
  */
@@ -308,7 +308,7 @@ export function validateLayerInputs(
  * This ordering satisfies `checkGridRegularity` in the format validator.
  *
  * Local copy — do NOT import the private `generateRegularGridPoints` from
- * factories.ts; that helper is private to editor-core's factory layer.
+ * factories.ts; that helper is private to editor's factory layer.
  */
 export function generateGridPoints(
   cols: number,
@@ -420,7 +420,7 @@ export function createPixelGridMesh(
  * RADIUS is derived from the grid's own half-width (same 0.6/0.5 margin ratio
  * as bakeHeadTurnGridWarp in the editor example) so asin stays clear of ±1.
  *
- * NOTE: Copy (not import) of the example's bakeHeadTurnGridWarp — editor-core
+ * NOTE: Copy (not import) of the example's bakeHeadTurnGridWarp — editor
  * must not depend on the examples directory.
  */
 export function bakeHeadTurnGridWarpCentered(

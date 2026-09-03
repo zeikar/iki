@@ -2,7 +2,7 @@ import {
   CaptureGridKeyform,
   computeGridOffsets,
   interpolateGridOffsets,
-} from "@ikijs/editor-core";
+} from "@ikijs/editor";
 import { type Affine } from "@ikijs/engine";
 import type { IkiMatrixDeformer, IkiWarpDeformer } from "@ikijs/format";
 import { useEffect, useRef, useState } from "react";

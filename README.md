@@ -32,7 +32,7 @@ drives those parameters from lip-sync, gaze, blink, and expressions.
 | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`@ikijs/format`](./packages/format)           | The `.iki` model schema, types, loader, and validator                                                                                              |
 | [`@ikijs/engine`](./packages/engine)           | WebGL2 runtime that plays a `.iki` model                                                                                                           |
-| [`@ikijs/editor-core`](./packages/editor-core) | DOM-free editing core: EditorDocument, edit commands, undo/redo, atlas layout/UV helpers, auto-rigger (depends only on @ikijs/format)              |
+| [`@ikijs/editor`](./packages/editor)           | Headless editing core (no UI): EditorDocument, edit commands, undo/redo, atlas layout/UV helpers, auto-rigger (depends only on @ikijs/format)      |
 | [`@ikijs/mcp`](./packages/mcp)                 | stdio MCP server exposing `.iki` read/validate plus `auto_rig_from_layers` to AI agents                                                            |
 | [`examples/playground`](./examples/playground) | Slider-driven demo of a hand-authored model                                                                                                        |
 | [`examples/editor`](./examples/editor)         | Private React+Zustand app — load/import art, numeric part + deformer + physics editing, pivot gizmo, live IkiPlayer preview, validated .iki export |
@@ -43,7 +43,7 @@ drives those parameters from lip-sync, gaze, blink, and expressions.
 npm install @ikijs/engine @ikijs/format
 ```
 
-`@ikijs/editor-core` is for building authoring tools; `@ikijs/mcp` runs as a
+`@ikijs/editor` is for building authoring tools; `@ikijs/mcp` runs as a
 server (`npx -y @ikijs/mcp`) rather than being imported.
 
 ## Quick start (this repo)
@@ -121,7 +121,7 @@ positive x (the viewer's right).
    - **5f. Deformer create/delete, canvas pivot gizmo, create-from-scratch** — done
    - **5g. Physics rig authoring** — done (Inspector CRUD over `model.physics` through invertible commands). Deferred: chain (`physicsChains`) authoring.
 6. **AI generator** — layered art → auto-rigged `.iki` — done
-   - `generateIkiFromLayerSet` (`@ikijs/editor-core`) rigs role-named layers (`face`, `eye_L/R`, `mouth`, plus optional iris / brow / lash / hair) into a model that blinks, gazes, talks, turns, and emotes
+   - `generateIkiFromLayerSet` (`@ikijs/editor`) rigs role-named layers (`face`, `eye_L/R`, `mouth`, plus optional iris / brow / lash / hair) into a model that blinks, gazes, talks, turns, and emotes
    - PSD import in the editor; the `auto_rig_from_layers` tool in [`@ikijs/mcp`](./packages/mcp) so an agent can go from PNGs to a renderable `.iki` on disk
    - A Claude skill chains image generation → layer compose → rig in one gesture
    - Deferred: ML segmentation of a single flat illustration (today the parts arrive as separate layers)

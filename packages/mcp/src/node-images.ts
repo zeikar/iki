@@ -2,19 +2,19 @@
  * Node (sharp-backed) re-host of the browser-only pixel functions used by the
  * auto-rig import flow. Only the DECODE/ENCODE halves are re-hosted here — the
  * alpha-bbox scan itself is shared with the browser path via
- * @ikijs/editor-core, so the two cannot drift. Still a controlled duplicate of:
+ * @ikijs/editor, so the two cannot drift. Still a controlled duplicate of:
  *   - crop                         ← examples/editor/src/auto-rig-image.ts
  *   - atlas render + edge-extrude  ← examples/editor/src/atlas-image.ts
  * The pure parts (packAtlas / uvRectFor / generateIkiFromLayerSet / role parsing
- * / bbox→model math) are reused from @ikijs/editor-core, not reimplemented here.
+ * / bbox→model math) are reused from @ikijs/editor, not reimplemented here.
  *
  * `sharp` is a heavy native dependency and MUST stay confined to @ikijs/mcp — it
- * may never reach @ikijs/editor-core, @ikijs/engine, or @ikijs/format.
+ * may never reach @ikijs/editor, @ikijs/engine, or @ikijs/format.
  */
 
 import sharp from "sharp";
-import type { AtlasLayout } from "@ikijs/editor-core";
-import { detectAlphaBbox as scanAlphaBbox } from "@ikijs/editor-core";
+import type { AtlasLayout } from "@ikijs/editor";
+import { detectAlphaBbox as scanAlphaBbox } from "@ikijs/editor";
 import { AutoRigInputError, MAX_INPUT_PIXELS } from "./limits";
 
 export interface DecodedPng {
@@ -56,7 +56,7 @@ export async function decodePng(filePath: string): Promise<DecodedPng> {
 }
 
 /**
- * Node-side wrapper over the shared scan in @ikijs/editor-core: same bbox rule
+ * Node-side wrapper over the shared scan in @ikijs/editor: same bbox rule
  * as the browser path by construction, with this package's error type for an
  * empty layer.
  */

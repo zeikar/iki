@@ -1,5 +1,5 @@
 ---
-"@ikijs/editor-core": patch
+"@ikijs/editor": patch
 ---
 
 `SetDeformerBindings` and `SetDeformerParent` no longer validate the whole document before mutating. The editor commits `NaN` into the document by design — `NumberField` is a controlled input, so clearing a numeric box must write a non-finite value or React would re-render the old number straight back — which meant a blank width box on any unrelated part refused every deformer edit, and reported it against that other part rather than the binding being edited.

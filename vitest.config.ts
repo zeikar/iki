@@ -41,8 +41,8 @@ export default defineConfig({
         replacement: resolvePackage("packages/engine/src/index.ts"),
       },
       {
-        find: "@ikijs/editor-core",
-        replacement: resolvePackage("packages/editor-core/src/index.ts"),
+        find: "@ikijs/editor",
+        replacement: resolvePackage("packages/editor/src/index.ts"),
       },
     ],
   },

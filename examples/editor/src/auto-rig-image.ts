@@ -2,7 +2,7 @@
  * App-side (DOM) helpers for the auto-rig import flow.
  *
  * DOM is allowed here (canvas / getImageData / ImageBitmap). Pure engine logic
- * lives in @ikijs/editor-core; this file only handles the pixel-level work that
+ * lives in @ikijs/editor; this file only handles the pixel-level work that
  * requires a browser canvas.
  */
 
@@ -10,7 +10,7 @@ import {
   detectAlphaBbox as scanAlphaBbox,
   parseLayerRoles,
   type LayerInput,
-} from "@ikijs/editor-core";
+} from "@ikijs/editor";
 
 /**
  * PNG ingestion budgets. The PSD path (`MAX_PSD_*`) and the Node MCP path
@@ -54,7 +54,7 @@ export function detectAlphaBbox(bitmap: ImageBitmap): {
   ctx.drawImage(bitmap, 0, 0);
   const { data } = ctx.getImageData(0, 0, width, height);
 
-  // The scan lives in @ikijs/editor-core so this path and the Node MCP path
+  // The scan lives in @ikijs/editor so this path and the Node MCP path
   // cannot drift; only the decode above is browser-specific.
   const bbox = scanAlphaBbox(data, width, height);
   if (bbox === null) {

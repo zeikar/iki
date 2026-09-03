@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { IkiDeformer, IkiPart } from "@ikijs/format";
-import {
-  validateDeformerReparent,
-  validatePartAttach,
-} from "@ikijs/editor-core";
+import { validateDeformerReparent, validatePartAttach } from "@ikijs/editor";
 
 // ── Fixture ──────────────────────────────────────────────────────────────────
 //

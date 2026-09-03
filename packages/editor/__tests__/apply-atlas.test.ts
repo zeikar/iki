@@ -5,7 +5,7 @@ import {
   EditorDocument,
   SetPartWidth,
   type ApplyAtlasInput,
-} from "@ikijs/editor-core";
+} from "@ikijs/editor";
 
 const VALID_UV: IkiUvRect = { x: 0.1, y: 0.1, width: 0.5, height: 0.5 };
 

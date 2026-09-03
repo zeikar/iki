@@ -12,7 +12,7 @@ import {
   SetPartMesh,
   createDefaultWarpDeformer,
   createGridMesh,
-} from "@ikijs/editor-core";
+} from "@ikijs/editor";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 

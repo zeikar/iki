@@ -4,7 +4,7 @@ The `.iki` model format — schema, TypeScript types, loader, and validator.
 
 This package is the single source of truth for the `.iki` contract. The runtime
 ([`@ikijs/engine`](../engine)) and the editing core
-([`@ikijs/editor-core`](../editor-core)) read these types; they never redefine
+([`@ikijs/editor`](../editor)) read these types; they never redefine
 them. It has **no runtime dependencies**.
 
 ## Install

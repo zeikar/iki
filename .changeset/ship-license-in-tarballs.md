@@ -1,7 +1,7 @@
 ---
 "@ikijs/format": patch
 "@ikijs/engine": patch
-"@ikijs/editor-core": patch
+"@ikijs/editor": patch
 "@ikijs/mcp": patch
 ---
 

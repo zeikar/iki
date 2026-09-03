@@ -6,8 +6,8 @@ import {
   UV_INSET_PX,
   packAtlas,
   uvRectFor,
-} from "@ikijs/editor-core";
-import type { AtlasPlacement } from "@ikijs/editor-core";
+} from "@ikijs/editor";
+import type { AtlasPlacement } from "@ikijs/editor";
 
 // Sources of intentionally different sizes. Their combined padded area forces
 // targetWidth = ceil(sqrt(total)) which is narrower than placing all on one
