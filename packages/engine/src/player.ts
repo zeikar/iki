@@ -195,6 +195,13 @@ export class IkiPlayer {
     const maxTextureSizeRaw: unknown = gl.getParameter(gl.MAX_TEXTURE_SIZE);
     const maxTextureSize =
       typeof maxTextureSizeRaw === "number" ? maxTextureSizeRaw : undefined;
+    if (maxTextureSize === undefined) {
+      // A non-number here has one cause: the context is gone. Report it, because
+      // the drain below consumes the single CONTEXT_LOST_WEBGL the spec
+      // guarantees, and a model of implicit quads would otherwise adopt cleanly
+      // and blame "textures failed to load".
+      console.error("Iki: WebGL context lost during load()");
+    }
 
     // [7] getError returns the OLDEST latched error and says nothing about which
     // call produced it, so anything the render loop left pending during the
@@ -330,6 +337,9 @@ export class IkiPlayer {
         ? new Float32Array(mesh.vertices.length)
         : undefined;
 
+      // Clear first so the check after the three uploads reflects only them.
+      drainGlErrors(gl);
+
       gl.bindBuffer(gl.ARRAY_BUFFER, positionBuf);
       gl.bufferData(
         gl.ARRAY_BUFFER,
@@ -351,6 +361,22 @@ export class IkiPlayer {
         new Uint16Array(mesh.indices),
         gl.STATIC_DRAW,
       );
+
+      // Allocation was checked above, but `bufferData` can still raise
+      // OUT_OF_MEMORY and leave a valid-but-EMPTY buffer, which draws garbage or
+      // nothing at all. The contract on this class calls a mesh-buffer failure
+      // fatal precisely because it has no `failedTextures`-style reporting
+      // surface — which only holds if the failure is detected here.
+      const meshUploadError = gl.getError();
+      if (meshUploadError !== gl.NO_ERROR) {
+        for (const b of currentPartBuffers) gl.deleteBuffer(b);
+        gl.deleteBuffer(indexBuf);
+        deletePartMeshBuffers(gl, nextPartMeshes);
+        deleteUploadedTextures(gl, uploaded);
+        throw new Error(
+          `Iki: failed to upload mesh buffers for part "${part.id}" (GL error 0x${meshUploadError.toString(16)})`,
+        );
+      }
 
       nextPartMeshes.set(i, {
         position: positionBuf,
@@ -815,7 +841,11 @@ function createUnitQuad(gl: WebGL2RenderingContext): WebGLBuffer {
  * NO_ERROR after, so this terminates.
  */
 function drainGlErrors(gl: WebGL2RenderingContext): void {
-  while (gl.getError() !== gl.NO_ERROR) {
+  // Bounded: the spec guarantees this terminates (a lost context reports
+  // CONTEXT_LOST_WEBGL once, then NO_ERROR), but this is the one file with no
+  // unit coverage, and an unbounded driver loop would hang the tab with no
+  // stack against a wedged or mocked context.
+  for (let i = 0; i < 32 && gl.getError() !== gl.NO_ERROR; i++) {
     /* discard */
   }
 }
