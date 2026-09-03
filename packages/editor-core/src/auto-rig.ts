@@ -153,7 +153,7 @@ export function normalizeRole(raw: string): string {
  *   - Missing required role
  *
  * The "unknown role" message from this function is fileName-free. That is
- * intentional: callers that lack a fileName (e.g. a future Task 2
+ * intentional: callers that lack a fileName (e.g. a future
  * `validateLayerInputs` that receives pre-normalized roles) get a useful error
  * without needing to pre-check. Callers that DO have the original fileName
  * (e.g. `parseLayerRoles`) pre-check unknown roles themselves so they can embed

@@ -131,7 +131,7 @@ export function modelToScreen(
 }
 
 /**
- * Overlay-local CSS px → model space. Exported for Task 3 drag wiring.
+ * Overlay-local CSS px → model space. Exported for the drag wiring.
  * (clientX/clientY from pointer events must first be converted:
  *  sx = clientX - rect.left,  sy = clientY - rect.top)
  */
@@ -152,7 +152,7 @@ export function screenToModel(
 /**
  * Invert the parent-affine transform, mapping a model-space point back to
  * the space BEFORE the affine (the warp-deformer's local rest space).
- * Exported for Task 3 drag capture.
+ * Exported for drag capture.
  * Throws on near-zero determinant (non-invertible affine — degenerate scale).
  */
 export function invertAffinePoint(

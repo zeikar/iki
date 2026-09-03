@@ -6,23 +6,14 @@ import type {
 } from "@ikijs/format";
 import type { Affine } from "./affine";
 import { resolveDeformerWorlds } from "./deform";
+// The two physics drivers stay independent of EACH OTHER; the timing primitives
+// they both need live in frame-clock.ts so a stability fix lands once.
+import { FIXED_DT_S, FixedStepClock } from "./frame-clock";
+import { clamp } from "./math";
 import { ParameterStore } from "./parameter-store";
-
-// --- Module-internal timing/integration constants (controlled dup of physics-motion.ts) ---
-// Each driver is self-contained; do NOT import from physics-motion.ts.
-
-const MAX_DT_MS = 100; // clamp per-frame dt so a backgrounded tab can't snap state
-const FIXED_DT_S = 1 / 60; // fixed integration sub-step, in SECONDS
-const MAX_SUBSTEPS = 6; // catch-up cap per frame (spiral-of-death guard)
 
 const DEG2RAD = Math.PI / 180;
 const RAD2DEG = 180 / Math.PI;
-
-// --- Small pure helpers (controlled dup of physics-motion.ts) ----------------
-
-function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v;
-}
 
 // --- Per-chain / per-segment state -------------------------------------------
 
@@ -74,8 +65,7 @@ export class HairChainMotion {
   private readonly read: (id: string) => number;
   private readonly sink: (id: string, value: number) => void;
 
-  private prevNowMs: number | undefined = undefined;
-  private accumulatorS = 0;
+  private readonly clock = new FixedStepClock();
 
   constructor(
     chains: IkiPhysicsChain[],
@@ -116,9 +106,9 @@ export class HairChainMotion {
    * substeps) with a non-finite guard.
    */
   update(nowMs: number): void {
-    if (this.prevNowMs === undefined) {
+    if (this.clock.isSeedFrame) {
       // FIRST FRAME: seed rest, emit outDefault for every segment, NO integration.
-      this.prevNowMs = nowMs;
+      this.clock.advance(nowMs);
       for (const cd of this.chainData) {
         for (let i = 0; i < cd.chain.segments.length; i++) {
           cd.state[i].angle = 0;
@@ -129,10 +119,7 @@ export class HairChainMotion {
       return;
     }
 
-    const rawDt = nowMs - this.prevNowMs;
-    const dtMs = clamp(rawDt, 0, MAX_DT_MS);
-    this.prevNowMs = nowMs;
-    this.accumulatorS += dtMs / 1000;
+    const steps = this.clock.advance(nowMs);
 
     // Take the per-frame world snapshot ONCE per update() — NOT per chain.
     // Fill the private store from read, then resolve all deformer world matrices.
@@ -147,13 +134,10 @@ export class HairChainMotion {
       this.anchorWorldAngleRad(worldMap, cd.chain.anchorDeformer),
     );
 
-    let steps = 0;
-    while (this.accumulatorS >= FIXED_DT_S && steps < MAX_SUBSTEPS) {
+    for (let s = 0; s < steps; s++) {
       for (let c = 0; c < this.chainData.length; c++) {
         this.stepChain(this.chainData[c], anchorAnglesRad[c]);
       }
-      this.accumulatorS -= FIXED_DT_S;
-      steps++;
     }
 
     // Emit always (even on zero substeps) so the sink stays in sync.

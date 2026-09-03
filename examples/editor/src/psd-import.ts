@@ -209,7 +209,7 @@ export function validatePsdHeader(header: {
  * import path inspects. Using the full 4-member PixelArray union is required
  * so that real ag-psd Layer objects are assignable here — TypeScript does not
  * narrow imageData.data based on the header's bitsPerChannel guard.
- * The 8-bit narrowing happens later inside the Task 3 DOM wrapper.
+ * The 8-bit narrowing happens later inside the DOM wrapper.
  */
 export interface PsdLayerLike {
   name?: string;

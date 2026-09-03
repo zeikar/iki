@@ -30,6 +30,11 @@ export {
   type EditCommand,
   type EditTransformChannel,
 } from "./commands";
+export {
+  ALPHA_BBOX_THRESHOLD,
+  detectAlphaBbox,
+  type AlphaBbox,
+} from "./alpha-bbox";
 export { captureBindingEndpoint } from "./binding-capture";
 export {
   computeGridOffsets,

@@ -1,9 +1,9 @@
 import { StandardParameter } from "@ikijs/format";
+import { MAX_DT_MS } from "./frame-clock";
+import { clamp } from "./math";
 
 // --- Module-internal timing/easing constants -----------------------------------
 // These are intentionally private; tests assert observable behavior, not config.
-
-const MAX_DT_MS = 100; // clamp per-frame dt so a backgrounded tab can't snap state
 
 const BLINK_INTERVAL_MIN_MS = 1500;
 const BLINK_INTERVAL_MAX_MS = 6000;
@@ -29,10 +29,6 @@ const SWAY_Y_AMP_DEG = 1.6;
 const SWAY_Y_PERIOD_MS = 7300;
 
 // --- Small pure helpers -------------------------------------------------------
-
-function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v;
-}
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;

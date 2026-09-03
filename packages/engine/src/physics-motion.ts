@@ -1,17 +1,8 @@
 import type { IkiParameter, IkiPhysics } from "@ikijs/format";
-
-// --- Module-internal timing/integration constants ----------------------------
-// Private by design; tests assert observable behavior, not config.
-
-const MAX_DT_MS = 100; // clamp per-frame dt so a backgrounded tab can't snap state
-const FIXED_DT_S = 1 / 60; // fixed integration sub-step, in SECONDS
-const MAX_SUBSTEPS = 6; // catch-up cap per frame (spiral-of-death guard)
+import { FIXED_DT_S, FixedStepClock } from "./frame-clock";
+import { clamp } from "./math";
 
 // --- Small pure helpers ------------------------------------------------------
-
-function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v;
-}
 
 /**
  * Map a parameter value to [-1, 1] around its engine-effective default. Portable
@@ -70,9 +61,7 @@ export class PhysicsMotion {
 
   // Integrator state, owned here — never stored in a ParameterStore.
   private readonly state: RigState[];
-  private prevNowMs: number | undefined = undefined;
-  // Leftover fixed-step time carried across frames (frame-rate-independent).
-  private accumulatorS = 0;
+  private readonly clock = new FixedStepClock();
 
   constructor(
     rigs: IkiPhysics[],
@@ -94,15 +83,15 @@ export class PhysicsMotion {
    * loaded with a nonzero input does not kick), emit the resting output, and
    * return without integrating — mirroring IdleMotion's first-frame behavior.
    *
-   * Subsequent calls: dt = clamp(nowMs - prevNowMs, 0, MAX_DT_MS), converted to
-   * seconds, is added to the accumulator; the spring is advanced in fixed
-   * FIXED_DT_S sub-steps (up to MAX_SUBSTEPS, leftover time carried to the next
-   * frame) of semi-implicit Euler, then each rig emits its output once. The dt
-   * clamp + sub-step cap + symplectic integrator keep it stable across hitches.
+   * Subsequent calls: {@link FixedStepClock} folds the clamped frame delta into
+   * its accumulator and returns how many {@link FIXED_DT_S} sub-steps are due;
+   * the spring advances that many semi-implicit Euler steps, then each rig emits
+   * its output once. The clock's dt clamp and sub-step cap plus the symplectic
+   * integrator are what keep it stable across hitches.
    */
   update(nowMs: number): void {
-    if (this.prevNowMs === undefined) {
-      this.prevNowMs = nowMs;
+    if (this.clock.isSeedFrame) {
+      this.clock.advance(nowMs);
       for (let i = 0; i < this.rigs.length; i++) {
         const st = this.state[i];
         st.x = this.targetFor(this.rigs[i]);
@@ -112,22 +101,16 @@ export class PhysicsMotion {
       return;
     }
 
-    const rawDt = nowMs - this.prevNowMs;
-    const dtMs = clamp(rawDt, 0, MAX_DT_MS);
-    this.prevNowMs = nowMs;
-    this.accumulatorS += dtMs / 1000; // boundary ms→s conversion
+    const steps = this.clock.advance(nowMs);
 
     // update() is synchronous, so the input cannot change mid-loop — read each
     // rig's target ONCE per frame and reuse it across the sub-steps.
     const targets = this.rigs.map((rig) => this.targetFor(rig));
 
-    let steps = 0;
-    while (this.accumulatorS >= FIXED_DT_S && steps < MAX_SUBSTEPS) {
+    for (let s = 0; s < steps; s++) {
       for (let i = 0; i < this.rigs.length; i++) {
         this.step(this.rigs[i], this.state[i], targets[i]);
       }
-      this.accumulatorS -= FIXED_DT_S;
-      steps++;
     }
 
     // Always emit (even when zero sub-steps ran) so the sink stays in sync.

@@ -45,6 +45,15 @@ export class AutoRigInputError extends Error {
  * confirm it points at a readable file. Throws AutoRigInputError (path-qualified)
  * for empty/URL-looking strings, a missing file, or a directory.
  *
+ * READS ARE DELIBERATELY NOT CONFINED to the working directory, unlike
+ * {@link resolveOutputPath}. The asymmetry is intentional, not an oversight: a
+ * stray write destroys data, while a read only surfaces a PNG the agent already
+ * named and the user's own account can already open. Confining reads would also
+ * break the documented generate-a-character flow, which composes its layers in
+ * a scratch directory (`/tmp/iki-char/layers/…`) and rigs them into a model
+ * under the project. Revisit only if this server ever runs with wider
+ * privileges than the person driving it.
+ *
  * Param is named `inputPath` (not `path`) to avoid shadowing the node:path import.
  */
 export function resolveInputPath(inputPath: string): string {

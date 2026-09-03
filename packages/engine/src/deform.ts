@@ -118,7 +118,7 @@ export function resolveDeformerWorlds(
   // Warp deformers are non-affine; filter them out so matrix-only fields
   // (pivot/transform/bindings) are accessible and warp deformers are never
   // resolved as matrix deformers (which would produce NaN pivots).
-  // Task 4's resolveWarpGrids handles warp deformers separately.
+  // resolveWarpGrids (warp-grid.ts) handles warp deformers separately.
   const matrixDeformers = deformers.filter(
     (d): d is IkiMatrixDeformer => d.kind === "matrix" || d.kind === undefined,
   );

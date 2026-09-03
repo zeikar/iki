@@ -4,11 +4,11 @@ import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
 
 import { useEditorStore } from "./store";
 
-/** No-further-change quiet window before an edit triggers a reload (Task 7). */
+/** No-further-change quiet window before an edit triggers a reload. */
 const RELOAD_DEBOUNCE_MS = 200;
 
 /**
- * The SINGLE owner of `player.load()` (B8). `Preview` only creates/destroys the
+ * The SINGLE owner of `player.load()`. `Preview` only creates/destroys the
  * player; it never loads. This hook performs the INITIAL load on mount and
  * every edit-driven reload through the SAME `reload()` routine (debounced on the
  * store `revision`).
@@ -18,8 +18,8 @@ const RELOAD_DEBOUNCE_MS = 200;
  * model). An `IkiFormatError` (or any export failure) is surfaced via
  * `setExportError` and the load is skipped.
  *
- * A generation counter guards against a superseded reload racing a newer one
- * (B5): only the latest in-flight reload re-applies the pose and flips
+ * A generation counter guards against a superseded reload racing a newer one:
+ * only the latest in-flight reload re-applies the pose and flips
  * `loaded`. The engine also bails stale GL loads internally; this keeps the
  * app-side pose-reapply from racing too.
  */
@@ -49,7 +49,17 @@ export function useReloadPreview(
     }
     store.setExportError(null);
 
-    await player.load(model);
+    try {
+      await player.load(model);
+    } catch (e) {
+      // load() rejects on fatal mesh-buffer allocation failure. Callers invoke
+      // this as `void reload()`, so without this catch the rejection goes
+      // unhandled and the stale preview stays on screen with nothing said.
+      store.setExportError(
+        `preview load failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return;
+    }
 
     // A newer reload (or unmount) superseded us, or the player was replaced
     // by a StrictMode remount — skip the app-side pose-reapply + setLoaded.

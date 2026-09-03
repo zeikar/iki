@@ -1,8 +1,9 @@
 /**
  * Node (sharp-backed) re-host of the browser-only pixel functions used by the
- * auto-rig import flow. This is a CONTROLLED DUPLICATE of three DOM functions —
- * keep them byte-compatible with the browser reference:
- *   - decode + alpha-bbox + crop  ← examples/editor/src/auto-rig-image.ts
+ * auto-rig import flow. Only the DECODE/ENCODE halves are re-hosted here — the
+ * alpha-bbox scan itself is shared with the browser path via
+ * @ikijs/editor-core, so the two cannot drift. Still a controlled duplicate of:
+ *   - crop                         ← examples/editor/src/auto-rig-image.ts
  *   - atlas render + edge-extrude  ← examples/editor/src/atlas-image.ts
  * The pure parts (packAtlas / uvRectFor / generateIkiFromLayerSet / role parsing
  * / bbox→model math) are reused from @ikijs/editor-core, not reimplemented here.
@@ -13,11 +14,8 @@
 
 import sharp from "sharp";
 import type { AtlasLayout } from "@ikijs/editor-core";
+import { detectAlphaBbox as scanAlphaBbox } from "@ikijs/editor-core";
 import { AutoRigInputError, MAX_INPUT_PIXELS } from "./limits";
-
-// Pixels with alpha < ALPHA_THRESHOLD are treated as transparent. MUST stay
-// byte-identical to detectAlphaBbox in examples/editor/src/auto-rig-image.ts.
-const ALPHA_THRESHOLD = 8;
 
 export interface DecodedPng {
   width: number;
@@ -58,46 +56,20 @@ export async function decodePng(filePath: string): Promise<DecodedPng> {
 }
 
 /**
- * Tight bounding box of all pixels with alpha >= ALPHA_THRESHOLD, expanded 1px
- * each side (clamped to image bounds) for AA / extrude margin. Top-left origin,
- * +y down. Throws AutoRigInputError if the layer is fully transparent.
- *
- * Byte-identical to detectAlphaBbox in examples/editor/src/auto-rig-image.ts.
+ * Node-side wrapper over the shared scan in @ikijs/editor-core: same bbox rule
+ * as the browser path by construction, with this package's error type for an
+ * empty layer.
  */
 export function detectAlphaBbox(
   rgba: Buffer,
   width: number,
   height: number,
 ): { x: number; y: number; w: number; h: number } {
-  let minX = width;
-  let maxX = -1;
-  let minY = height;
-  let maxY = -1;
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const alpha = rgba[(y * width + x) * 4 + 3];
-      if (alpha >= ALPHA_THRESHOLD) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-  }
-
-  if (maxX === -1) {
+  const bbox = scanAlphaBbox(rgba, width, height);
+  if (bbox === null) {
     throw new AutoRigInputError("layer is empty after alpha threshold");
   }
-
-  // Expand 1px each side, clamped to image bounds; x2/y2 clamps make w/h
-  // implicitly in-bounds (no separate w/h clamp needed).
-  const x = Math.max(0, minX - 1);
-  const y = Math.max(0, minY - 1);
-  const x2 = Math.min(width - 1, maxX + 1);
-  const y2 = Math.min(height - 1, maxY + 1);
-
-  return { x, y, w: x2 - x + 1, h: y2 - y + 1 };
+  return bbox;
 }
 
 /**

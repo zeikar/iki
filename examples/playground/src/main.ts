@@ -11,14 +11,6 @@ const canvas = document.getElementById("iki") as HTMLCanvasElement;
 const controls = document.getElementById("controls") as HTMLDivElement;
 const panel = controls.parentElement!;
 
-// Engine-effective default: ParameterStore clamps an out-of-range default into
-// range, and PhysicsMotion rests around that same clamped value — so the host
-// mirror + sliders must use it too, not the raw declared default.
-const clamp = (v: number, lo: number, hi: number) =>
-  Math.max(lo, Math.min(hi, v));
-const effectiveDefault = (p: { min: number; max: number; default: number }) =>
-  clamp(p.default, p.min, p.max);
-
 const player = new IkiPlayer(canvas);
 // start() may be called any time, but nothing renders until the first load()
 // resolves. load() swaps the model atomically — you never see a partial frame.
@@ -31,30 +23,18 @@ const slidersById = new Map<
   { slider: HTMLInputElement; readout: HTMLSpanElement }
 >();
 
-// Host-side mirror of the current value of every parameter. PhysicsMotion reads
-// its input from here (it has no access to the player's private ParameterStore),
-// so EVERY write must flow through mirrorParam to keep this fresh.
-const current: Record<string, number> = {};
-
-// Declared [min,max] per param id, so mirrorParam can clamp exactly like the
-// player's ParameterStore — keeping `current` in lockstep with the engine even
-// for out-of-range programmatic writes (window.__iki.reset/setParam).
-const ranges = new Map<string, { min: number; max: number }>();
-
 // The most recently loaded parsed model — startIdle reads its `physics` rigs and
 // `parameters` (descriptors) to construct the PhysicsMotion driver.
 let parsedModel: ReturnType<typeof parseIkiModel> | undefined;
 
-// Single mirror path: writes the value to the player AND syncs slider + readout
-// AND the host-side `current` mirror. Used by the slider handlers, the idle
+// Single write path: sets the value on the player, then syncs slider + readout
+// from what the engine actually stored. Used by the slider handlers, the idle
 // loop, the physics loop, and the dev setParam API.
 function mirrorParam(id: string, value: number): void {
-  // Clamp to the declared range so `current` (which PhysicsMotion reads) never
-  // diverges from the player's clamped ParameterStore value.
-  const r = ranges.get(id);
-  const v = r ? clamp(value, r.min, r.max) : value;
-  player.setParameter(id, v);
-  current[id] = v;
+  player.setParameter(id, value);
+  // Read back rather than re-deriving the clamp: the engine owns the range
+  // (and drops non-finite writes), so this is the one value guaranteed in sync.
+  const v = player.getParameter(id);
   const ui = slidersById.get(id);
   if (ui) {
     ui.slider.value = String(v);
@@ -71,7 +51,7 @@ function buildControls(): void {
     const wrap = document.createElement("div");
     wrap.className = "control";
 
-    const def = effectiveDefault(param);
+    const def = player.getParameter(param.id);
     const label = document.createElement("label");
     const name = document.createElement("span");
     name.textContent = param.name ?? param.id;
@@ -87,8 +67,7 @@ function buildControls(): void {
     slider.value = String(def);
     slider.addEventListener("input", () => {
       const value = Number(slider.value);
-      // Route through mirrorParam so `current` stays fresh — otherwise the
-      // physics driver never sees a ParamAngleX drag and the hair won't sway.
+      // Route through mirrorParam so the readout tracks the engine's clamp.
       mirrorParam(param.id, value);
     });
 
@@ -108,14 +87,14 @@ function startIdle(): void {
 
   // Construct fresh instances each start so the first update always establishes
   // a clean time base (no leftover prevNowMs from a prior run). PhysicsMotion is
-  // a peer driver of IdleMotion: it reads its input from the host-side `current`
-  // mirror and writes its output through the same mirrorParam sink. An empty rig
-  // list (model without physics) is a harmless no-op.
+  // a peer driver of IdleMotion: it reads the live pose straight off the player
+  // and writes its output through the same mirrorParam sink. An empty rig list
+  // (model without physics) is a harmless no-op.
   const idle = new IdleMotion(mirrorParam);
   const physics = new PhysicsMotion(
     parsedModel?.physics ?? [],
     parsedModel?.parameters ?? [],
-    (id) => current[id] ?? 0,
+    (id) => player.getParameter(id),
     mirrorParam,
   );
   // Peer driver for multi-segment hair chains: self-computes its anchor's world
@@ -125,7 +104,7 @@ function startIdle(): void {
     parsedModel?.physicsChains ?? [],
     parsedModel?.parameters ?? [],
     parsedModel?.deformers ?? [],
-    (id) => current[id] ?? 0,
+    (id) => player.getParameter(id),
     mirrorParam,
   );
 
@@ -233,14 +212,6 @@ async function switchModel(which: string): Promise<void> {
 async function loadModel(rawModel: unknown): Promise<void> {
   const parsed = parseIkiModel(rawModel);
   parsedModel = parsed;
-  // Record ranges + seed the host-side current-value mirror from the engine-
-  // effective (clamped) defaults so the physics driver reads the same rest
-  // values ParameterStore holds — before the first slider/idle write.
-  ranges.clear();
-  for (const p of parsed.parameters) {
-    ranges.set(p.id, { min: p.min, max: p.max });
-    current[p.id] = effectiveDefault(p);
-  }
   const { failedTextures } = await player.load(parsed);
   buildControls();
   if (failedTextures.length > 0) {

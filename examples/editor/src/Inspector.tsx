@@ -1584,7 +1584,7 @@ function TransformField({
 }
 
 /**
- * Controlled numeric input. The NaN rule (B6): a non-finite document value
+ * Controlled numeric input. The NaN rule: a non-finite document value
  * renders as an EMPTY string so React keeps a coherent controlled input, while
  * the document retains `NaN` for validation. Emptying the input yields
  * `valueAsNumber === NaN`, which the command writes back into the document.

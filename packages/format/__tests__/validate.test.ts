@@ -100,6 +100,22 @@ describe("parseIkiModel — top-level errors", () => {
     );
   });
 
+  // A zero or negative canvas has no renderable meaning: the engine fits the
+  // model by dividing through these, so zero yields a blank frame and a
+  // negative one silently mirrors the whole character.
+  it.each([
+    ["width", 0],
+    ["width", -100],
+    ["height", 0],
+    ["height", -100],
+  ])("rejects canvas.%s = %d", (field, value) => {
+    const input = validModel();
+    (input.canvas as Record<string, unknown>)[field] = value;
+    expect(() => parseIkiModel(input)).toThrow(
+      new RegExp(`canvas\\.${field} must be > 0`),
+    );
+  });
+
   it("rejects non-array parameters and parts", () => {
     expect(() => parseIkiModel({ ...validModel(), parameters: {} })).toThrow(
       /parameters must be an array/,

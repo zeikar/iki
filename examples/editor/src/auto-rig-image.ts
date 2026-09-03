@@ -6,17 +6,29 @@
  * requires a browser canvas.
  */
 
-import { parseLayerRoles, type LayerInput } from "@ikijs/editor-core";
-
-// Pixels with alpha < ALPHA_THRESHOLD are treated as transparent.
-const ALPHA_THRESHOLD = 8;
+import {
+  detectAlphaBbox as scanAlphaBbox,
+  parseLayerRoles,
+  type LayerInput,
+} from "@ikijs/editor-core";
 
 /**
- * Scan a bitmap's alpha channel and return the tight bounding box of all
- * pixels whose alpha >= ALPHA_THRESHOLD, expanded by 1px (clamped to canvas
- * bounds) to give AA / extrude margin.
- *
- * Top-left origin, +y down (image coordinates).
+ * PNG ingestion budgets. The PSD path (`MAX_PSD_*`) and the Node MCP path
+ * (`@ikijs/mcp`'s limits.ts) already refuse oversized input; these are the same
+ * caps for the third entry point, so no auto-rig path can be handed a selection
+ * that exhausts memory before anything is validated. All three REJECT rather
+ * than downscale.
+ */
+export const MAX_PNG_LAYERS = 64;
+/** Max per-side dimension (px) of any single input PNG. */
+export const MAX_PNG_LAYER_DIM = 4096;
+/** Aggregate decoded-pixel budget across one selection (~1 GB of RGBA). */
+export const MAX_PNG_TOTAL_MEGAPIXELS = 256;
+
+/**
+ * Rasterize a bitmap and return the tight alpha bounding box, expanded by 1px
+ * (clamped to canvas bounds) to give AA / extrude margin. Top-left origin,
+ * +y down (image coordinates).
  *
  * Throws if:
  * - the 2d canvas context is unavailable
@@ -42,36 +54,13 @@ export function detectAlphaBbox(bitmap: ImageBitmap): {
   ctx.drawImage(bitmap, 0, 0);
   const { data } = ctx.getImageData(0, 0, width, height);
 
-  let minX = width;
-  let maxX = -1;
-  let minY = height;
-  let maxY = -1;
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const alpha = data[(y * width + x) * 4 + 3];
-      if (alpha >= ALPHA_THRESHOLD) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-  }
-
-  if (maxX === -1) {
+  // The scan lives in @ikijs/editor-core so this path and the Node MCP path
+  // cannot drift; only the decode above is browser-specific.
+  const bbox = scanAlphaBbox(data, width, height);
+  if (bbox === null) {
     throw new Error("auto-rig: layer is empty after alpha threshold");
   }
-
-  // Expand by 1px on each side, clamped to canvas bounds. The resulting w/h
-  // are implicitly within canvas bounds because x2/y2 are clamped to
-  // width-1/height-1 (no separate w/h clamp needed).
-  const x = Math.max(0, minX - 1);
-  const y = Math.max(0, minY - 1);
-  const x2 = Math.min(width - 1, maxX + 1);
-  const y2 = Math.min(height - 1, maxY + 1);
-
-  return { x, y, w: x2 - x + 1, h: y2 - y + 1 };
+  return bbox;
 }
 
 /**
@@ -96,7 +85,7 @@ export function cropBitmap(
  * Build the pure LayerInput[] payload from an array of decoded bitmaps.
  *
  * NON-async — creates NO ImageBitmaps — the store owns every cropped-bitmap
- * lifetime (Task 6); this function only reads pixels.
+ * lifetime; this function only reads pixels.
  *
  * Contract:
  * - All bitmaps must share the same width/height (canvas size is taken from

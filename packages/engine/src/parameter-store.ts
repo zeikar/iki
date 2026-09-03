@@ -1,8 +1,5 @@
 import type { IkiParameter } from "@ikijs/format";
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
-}
+import { clamp } from "./math";
 
 /**
  * Holds the live value of every model parameter, clamped to its declared

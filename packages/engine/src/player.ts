@@ -26,18 +26,25 @@ const MASK_ALPHA_CUTOFF = 0.5;
  */
 export interface IkiLoadResult {
   failedTextures: number[];
+  /**
+   * True when a newer `load()` (or `destroy()`) superseded this call before it
+   * adopted anything — the model was NOT loaded and `failedTextures` is empty
+   * because nothing was attempted, not because everything succeeded. Without
+   * this flag a caller awaiting the losing promise cannot tell the two apart.
+   */
+  superseded: boolean;
 }
 
 /**
  * Engine-internal runtime representation of an uploaded mesh.
  *
  * `rest` is a copy of the authored vertices (Float32Array for direct GL upload);
- * `scratch` is a same-length preallocated buffer for per-frame warp output
- * (Task 4 — this task only sets up the static render path).
+ * `scratch` is a same-length preallocated buffer that the per-frame warp
+ * pipeline writes morphed positions into before uploading.
  *
  * Index winding convention for an implicit-quad fixture: [0,1,2, 2,1,3]
  * (counter-clockwise from bottom-left). CULL_FACE is disabled, so winding
- * direction is not enforced, but the Task-5 generator must match this.
+ * direction is not enforced, but mesh generators must match this.
  */
 interface PartMesh {
   position: WebGLBuffer;
@@ -175,8 +182,12 @@ export class IkiPlayer {
       for (const result of decoded) {
         if (result.status === "fulfilled" && result.value) result.value.close();
       }
-      return { failedTextures: [] };
+      return { failedTextures: [], superseded: true };
     }
+
+    // Queried once per load, not per texture: a GL parameter read is a driver
+    // round-trip and this bound is constant for the context's lifetime.
+    const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
 
     const uploaded: (WebGLTexture | null)[] = decoded.map((result, i) => {
       if (result.status === "rejected") {
@@ -186,6 +197,17 @@ export class IkiPlayer {
       const bitmap = result.value;
       // External source was skipped during decode.
       if (!bitmap) return null;
+
+      // An atlas wider than the driver's limit uploads as a GL error and leaves
+      // a non-null but unsamplable texture, which would then render as black
+      // rather than being reported. Reject it up front instead.
+      if (bitmap.width > maxTextureSize || bitmap.height > maxTextureSize) {
+        console.error(
+          `Iki: textures[${i}] is ${bitmap.width}x${bitmap.height}, over this device's ${maxTextureSize}px limit`,
+        );
+        bitmap.close();
+        return null;
+      }
 
       const texture = gl.createTexture();
       if (!texture) {
@@ -205,6 +227,16 @@ export class IkiPlayer {
         bitmap,
       );
       bitmap.close();
+      // Out-of-memory and other upload failures surface only here; without the
+      // check the slot stays non-null and is reported as a successful load.
+      const uploadError = gl.getError();
+      if (uploadError !== gl.NO_ERROR) {
+        gl.deleteTexture(texture);
+        console.error(
+          `Iki: failed to upload textures[${i}] (GL error 0x${uploadError.toString(16)})`,
+        );
+        return null;
+      }
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -355,12 +387,17 @@ export class IkiPlayer {
 
     return {
       failedTextures: uploaded.flatMap((t, i) => (t === null ? [i] : [])),
+      superseded: false,
     };
   }
 
-  /** Start the render loop. Safe to call more than once. */
+  /**
+   * Start the render loop. Safe to call more than once, and a no-op after
+   * {@link destroy} — the program and buffers the loop draws with are gone, so
+   * restarting would only spray GL errors.
+   */
   start(): void {
-    if (this.rafId !== undefined) return;
+    if (this.rafId !== undefined || this.destroyed) return;
     const loop = (): void => {
       this.renderFrame();
       this.rafId = requestAnimationFrame(loop);
@@ -380,6 +417,18 @@ export class IkiPlayer {
    */
   setParameter(id: string, value: number): void {
     this.params.set(id, value);
+  }
+
+  /**
+   * Current value of a parameter, or 0 for an unknown id.
+   *
+   * Hosts need this to avoid shadowing the engine's state: the motion drivers
+   * read the live pose to compute the next one, and without a read accessor
+   * every host has to keep its own mirror of what it last wrote — and keep that
+   * mirror's clamping in step with {@link ParameterStore} by hand.
+   */
+  getParameter(id: string): number {
+    return this.params.get(id);
   }
 
   /** The model's parameter descriptors, for building UI or host wiring. */
@@ -599,7 +648,7 @@ export class IkiPlayer {
         // THEN parent affine). Never bind against a resolved/deformed grid.
         const warpDef = pm.warpDeformer;
         const grid = warpGrids!.get(warpDef.id)!;
-        // 1. part-local mesh warps (#4b) into the local scratch (no-op if none).
+        // 1. part-local mesh warps into the local scratch (no-op if none).
         applyWarps(pm.rest, pm.warps, this.params, pm.local!);
         // 2. live part TRS (eye/mouth open etc.), baked into the vertices.
         const trs = evaluateTransform(

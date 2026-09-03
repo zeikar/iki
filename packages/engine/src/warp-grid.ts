@@ -1,11 +1,8 @@
 import type { IkiDeformer, IkiWarpGrid } from "@ikijs/format";
 import type { Affine } from "./affine";
 import type { ParameterStore } from "./parameter-store";
+import { clamp } from "./math";
 import { accumulate2DKeyformOffsets, accumulateKeyformOffsets } from "./warp";
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
-}
 
 /** A warp deformer's deformed control grid for one frame. */
 export interface ResolvedWarpGrid {

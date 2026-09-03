@@ -235,7 +235,7 @@ export interface IkiGrid2DKeyform {
  *   (N,M ≥ 2) are allowed.
  * - `parameter !== parameterY` (validator-enforced).
  *
- * These are documented invariants enforced by the validator (Task 2); the type itself is structural.
+ * These are documented invariants enforced by the validator; the type itself is structural.
  */
 export interface IkiGrid2DWarp {
   /** Id of the driving parameter along the X axis. */
@@ -281,7 +281,7 @@ export interface IkiWarpDeformer {
   grid: IkiWarpGrid;
   /**
    * Grid keyforms applied each frame; optional (rest grid if absent). At most ONE
-   * grid warp in this milestone — multi-parameter grid composition is deferred
+   * grid warp for now — multi-parameter grid composition is deferred
    * (validator-enforced).
    */
   warps?: IkiGridWarp[];
@@ -292,7 +292,7 @@ export interface IkiWarpDeformer {
   warp2d?: IkiGrid2DWarp;
 }
 
-/** A deformer node: a rigid matrix deformer (#4a) or a group warp deformer (#4c). */
+/** A deformer node: a rigid matrix deformer or a group warp deformer. */
 export type IkiDeformer = IkiMatrixDeformer | IkiWarpDeformer;
 
 /**

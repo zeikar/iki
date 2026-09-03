@@ -21,7 +21,7 @@ function downloadIki(filename: string, json: string): void {
 // 3-column shell. App owns the imperative playerRef and calls the single
 // load owner (useReloadPreview) once. Tree (left) + inspector (right) edit the
 // document; the center preview + initial load + parameter sliders are fully
-// working. Export button validates + downloads the .iki file (Task 8).
+// working. Export button validates + downloads the .iki file.
 export function App() {
   const playerRef = useRef<IkiPlayer | null>(null);
   useReloadPreview(playerRef);

@@ -796,10 +796,7 @@ export class DeletePart implements EditCommand {
  * attached part, or a physics chain anchored to it — enforcing the same
  * referential safety as {@link SetDeformerParent} and {@link SetPartDeformer}.
  *
- * `invert` re-inserts the deformer at its original index. The `??=` on
- * `model.deformers` is defensive — a deformer existed to delete so the array is
- * guaranteed present, but avoids a runtime crash if the model is in an
- * unexpected state.
+ * `invert` re-inserts the deformer at its original index.
  */
 export class DeleteDeformer implements EditCommand {
   readonly label = "Delete deformer";
@@ -830,13 +827,13 @@ export class DeleteDeformer implements EditCommand {
   }
 
   invert(doc: EditorDocument): void {
-    // Re-insert at the original slot. `??=` is defensive — deformers must
-    // already be present given a deformer existed to delete.
-    (doc.getModel().deformers ??= []).splice(
-      this.index,
-      0,
-      structuredClone(this.removed),
-    );
+    // Re-insert at the original slot. `apply` only captures after
+    // validateDeformerDelete passed, so the array it spliced out of is present:
+    // fabricating one here would hide a broken undo stack and silently restore
+    // just this node instead of surfacing the loss of the rest of the hierarchy.
+    doc
+      .getModel()
+      .deformers!.splice(this.index, 0, structuredClone(this.removed));
   }
 }
 

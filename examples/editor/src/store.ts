@@ -14,6 +14,7 @@ import {
   createGridMesh,
   generateIkiFromLayerSet,
   packAtlas,
+  parseLayerRoles,
   uvRectFor,
   type AtlasPlacement,
   type AtlasSource,
@@ -37,7 +38,13 @@ import {
   renderAtlas,
   type DecodedSource,
 } from "./atlas-image";
-import { buildLayerInputs, cropBitmap } from "./auto-rig-image";
+import {
+  buildLayerInputs,
+  cropBitmap,
+  MAX_PNG_LAYERS,
+  MAX_PNG_LAYER_DIM,
+  MAX_PNG_TOTAL_MEGAPIXELS,
+} from "./auto-rig-image";
 import { decodePsdLayers } from "./psd-import";
 import { sampleModel } from "./sample-model";
 
@@ -84,23 +91,24 @@ function baseChannelValue(
  * App state. The {@link EditorDocument} is mutable and lives OUTSIDE React's
  * structural sharing — `revision` is the explicit re-render trigger for the
  * tree/inspector (which re-read via `doc.getModel()` in revision-keyed
- * selectors). `loaded` flips the parameter sliders on once the first
- * `player.load()` resolves (parameters are not editable in 5a, so the slider
- * descriptors only need to build once — no per-edit rebuild).
+ * selectors). `loadGeneration` counts completed `player.load()` calls, which is
+ * what the parameter sliders key on: an import or a create-from-scratch swaps
+ * the document, so the descriptors change between loads and a plain boolean
+ * would write no state change on the second load and never re-render.
  */
 interface EditorState {
   doc: EditorDocument;
   selectedPartId: string | null;
   selectedDeformerId: string | null;
-  /** Live parameter pose, mirrored from the sliders (survives reloads — Task 7). */
+  /** Live parameter pose, mirrored from the sliders (survives reloads). */
   params: Record<string, number>;
   exportError: string | null;
   /** Visible banner for failed (validate-throwing) commands. Cleared on success. */
   editError: string | null;
   /** Bumped on every edit/undo/redo to drive tree/inspector re-renders. */
   revision: number;
-  /** True after the first successful `player.load()` (set by useReloadPreview). */
-  loaded: boolean;
+  /** Count of completed `player.load()` calls (bumped by useReloadPreview); 0 = never loaded. */
+  loadGeneration: number;
   /** Editor-only UI toggle: when true, the grid-edit overlay mounts over the preview. */
   gridEditMode: boolean;
 
@@ -405,7 +413,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     exportError: null,
     editError: null,
     revision: 0,
-    loaded: false,
+    loadGeneration: 0,
     gridEditMode: false,
     partTextures: {},
     atlasError: null,
@@ -472,7 +480,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     setExportError: (msg) => set({ exportError: msg }),
     setAtlasError: (msg) => set({ atlasError: msg }),
     setGeneratorError: (msg) => set({ generatorError: msg }),
-    setLoaded: () => set({ loaded: true }),
+    setLoaded: () => set((s) => ({ loadGeneration: s.loadGeneration + 1 })),
     setGridEditMode: (on) => set({ gridEditMode: on }),
 
     addPart: () => {
@@ -709,12 +717,40 @@ export const useEditorStore = create<EditorState>((set, get) => {
           for (const d of decoded) decodedBitmaps.push(d.bitmap);
           decodedList.push(...decoded);
         } else {
+          if (files.length > MAX_PNG_LAYERS) {
+            throw new Error(
+              `auto-rig: ${files.length} layers selected, over the ${MAX_PNG_LAYERS}-layer limit`,
+            );
+          }
+          // Role-check the FILENAMES before decoding anything: an unknown,
+          // duplicate, or missing role should cost zero memory. buildLayerInputs
+          // re-runs the same pure check on the decoded set; this is purely the
+          // fail-fast gate in front of it.
+          parseLayerRoles(files.map((f) => f.name));
+
+          let totalPixels = 0;
           for (const file of files) {
             const decoded = await decodeImageFile(file, {
               premultiplyAlpha: "none",
               imageOrientation: "none",
             });
+            // Push BEFORE validating so the shared `finally` owns (and frees)
+            // this bitmap even when the checks below reject it.
             decodedBitmaps.push(decoded.bitmap);
+
+            const { width, height } = decoded.bitmap;
+            if (width > MAX_PNG_LAYER_DIM || height > MAX_PNG_LAYER_DIM) {
+              throw new Error(
+                `auto-rig: "${file.name}" is ${width}x${height}, over the ${MAX_PNG_LAYER_DIM}px per-side limit`,
+              );
+            }
+            totalPixels += width * height;
+            if (totalPixels > MAX_PNG_TOTAL_MEGAPIXELS * 1_000_000) {
+              throw new Error(
+                `auto-rig: selection exceeds the ${MAX_PNG_TOTAL_MEGAPIXELS} MP decode budget`,
+              );
+            }
+
             decodedList.push({ fileName: file.name, bitmap: decoded.bitmap });
           }
         }

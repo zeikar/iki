@@ -937,6 +937,16 @@ export function parseIkiModel(input: unknown): IkiModel {
   if (!isObject(input.canvas)) {
     throw new IkiFormatError("canvas must be an object");
   }
+  // Strictly positive: the renderer fits the model by dividing through these,
+  // so 0 collapses the frame and a negative extent silently mirrors everything.
+  const canvasWidth = num(input.canvas.width, "canvas.width");
+  const canvasHeight = num(input.canvas.height, "canvas.height");
+  if (canvasWidth <= 0) {
+    throw new IkiFormatError("canvas.width must be > 0");
+  }
+  if (canvasHeight <= 0) {
+    throw new IkiFormatError("canvas.height must be > 0");
+  }
   if (!Array.isArray(input.parameters)) {
     throw new IkiFormatError("parameters must be an array");
   }
@@ -1063,7 +1073,7 @@ export function parseIkiModel(input: unknown): IkiModel {
     }
 
     // Kind-aware parent restrictions: warp->warp and matrix->warp are forbidden.
-    // Only matrix parent -> warp child is allowed (#4c milestone).
+    // Only matrix parent -> warp child is allowed.
     const deformerKindById = new Map<string, IkiDeformer["kind"]>();
     for (const d of deformers) {
       deformerKindById.set(d.id, d.kind);
@@ -1286,10 +1296,7 @@ export function parseIkiModel(input: unknown): IkiModel {
   return {
     version,
     name: str(input.name, "name"),
-    canvas: {
-      width: num(input.canvas.width, "canvas.width"),
-      height: num(input.canvas.height, "canvas.height"),
-    },
+    canvas: { width: canvasWidth, height: canvasHeight },
     parameters,
     textures,
     parts,
