@@ -53,15 +53,17 @@ jobs:
       #
       # Auth is per package: npm uses trusted publishing (OIDC) for a package
       # that has this workflow registered as its trusted publisher, and falls
-      # back to the NPM_TOKEN secret for one that does not. Registration is a
-      # manual step on npmjs.com (package -> Settings -> Trusted publisher ->
-      # repository `zeikar/iki`, workflow `release.yml`); a package publishes
-      # with SLSA provenance only after it is registered.
+      # back to the NPM_TOKEN secret for one that does not. All four packages
+      # are registered against `zeikar/iki` + `release.yml`, matching charivo:
+      #   npm trust github @ikijs/<pkg> --repo zeikar/iki \
+      #     --file release.yml --allow-publish
+      #   npm trust list @ikijs/<pkg>          # shows the stored config
       #
-      # Do NOT remove NODE_AUTH_TOKEN until every package is registered — it is
-      # what actually authenticates the unregistered ones, so dropping it early
-      # breaks their release. Check progress with:
+      # NODE_AUTH_TOKEN stays until a release has actually published with
+      # provenance. Having both is fine — charivo carries the same token and
+      # OIDC still wins there. Confirm with
       #   npm view @ikijs/<pkg> dist.attestations
+      # and only then drop this env var and the NPM_TOKEN secret.
       - name: Create release PR or publish to npm
         uses: changesets/action@v1
         with:
