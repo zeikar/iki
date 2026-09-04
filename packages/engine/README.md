@@ -30,8 +30,11 @@ player.setParameter(StandardParameter.MouthOpen, 0.7);
 ```
 
 `load()` decodes and uploads every texture before swapping the model in, so a
-frame is never half-textured. Parameter writes are clamped to the declared
-range; unknown ids and non-finite values are ignored.
+frame is never half-textured. That swap is also why it must be awaited before
+`getParameters()`: an un-awaited `load()` leaves the parameter store empty for
+the rest of the tick, and the engine reports that case rather than let a host
+read `[]` and conclude the model declares no parameters. Parameter writes are
+clamped to the declared range; unknown ids and non-finite values are ignored.
 
 ## API
 

@@ -95,6 +95,10 @@ export class IkiPlayer {
   private textures: (WebGLTexture | null)[] = [];
   /** Bumped by every `load` and by `destroy`; lets a stale async load bail. */
   private loadGeneration = 0;
+  /** True from the moment `load()` is entered until it resolves or throws. */
+  private loadPending = false;
+  /** Latches the un-awaited-load report, so a repeat caller says it once. */
+  private warnedLoadUnfinished = false;
   private destroyed = false;
   /**
    * Engine-internal mesh buffers, keyed by the part's INDEX in `this.parts`
@@ -165,8 +169,25 @@ export class IkiPlayer {
    * Mesh buffer allocation failure IS fatal (unlike per-texture skip) because
    * textures have an `IkiLoadResult.failedTextures` reporting surface and mesh
    * buffers have none — there is no partial-mesh concept in the format.
+   *
+   * AWAIT THIS before reading {@link getParameters}. The swap happens after
+   * texture decoding, so an un-awaited `load()` leaves the parameter store
+   * empty for the rest of the tick; `getParameters` reports that case rather
+   * than letting a host conclude the model drives nothing.
    */
   async load(model: IkiModel): Promise<IkiLoadResult> {
+    // `finally` rather than a reset before each `return`: a fatal mesh-buffer
+    // throw must not latch this on and make every later getParameters() a
+    // false alarm.
+    this.loadPending = true;
+    try {
+      return await this.adoptModel(model);
+    } finally {
+      this.loadPending = false;
+    }
+  }
+
+  private async adoptModel(model: IkiModel): Promise<IkiLoadResult> {
     const { gl } = this;
     const generation = ++this.loadGeneration;
 
@@ -474,8 +495,28 @@ export class IkiPlayer {
     return this.params.get(id);
   }
 
-  /** The model's parameter descriptors, for building UI or host wiring. */
+  /**
+   * The model's parameter descriptors, for building UI or host wiring.
+   *
+   * Empty until the first {@link load} resolves. Reaching it through an
+   * un-awaited `load()` is the one mistake in this class that produces no
+   * error and no motion: the caller gets `[]`, concludes the model has no
+   * parameters, and drives nothing — so that case is reported instead of
+   * being indistinguishable from a model that really declares none. A
+   * reload is deliberately NOT reported: those parameters are stale rather
+   * than absent, and warning there would fire on legitimate concurrent reads.
+   */
   getParameters(): IkiParameter[] {
+    if (
+      this.loadPending &&
+      this.model === undefined &&
+      !this.warnedLoadUnfinished
+    ) {
+      this.warnedLoadUnfinished = true;
+      console.error(
+        "Iki: getParameters() ran before load() finished, so it returned an empty list — await load() before reading parameters.",
+      );
+    }
     return this.params.list();
   }
 
