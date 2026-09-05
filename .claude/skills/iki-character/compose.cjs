@@ -39,7 +39,7 @@ const OUT = path.resolve(process.argv[3] ?? "layers");
 // bead floating in white, which is exactly how the first generated sample came
 // out (its iris was 32% of the sclera). Keep this ratio when retuning EYE_W.
 const EYE_W = 128;
-const IRIS_W = Math.round(EYE_W * 0.7);
+const IRIS_W = Math.round(EYE_W * 0.5);
 
 const LAYOUT = {
   // Back hair and body sit behind the face. Both are OPTIONAL: a parts dir
@@ -50,6 +50,12 @@ const LAYOUT = {
   body: { src: "body.png", cx: 550, cy: 1017, w: 840, optional: true },
   face: { src: "face.png", cx: 550, cy: 475, w: 400 },
   mouth: { src: "mouth.png", cx: 550, cy: 601, w: 100 },
+  // Cross-fades with `mouth` on ParamMouthOpenY (opacity, not scaleY) once the
+  // auto-rig sees both roles. Same cx/w as `mouth` so the lip width matches;
+  // its top edge (not center) lines up with the closed mouth's top edge since
+  // the mouth opens downward from a fixed upper lip — hence the +2 cy nudge
+  // rather than sharing cy outright. Optional: composes fine without it.
+  mouth_open: { src: "mouth_open.png", cx: 550, cy: 603, w: 100, optional: true },
   // eye_* (sclera) and lash_* share the eyewhite's cropped frame via noTrim (so
   // they are NOT re-bboxed independently): the upper lash stays anchored ABOVE
   // the sclera center, so on blink it folds DOWN over the eye like the sample
@@ -77,6 +83,7 @@ const ORDER = [
   "body",
   "face",
   "mouth",
+  "mouth_open",
   "eye_L",
   "eye_R",
   "iris_L",
