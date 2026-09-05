@@ -16,7 +16,7 @@ const sharp = require("sharp");
 const path = require("path");
 const fs = require("fs");
 
-const CANVAS = 1000;
+const CANVAS = 1100;
 const SRC = path.resolve(process.argv[2] ?? "parts");
 const OUT = path.resolve(process.argv[3] ?? "layers");
 
@@ -38,37 +38,37 @@ const OUT = path.resolve(process.argv[3] ?? "layers");
 // runtime, so a large iris cannot spill. Much below ~0.55 and the eye reads as a
 // bead floating in white, which is exactly how the first generated sample came
 // out (its iris was 32% of the sclera). Keep this ratio when retuning EYE_W.
-const EYE_W = 107;
+const EYE_W = 100;
 const IRIS_W = Math.round(EYE_W * 0.58);
 
 const LAYOUT = {
   // Back hair and body sit behind the face. Both are OPTIONAL: a parts dir
   // without them still composes (head-only character).
-  hair_back: { src: "hair_back.png", cx: 500, cy: 427, w: 560, optional: true },
+  hair_back: { src: "hair_back.png", cx: 550, cy: 523, w: 800, optional: true },
   // The torso, cut off by the canvas bottom. It is rigged to no deformer, so it
   // holds still while the head turns — the whole point of generating it.
-  body: { src: "body.png", cx: 500, cy: 850, w: 700, optional: true },
-  face: { src: "face.png", cx: 500, cy: 421, w: 430 },
-  mouth: { src: "mouth.png", cx: 500, cy: 509, w: 118 },
+  body: { src: "body.png", cx: 550, cy: 1017, w: 840, optional: true },
+  face: { src: "face.png", cx: 550, cy: 475, w: 400 },
+  mouth: { src: "mouth.png", cx: 550, cy: 601, w: 100 },
   // eye_* (sclera) and lash_* share the eyewhite's cropped frame via noTrim (so
   // they are NOT re-bboxed independently): the upper lash stays anchored ABOVE
   // the sclera center, so on blink it folds DOWN over the eye like the sample
   // model instead of the whole eye shrinking in place. Same cx/cy/w.
-  eye_L: { src: "eyewhite_sclera.png", cx: 564, cy: 419, w: EYE_W, noTrim: true }, // prettier-ignore
-  eye_R: { src: "eyewhite_sclera.png", cx: 436, cy: 419, w: EYE_W, mirror: true, noTrim: true }, // prettier-ignore
-  iris_L: { src: "iris.png", cx: 560, cy: 413, w: IRIS_W, mirror: false },
-  iris_R: { src: "iris.png", cx: 440, cy: 413, w: IRIS_W, mirror: true },
+  eye_L: { src: "eyewhite_sclera.png", cx: 610, cy: 517, w: EYE_W, noTrim: true }, // prettier-ignore
+  eye_R: { src: "eyewhite_sclera.png", cx: 490, cy: 517, w: EYE_W, mirror: true, noTrim: true }, // prettier-ignore
+  iris_L: { src: "iris.png", cx: 606, cy: 516, w: IRIS_W, mirror: false },
+  iris_R: { src: "iris.png", cx: 494, cy: 516, w: IRIS_W, mirror: true },
   lash_L: {
     src: "eyewhite_lash.png",
-    cx: 564,
-    cy: 419,
+    cx: 610,
+    cy: 517,
     w: EYE_W,
     noTrim: true,
   },
-  lash_R: { src: "eyewhite_lash.png", cx: 436, cy: 419, w: EYE_W, mirror: true, noTrim: true }, // prettier-ignore
-  brow_L: { src: "brow.png", cx: 564, cy: 355, w: 99, mirror: false },
-  brow_R: { src: "brow.png", cx: 436, cy: 355, w: 99, mirror: true },
-  hair_front: { src: "hair_front.png", cx: 500, cy: 365, w: 455 },
+  lash_R: { src: "eyewhite_lash.png", cx: 490, cy: 517, w: EYE_W, mirror: true, noTrim: true }, // prettier-ignore
+  brow_L: { src: "brow.png", cx: 610, cy: 457, w: 92, mirror: false },
+  brow_R: { src: "brow.png", cx: 490, cy: 457, w: 92, mirror: true },
+  hair_front: { src: "hair_front.png", cx: 550, cy: 468, w: 420 },
 };
 
 // Draw order (back -> front), mirrors @ikijs/editor ROLE_TABLE order.
