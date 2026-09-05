@@ -695,7 +695,6 @@ export function generateIkiFromLayerSet(
 
   // Hair-sway secondary motion is gated on a front-hair layer being present.
   const hasHair = layers.some((l) => l.role === "hair_front");
-  const hasBody = layers.some((l) => l.role === "body");
 
   // ── Standard parameters — verbatim from sample-model.ts ──────────────────
   const parameters: IkiParameter[] = [
@@ -893,12 +892,6 @@ export function generateIkiFromLayerSet(
     faceCenterX,
   );
 
-  // How far the head slides sideways across a full turn. The wider travel reads
-  // well when the whole figure moves together, but a `body` holds still, and
-  // against that fixed reference a 50px slide detaches the head from the
-  // shoulders. Rigs without a body keep the original travel.
-  const headTurnShiftX = hasBody ? 18 : 50;
-
   // ── Deformers ─────────────────────────────────────────────────────────────
   const deformers = [
     // headDeformer: rigid matrix rotating/translating the whole head about the
@@ -916,8 +909,8 @@ export function generateIkiFromLayerSet(
         {
           parameter: StandardParameter.AngleX,
           channel: "translateX" as const,
-          from: -headTurnShiftX,
-          to: headTurnShiftX,
+          from: -50,
+          to: 50,
         },
         {
           parameter: StandardParameter.Breath,

@@ -1212,20 +1212,6 @@ describe("assembly", () => {
     expect(gridOf(bodyLayers())).toBe(gridOf(assemblyLayers()));
   });
 
-  it("a body shortens the head's sideways travel on a turn", () => {
-    const shiftOf = (layers: LayerInput[]) => {
-      const model = generateIkiFromLayerSet(layers, {
-        width: 1000,
-        height: 1000,
-      });
-      const head = model.deformers!.find((d) => d.id === "headDeformer")!;
-      return head.bindings!.find((b) => b.channel === "translateX")!.to;
-    };
-    // Without a static torso nothing reveals the slide, so that rig is unchanged.
-    expect(shiftOf(assemblyLayers())).toBe(50);
-    expect(shiftOf(bodyLayers())).toBeLessThan(shiftOf(assemblyLayers()));
-  });
-
   it("bindingsForRole: body (static) returns empty array", () => {
     expect(bindingsForRole(ROLE_TABLE["body"], "body", 900, 400)).toHaveLength(
       0,
