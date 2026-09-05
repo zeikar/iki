@@ -89,6 +89,11 @@ against it, so changing it mid-loop invalidates every prior score.
    limit), blink (`ParamEyeLOpen` ≈ 0), gaze (`ParamEyeBallX` near its limit).
    The turn and blink poses are where rig defects surface — a front-facing
    screenshot hides most of them.
+   **The rest shot must be untouched**: `reset()` and screenshot, nothing set
+   afterwards. Every proportion the critic measures is measured against it, so a
+   flattering hero pose saved as `rest.png` silently invalidates the whole round
+   — that has already happened once, and two rounds of "it looks like the
+   reference" were judged against a head turned nine degrees.
    Rendering stays with you because the Playwright browser is a single shared
    resource; two agents driving it collide.
 3. Dispatch **iki-character-critic** with `reference`, `layers`, the render
