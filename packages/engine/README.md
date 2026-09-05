@@ -1,9 +1,9 @@
 # @ikijs/engine
 
-WebGL2 runtime that plays a [`.iki`](../format) puppet model in the browser.
+WebGL2 runtime that plays a [`.iki`](https://github.com/zeikar/iki/tree/main/packages/format) puppet model in the browser.
 
 The engine is **host-agnostic**: it depends only on
-[`@ikijs/format`](../format) and knows nothing about any particular app. A host
+[`@ikijs/format`](https://github.com/zeikar/iki/tree/main/packages/format) and knows nothing about any particular app. A host
 drives it by setting parameters (from lip-sync, gaze, blink, expressions); the
 engine renders the result each frame.
 

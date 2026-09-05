@@ -1,7 +1,21 @@
 {
   "name": "@ikijs/format",
   "version": "0.1.0",
-  "description": "The .iki model format — schema, TypeScript types, loader, and validator",
+  "description": "Schema, TypeScript types, loader and validator for the .iki 2D puppet model format — an open, Live2D-style rig format for the web",
+  "keywords": [
+    "iki",
+    "live2d",
+    "inochi2d",
+    "vtuber",
+    "2d-animation",
+    "puppet",
+    "rig",
+    "rigging",
+    "avatar",
+    "schema",
+    "validator",
+    "typescript"
+  ],
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",

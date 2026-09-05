@@ -1,7 +1,9 @@
 # Iki
 
-[![Built with HyperClaude](https://img.shields.io/badge/Built%20with-HyperClaude-D97757?logo=anthropic&logoColor=white)](http://zeikar.dev/hyperclaude/)
+[![@ikijs/engine on npm](https://img.shields.io/npm/v/@ikijs/engine?label=%40ikijs%2Fengine&color=cb3837&logo=npm)](https://www.npmjs.com/package/@ikijs/engine)
+[![@ikijs/format on npm](https://img.shields.io/npm/v/@ikijs/format?label=%40ikijs%2Fformat&color=cb3837&logo=npm)](https://www.npmjs.com/package/@ikijs/format)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![Built with HyperClaude](https://img.shields.io/badge/Built%20with-HyperClaude-D97757?logo=anthropic&logoColor=white)](http://zeikar.dev/hyperclaude/)
 
 > 息 (breath) · 生き (life) · 粋 (chic)
 
@@ -25,6 +27,27 @@ drives those parameters from lip-sync, gaze, blink, and expressions.
 - **Host-agnostic.** The engine knows nothing about Charivo or any host; it
   just plays `.iki` models. Charivo consumes it through a thin `render-iki`
   adapter, the same way it consumes the Live2D SDK today.
+
+## How Iki compares
+
+Live2D Cubism is the industry standard, and it is far more mature than Iki in
+every dimension that matters to an artist — editor, tooling, ecosystem, and the
+quality ceiling of what you can rig with it. [Inochi2D](https://inochi2d.com/)
+is the established open-source project in this space. Iki is not trying to
+replace either. It exists because three things it wanted never lined up in one
+place:
+
+- **A format you own.** `.iki` is plain JSON with a documented schema and a
+  fail-fast validator. You can read a model in a text editor, diff it in git,
+  and generate one from a script.
+- **Web-first, no native toolchain.** TypeScript and WebGL2. `npm install` and
+  it runs in a browser — no SDK download, nothing to compile for the runtime.
+- **Rigging an agent can drive.** Because the format is open and small, an AI
+  agent can take role-named PNG layers to a rigged, animating model through an
+  MCP server. That is the part Iki is really exploring.
+
+If you need production-grade 2D rigging today, use Cubism. If you want an open
+web format you can script against, that is what this is.
 
 ## Packages
 
@@ -100,37 +123,29 @@ positive x (the viewer's right).
 > are called out in the changelog. The TypeScript surface can likewise shift
 > between 0.x minors.
 
+## FAQ
+
+**Can I use this commercially?** Yes — MIT, for the engine, the format and the
+tooling. Models you make are yours.
+
+**Can it load Live2D models?** No. `.moc3` is a proprietary compiled format;
+Iki has its own open schema and no importer for it.
+
+**Is it production ready?** Not yet — the packages are published from 0.1.0 and
+the v1 schema is still settling. See **Stability** above for what that means for
+a model you save today.
+
+**Do I need the editor to use it?** No. `@ikijs/engine` + `@ikijs/format` are
+enough to play a model. The editor packages are for building authoring tools.
+
+**How do I make a model?** Either hand-write the JSON — it is small, see above —
+or feed role-named PNG layers to the auto-rigger in
+[`@ikijs/editor`](./packages/editor) / [`@ikijs/mcp`](./packages/mcp), which
+wires up blink, gaze, lip-sync, head-turn and brows for you.
+
 ## Roadmap
 
-1. **Format + runtime** (parameter-driven color quads) — done
-   - **Idle motion** — host-agnostic `IdleMotion` driver (auto-blink / breath / gaze drift) shipped by the engine, consumed by the playground and the editor preview — done
-2. **Charivo adapter** — [`@charivo/render-iki`](https://github.com/zeikar/charivo/tree/main/packages/render-iki) implementing the renderer contract — working as a private local-dogfood package in the Charivo repo
-3. **Textures** — atlas + UV-rect texture sampling, `color` as tint multiplier — done
-   > Atlas authors should add padding / extruded borders between sub-rects to avoid LINEAR-filter bleeding.
-4. **Warp/rotation deformers** — the soft 2.5D head-turn that defines the look
-   - **4a. Rotation deformer + pivot + parent hierarchy** — done
-   - **4b. Warp mesh, keyform, per-vertex UV** — done
-   - **4c. Warp deformer (group warp)** — done
-   - **4d. Advanced warp depth** — 2D parameter grids (joint `AngleX`×`AngleY` keyform blend via `warp2d`, true Live2D-style) — done. Deferred (revisit when enhancing the look): multi-driver grid composition; Bezier/bicubic smooth warp patches (vs. the current bilinear); nested warp deformers + matrix-under-warp hierarchies; glue / clipping-aware deformation / path deformers; folded-cell detection
-5. **Editor** — author parts, meshes, and bindings
-   - **5a. Load → numeric part edit → live preview → validated export** — done
-   - **5b. Texture/atlas import + per-part UV (quad parts)** — done
-   - **5c. Per-part texturing + per-vertex mesh-UV remap** — done (existing face/eyes/mouth meshes take a per-part texture that rides the warp). Deferred to a later slice: mesh topology editing (triangulation / vertex add-move-delete / quad→mesh) and base-UV persistence across reload.
-   - **5d. Warp-deformer grid keyform authoring by canvas dragging** — done (drag the existing `faceWarp` grid control points to author the `IkiGridWarp` keyform that the head-turn rides). Deferred: per-part `warps` authoring, new deformer types, cols/rows resize, multi-keyform timeline, 2D/multi-driver grids (#4d).
-   - **5e. Matrix-deformer hierarchy authoring (numeric)** — done (select a deformer → edit `pivot` / `transform` / parameter bindings numerically; reparent deformers and attach parts via dropdowns, with cycle / non-matrix-parent / mesh-on-warp validation that fails fast)
-   - **5f. Deformer create/delete, canvas pivot gizmo, create-from-scratch** — done
-   - **5g. Physics rig authoring** — done (Inspector CRUD over `model.physics` through invertible commands). Deferred: chain (`physicsChains`) authoring.
-6. **AI generator** — layered art → auto-rigged `.iki` — done
-   - `generateIkiFromLayerSet` (`@ikijs/editor`) rigs role-named layers (`face`, `eye_L/R`, `mouth`, plus optional iris / brow / lash / hair) into a model that blinks, gazes, talks, turns, and emotes
-   - PSD import in the editor; the `auto_rig_from_layers` tool in [`@ikijs/mcp`](./packages/mcp) so an agent can go from PNGs to a renderable `.iki` on disk
-   - A Claude skill chains image generation → layer compose → rig in one gesture
-   - Deferred: ML segmentation of a single flat illustration (today the parts arrive as separate layers)
-7. **Physics / secondary motion** — done
-   - Spring-mass-damper rigs (`model.physics`) driven by the `PhysicsMotion` peer driver
-   - Multi-segment gravity-hung chains (`model.physicsChains`) driven by `HairChainMotion`, for hair strands that lag and swing on a head turn
-   - Auto-rig emits a hair-sway rig automatically when a `hair_front` layer is present
-   - Deferred: warp-aware chains, auto-generated chain rigs
-8. **Clipping masks** — done (stencil-based; e.g. an iris clipped to the sclera so it never spills at extreme gaze)
+[ROADMAP.md](./ROADMAP.md) tracks what has landed and what is deferred.
 
 ## License
 

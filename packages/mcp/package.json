@@ -1,7 +1,21 @@
 {
   "name": "@ikijs/mcp",
   "version": "0.1.0",
-  "description": "stdio MCP server giving agents .iki read/validate tools and PNG-layer auto-rigging",
+  "description": "MCP server that lets AI agents read, validate and auto-rig .iki 2D puppet models from role-named PNG layers",
+  "keywords": [
+    "iki",
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "agent",
+    "claude",
+    "live2d",
+    "vtuber",
+    "2d-animation",
+    "puppet",
+    "auto-rig",
+    "rigging"
+  ],
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",

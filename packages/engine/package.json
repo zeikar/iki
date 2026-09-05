@@ -1,7 +1,21 @@
 {
   "name": "@ikijs/engine",
   "version": "0.1.1",
-  "description": "Iki runtime — a WebGL2 player for .iki puppet models",
+  "description": "WebGL2 runtime that plays .iki 2D puppet models in the browser — an open-source Live2D alternative for VTuber-style avatar animation",
+  "keywords": [
+    "iki",
+    "live2d",
+    "inochi2d",
+    "vtuber",
+    "2d-animation",
+    "puppet",
+    "rig",
+    "avatar",
+    "webgl",
+    "webgl2",
+    "animation",
+    "typescript"
+  ],
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",

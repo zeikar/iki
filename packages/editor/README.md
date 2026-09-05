@@ -1,15 +1,15 @@
 # @ikijs/editor
 
-**Headless** editing core for [`.iki`](../format) models — a document with
+**Headless** editing core for [`.iki`](https://github.com/zeikar/iki/tree/main/packages/format) models — a document with
 undo/redo, invertible edit commands, atlas layout + UV math, and the auto-rigger.
 
 This package ships no UI. It is the model and command layer an editor is built
 _on_, not an editor you can mount.
 
 Everything here is pure logic — no DOM, no canvas, no WebGL. It depends only on
-[`@ikijs/format`](../format), so the same core backs this repo's
+[`@ikijs/format`](https://github.com/zeikar/iki/tree/main/packages/format), so the same core backs this repo's
 browser editor app (`examples/editor`), the Node MCP server
-([`@ikijs/mcp`](../mcp)), and tests.
+([`@ikijs/mcp`](https://github.com/zeikar/iki/tree/main/packages/mcp)), and tests.
 
 ## Install
 

@@ -3,8 +3,8 @@
 The `.iki` model format — schema, TypeScript types, loader, and validator.
 
 This package is the single source of truth for the `.iki` contract. The runtime
-([`@ikijs/engine`](../engine)) and the editing core
-([`@ikijs/editor`](../editor)) read these types; they never redefine
+([`@ikijs/engine`](https://github.com/zeikar/iki/tree/main/packages/engine)) and the editing core
+([`@ikijs/editor`](https://github.com/zeikar/iki/tree/main/packages/editor)) read these types; they never redefine
 them. It has **no runtime dependencies**.
 
 ## Install
@@ -77,7 +77,7 @@ const model: IkiModel = {
 Beyond flat parts the schema also carries triangle meshes with per-vertex UV,
 per-vertex and per-control-point warp keyforms (1D and 2D parameter grids),
 matrix and warp deformer hierarchies, clipping masks, and spring/chain physics
-rigs. See [`src/types.ts`](./src/types.ts) — every field is documented there.
+rigs. See [`src/types.ts`](https://github.com/zeikar/iki/tree/main/packages/format/src/types.ts) — every field is documented there.
 
 ### Side convention
 
