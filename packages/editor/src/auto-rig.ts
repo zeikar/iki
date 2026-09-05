@@ -23,8 +23,12 @@ import {
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface RoleSpec {
-  /** Which deformer the part is attached to in the generated rig. */
-  deformer: "faceWarp" | "headDeformer";
+  /**
+   * Which deformer the part is attached to in the generated rig. `"none"`
+   * attaches it to nothing, so the part holds still in world space while
+   * headDeformer turns the head — what a torso has to do.
+   */
+  deformer: "faceWarp" | "headDeformer" | "none";
   /** Back-to-front draw order. Higher = in front. */
   order: number;
   /** Whether this part gets a warp mesh (true) or is a static quad (false). */
@@ -69,6 +73,11 @@ export const ROLE_TABLE: Record<string, RoleSpec> = {
   // hair_back stays rigid (silhouette behind the face); per-layer front/back
   // depth parallax is a later slice.
   hair_back: { deformer: "headDeformer", order: 0, mesh: false },
+  // The torso. Alone among the roles it hangs from NO deformer: the head turns
+  // about the neck pivot while the shoulders stay put, which is what keeps the
+  // character from reading as a floating head. Drawn over the back hair so long
+  // hair falls behind the shoulders.
+  body: { deformer: "none", order: 5, mesh: false },
   face: { deformer: "faceWarp", order: 10, mesh: true },
   nose: { deformer: "faceWarp", order: 15, mesh: true },
   blush_L: { deformer: "faceWarp", order: 20, mesh: true },
@@ -672,6 +681,7 @@ export function generateIkiFromLayerSet(
 
   // Hair-sway secondary motion is gated on a front-hair layer being present.
   const hasHair = layers.some((l) => l.role === "hair_front");
+  const hasBody = layers.some((l) => l.role === "body");
 
   // ── Standard parameters — verbatim from sample-model.ts ──────────────────
   const parameters: IkiParameter[] = [
@@ -869,6 +879,12 @@ export function generateIkiFromLayerSet(
     faceCenterX,
   );
 
+  // How far the head slides sideways across a full turn. The wider travel reads
+  // well when the whole figure moves together, but a `body` holds still, and
+  // against that fixed reference a 50px slide detaches the head from the
+  // shoulders. Rigs without a body keep the original travel.
+  const headTurnShiftX = hasBody ? 18 : 50;
+
   // ── Deformers ─────────────────────────────────────────────────────────────
   const deformers = [
     // headDeformer: rigid matrix rotating/translating the whole head about the
@@ -886,8 +902,8 @@ export function generateIkiFromLayerSet(
         {
           parameter: StandardParameter.AngleX,
           channel: "translateX" as const,
-          from: -50,
-          to: 50,
+          from: -headTurnShiftX,
+          to: headTurnShiftX,
         },
         {
           parameter: StandardParameter.Breath,
@@ -931,6 +947,9 @@ export function generateIkiFromLayerSet(
     const spec = ROLE_TABLE[role];
     const t = bboxToTransform(bbox, canvasW, canvasH, role);
     const roleBindings = bindingsForRole(spec, role, cropW, cropH);
+    // `IkiPart.deformer` is optional, so a "none" role states its detachment by
+    // leaving the field off rather than naming a deformer that must exist.
+    const deformerId = spec.deformer === "none" ? undefined : spec.deformer;
 
     if (spec.mesh) {
       // Warp-deformer child: width:1, height:1 with a pixel grid mesh centered
@@ -943,7 +962,7 @@ export function generateIkiFromLayerSet(
         height: 1,
         order: spec.order,
         transform: t,
-        deformer: spec.deformer,
+        deformer: deformerId,
         mesh,
       };
       if (roleBindings.length > 0) {
@@ -976,7 +995,7 @@ export function generateIkiFromLayerSet(
       }
       return part;
     } else {
-      // Static quad: no mesh, sized to the crop. Placed on headDeformer.
+      // Static quad: no mesh, sized to the crop.
       return {
         id: role,
         color: [1, 1, 1, 1] as [number, number, number, number],
@@ -984,7 +1003,7 @@ export function generateIkiFromLayerSet(
         height: cropH,
         order: spec.order,
         transform: t,
-        deformer: spec.deformer,
+        deformer: deformerId,
       };
     }
   });

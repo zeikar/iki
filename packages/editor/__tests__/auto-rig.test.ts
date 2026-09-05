@@ -182,6 +182,7 @@ describe("ROLE_TABLE invariants", () => {
       "nose",
       "hair_front",
       "hair_back",
+      "body",
     ];
     for (const role of NON_EYE) {
       expect(ROLE_TABLE[role].eyeSide, `${role}.eyeSide`).toBeUndefined();
@@ -474,6 +475,25 @@ function assemblyLayers(): LayerInput[] {
       bbox: { x: 100, y: 50, w: 800, h: 700 },
       cropW: 800,
       cropH: 700,
+    },
+  ];
+}
+
+/**
+ * assemblyLayers() + a body layer that deliberately spans nearly the whole
+ * canvas — the shape most likely to contaminate the faceWarp grid union.
+ */
+function bodyLayers(): LayerInput[] {
+  return [
+    ...assemblyLayers(),
+    {
+      role: "body",
+      fileName: "body.png",
+      canvasW: 1000,
+      canvasH: 1000,
+      bbox: { x: 20, y: 600, w: 960, h: 390 },
+      cropW: 960,
+      cropH: 390,
     },
   ];
 }
@@ -1098,6 +1118,74 @@ describe("assembly", () => {
     expect(part?.mesh).toBeUndefined();
     expect(part?.width).toBe(hairBack.cropW);
     expect(part?.height).toBe(hairBack.cropH);
+  });
+
+  // The torso hangs from no deformer at all. Every other role rides either
+  // headDeformer or faceWarp, so these lock the one exception in place: a body
+  // that picked up a deformer would swing with the head turn, and a body inside
+  // the faceWarp union would stretch the head-turn grid across the shoulders.
+  it("body part carries no deformer, so the head turns without it", () => {
+    const model = generateIkiFromLayerSet(bodyLayers(), {
+      width: 1000,
+      height: 1000,
+    });
+    const body = model.parts.find((p) => p.id === "body");
+    expect(body).toBeDefined();
+    expect(body?.deformer).toBeUndefined();
+    expect(body?.mesh).toBeUndefined();
+  });
+
+  it("every non-body part still names a deformer", () => {
+    const model = generateIkiFromLayerSet(bodyLayers(), {
+      width: 1000,
+      height: 1000,
+    });
+    for (const part of model.parts) {
+      if (part.id === "body") continue;
+      expect(part.deformer, `${part.id}.deformer`).toBeDefined();
+    }
+  });
+
+  it("body is drawn over hair_back and under face", () => {
+    const model = generateIkiFromLayerSet(bodyLayers(), {
+      width: 1000,
+      height: 1000,
+    });
+    const orderOf = (id: string) => model.parts.find((p) => p.id === id)!.order;
+    expect(orderOf("hair_back")).toBeLessThan(orderOf("body"));
+    expect(orderOf("body")).toBeLessThan(orderOf("face"));
+  });
+
+  it("a canvas-spanning body leaves the faceWarp grid untouched", () => {
+    const gridOf = (layers: LayerInput[]) => {
+      const model = generateIkiFromLayerSet(layers, {
+        width: 1000,
+        height: 1000,
+      });
+      const faceWarp = model.deformers!.find((d) => d.id === "faceWarp")!;
+      return JSON.stringify(faceWarp);
+    };
+    expect(gridOf(bodyLayers())).toBe(gridOf(assemblyLayers()));
+  });
+
+  it("a body shortens the head's sideways travel on a turn", () => {
+    const shiftOf = (layers: LayerInput[]) => {
+      const model = generateIkiFromLayerSet(layers, {
+        width: 1000,
+        height: 1000,
+      });
+      const head = model.deformers!.find((d) => d.id === "headDeformer")!;
+      return head.bindings!.find((b) => b.channel === "translateX")!.to;
+    };
+    // Without a static torso nothing reveals the slide, so that rig is unchanged.
+    expect(shiftOf(assemblyLayers())).toBe(50);
+    expect(shiftOf(bodyLayers())).toBeLessThan(shiftOf(assemblyLayers()));
+  });
+
+  it("bindingsForRole: body (static) returns empty array", () => {
+    expect(bindingsForRole(ROLE_TABLE["body"], "body", 900, 400)).toHaveLength(
+      0,
+    );
   });
 
   it("part transforms match bboxToTransform (source-placed, unshifted)", () => {
