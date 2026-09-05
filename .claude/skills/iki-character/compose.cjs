@@ -33,26 +33,48 @@ const OUT = path.resolve(process.argv[3] ?? "layers");
 // lash_* = the dark lashes, a separate layer ABOVE the iris that folds down to
 //          cover the closed-eye seam. eye_* and lash_* are split from a single
 //          `eyewhite.png` (white almond + dark lashes) by prepEyeSplit().
+// Iris width as a fraction of the sclera width. Anime irises fill most of the
+// eye opening and are clipped by the lids — the auto-rig clips iris->sclera at
+// runtime, so a large iris cannot spill. Much below ~0.55 and the eye reads as a
+// bead floating in white, which is exactly how the first generated sample came
+// out (its iris was 32% of the sclera). Keep this ratio when retuning EYE_W.
+const EYE_W = 107;
+const IRIS_W = Math.round(EYE_W * 0.52);
+
 const LAYOUT = {
-  face: { src: "face.png", cx: 500, cy: 470, w: 600 },
-  mouth: { src: "mouth.png", cx: 500, cy: 612, w: 150 },
+  // Back hair and body sit behind the face. Both are OPTIONAL: a parts dir
+  // without them still composes (head-only character).
+  hair_back: { src: "hair_back.png", cx: 500, cy: 427, w: 560, optional: true },
+  // The torso, cut off by the canvas bottom. It is rigged to no deformer, so it
+  // holds still while the head turns — the whole point of generating it.
+  body: { src: "body.png", cx: 500, cy: 850, w: 700, optional: true },
+  face: { src: "face.png", cx: 500, cy: 421, w: 430 },
+  mouth: { src: "mouth.png", cx: 500, cy: 509, w: 118 },
   // eye_* (sclera) and lash_* share the eyewhite's cropped frame via noTrim (so
   // they are NOT re-bboxed independently): the upper lash stays anchored ABOVE
   // the sclera center, so on blink it folds DOWN over the eye like the sample
   // model instead of the whole eye shrinking in place. Same cx/cy/w.
-  eye_L: { src: "eyewhite_sclera.png", cx: 590, cy: 468, w: 150, noTrim: true },
-  eye_R: { src: "eyewhite_sclera.png", cx: 410, cy: 468, w: 150, mirror: true, noTrim: true }, // prettier-ignore
-  iris_L: { src: "iris.png", cx: 590, cy: 470, w: 48, mirror: false },
-  iris_R: { src: "iris.png", cx: 410, cy: 470, w: 48, mirror: true },
-  lash_L: { src: "eyewhite_lash.png", cx: 590, cy: 468, w: 150, noTrim: true },
-  lash_R: { src: "eyewhite_lash.png", cx: 410, cy: 468, w: 150, mirror: true, noTrim: true }, // prettier-ignore
-  brow_L: { src: "brow.png", cx: 590, cy: 378, w: 138, mirror: false },
-  brow_R: { src: "brow.png", cx: 410, cy: 378, w: 138, mirror: true },
-  hair_front: { src: "hair_front.png", cx: 500, cy: 330, w: 660 },
+  eye_L: { src: "eyewhite_sclera.png", cx: 564, cy: 419, w: EYE_W, noTrim: true }, // prettier-ignore
+  eye_R: { src: "eyewhite_sclera.png", cx: 436, cy: 419, w: EYE_W, mirror: true, noTrim: true }, // prettier-ignore
+  iris_L: { src: "iris.png", cx: 560, cy: 418, w: IRIS_W, mirror: false },
+  iris_R: { src: "iris.png", cx: 440, cy: 418, w: IRIS_W, mirror: true },
+  lash_L: {
+    src: "eyewhite_lash.png",
+    cx: 564,
+    cy: 419,
+    w: EYE_W,
+    noTrim: true,
+  },
+  lash_R: { src: "eyewhite_lash.png", cx: 436, cy: 419, w: EYE_W, mirror: true, noTrim: true }, // prettier-ignore
+  brow_L: { src: "brow.png", cx: 564, cy: 355, w: 99, mirror: false },
+  brow_R: { src: "brow.png", cx: 436, cy: 355, w: 99, mirror: true },
+  hair_front: { src: "hair_front.png", cx: 500, cy: 413, w: 455 },
 };
 
 // Draw order (back -> front), mirrors @ikijs/editor ROLE_TABLE order.
 const ORDER = [
+  "hair_back",
+  "body",
   "face",
   "mouth",
   "eye_L",
@@ -98,6 +120,9 @@ async function keyWhiteToAlpha(srcPath) {
 async function partBuffer(cfg) {
   const srcPath = path.join(SRC, cfg.src);
   if (!fs.existsSync(srcPath)) {
+    // Optional roles (hair_back, body) are absent from a head-only parts dir;
+    // the auto-rig only requires face/eye_L/eye_R/mouth.
+    if (cfg.optional) return null;
     throw new Error(
       `missing part source: ${srcPath} (role expects "${cfg.src}")`,
     );
@@ -201,7 +226,12 @@ async function main() {
   const preview = [];
   for (const role of ORDER) {
     const cfg = LAYOUT[role];
-    const { buf, w, h } = await partBuffer(cfg);
+    const part = await partBuffer(cfg);
+    if (part === null) {
+      console.log(`${role}: skipped (no ${cfg.src})`);
+      continue;
+    }
+    const { buf, w, h } = part;
     const { left, top } = placement(cfg, w, h);
     // role layer: this part alone on a full canvas at its position.
     await blankCanvas()

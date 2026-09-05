@@ -20,6 +20,11 @@ The hard part is **getting clean role-separated parts out of codex-image** (an e
 
 ## When NOT to use
 
+- The character comes back renderable but not good-looking enough, and you want
+  it refined against a target look → that is the **iki-character-loop** skill,
+  which drives this pipeline in a generator/critic loop. This skill is the
+  single pass it calls.
+
 - The user already has layered art (PNG layers or a PSD) → use the editor's "Import layer set" / PSD import path (`examples/editor`), not generation.
 - The user wants engine/format/rig _capability_ work (new deformer, new role, blink mechanics) → that's a normal code slice, not this skill.
 - The user wants to tweak an existing `.iki`'s parameters/poses → drive the playground (`iki-visual-test`), don't regenerate.
@@ -42,16 +47,20 @@ The hard part is **getting clean role-separated parts out of codex-image** (an e
 
 ## The role set this skill generates (full-expression default)
 
-Mirrors `@ikijs/editor` `ROLE_TABLE` / `REQUIRED_ROLES`. **Required:** `face`, `eye_L`, `eye_R`, `mouth`. The composer additionally emits `iris_L/R` (gaze), `lash_L/R` (blink-fold cover), `brow_L/R` (expression), `hair_front`. That set gives a character that **blinks (eyelid-fold), gazes, opens/forms its mouth, turns its head, and raises/tilts its brows**.
+Mirrors `@ikijs/editor` `ROLE_TABLE` / `REQUIRED_ROLES`. **Required:** `face`, `eye_L`, `eye_R`, `mouth`. The composer additionally emits `iris_L/R` (gaze), `lash_L/R` (blink-fold cover), `brow_L/R` (expression), `hair_front`, and the two optional back layers `hair_back` + `body`. That set gives a character that **blinks (eyelid-fold), gazes, opens/forms its mouth, turns its head, and raises/tilts its brows** — on a torso that stays put while the head turns.
 
 | codex-image part                                         | composer output role(s)                              | drives                                                           |
 | -------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------- |
+| `body.png` (shoulders/chest, NO head)                    | `body`                                               | nothing — the one part on no deformer, so it holds still         |
+| `hair_back.png` (hair behind the head)                   | `hair_back`                                          | rigid; rides the head rotation                                   |
 | `face.png` (NO eyes, NO mouth)                           | `face`                                               | head-turn warp, breath                                           |
 | `mouth.png` (closed)                                     | `mouth`                                              | MouthOpen / MouthForm                                            |
 | `eyewhite.png` (white almond + dark lashes, **NO iris**) | `eye_L/R` (split sclera) + `lash_L/R` (split lashes) | blink-fold (sclera = clip mask + fold; lash folds over the seam) |
 | `iris.png` (colored disc + pupil + highlight)            | `iris_L/R`                                           | gaze (EyeballX/Y), auto-clipped to the sclera                    |
 | `brow.png` (one eyebrow)                                 | `brow_L/R` (mirrored)                                | BrowY / BrowAngle                                                |
 | `hair_front.png` (bangs)                                 | `hair_front`                                         | rides the face warp on head-turn                                 |
+
+`body` is the only role attached to **no** deformer. Without it the neck ends in mid-air and the character reads as a floating head; painting shoulders into `face.png` instead is worse, because `face` rides the head-turn warp and the shoulders would bend with the head.
 
 `eye_L/R` and `lash_L/R` both come from the **single** `eyewhite.png` — `compose.cjs prepEyeSplit()` splits it by luminance into a clean white sclera (the dark outline/lash recolored white = the clip-mask shape) and a dark **upper-lash** layer (only the top fraction of the dark pixels; the lower almond rim is dropped). Both are cropped to the **same** eye bbox and placed with `noTrim`, so the lash stays anchored ABOVE the sclera center — on blink it folds DOWN over the eye (like the sample model) instead of the whole eye shrinking in place. This is deliberate: asking codex-image for a _separately clean_ sclera and lash is less reliable than splitting one lashed white deterministically.
 
@@ -69,10 +78,23 @@ Prompt skeleton (fill `<STYLE>` consistently, e.g. "flat anime cel-shaded, soft 
 - **iris.png** — "A single round anime iris disc, `<STYLE>` eye color: radial colored iris with a dark round pupil and a small white highlight glint, top. Transparent background, just the disc, no eyelid, no sclera, no lashes."
 - **brow.png** — "A single anime eyebrow, `<STYLE>`. Transparent background, one brow only, gentle arch."
 - **hair_front.png** — "Front hair / bangs for an anime character, `<STYLE>`, framing an empty face from above. Transparent background, front layer only (no back hair, no face)."
+- **hair_back.png** — "Back hair silhouette for an anime character, `<STYLE>`, the mass of hair that falls behind the head and shoulders. Transparent background, no face, no bangs."
+- **body.png** — "Head-less shoulders and upper chest of an anime character, `<STYLE>`, front-facing, simple clothing. **NO head, NO neck stump, NO face** — the shoulder line and torso only. Transparent background, centered."
 
 Save each to the parts dir with the **exact filenames above** (`compose.cjs` expects them).
 
 ### Step 2 — Compose into canvas role layers
+
+After composing, always run the geometry check — it encodes the failure modes
+that each cost a real regeneration round to find by eye (iris/sclera ratio, a
+sclera too flat to hold a round iris, an iris off the white's centre of mass,
+lash/sclera drift, art cut through by its own frame):
+
+```bash
+NODE_PATH=packages/mcp/node_modules node .../iki-character/measure.cjs <layersDir>
+```
+
+Tune `LAYOUT` until it reports `all geometry checks passed`. It is free.
 
 Run the bundled composer (it lives next to this file):
 
@@ -92,6 +114,8 @@ Call `auto_rig_from_layers` with the canvas role layers (full PNG paths) and an 
 ```jsonc
 {
   "layers": [
+    { "path": "/tmp/iki-char/layers/body.png" },
+    { "path": "/tmp/iki-char/layers/hair_back.png" },
     { "path": "/tmp/iki-char/layers/face.png" },
     { "path": "/tmp/iki-char/layers/eye_L.png" },
     { "path": "/tmp/iki-char/layers/eye_R.png" },
@@ -132,7 +156,7 @@ To feed the disk `.iki` to `load()`: vite blocks `/@fs/` for paths **outside the
 - **"NO iris" on the eyewhite is the flakiest prompt.** codex-image often paints an iris anyway. Generate **2–3 eyewhite variants** and pick the cleanest iris-free one; a leaked colored iris breaks `prepEyeSplit` (the luminance split would misclassify a dark/saturated iris as lash). If all variants leak, regenerate with a stronger negation ("empty white interior, absolutely no colored circle").
 - **The eyewhite must be a SOLID FILLED white almond, not an outline.** The first generation often comes back as a thin line-art ring with a transparent interior — useless as a clip mask. Demand "SOLID FILLED pure-white almond, the entire interior painted opaque white". The blink-fold also reads best when the **upper lash is the boldest dark element**; a heavy full-almond outline still works (the split keeps only the top fraction as the lash via `LASH_KEEP_FRACTION`), but a clean white with a distinct top lash folds most cleanly.
 - **The face base must have NO eyes and NO mouth.** A face with baked eyes can't blink/gaze (the eye stack would double up). Re-prompt until the eye/mouth sockets are bare skin.
-- **Keep the iris smaller than the sclera opening** in `LAYOUT` (default `w:48`). The auto-rig auto-clips iris→sclera at runtime, but an oversized iris looks wrong before the clip and at extreme gaze.
+- **Size the iris off the sclera, not by eye.** `LAYOUT` derives `IRIS_W` from `EYE_W * 0.6`; keep that ratio when retuning. The auto-rig clips iris→sclera at runtime, so a big iris cannot spill — the real failure is the opposite one, and it already shipped: the first generated sample had an iris 32% of the sclera width and read as a bead floating in white.
 - **Opaque-on-white parts** are handled by `keyWhiteToAlpha` (keys >238 RGB to alpha), but transparent output is cleaner — ask for it. White-rimmed parts (e.g. a white highlight on the iris) can be clipped by the key; prefer transparent generation for those.
 - **MCP output is cwd-confined.** `auto_rig_from_layers` rejects an `outputPath` that escapes the launch cwd (must end in `.iki`, realpath-checked, atomic rename). Launch the bin from where you want the file.
 - **Style drift across parts.** Independent generations can mismatch hue/line-weight. Keep one `<STYLE>` string identical across all six prompts; regenerate the outlier, not the whole set.
