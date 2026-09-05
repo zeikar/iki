@@ -55,15 +55,21 @@ const LAYOUT = {
   // its top edge (not center) lines up with the closed mouth's top edge since
   // the mouth opens downward from a fixed upper lip — hence the +2 cy nudge
   // rather than sharing cy outright. Optional: composes fine without it.
-  mouth_open: { src: "mouth_open.png", cx: 550, cy: 603, w: 100, optional: true },
+  mouth_open: {
+    src: "mouth_open.png",
+    cx: 550,
+    cy: 603,
+    w: 100,
+    optional: true,
+  },
   // eye_* (sclera) and lash_* share the eyewhite's cropped frame via noTrim (so
   // they are NOT re-bboxed independently): the upper lash stays anchored ABOVE
   // the sclera center, so on blink it folds DOWN over the eye like the sample
   // model instead of the whole eye shrinking in place. Same cx/cy/w.
   eye_L: { src: "eyewhite_sclera.png", cx: 675, cy: 475, w: EYE_W, noTrim: true }, // prettier-ignore
   eye_R: { src: "eyewhite_sclera.png", cx: 425, cy: 475, w: EYE_W, mirror: true, noTrim: true }, // prettier-ignore
-  iris_L: { src: "iris.png", cx: 671, cy: 475, w: IRIS_W, mirror: false },
-  iris_R: { src: "iris.png", cx: 429, cy: 475, w: IRIS_W, mirror: true },
+  iris_L: { src: "iris.png", cx: 671, cy: 467, w: IRIS_W, mirror: false },
+  iris_R: { src: "iris.png", cx: 429, cy: 467, w: IRIS_W, mirror: false },
   lash_L: {
     src: "eyewhite_lash.png",
     cx: 675,

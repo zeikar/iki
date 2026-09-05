@@ -26,8 +26,14 @@ const IRIS_RATIO_MAX = 0.72;
 // A sclera flatter than this cannot hold a round iris: the iris overflows the
 // lids no matter how narrow it is.
 const EYE_ASPECT_MIN = 0.5;
-// Iris centre may sit at most this far (px) from the white's centre of mass.
-const IRIS_OFFSET_MAX = 3;
+// How far the iris centre may sit from the white's centre of mass. The two axes
+// are not the same problem. Sideways drift is always a fault — that is the bug
+// this check was written for, a lash that fell out of sync with its sclera by
+// 14px. Vertically the reference itself rides its iris HIGH, tucked under the
+// lash with roughly a sixth of the aperture showing as white below it, so a
+// deliberate lift of that order is correct and a 3px ceiling flagged it.
+const IRIS_OFFSET_MAX_X = 3;
+const IRIS_OFFSET_MAX_Y = 10;
 // A cropped part shows a long, nearly-continuous opaque run along one bbox edge,
 // and that straight seam appears the moment the head turns. A round part's edge
 // row is a short tangent run, so a fraction test alone flags every iris; both a
@@ -247,7 +253,10 @@ const pct = (v) => `${(v * 100).toFixed(0)}%`;
       }
       const dx = iris.bboxCx - eye.massCx;
       const dy = iris.bboxCy - eye.massCy;
-      if (Math.abs(dx) > IRIS_OFFSET_MAX || Math.abs(dy) > IRIS_OFFSET_MAX) {
+      if (
+        Math.abs(dx) > IRIS_OFFSET_MAX_X ||
+        Math.abs(dy) > IRIS_OFFSET_MAX_Y
+      ) {
         warn.push(
           `iris_${side}: sits (${dx.toFixed(1)}, ${dy.toFixed(1)}) px from the white's centre of mass — ` +
             `retune LAYOUT iris_${side} cx/cy. The sclera's bbox centre is NOT its visual centre when the ` +
