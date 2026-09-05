@@ -83,6 +83,10 @@ export const ROLE_TABLE: Record<string, RoleSpec> = {
   blush_L: { deformer: "faceWarp", order: 20, mesh: true },
   blush_R: { deformer: "faceWarp", order: 20, mesh: true },
   mouth: { deformer: "faceWarp", order: 25, mesh: true },
+  // An OPTIONAL second mouth drawing, open. When present the two cross-fade on
+  // MouthOpen instead of the closed one being stretched, which is the
+  // difference between a portrait rig and one that can lip-sync.
+  mouth_open: { deformer: "faceWarp", order: 26, mesh: true },
   eye_L: { deformer: "faceWarp", order: 30, mesh: true, eyeSide: "L" },
   eye_R: { deformer: "faceWarp", order: 30, mesh: true, eyeSide: "R" },
   iris_L: { deformer: "faceWarp", order: 31, mesh: true, eyeSide: "L" },
@@ -511,6 +515,7 @@ export function bindingsForRole(
   role: string,
   cropW: number,
   cropH: number,
+  options: { hasMouthOpen?: boolean } = {},
 ): IkiBinding[] {
   const isEyeStack = EYE_STACK_PREFIXES.some((p) => role.startsWith(p));
 
@@ -541,22 +546,53 @@ export function bindingsForRole(
     ];
   }
 
+  // Mouth form applies to whichever mouth drawing is showing.
+  const mouthForm = {
+    // Mouth form: scaleX from -0.2 (pursed, param=-1) to 0.4 (wide, param=1).
+    parameter: StandardParameter.MouthForm,
+    channel: "scaleX" as const,
+    from: -0.2,
+    to: 0.4,
+  };
+
   if (role === "mouth") {
+    // With an open-mouth drawing present, the closed one fades out rather than
+    // being stretched. Stretching a closed mouth is what produced a smear: the
+    // art is a ~15px-tall line and scaleY 3 blows it up to a blurred band.
+    if (options.hasMouthOpen) {
+      return [
+        {
+          parameter: StandardParameter.MouthOpen,
+          channel: "opacity",
+          from: 1,
+          to: 0,
+        },
+        mouthForm,
+      ];
+    }
     return [
       // Mouth open: scaleY from 0 (closed, param=0) to 3 (wide open, param=1).
+      // Only a fallback — it distorts, but it is better than a mouth that
+      // cannot open at all when the layer set has no open drawing.
       {
         parameter: StandardParameter.MouthOpen,
         channel: "scaleY",
         from: 0,
         to: 3,
       },
-      // Mouth form: scaleX from -0.2 (pursed, param=-1) to 0.4 (wide, param=1).
+      mouthForm,
+    ];
+  }
+
+  if (role === "mouth_open") {
+    return [
       {
-        parameter: StandardParameter.MouthForm,
-        channel: "scaleX",
-        from: -0.2,
-        to: 0.4,
+        parameter: StandardParameter.MouthOpen,
+        channel: "opacity",
+        from: 0,
+        to: 1,
       },
+      mouthForm,
     ];
   }
 
@@ -695,6 +731,7 @@ export function generateIkiFromLayerSet(
 
   // Hair-sway secondary motion is gated on a front-hair layer being present.
   const hasHair = layers.some((l) => l.role === "hair_front");
+  const hasMouthOpen = layers.some((l) => l.role === "mouth_open");
 
   // ── Standard parameters — verbatim from sample-model.ts ──────────────────
   const parameters: IkiParameter[] = [
@@ -953,7 +990,9 @@ export function generateIkiFromLayerSet(
     const { role, bbox, cropW, cropH, canvasW, canvasH } = layer;
     const spec = ROLE_TABLE[role];
     const t = bboxToTransform(bbox, canvasW, canvasH, role);
-    const roleBindings = bindingsForRole(spec, role, cropW, cropH);
+    const roleBindings = bindingsForRole(spec, role, cropW, cropH, {
+      hasMouthOpen,
+    });
     // `IkiPart.deformer` is optional, so a "none" role states its detachment by
     // leaving the field off rather than naming a deformer that must exist.
     const deformerId = spec.deformer === "none" ? undefined : spec.deformer;

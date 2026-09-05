@@ -1212,6 +1212,70 @@ describe("assembly", () => {
     expect(gridOf(bodyLayers())).toBe(gridOf(assemblyLayers()));
   });
 
+  // A closed-mouth drawing stretched by scaleY 3 is a blurred band, not an open
+  // mouth. With a second drawing present the pair cross-fades instead.
+  it("bindingsForRole: mouth stretches when there is no open drawing", () => {
+    const b = bindingsForRole(ROLE_TABLE["mouth"], "mouth", 150, 15);
+    const open = b.find((x) => x.parameter === StandardParameter.MouthOpen)!;
+    expect(open.channel).toBe("scaleY");
+    expect(open.to).toBe(3);
+  });
+
+  it("bindingsForRole: mouth fades out when an open drawing is present", () => {
+    const b = bindingsForRole(ROLE_TABLE["mouth"], "mouth", 150, 15, {
+      hasMouthOpen: true,
+    });
+    const open = b.find((x) => x.parameter === StandardParameter.MouthOpen)!;
+    expect(open.channel).toBe("opacity");
+    expect(open.from).toBe(1);
+    expect(open.to).toBe(0);
+    // and it must NOT also be stretched
+    expect(b.some((x) => x.channel === "scaleY")).toBe(false);
+  });
+
+  it("bindingsForRole: mouth_open fades in as the closed mouth fades out", () => {
+    const b = bindingsForRole(ROLE_TABLE["mouth_open"], "mouth_open", 150, 60);
+    const open = b.find((x) => x.parameter === StandardParameter.MouthOpen)!;
+    expect(open.channel).toBe("opacity");
+    expect(open.from).toBe(0);
+    expect(open.to).toBe(1);
+  });
+
+  it("mouth_open draws over the closed mouth", () => {
+    expect(ROLE_TABLE["mouth_open"].order).toBeGreaterThan(
+      ROLE_TABLE["mouth"].order,
+    );
+  });
+
+  it("a layer set with mouth_open cross-fades both mouths", () => {
+    const layers: LayerInput[] = [
+      ...assemblyLayers(),
+      {
+        role: "mouth_open",
+        fileName: "mouth_open.png",
+        canvasW: 1000,
+        canvasH: 1000,
+        bbox: { x: 400, y: 590, w: 200, h: 100 },
+        cropW: 200,
+        cropH: 100,
+      },
+    ];
+    const model = generateIkiFromLayerSet(layers, {
+      width: 1000,
+      height: 1000,
+    });
+    const opacityOf = (id: string) =>
+      model.parts
+        .find((p) => p.id === id)!
+        .bindings!.find(
+          (b) =>
+            b.parameter === StandardParameter.MouthOpen &&
+            b.channel === "opacity",
+        )!;
+    expect(opacityOf("mouth").to).toBe(0);
+    expect(opacityOf("mouth_open").to).toBe(1);
+  });
+
   it("bindingsForRole: body (static) returns empty array", () => {
     expect(bindingsForRole(ROLE_TABLE["body"], "body", 900, 400)).toHaveLength(
       0,
