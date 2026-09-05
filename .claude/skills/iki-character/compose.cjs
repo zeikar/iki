@@ -39,7 +39,7 @@ const OUT = path.resolve(process.argv[3] ?? "layers");
 // bead floating in white, which is exactly how the first generated sample came
 // out (its iris was 32% of the sclera). Keep this ratio when retuning EYE_W.
 const EYE_W = 107;
-const IRIS_W = Math.round(EYE_W * 0.52);
+const IRIS_W = Math.round(EYE_W * 0.58);
 
 const LAYOUT = {
   // Back hair and body sit behind the face. Both are OPTIONAL: a parts dir
@@ -56,8 +56,8 @@ const LAYOUT = {
   // model instead of the whole eye shrinking in place. Same cx/cy/w.
   eye_L: { src: "eyewhite_sclera.png", cx: 564, cy: 419, w: EYE_W, noTrim: true }, // prettier-ignore
   eye_R: { src: "eyewhite_sclera.png", cx: 436, cy: 419, w: EYE_W, mirror: true, noTrim: true }, // prettier-ignore
-  iris_L: { src: "iris.png", cx: 560, cy: 418, w: IRIS_W, mirror: false },
-  iris_R: { src: "iris.png", cx: 440, cy: 418, w: IRIS_W, mirror: true },
+  iris_L: { src: "iris.png", cx: 560, cy: 413, w: IRIS_W, mirror: false },
+  iris_R: { src: "iris.png", cx: 440, cy: 413, w: IRIS_W, mirror: true },
   lash_L: {
     src: "eyewhite_lash.png",
     cx: 564,
@@ -68,7 +68,7 @@ const LAYOUT = {
   lash_R: { src: "eyewhite_lash.png", cx: 436, cy: 419, w: EYE_W, mirror: true, noTrim: true }, // prettier-ignore
   brow_L: { src: "brow.png", cx: 564, cy: 355, w: 99, mirror: false },
   brow_R: { src: "brow.png", cx: 436, cy: 355, w: 99, mirror: true },
-  hair_front: { src: "hair_front.png", cx: 500, cy: 413, w: 455 },
+  hair_front: { src: "hair_front.png", cx: 500, cy: 365, w: 455 },
 };
 
 // Draw order (back -> front), mirrors @ikijs/editor ROLE_TABLE order.
