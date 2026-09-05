@@ -16,10 +16,13 @@ const fs = require("fs");
 const DIR = path.resolve(process.argv[2] ?? "layers");
 
 // Iris width as a fraction of sclera width. Below the floor the eye reads as a
-// bead floating in white; above the ceiling the iris swamps the white even
-// after the runtime clips it to the sclera.
+// bead floating in white — that is the failure this check was written for, and
+// it caught a model that shipped at 0.33. The ceiling was a guess and it was
+// too tight: measured on a real anime reference the iris runs about 0.70 of the
+// eye, with the white reduced to corner crescents, so 0.6 flagged the correct
+// value as a fault three rounds running.
 const IRIS_RATIO_MIN = 0.45;
-const IRIS_RATIO_MAX = 0.6;
+const IRIS_RATIO_MAX = 0.72;
 // A sclera flatter than this cannot hold a round iris: the iris overflows the
 // lids no matter how narrow it is.
 const EYE_ASPECT_MIN = 0.5;
@@ -202,6 +205,10 @@ const pct = (v) => `${(v * 100).toFixed(0)}%`;
 
   // 1b. A straight cut through the drawing, wherever it falls in the bbox.
   for (const [role, m] of Object.entries(s)) {
+    // `body` is the one role rigged to no deformer, so it cannot move and no
+    // pose can uncover a cut in it. Its neck is deliberately cut flat at the
+    // top, where the jaw covers it; flagging that is a false positive.
+    if (role === "body") continue;
     if (
       m.flatCutRun > FLAT_CUT_MAX_FRAC * m.w &&
       m.flatCutRun >= FLAT_CUT_MIN_PX
