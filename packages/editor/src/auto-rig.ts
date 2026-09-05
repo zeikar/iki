@@ -426,6 +426,10 @@ export function createPixelGridMesh(
  *
  * At theta=0 the center keyform is all-zero (xPrime === x by identity).
  *
+ * The axis column is pinned: the bulk sideways slide a cylinder rotation
+ * produces is subtracted out, leaving only the foreshortening. See the comment
+ * at the subtraction for why.
+ *
  * RADIUS is derived from the grid's own half-width (same 0.6/0.5 margin ratio
  * as bakeHeadTurnGridWarp in the example app) so asin stays clear of ±1.
  *
@@ -449,6 +453,8 @@ export function bakeHeadTurnGridWarpCentered(
 
   const keyforms = ANGLES.map((angleDeg) => {
     const theta = angleDeg * DEG_TO_RAD;
+    // Displacement of the point on the cylinder axis (localX === 0).
+    const axisShift = RADIUS * Math.sin(theta);
     const offsets: number[] = [];
 
     for (let i = 0; i < pointCount; i++) {
@@ -457,7 +463,15 @@ export function bakeHeadTurnGridWarpCentered(
       // Clamp localX/RADIUS to [-1,1] to keep asin defined at boundary points.
       const alpha = Math.asin(Math.max(-1, Math.min(1, localX / RADIUS)));
       const xPrime = centerX + RADIUS * Math.sin(alpha + theta);
-      const dx = xPrime - x;
+      // Pin the axis column. Rotating a cylinder slides its whole visible
+      // surface sideways by RADIUS*sin(theta) — 170px on a 430px-wide face at
+      // 30 degrees — on top of the foreshortening. That bulk slide is what
+      // shoves the head off the shoulders and detaches the back hair; the
+      // foreshortening alone is what reads as a turn. Subtracting it leaves the
+      // differential and keeps the offsets monotonic, so no cell folds.
+      // Deliberate lateral head motion stays available on headDeformer's own
+      // translateX binding, where it can be tuned independently.
+      const dx = xPrime - x - axisShift;
       // dy is zero — cylinder bend only deforms horizontal position.
       offsets.push(dx, 0);
     }

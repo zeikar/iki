@@ -764,7 +764,9 @@ describe("warp", () => {
     const localX = x - faceCenterX; // -298
     const alpha = Math.asin(Math.max(-1, Math.min(1, localX / RADIUS)));
     const xPrime = faceCenterX + RADIUS * Math.sin(alpha + theta);
-    const expectedDx = xPrime - x;
+    // The axis column's own displacement is subtracted from every point.
+    const axisShift = RADIUS * Math.sin(theta);
+    const expectedDx = xPrime - x - axisShift;
 
     expect(kf30.offsets[0]).toBeCloseTo(expectedDx, 8);
 
@@ -774,6 +776,48 @@ describe("warp", () => {
     const xPrimeAbsolute = RADIUS * Math.sin(alphaAbsolute + theta);
     const oldDx = xPrimeAbsolute - x;
     expect(kf30.offsets[0]).not.toBeCloseTo(oldDx, 3);
+  });
+
+  // A cylinder rotation slides its whole visible surface sideways as well as
+  // foreshortening it. That bulk slide is what pushed the head off the
+  // shoulders, so the bake subtracts it; these two lock the property in.
+  it("the cylinder axis column does not move at any keyform", () => {
+    const grid = {
+      cols: 4,
+      rows: 4,
+      points: generateGridPoints(4, 4, -200, 200, -100, 300),
+    };
+    const warp = bakeHeadTurnGridWarpCentered(grid, "ParamAngleX", 0);
+    for (const kf of warp.keyforms) {
+      for (let i = 0; i < grid.points.length / 2; i++) {
+        if (Math.abs(grid.points[i * 2] - 0) < 1e-9) {
+          expect(kf.offsets[i * 2], `value=${kf.value} point ${i}`).toBeCloseTo(
+            0,
+            8,
+          );
+        }
+      }
+    }
+  });
+
+  it("no keyform folds the grid: warped x stays strictly increasing", () => {
+    const grid = {
+      cols: 4,
+      rows: 4,
+      points: generateGridPoints(4, 4, -200, 200, -100, 300),
+    };
+    const warp = bakeHeadTurnGridWarpCentered(grid, "ParamAngleX", 0);
+    const cols = grid.cols + 1;
+    for (const kf of warp.keyforms) {
+      let previous = -Infinity;
+      for (let c = 0; c < cols; c++) {
+        const warped = grid.points[c * 2] + kf.offsets[c * 2];
+        expect(warped, `value=${kf.value} column ${c}`).toBeGreaterThan(
+          previous,
+        );
+        previous = warped;
+      }
+    }
   });
 
   it("face part transform.x is preserved (source placement unshifted)", () => {
