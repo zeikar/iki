@@ -1024,6 +1024,37 @@ describe("bindings", () => {
 // ── describe("eyelid fold") ──────────────────────────────────────────────────
 
 describe("eyelid fold", () => {
+  it("closes the sclera clip completely when that eye has a separate lash", () => {
+    const model = generateIkiFromLayerSet(
+      [
+        ...assemblyLayers(),
+        {
+          role: "lash_L",
+          fileName: "lash_L.png",
+          canvasW: 1000,
+          canvasH: 1000,
+          bbox: { x: 300, y: 290, w: 160, h: 40 },
+          cropW: 160,
+          cropH: 40,
+        },
+      ],
+      { width: 1000, height: 1000 },
+    );
+    const closedHeight = (id: string) => {
+      const part = model.parts.find((p) => p.id === id)!;
+      const closed = part.warps![0].keyforms.find((k) => k.value === 0)!;
+      const ys = part
+        .mesh!.vertices.map((v, i) => v + closed.offsets[i])
+        .filter((_, i) => i % 2 === 1);
+      return Math.max(...ys) - Math.min(...ys);
+    };
+    // A nonzero clip leaves a visible stripe of iris beneath the closed lash.
+    expect(closedHeight("eye_L")).toBeCloseTo(0, 10);
+    expect(closedHeight("lash_L")).toBeGreaterThan(0);
+    // An eye without separate lashes keeps its authored closed-eye line.
+    expect(closedHeight("eye_R")).toBeGreaterThan(0);
+  });
+
   it("bakeEyelidFoldWarp: 2 keyforms, open=rest-zeros, closed=non-zero", () => {
     const mesh = createPixelGridMesh(4, 4, 120, 80);
     const w = bakeEyelidFoldWarp(mesh, StandardParameter.EyeOpenLeft, -12, 0.1);

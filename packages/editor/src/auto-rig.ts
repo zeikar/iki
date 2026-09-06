@@ -660,10 +660,9 @@ export function bindingsForRole(
 
 // ── bakeEyelidFoldWarp ─────────────────────────────────────────────────────
 
-/** Crease sits this fraction of the eye height BELOW the white's center, and the
- *  white keeps this fraction of its height when fully closed (a thin band, not 0
- *  so the lash texture in the white art doesn't crush to a single aliased row). */
+/** Crease sits this fraction of the eye height BELOW the white's center. */
 const EYELID_FOLD_CREASE = 0.15;
+/** Without separate lashes, retain a thin band of the eye's own line art. */
 const EYELID_FOLD_K = 0.04;
 /** The lash keeps a thicker band than the white when closed, so it reads as a
  *  visible dark closed-eye line and covers the cut eyeball/seam. */
@@ -1027,12 +1026,15 @@ export function generateIkiFromLayerSet(
               : StandardParameter.EyeOpenRight;
           const creaseWorldY =
             eyeCreaseBySide[spec.eyeSide] ?? t.y - EYELID_FOLD_CREASE * cropH;
+          // Separate lashes supply the closed-eye line. Collapse their sclera
+          // clip completely so a strip of iris cannot show underneath.
+          const hasLash = layers.some((l) => l.role === `lash_${spec.eyeSide}`);
           part.warps = [
             bakeEyelidFoldWarp(
               mesh,
               openParam,
               creaseWorldY - t.y,
-              isLash ? LASH_FOLD_K : EYELID_FOLD_K,
+              isLash ? LASH_FOLD_K : hasLash ? 0 : EYELID_FOLD_K,
             ),
           ];
         } else {
