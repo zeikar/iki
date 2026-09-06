@@ -147,7 +147,8 @@ idleLabel.append(idleLabelText, idleCheckbox);
 idleRow.append(idleLabel);
 panel.insertBefore(idleRow, controls);
 
-// Model picker for the vector sample and the generated hero in public/.
+// Model picker for the generated hero in public/ and the vector sample. Hero
+// leads so the select's default already names the model the page starts on.
 // Built once, like the Idle row, so it survives the per-model control rebuilds.
 const modelRow = document.createElement("div");
 modelRow.className = "control";
@@ -156,8 +157,8 @@ const modelLabelText = document.createElement("span");
 modelLabelText.textContent = "Model";
 const modelSelect = document.createElement("select");
 for (const [value, text] of [
-  ["vector", "Vector sample"],
   ["hero", "Hero character"],
+  ["vector", "Vector sample"],
 ] as const) {
   const opt = document.createElement("option");
   opt.value = value;
@@ -176,19 +177,21 @@ panel.insertBefore(modelRow, controls);
 let modelSwitchSeq = 0;
 // The picker value of the model actually loaded — the failure path rolls the
 // select back to this so the UI never claims a model that didn't load.
-let loadedModelValue = "vector";
+let loadedModelValue = "hero";
+
+// BASE_URL-relative: models in public/ are served beside the page, so under a
+// GitHub Pages sub-path build the fetch must carry the same base as the page.
+async function fetchModel(file: string): Promise<unknown> {
+  const res = await fetch(`${import.meta.env.BASE_URL}${file}`);
+  if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+  return res.json();
+}
 
 async function switchModel(which: string): Promise<void> {
   const seq = ++modelSwitchSeq;
   try {
     let raw: unknown = sampleModel;
-    if (which === "hero") {
-      // BASE_URL-relative: hero.iki lives in public/, so under a GitHub Pages
-      // sub-path build the fetch must carry the same base as the page.
-      const res = await fetch(`${import.meta.env.BASE_URL}hero.iki`);
-      if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
-      raw = await res.json();
-    }
+    if (which === "hero") raw = await fetchModel("hero.iki");
     if (seq !== modelSwitchSeq) return; // superseded while fetching
     await loadModel(raw);
     if (seq !== modelSwitchSeq) return; // superseded while loading
@@ -227,7 +230,19 @@ async function loadModel(rawModel: unknown): Promise<void> {
   }
 }
 
-await loadModel(sampleModel);
+// Start on the hero: it exercises the whole runtime — warp, clipping masks,
+// physics, hair chains — where the vector sample only covers plain quads. It
+// has to be fetched, and a switch's rollback is no use when nothing is on
+// screen yet, so a failure falls back to the inline sample: the simpler model
+// is a better first frame than an empty canvas.
+try {
+  await loadModel(await fetchModel("hero.iki"));
+} catch (err) {
+  console.error("Iki: hero load failed, falling back to the sample", err);
+  loadedModelValue = "vector";
+  modelSelect.value = "vector";
+  await loadModel(sampleModel);
+}
 
 // Checkbox is on by default; start the idle loop after the first model load.
 startIdle();
