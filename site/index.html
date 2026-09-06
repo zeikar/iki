@@ -1,0 +1,748 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Iki — an open 2D rig puppet engine for the web</title>
+    <meta
+      name="description"
+      content="Iki is an open 2D rig puppet animation engine for the web. Author a character as layered parts wired to parameters; the runtime animates it in WebGL. The model is plain JSON."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230F1320'/%3E%3Ctext x='16' y='23' font-size='19' text-anchor='middle' fill='%23E9A23B' font-family='sans-serif'%3E%E6%81%AF%3C/text%3E%3C/svg%3E"
+    />
+
+    <meta
+      property="og:title"
+      content="Iki — an open 2D rig puppet engine for the web"
+    />
+    <meta
+      property="og:description"
+      content="Author a character as layered parts wired to parameters; the runtime animates it in WebGL. The model is plain JSON."
+    />
+    <meta property="og:image" content="https://zeikar.dev/iki/hero.webp" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      /* Palette lifted from the character the engine is rendering: the navy of
+         her sailor collar as the ground, the amber of her irises as the only
+         accent. Nothing else gets a color. */
+      :root {
+        --ink: #0f1320;
+        --ink-2: #151a2b;
+        --rule: #232b45;
+        --paper: #e9ebf3;
+        --muted: #8b93ae;
+        --amber: #e9a23b;
+
+        --sans: "Zen Kaku Gothic New", ui-sans-serif, system-ui, sans-serif;
+        --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+        --gutter: clamp(1.25rem, 5vw, 4.5rem);
+        --measure: 1180px;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+
+      body {
+        margin: 0;
+        background: var(--ink);
+        color: var(--paper);
+        font-family: var(--sans);
+        font-size: 17px;
+        line-height: 1.65;
+        font-weight: 400;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--amber);
+        outline-offset: 3px;
+        border-radius: 2px;
+      }
+
+      .shell {
+        width: 100%;
+        max-width: var(--measure);
+        margin-inline: auto;
+        padding-inline: var(--gutter);
+      }
+
+      /* ---------- masthead ---------- */
+
+      .masthead {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+        padding-block: 1.75rem 0;
+      }
+
+      .wordmark {
+        font-size: 1.375rem;
+        font-weight: 900;
+        letter-spacing: -0.015em;
+        text-decoration: none;
+      }
+
+      .wordmark .glyph {
+        color: var(--amber);
+        margin-inline-start: 0.18em;
+        font-weight: 500;
+      }
+
+      .masthead nav {
+        display: flex;
+        gap: 1.5rem;
+        font-size: 0.9375rem;
+        color: var(--muted);
+      }
+
+      .masthead nav a {
+        text-decoration: none;
+        padding-block: 0.15em;
+        border-bottom: 1px solid transparent;
+      }
+
+      .masthead nav a:hover {
+        color: var(--paper);
+        border-bottom-color: var(--amber);
+      }
+
+      /* ---------- hero ---------- */
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 0.95fr) minmax(0, 1fr);
+        gap: clamp(1.5rem, 4vw, 4rem);
+        align-items: center;
+        padding-block: clamp(1.5rem, 4vw, 3rem) clamp(2rem, 5vw, 4rem);
+      }
+
+      .hero figure {
+        margin: 0;
+      }
+
+      /* The render is cropped at the canvas edge, so the blouse would otherwise
+         end on a hard white line against the navy. Dissolve it into the ground
+         instead — the figure reads as continuing past the frame. */
+      .hero img {
+        display: block;
+        width: 100%;
+        height: auto;
+        -webkit-mask-image: linear-gradient(
+          to bottom,
+          #000 68%,
+          transparent 97%
+        );
+        mask-image: linear-gradient(to bottom, #000 68%, transparent 97%);
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(2.1rem, 4.6vw, 3.4rem);
+        line-height: 1.09;
+        letter-spacing: -0.025em;
+        font-weight: 700;
+        text-wrap: balance;
+      }
+
+      .deck {
+        margin: 1.25rem 0 0;
+        max-width: 44ch;
+        color: var(--muted);
+        font-size: 1.0625rem;
+      }
+
+      .deck strong {
+        color: var(--paper);
+        font-weight: 500;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-top: 1.75rem;
+      }
+
+      .btn {
+        display: inline-block;
+        padding: 0.7rem 1.35rem;
+        border-radius: 3px;
+        font-size: 0.9688rem;
+        font-weight: 500;
+        text-decoration: none;
+        border: 1px solid transparent;
+        transition:
+          background-color 0.15s ease,
+          border-color 0.15s ease;
+      }
+
+      .btn-primary {
+        background: var(--amber);
+        color: #24170a;
+      }
+
+      .btn-primary:hover {
+        background: #f2b258;
+      }
+
+      .btn-secondary {
+        border-color: var(--rule);
+        color: var(--paper);
+      }
+
+      .btn-secondary:hover {
+        border-color: var(--muted);
+        background: var(--ink-2);
+      }
+
+      /* ---------- parameter band ---------- */
+
+      .params {
+        border-top: 1px solid var(--rule);
+        border-bottom: 1px solid var(--rule);
+        background: var(--ink-2);
+        padding-block: clamp(2rem, 4vw, 2.75rem);
+      }
+
+      .params .caption {
+        margin: 0 0 1.75rem;
+        max-width: 58ch;
+        color: var(--muted);
+        font-size: 0.9375rem;
+      }
+
+      .params .caption b {
+        color: var(--paper);
+        font-weight: 500;
+      }
+
+      .param-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+        gap: 0.1rem clamp(1.5rem, 4vw, 3.5rem);
+      }
+
+      .param {
+        display: grid;
+        grid-template-columns: 10.5rem 1fr 3.5rem;
+        align-items: center;
+        gap: 0.85rem;
+        padding-block: 0.42rem;
+        font-family: var(--mono);
+        font-size: 0.78rem;
+      }
+
+      .param .id {
+        color: var(--muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .param .track {
+        position: relative;
+        height: 3px;
+        background: #202741;
+        border-radius: 2px;
+        overflow: hidden;
+      }
+
+      .param .track::after {
+        content: "";
+        position: absolute;
+        inset-block: 0;
+        left: 0;
+        width: var(--p);
+        background: var(--amber);
+        border-radius: 2px;
+        transform-origin: left center;
+        /* The one piece of unprompted motion on the page, and it is the subject
+           itself: sixteen values arriving on the rig that produced the frame. */
+        animation: settle 0.85s cubic-bezier(0.22, 0.8, 0.3, 1) both;
+        animation-delay: var(--d);
+      }
+
+      @keyframes settle {
+        from {
+          transform: scaleX(0);
+        }
+        to {
+          transform: scaleX(1);
+        }
+      }
+
+      .param .val {
+        text-align: right;
+        color: var(--amber);
+        font-variant-numeric: tabular-nums;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .param .track::after {
+          animation: none;
+        }
+      }
+
+      /* ---------- prose sections ---------- */
+
+      section.band {
+        padding-block: clamp(3rem, 7vw, 5rem);
+      }
+
+      h2 {
+        margin: 0 0 0.5rem;
+        font-size: clamp(1.4rem, 2.6vw, 1.75rem);
+        font-weight: 700;
+        letter-spacing: -0.015em;
+      }
+
+      .lede {
+        margin: 0 0 2.5rem;
+        max-width: 62ch;
+        color: var(--muted);
+        font-size: 1rem;
+      }
+
+      /* A definition list, not a card grid: the term is the subject and the
+         description qualifies it, which is exactly the shape of this content. */
+      .facts {
+        margin: 0;
+        display: grid;
+        gap: 0;
+      }
+
+      .facts > div {
+        display: grid;
+        grid-template-columns: 12rem 1fr;
+        gap: 0.5rem 2rem;
+        padding-block: 1.15rem;
+        border-top: 1px solid var(--rule);
+      }
+
+      .facts > div:last-child {
+        border-bottom: 1px solid var(--rule);
+      }
+
+      .facts dt {
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+
+      .facts dd {
+        margin: 0;
+        color: var(--muted);
+        max-width: 60ch;
+      }
+
+      .facts dd code {
+        font-family: var(--mono);
+        font-size: 0.86em;
+        color: var(--paper);
+      }
+
+      /* ---------- packages ---------- */
+
+      .pkgs {
+        width: 100%;
+        border-collapse: collapse;
+        text-align: left;
+      }
+
+      .pkgs th,
+      .pkgs td {
+        padding: 1rem 1.5rem 1rem 0;
+        border-top: 1px solid var(--rule);
+        vertical-align: baseline;
+      }
+
+      .pkgs tbody tr:last-child td {
+        border-bottom: 1px solid var(--rule);
+      }
+
+      .pkgs th {
+        font-size: 0.8125rem;
+        font-weight: 500;
+        color: var(--muted);
+        border-top: 0;
+        padding-top: 0;
+      }
+
+      .pkgs td:first-child {
+        font-family: var(--mono);
+        font-size: 0.875rem;
+        white-space: nowrap;
+      }
+
+      .pkgs td:first-child a {
+        color: var(--amber);
+        text-decoration: none;
+        border-bottom: 1px solid rgb(233 162 59 / 0.3);
+      }
+
+      .pkgs td:first-child a:hover {
+        border-bottom-color: var(--amber);
+      }
+
+      .pkgs td:last-child {
+        color: var(--muted);
+      }
+
+      .caveat {
+        margin: 2.5rem 0 0;
+        padding-left: 1.1rem;
+        border-left: 2px solid var(--rule);
+        max-width: 64ch;
+        color: var(--muted);
+        font-size: 0.9375rem;
+      }
+
+      .caveat a {
+        color: var(--paper);
+      }
+
+      /* ---------- footer ---------- */
+
+      footer {
+        border-top: 1px solid var(--rule);
+        padding-block: clamp(2.5rem, 5vw, 3.5rem);
+      }
+
+      .readings {
+        display: flex;
+        flex-wrap: wrap;
+        gap: clamp(1.75rem, 5vw, 3.5rem);
+        margin: 0 0 2.5rem;
+        padding: 0;
+        list-style: none;
+      }
+
+      .readings b {
+        display: block;
+        font-size: 1.75rem;
+        font-weight: 500;
+        line-height: 1.2;
+        color: var(--amber);
+      }
+
+      .readings span {
+        font-size: 0.875rem;
+        color: var(--muted);
+      }
+
+      .colophon {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 1rem;
+        font-size: 0.875rem;
+        color: var(--muted);
+      }
+
+      .colophon a {
+        text-decoration: none;
+        border-bottom: 1px solid var(--rule);
+      }
+
+      .colophon a:hover {
+        color: var(--paper);
+        border-bottom-color: var(--muted);
+      }
+
+      /* ---------- narrow ---------- */
+
+      @media (max-width: 860px) {
+        .hero {
+          grid-template-columns: 1fr;
+          gap: 1rem;
+        }
+
+        .hero figure {
+          max-width: 380px;
+        }
+
+        .facts > div {
+          grid-template-columns: 1fr;
+          gap: 0.25rem;
+        }
+
+        .param {
+          grid-template-columns: 9.5rem 1fr 3.25rem;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <header class="shell masthead">
+      <a class="wordmark" href="./">Iki<span class="glyph">息</span></a>
+      <nav>
+        <a href="playground/">Playground</a>
+        <a href="editor/">Editor</a>
+        <a href="https://github.com/zeikar/iki">GitHub</a>
+        <a href="https://www.npmjs.com/package/@ikijs/engine">npm</a>
+      </nav>
+    </header>
+
+    <main>
+      <div class="shell hero">
+        <figure>
+          <img
+            src="hero.webp"
+            width="720"
+            height="886"
+            alt="A rigged character rendered by the Iki engine, head turned slightly and smiling."
+          />
+        </figure>
+
+        <div>
+          <h1>Every frame is just numbers you own.</h1>
+          <p class="deck">
+            Iki is an open 2D rig puppet animation engine for the web. You
+            author a character as layered parts wired to parameters, and the
+            runtime animates it in WebGL. The model is
+            <strong>plain JSON</strong> — readable in a text editor, diffable in
+            git, and small enough for a script to generate.
+          </p>
+          <div class="actions">
+            <a class="btn btn-primary" href="playground/"
+              >Open the playground</a
+            >
+            <a class="btn btn-secondary" href="editor/">Open the editor</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="params">
+        <div class="shell">
+          <p class="caption">
+            <b>These sixteen values produced the frame above.</b> That is the
+            whole rig — a host drives the same ids from lip-sync, gaze, blink
+            timers, and expressions.
+          </p>
+
+          <!-- Real values, read back off the engine after posing the model.
+               --p is (value - min) / (max - min). -->
+          <div class="param-grid">
+            <div class="param" style="--p: 68.3%; --d: 0s">
+              <span class="id">ParamAngleX</span><span class="track"></span
+              ><span class="val">11.00</span>
+            </div>
+            <div class="param" style="--p: 43.3%; --d: 0.03s">
+              <span class="id">ParamAngleY</span><span class="track"></span
+              ><span class="val">−4.00</span>
+            </div>
+            <div class="param" style="--p: 56.7%; --d: 0.06s">
+              <span class="id">ParamAngleZ</span><span class="track"></span
+              ><span class="val">4.00</span>
+            </div>
+            <div class="param" style="--p: 45%; --d: 0.09s">
+              <span class="id">ParamBreath</span><span class="track"></span
+              ><span class="val">0.45</span>
+            </div>
+            <div class="param" style="--p: 18%; --d: 0.12s">
+              <span class="id">ParamMouthOpenY</span><span class="track"></span
+              ><span class="val">0.18</span>
+            </div>
+            <div class="param" style="--p: 82.5%; --d: 0.15s">
+              <span class="id">ParamMouthForm</span><span class="track"></span
+              ><span class="val">0.65</span>
+            </div>
+            <div class="param" style="--p: 100%; --d: 0.18s">
+              <span class="id">ParamEyeLOpen</span><span class="track"></span
+              ><span class="val">1.00</span>
+            </div>
+            <div class="param" style="--p: 100%; --d: 0.21s">
+              <span class="id">ParamEyeROpen</span><span class="track"></span
+              ><span class="val">1.00</span>
+            </div>
+            <div class="param" style="--p: 61%; --d: 0.24s">
+              <span class="id">ParamEyeBallX</span><span class="track"></span
+              ><span class="val">0.22</span>
+            </div>
+            <div class="param" style="--p: 52.5%; --d: 0.27s">
+              <span class="id">ParamEyeBallY</span><span class="track"></span
+              ><span class="val">0.05</span>
+            </div>
+            <div class="param" style="--p: 62.5%; --d: 0.3s">
+              <span class="id">ParamBrowLY</span><span class="track"></span
+              ><span class="val">0.25</span>
+            </div>
+            <div class="param" style="--p: 62.5%; --d: 0.33s">
+              <span class="id">ParamBrowRY</span><span class="track"></span
+              ><span class="val">0.25</span>
+            </div>
+            <div class="param" style="--p: 50%; --d: 0.36s">
+              <span class="id">ParamBrowLAngle</span><span class="track"></span
+              ><span class="val">0.00</span>
+            </div>
+            <div class="param" style="--p: 50%; --d: 0.39s">
+              <span class="id">ParamBrowRAngle</span><span class="track"></span
+              ><span class="val">0.00</span>
+            </div>
+            <div class="param" style="--p: 35%; --d: 0.42s">
+              <span class="id">ParamHairSwayX</span><span class="track"></span
+              ><span class="val">−6.00</span>
+            </div>
+            <div class="param" style="--p: 57.5%; --d: 0.45s">
+              <span class="id">ParamHairSwayZ</span><span class="track"></span
+              ><span class="val">3.00</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <section class="shell band">
+        <h2>What runs today</h2>
+        <p class="lede">
+          Iki is early, but none of this is a mockup — every line below is
+          running in the two demos linked at the top of this page.
+        </p>
+
+        <dl class="facts">
+          <div>
+            <dt>Runtime</dt>
+            <dd>
+              Renders parameter-driven color quads, atlas-sampled texture parts,
+              warp-mesh and grid deformation, stencil clipping masks, and spring
+              and chain physics. WebGL2, no native toolchain.
+            </dd>
+          </div>
+          <div>
+            <dt>Editor</dt>
+            <dd>
+              Authors parts, deformers, and physics rigs in the browser, with
+              undo and redo on every edit. Imports layered PSDs.
+            </dd>
+          </div>
+          <div>
+            <dt>Generator</dt>
+            <dd>
+              Rigs a character from role-named PNG or PSD layers — blink, gaze,
+              mouth, head turn, and brows, wired automatically. It also runs as
+              an MCP server, so an AI agent can take layers to a rigged model
+              without a human in the loop.
+            </dd>
+          </div>
+          <div>
+            <dt>Format</dt>
+            <dd>
+              One documented schema with a fail-fast validator that reports the
+              exact path that failed. A model is a <code>.iki</code> JSON file
+              you can open, read, and edit by hand.
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="shell band" style="padding-top: 0">
+        <h2>Packages</h2>
+        <p class="lede">
+          Published to npm under
+          <code style="font-family: var(--mono)">@ikijs</code>, MIT licensed.
+          The engine depends only on the format package, and never on a host.
+        </p>
+
+        <table class="pkgs">
+          <thead>
+            <tr>
+              <th scope="col">Package</th>
+              <th scope="col">What it is</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <a href="https://www.npmjs.com/package/@ikijs/format"
+                  >@ikijs/format</a
+                >
+              </td>
+              <td>The .iki model schema, types, loader, and validator</td>
+            </tr>
+            <tr>
+              <td>
+                <a href="https://www.npmjs.com/package/@ikijs/engine"
+                  >@ikijs/engine</a
+                >
+              </td>
+              <td>WebGL2 runtime that plays a model</td>
+            </tr>
+            <tr>
+              <td>
+                <a href="https://www.npmjs.com/package/@ikijs/editor"
+                  >@ikijs/editor</a
+                >
+              </td>
+              <td>
+                Headless editing core — documents, commands, undo/redo, and the
+                auto-rigger
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <a href="https://www.npmjs.com/package/@ikijs/mcp"
+                  >@ikijs/mcp</a
+                >
+              </td>
+              <td>
+                MCP server that exposes reading, validating, and rigging to
+                agents
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p class="caveat">
+          Live2D Cubism is the industry standard and is far more mature than Iki
+          in every dimension that matters to an artist. If you need
+          production-grade 2D rigging today, use Cubism. Iki exists for people
+          who want an open web format they can script against — read the
+          <a href="https://github.com/zeikar/iki#how-iki-compares"
+            >full comparison</a
+          >.
+        </p>
+      </section>
+    </main>
+
+    <footer class="shell">
+      <ul class="readings">
+        <li><b>息</b><span>breath</span></li>
+        <li><b>生き</b><span>life</span></li>
+        <li><b>粋</b><span>chic</span></li>
+      </ul>
+      <div class="colophon">
+        <span
+          >MIT licensed. Built by
+          <a href="https://github.com/zeikar">zeikar</a>.</span
+        >
+        <span
+          ><a href="https://github.com/zeikar/iki">Source on GitHub</a></span
+        >
+      </div>
+    </footer>
+  </body>
+</html>
