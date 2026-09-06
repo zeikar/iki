@@ -11,8 +11,10 @@ import { GridOverlay } from "./GridOverlay";
 import { PivotOverlay } from "./PivotOverlay";
 import { useEditorStore } from "./store";
 
-// The seven "life" parameters the idle driver writes. Restore touches only ids
-// the loaded model actually declares.
+// The eight "life" parameters the idle driver writes. Restore touches only ids
+// the loaded model actually declares. Keep in step with IdleMotion: a parameter
+// it writes but this list omits stays at its last sway value after idle stops,
+// and the grid overlay (drawn from the store) drifts off the rendered face.
 const IDLE_PARAM_IDS = [
   StandardParameter.EyeOpenLeft,
   StandardParameter.EyeOpenRight,
@@ -21,6 +23,7 @@ const IDLE_PARAM_IDS = [
   StandardParameter.EyeballY,
   StandardParameter.AngleX,
   StandardParameter.AngleY,
+  StandardParameter.AngleZ,
 ] as const;
 
 interface PreviewProps {
