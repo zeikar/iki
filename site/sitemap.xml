@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Served at https://zeikar.dev/iki/sitemap.xml, and listed from the account's
+  root robots.txt and sitemap index in the zeikar.github.io repo.
+
+  <loc> only, matching that repo's own sitemap-main.xml: Google ignores
+  <changefreq>, and a hand-written <lastmod> is worse than none once it stops
+  being bumped. There is deliberately no robots.txt beside this file — robots
+  is read per host, only at the root, so /iki/robots.txt would never be fetched.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://zeikar.dev/iki/</loc>
+  </url>
+  <url>
+    <loc>https://zeikar.dev/iki/playground/</loc>
+  </url>
+  <url>
+    <loc>https://zeikar.dev/iki/editor/</loc>
+  </url>
+</urlset>
