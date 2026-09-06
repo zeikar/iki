@@ -1,6 +1,6 @@
 {
   "name": "@ikijs/editor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Headless editing core and auto-rigger for .iki 2D puppet models — DOM-free edit commands, undo/redo, atlas and UV math",
   "keywords": [
     "iki",

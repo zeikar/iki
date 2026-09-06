@@ -1,6 +1,6 @@
 {
   "name": "@ikijs/format",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Schema, TypeScript types, loader and validator for the .iki 2D puppet model format — an open, Live2D-style rig format for the web",
   "keywords": [
     "iki",

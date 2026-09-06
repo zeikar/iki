@@ -1,5 +1,144 @@
 # @ikijs/editor
 
+## 0.2.0
+
+### Minor Changes
+
+- f16b7c1: Auto-rigged models can now nod. `generateIkiFromLayerSet` declares
+  `ParamAngleY` and drives `faceWarp` with one 2D grid warp over AngleX × AngleY
+  (the new exported `bakeHeadTurnGridWarp2DCentered`), so the face foreshortens
+  vertically as the head pitches; `headDeformer` gains a symmetric `AngleY`
+  `translateY`, and `hair_back` an `AngleY` `translateY` that keeps its crown
+  tucked under the bent front hair. The AngleY = 0 row of the 2D bake is exactly
+  the old 1D turn bake, so the head turn is unchanged, and the rest pose renders
+  identically.
+
+  The nod is deliberately gentler than the turn (`NOD_BEND` = 0.5): the face-warp
+  grid reaches the hair crown, where a full 30° bend dropped the bangs ~140px and
+  exposed the rigid back hair above them as a second silhouette.
+
+  `bindingsForRole` takes a new `parallaxUnitY` option alongside `parallaxUnit`.
+
+  Because a warp deformer carries either `warps` or `warp2d`, auto-rigged models
+  now emit `warp2d` and no `warps`. Anything that reads `faceWarp.warps[0]`
+  directly — the example editor's grid-keyform drag authoring and its grid
+  overlay — sees no 1D warp on these models until it learns `warp2d`; the engine
+  plays them unchanged.
+
+- fe37018: Add a `mouth_open` role so a rigged mouth can actually open.
+
+  With only a closed-mouth drawing, mouth-open was `scaleY` 0..3 on art that is
+  typically a ~15px-tall line. Stretching it four times over produces a blurred
+  band, not an open mouth — fine for a portrait, useless for lip-sync.
+
+  A layer set that also supplies `mouth_open` now cross-fades the two drawings on
+  `ParamMouthOpenY` through the `opacity` channel, which the format and engine
+  already supported, and the closed mouth is no longer stretched. `MouthForm`
+  still drives `scaleX` on whichever drawing is showing.
+
+  Layer sets without a `mouth_open` layer keep the stretch and produce exactly the
+  model they did before.
+
+- cda1b78: Add a `body` role to the auto-rigger for a character's torso.
+
+  Every existing role hangs from either `faceWarp` or `headDeformer`, and
+  `headDeformer` rotates the whole head about the neck pivot — so there was no way
+  to rig shoulders that stay put while the head turns, and a generated character
+  read as a floating head. `body` is the one role attached to no deformer at all:
+  it is emitted as a static quad with `part.deformer` omitted, drawn over
+  `hair_back` and under `face`.
+
+  `RoleSpec.deformer` widens to `"faceWarp" | "headDeformer" | "none"`.
+  `auto_rig_from_layers` accepts `body.png` in its layer set as a result.
+
+  A layer set without a `body` produces exactly the model it did before.
+
+- 99e4d4c: Auto-rig the head turn with depth parallax. `hair_front` and `hair_back` no
+  longer track the face plane exactly: each gets an `AngleX` `translateX` sized by
+  its depth from the head cylinder's axis, so the bangs lead the face and the back
+  hair follows it at a distance. The back hair also bends on the turn through its
+  own part warp (`bakeHairBackTurnWarp`, exported): the near side tucks behind the
+  face at a far flatter radius than the face's, and the far side bulges out as
+  the hair volume hidden behind it swings into view.
+  Without these both layers were glued flat to the face and a turn read as a
+  cutout sliding sideways.
+
+  Adds the exported `headTurnParallaxUnit(gridHalfWidth)`, the shared unit both the
+  warp bake and the hair bindings derive from. `bindingsForRole` takes it through a
+  new `parallaxUnit` option and emits no parallax without it, so existing callers
+  are unaffected.
+
+  Also fixes a latent bug this surfaced: parts with no mesh dropped their bindings
+  during assembly. Only `hair_back` and `body` take that path and neither had any
+  until now, so no released model changed.
+
+- 5cbf157: Pin the cylinder axis in the head-turn warp bake.
+
+  Rotating a cylinder slides its whole visible surface sideways by
+  `RADIUS * sin(theta)` on top of foreshortening it — 170px on a 430px-wide face
+  at 30 degrees. That bulk slide is what pushed a generated head off its
+  shoulders, dragged the neck with it, and left the back hair trailing as a
+  separate mass; the foreshortening on its own is what reads as a turn.
+
+  The bake now subtracts the axis column's own displacement, so the centre of the
+  face holds still and only the differential remains. Offsets stay monotonic, so
+  no grid cell folds. Deliberate lateral head motion is unaffected — it lives on
+  `headDeformer`'s `translateX` binding, where it can be tuned on its own.
+
+  Generated models turn less far sideways than before. Shrinking `RADIUS` was the
+  other candidate and is a trap: below the grid's half-width the outer columns
+  saturate at `asin(±1)` and cross over their neighbours, inverting the mesh.
+
+- 64617a7: Head tilt reaches the idle motion and the hair.
+  - `@ikijs/engine`: `IdleMotion` now sways `ParamAngleZ` too — the smallest and
+    slowest of the three head axes (±1.1° over 11.3 s), so an idle character
+    tilts as gently as it breathes. Models without the parameter ignore the
+    writes, as with AngleX/Y.
+  - `@ikijs/format`: adds `StandardParameter.HairSwayZ` (`ParamHairSwayZ`), a
+    physics output for hair swinging behind a head tilt, alongside `HairSwayX`.
+  - `@ikijs/editor`: when a `hair_front` layer is present the auto-rigger now
+    emits a second spring rig, `hairTilt`, that lags `AngleZ` onto `HairSwayZ`
+    and declares the parameter. Two rigs because a rig has exactly one input
+    and one output. Hair sway is no longer a `rotate`/`translateX` binding on
+    the front hair — parts have no pivot, so that turned the bangs about their
+    centre and lifted the roots off the hairline. Both hair layers now carry
+    root-pinned sway warps (`bakeHairSwayWarp`, exported) on `HairSwayX` and
+    `HairSwayZ`: the top row stays put and the ends swing 9% of the part's
+    height at full sway, so the long back hair swings further than the bangs.
+    `hair_back` is a mesh part for this; it still hangs from `headDeformer`
+    with no cylinder bend.
+  - `@ikijs/mcp`: `list_standard_parameters` lists the new parameter and spells
+    out AngleZ's sign convention.
+
+- 48a1f5c: Auto-rigged models can now tilt their head. `generateIkiFromLayerSet` declares
+  `ParamAngleZ` (−30..30) and gives `headDeformer` a `rotate` binding of one
+  degree per degree about the neck pivot. Positive AngleZ rolls the head
+  clockwise on screen — the top of the head toward the viewer's right — which is
+  Live2D's convention (its sample motions give AngleZ the sign of AngleX 214 times
+  out of 222) and the same sense as the rig's existing lean into a turn, so a
+  host's head-tracking roll maps onto AngleZ 1:1. The two rotations sum, as two
+  rolls about one pivot should.
+
+### Patch Changes
+
+- d09ec76: Add `keywords` and widen the npm descriptions.
+
+  All four packages shipped with no `keywords` at all — the field npm search ranks
+  on — so none of them was reachable by the words people actually type. The root
+  manifest had a good keyword list but it is `private: true` and never reaches the
+  registry.
+
+  The descriptions leaned on `.iki`, a name nobody is searching for yet, so each
+  now also says what the thing is in terms that are searched: 2D puppet models,
+  Live2D-style rigs, VTuber avatar animation, MCP for AI agents.
+
+  Metadata only — no code, no API and no `.iki` contract change.
+
+- 588962e: Fully close the sclera clip during blinks when a matching separate lash layer is present, preventing a visible strip of iris beneath the closed eyelid. Eyes without separate lashes retain their existing closed-eye line.
+- Updated dependencies [d09ec76]
+- Updated dependencies [64617a7]
+  - @ikijs/format@0.2.0
+
 ## 0.1.0
 
 ### Minor Changes

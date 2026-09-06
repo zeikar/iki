@@ -1,6 +1,6 @@
 {
   "name": "@ikijs/mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server that lets AI agents read, validate and auto-rig .iki 2D puppet models from role-named PNG layers",
   "keywords": [
     "iki",
