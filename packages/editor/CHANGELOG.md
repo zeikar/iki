@@ -106,7 +106,7 @@
     `HairSwayZ`: the top row stays put and the ends swing 9% of the part's
     height at full sway, so the long back hair swings further than the bangs.
     `hair_back` is a mesh part for this; it still hangs from `headDeformer`
-    with no cylinder bend.
+    (no face-warp cylinder) and bends on the turn through its own part warp.
   - `@ikijs/mcp`: `list_standard_parameters` lists the new parameter and spells
     out AngleZ's sign convention.
 

@@ -82,7 +82,7 @@ describe("IdleMotion survives a non-finite timestamp", () => {
 });
 
 describe("sink-only contract", () => {
-  it("emits exactly the 7 standard parameter ids", () => {
+  it("emits exactly the 8 standard parameter ids", () => {
     const emissions = drive(timestamps(0, 10, 100), cyclingRng([0.5]));
     expect(new Set(emissions.keys())).toEqual(EMITTED_IDS);
   });
@@ -101,7 +101,7 @@ describe("sink-only contract", () => {
     expect(emissions.get(StandardParameter.AngleZ)![0]).toBe(0);
   });
 
-  it("every update (including first) emits exactly all 7 ids", () => {
+  it("every update (including first) emits exactly all 8 ids", () => {
     // Verify counts are equal across all 7 params after N updates.
     const N = 20;
     const emissions = drive(timestamps(0, N, 100), cyclingRng([0.5]));
