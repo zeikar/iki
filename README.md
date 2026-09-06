@@ -8,8 +8,8 @@
 
 > 息 (breath) · 生き (life) · 粋 (chic)
 
-**Iki** is an open, **MIT-licensed** 2D rig puppet animation engine for the web —
-a from-scratch alternative to Live2D and [Inochi2D](https://inochi2d.com/). You
+**Iki** is an open, MIT-licensed 2D rig puppet animation engine for the web — a
+from-scratch alternative to Live2D and [Inochi2D](https://inochi2d.com/). You
 author a character as layered parts wired to a small set of parameters, and the
 runtime animates it in WebGL. A host (such as
 [Charivo](https://github.com/zeikar/charivo)) drives those parameters from
@@ -34,9 +34,7 @@ No install — both demos run in the browser:
 
 ## Why
 
-- **MIT, all of it.** Runtime, format, editor core, generator, MCP server. No
-  publication license, no revenue tiers, no per-title fee — ship a commercial
-  app or a VTuber model without asking anyone.
+- **MIT.** No publication license, no revenue tiers — ship whatever you build.
 - **Open format.** The `.iki` model is a plain, documented schema you own —
   which is what makes AI-driven model generation tractable.
 - **Characters an AI agent can build.** Role-named PNG layers in, a rigged
@@ -68,8 +66,7 @@ place: a permissive license, a plain-text format, and a rig an agent can build.
 [live2d-license]: https://www.live2d.com/en/sdk/license/
 
 If you need production-grade 2D rigging today, use Cubism. If you want an open
-web format you can script against, under a license that never asks about your
-revenue, that is what this is.
+web format you can script against, that is what this is.
 
 ## Packages
 
@@ -147,10 +144,8 @@ positive x (the viewer's right).
 
 ## FAQ
 
-**Can I use this commercially?** Yes. Everything in this repo is MIT — engine,
-format, editor core, generator, MCP server. There is no publication license,
-no revenue threshold and no per-title fee; the only obligation is the MIT
-notice. Models you make are yours.
+**Can I use this commercially?** Yes — MIT, for everything in this repo. Models
+you make are yours.
 
 **Can it load Live2D models?** No. `.moc3` is a proprietary compiled format;
 Iki has its own open schema and no importer for it.
