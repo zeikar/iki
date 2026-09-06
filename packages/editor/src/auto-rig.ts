@@ -428,11 +428,15 @@ const HEAD_TURN_MAX_DEG = 30;
  * Sideways slide, at full head turn, of a surface sitting one full cylinder
  * radius in front of the rotation axis — the unit of depth parallax.
  *
- * This is exactly the bulk `axisShift` that `bakeHeadTurnGridWarpCentered`
+ * On the turn axis this is exactly the bulk `axisShift` the cylinder bake
  * subtracts back out of the face warp. Pinning it there was right: applied to
  * the face it shoved the head off the shoulders. But it is also the whole depth
  * cue, so layers that do NOT sit on the face plane have to get their own share
  * of it back, scaled by how far in front of (or behind) the axis they sit.
+ *
+ * On the nod axis it is only a scale: the nod bakes at NOD_BEND of the angle,
+ * so the shift pinned there is RADIUS_Y * sin(15°), not this. The one depth
+ * that uses it (HAIR_BACK_NOD_DEPTH) was tuned against renders, not derived.
  */
 export function headTurnParallaxUnit(gridHalfWidth: number): number {
   return (
@@ -463,11 +467,12 @@ export function headTurnParallaxUnit(gridHalfWidth: number): number {
  * produces is subtracted out, leaving only the foreshortening. See the comment
  * at the subtraction for why.
  *
- * RADIUS is derived from the grid's own half-width (same 0.6/0.5 margin ratio
- * as bakeHeadTurnGridWarp in the example app) so asin stays clear of ±1.
+ * RADIUS is derived from the grid's reach about `centerX` (same 0.6/0.5 margin
+ * ratio as bakeHeadTurnGridWarp in the example app) so asin stays clear of ±1
+ * whether or not the grid is symmetric about the axis.
  *
- * NOTE: Copy (not import) of the example's bakeHeadTurnGridWarp —
- * `@ikijs/editor` must not depend on the examples directory.
+ * No production caller since faceWarp moved to the 2D bake; kept as the 1D
+ * reference that the 2D bake's tests compare their AngleY = 0 row against.
  */
 export function bakeHeadTurnGridWarpCentered(
   grid: IkiWarpGrid,
@@ -476,9 +481,8 @@ export function bakeHeadTurnGridWarpCentered(
 ): IkiGridWarp {
   // Keyform stops (degrees) match ParamAngleX's −30..30 range.
   const ANGLES = [-HEAD_TURN_MAX_DEG, 0, HEAD_TURN_MAX_DEG] as const;
-  // Cylinder radius in MODEL units, derived from the grid's symmetric half-width.
-  const halfWidth = (grid.points[grid.cols * 2] - grid.points[0]) / 2;
-  const RADIUS = halfWidth * HEAD_CYLINDER_RADIUS_FACTOR;
+  // Cylinder radius in MODEL units, from the grid's reach about the axis.
+  const RADIUS = gridReach(grid, 0, centerX) * HEAD_CYLINDER_RADIUS_FACTOR;
 
   const pointCount = grid.points.length / 2;
   const DEG_TO_RAD = Math.PI / 180;
@@ -500,6 +504,16 @@ export function bakeHeadTurnGridWarpCentered(
 
   // keyforms are sorted ascending by construction (ANGLES = [-30, 0, 30]).
   return { parameter, keyforms };
+}
+
+/** Farthest grid point from `center` along one axis (0 = x, 1 = y): the
+ *  cylinder radius scales from this so no point's |local|/radius exceeds 1/1.2. */
+function gridReach(grid: IkiWarpGrid, axis: 0 | 1, center: number): number {
+  let reach = 0;
+  for (let i = axis; i < grid.points.length; i += 2) {
+    reach = Math.max(reach, Math.abs(grid.points[i] - center));
+  }
+  return reach;
 }
 
 /**
@@ -535,9 +549,10 @@ function pinnedCylinderBend(
  * convention the playground's 2D bake ships; the row at AngleY=0 is exactly the
  * 1D bake.
  *
- * Y uses its own radius from the grid's vertical extent about `centerY`, with
- * the same margin factor, so the same no-fold guarantee holds: |local|/radius
- * stays ≤ 1/1.2 and asin(1/1.2) + 30° < 90°. The pitch itself is scaled by
+ * Each axis takes its radius from the grid's reach about its own centre, with
+ * the same margin factor, so the no-fold guarantee holds on both and does not
+ * depend on the grid being symmetric about the axis: |local|/radius stays
+ * ≤ 1/1.2 and asin(1/1.2) + 30° < 90°. The pitch itself is scaled by
  * NOD_BEND — see that constant for why a full nod is not a full 30° bend.
  *
  * Layout is the format's row-major `k(i, j) = j * valuesX.length + i`.
@@ -550,18 +565,9 @@ export function bakeHeadTurnGridWarp2DCentered(
   centerY: number,
 ): IkiGrid2DWarp {
   const STOPS = [-HEAD_TURN_MAX_DEG, 0, HEAD_TURN_MAX_DEG];
-  const halfWidth = (grid.points[grid.cols * 2] - grid.points[0]) / 2;
-  const RADIUS_X = halfWidth * HEAD_CYLINDER_RADIUS_FACTOR;
-
+  const RADIUS_X = gridReach(grid, 0, centerX) * HEAD_CYLINDER_RADIUS_FACTOR;
+  const RADIUS_Y = gridReach(grid, 1, centerY) * HEAD_CYLINDER_RADIUS_FACTOR;
   const pointCount = grid.points.length / 2;
-  let halfHeight = 0;
-  for (let i = 0; i < pointCount; i++) {
-    halfHeight = Math.max(
-      halfHeight,
-      Math.abs(grid.points[i * 2 + 1] - centerY),
-    );
-  }
-  const RADIUS_Y = halfHeight * HEAD_CYLINDER_RADIUS_FACTOR;
 
   const DEG_TO_RAD = Math.PI / 180;
   const keyforms2d: { offsets: number[] }[] = [];
@@ -628,8 +634,8 @@ const NOD_BEND = 0.5;
 /** Vertical share of the nod for hair_back, as a fraction of the vertical
  *  parallax unit. The bangs already ride the vertical bend, so they get no
  *  extra lead on the nod — with one they lifted clear off the brows. The back
- *  hair, a rigid quad, only needs to follow the bent crown down so it stays
- *  tucked beneath it. */
+ *  hair gets no vertical bend of its own, so it only needs to follow the bent
+ *  crown down to stay tucked beneath it. */
 const HAIR_BACK_NOD_DEPTH = -0.07;
 
 /**
@@ -647,7 +653,9 @@ const HAIR_BACK_NOD_DEPTH = -0.07;
  *     iris_/pupil_/highlight_ → gaze translateX + translateY (no blink binding)
  *     eye_ (white) → none here; its blink is a fold warp attached in assembly,
  *       and iris/pupil/highlight clip to it so the closing white CUTS them away
- * - mouth: MouthOpen scaleY (0 to 3) + MouthForm scaleX (-0.2 to 0.4)
+ * - mouth: MouthForm scaleX (-0.2 to 0.4), plus MouthOpen as scaleY (0 to 3)
+ *     without a mouth_open layer, or as an opacity fade-out with one
+ * - mouth_open: MouthOpen opacity fade-in + the same MouthForm scaleX
  *
  * Returns [] when the role has no bindings (callers skip the bindings key when
  * the array is empty).
@@ -787,8 +795,9 @@ export function bindingsForRole(
     // hair is glued flat to the face and the turn reads as a cutout sliding.
     // Shifting the mesh moves it INSIDE the warp grid (applyWarpToChild
     // transforms before it binds), so the shift has to stay within the grid's
-    // 12% margin. For a union centered on the face that margin is about twice
-    // the shift; the generated-model test pins the real headroom.
+    // 12% margin. The shift alone always does (0.06 * halfW against a margin
+    // of 0.12 * span); the sway warps that ride on top of it are capped
+    // against the remaining headroom where they are attached.
     const depth = isFront ? HAIR_FRONT_DEPTH : HAIR_BACK_DEPTH;
     const parallax: IkiBinding[] = [];
     const shiftX = depth * (options.parallaxUnit ?? 0);
@@ -929,6 +938,11 @@ const HAIR_SWAY_TIP_FRACTION = 0.09;
 const HAIR_SWAY_CURL = 1.5;
 /** Range of the HairSwayX / HairSwayZ output parameters. */
 const HAIR_SWAY_RANGE = 20;
+/** How far into that range one spring actually swings, as a fraction: the
+ *  hair rigs (mass 1, stiffness 80, damping 10 → ζ ≈ 0.56) overshoot a step
+ *  by ~12% on their ±10 steady state, peaking near 11.2. Used to size the
+ *  bangs' swing against the face-warp grid. */
+const HAIR_SWAY_PEAK_FRACTION = 0.56;
 
 /**
  * Root-pinned sideways sway for a hair part, as a per-vertex warp.
@@ -1346,7 +1360,27 @@ export function generateIkiFromLayerSet(
       // both hair parts swing their ends on them with the roots pinned. The back
       // hair is longer, so the same fraction of its height is a bigger swing.
       if ((role === "hair_front" || role === "hair_back") && hasHair) {
-        const tipShift = HAIR_SWAY_TIP_FRACTION * cropH;
+        let tipShift = HAIR_SWAY_TIP_FRACTION * cropH;
+        if (role === "hair_front") {
+          // hair_front is a faceWarp child: its vertices are swayed and
+          // parallax-shifted BEFORE they bind to the rest grid, and past the
+          // grid's edge they clamp to the edge column — the tips flatten into
+          // a vertical line. Cap the swing so one spring at its peak stays
+          // inside. Both springs peaking together (a hard turn and tilt at
+          // once) may still clamp the outermost tips a little; widening the
+          // grid instead would flatten the face's own bend, whose radius
+          // scales with the grid.
+          const shift = HAIR_FRONT_DEPTH * parallaxUnit;
+          const headroom =
+            Math.min(
+              faceGridMaxX - (t.x + cropW / 2),
+              t.x - cropW / 2 - faceGridMinX,
+            ) - shift;
+          tipShift = Math.min(
+            tipShift,
+            Math.max(0, headroom) / HAIR_SWAY_PEAK_FRACTION,
+          );
+        }
         part.warps = [
           bakeHairSwayWarp(
             mesh,

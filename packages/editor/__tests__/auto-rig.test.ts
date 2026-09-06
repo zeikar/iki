@@ -557,6 +557,39 @@ describe("head nod (AngleY)", () => {
     }
   });
 
+  it("does not fold on a grid that is not symmetric about the axis", () => {
+    // The radius comes from the grid's reach about the centre, not from its
+    // outer columns, so a lopsided grid still keeps |local|/radius ≤ 1/1.2.
+    const lopsided = {
+      cols: 4,
+      rows: 4,
+      points: generateGridPoints(4, 4, -100, 500, -50, 350),
+    };
+    const w2 = bakeHeadTurnGridWarp2DCentered(lopsided, "ax", "ay", 0, 0);
+    const stride = 5;
+    for (const k of w2.keyforms2d) {
+      for (let row = 0; row <= 4; row++) {
+        let prev = -Infinity;
+        for (let col = 0; col <= 4; col++) {
+          const p = row * stride + col;
+          const x = lopsided.points[p * 2] + k.offsets[p * 2];
+          expect(x).toBeGreaterThan(prev);
+          prev = x;
+        }
+      }
+    }
+    const w1 = bakeHeadTurnGridWarpCentered(lopsided, "ax", 0);
+    for (const k of w1.keyforms) {
+      let prev = -Infinity;
+      for (let col = 0; col <= 4; col++) {
+        const p = 2 * stride + col;
+        const x = lopsided.points[p * 2] + k.offsets[p * 2];
+        expect(x).toBeGreaterThan(prev);
+        prev = x;
+      }
+    }
+  });
+
   it("pins the axis row: points on centerY never move vertically", () => {
     const w = bakeHeadTurnGridWarp2DCentered(grid, "ax", "ay", 0, 0);
     for (const k of w.keyforms2d) {
@@ -840,26 +873,122 @@ describe("head-turn depth parallax", () => {
     expect(back!.to).toBeLessThan(0);
   });
 
-  it("the shifted hair_front mesh still fits inside the faceWarp grid", () => {
-    // applyWarpToChild transforms a vertex BEFORE binding it to the rest grid,
-    // so the parallax shift moves the bangs within the grid. Past the edge the
-    // binding clamps and the outer strands smear onto the edge cell's offset,
-    // which at full turn is a ~3x jump from its neighbour.
-    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+  // One hair spring peaks near 11.2 of its ±20 range (ζ ≈ 0.56 on a ±10
+  // steady state) — the parameter value the sway cap is sized for.
+  const SPRING_PEAK = 11.2;
+
+  /** Worst-case x reach of hair_front's tips at parameter `v` on ONE sway warp,
+   *  plus the parallax shift, against the faceWarp grid's x-edges. */
+  const hairHeadroomAt = (
+    model: ReturnType<typeof generateIkiFromLayerSet>,
+    v: number,
+  ) => {
     const grid = model.deformers!.find((d) => d.id === "faceWarp")!.grid;
     const gridMaxX = grid.points[grid.cols * 2];
     const gridMinX = grid.points[0];
-
     const hair = model.parts.find((p) => p.id === "hair_front")!;
     const xs = hair.mesh!.vertices.filter((_, i) => i % 2 === 0);
     const shift = parallaxOf(hair.bindings ?? [])!.to;
-    // Sway translateX rides on top of the parallax and is bounded by ±10.
-    const SWAY_MAX = 10;
-    const right = hair.transform!.x + Math.max(...xs) + shift + SWAY_MAX;
-    const left = hair.transform!.x + Math.min(...xs) - shift - SWAY_MAX;
+    const sway = (hair.warps ?? []).find(
+      (w) => w.parameter === StandardParameter.HairSwayX,
+    )!;
+    const tip = Math.max(
+      ...sway.keyforms[1].offsets.filter((_, i) => i % 2 === 0),
+    );
+    const swing = (tip * v) / 20;
+    return {
+      right: gridMaxX - (hair.transform!.x + Math.max(...xs) + shift + swing),
+      left: hair.transform!.x + Math.min(...xs) - shift - swing - gridMinX,
+      tip,
+    };
+  };
 
-    expect(right).toBeLessThan(gridMaxX);
-    expect(left).toBeGreaterThan(gridMinX);
+  it("the swayed, shifted hair_front tips stay inside the faceWarp grid at a spring's peak", () => {
+    // applyWarpToChild sways and shifts a vertex BEFORE binding it to the rest
+    // grid; past the edge the binding clamps and the tips flatten into a line.
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+    const h = hairHeadroomAt(model, SPRING_PEAK);
+    expect(h.right).toBeGreaterThan(0);
+    expect(h.left).toBeGreaterThan(0);
+    // On this fixture the cap does not bite: the swing is the full 9%.
+    expect(h.tip).toBeCloseTo(0.09 * 400, 6);
+  });
+
+  it("tall bangs on a narrow face get their swing capped to the grid, not clamped by it", () => {
+    // The grid's margin is 12% of the union's WIDTH, but the swing is 9% of the
+    // hair's HEIGHT; hair that sets the union's width and is much taller than
+    // it is wide puts its tips past the edge at a spring's peak. Uncapped, this
+    // layout swings 90px against ~33px of headroom after the parallax shift.
+    const tall: LayerInput[] = [
+      {
+        role: "face",
+        fileName: "face.png",
+        canvasW: 1000,
+        canvasH: 1000,
+        bbox: { x: 300, y: 250, w: 400, h: 500 },
+        cropW: 400,
+        cropH: 500,
+      },
+      {
+        role: "eye_L",
+        fileName: "eye_L.png",
+        canvasW: 1000,
+        canvasH: 1000,
+        bbox: { x: 380, y: 400, w: 80, h: 50 },
+        cropW: 80,
+        cropH: 50,
+      },
+      {
+        role: "eye_R",
+        fileName: "eye_R.png",
+        canvasW: 1000,
+        canvasH: 1000,
+        bbox: { x: 540, y: 400, w: 80, h: 50 },
+        cropW: 80,
+        cropH: 50,
+      },
+      {
+        role: "mouth",
+        fileName: "mouth.png",
+        canvasW: 1000,
+        canvasH: 1000,
+        bbox: { x: 460, y: 600, w: 80, h: 40 },
+        cropW: 80,
+        cropH: 40,
+      },
+      {
+        role: "hair_back",
+        fileName: "hair_back.png",
+        canvasW: 1000,
+        canvasH: 1000,
+        bbox: { x: 250, y: 100, w: 500, h: 800 },
+        cropW: 500,
+        cropH: 800,
+      },
+      {
+        role: "hair_front",
+        fileName: "hair_front.png",
+        canvasW: 1000,
+        canvasH: 1000,
+        bbox: { x: 300, y: 0, w: 400, h: 1000 },
+        cropW: 400,
+        cropH: 1000,
+      },
+    ];
+    const model = generateIkiFromLayerSet(tall, canvas);
+    const h = hairHeadroomAt(model, SPRING_PEAK);
+    expect(h.tip).toBeLessThan(0.09 * 1000);
+    expect(h.tip).toBeGreaterThan(0);
+    expect(h.right).toBeGreaterThanOrEqual(-1e-6);
+    expect(h.left).toBeGreaterThanOrEqual(-1e-6);
+    // The back hair, a matrix child with no grid, keeps the full swing.
+    const back = model.parts.find((p) => p.id === "hair_back")!;
+    const backSway = (back.warps ?? []).find(
+      (w) => w.parameter === StandardParameter.HairSwayX,
+    )!;
+    expect(
+      Math.max(...backSway.keyforms[1].offsets.filter((_, i) => i % 2 === 0)),
+    ).toBeCloseTo(0.09 * 800, 6);
   });
 });
 
@@ -1704,9 +1833,9 @@ describe("assembly", () => {
   });
 
   it("hair_back is a mesh part on the head deformer, sized like the other meshes", () => {
-    // It used to be a static quad; it became a mesh so the sway warp can swing
-    // its ends. It still hangs from headDeformer, not faceWarp: its silhouette
-    // gets no cylinder bend.
+    // It used to be a static quad; it became a mesh so the sway warps can swing
+    // its ends. It still hangs from headDeformer, not faceWarp: it bends on the
+    // turn through its own part warp rather than the face's grid.
     const model = generateIkiFromLayerSet(assemblyLayers(), {
       width: 1000,
       height: 1000,
