@@ -147,7 +147,7 @@ idleLabel.append(idleLabelText, idleCheckbox);
 idleRow.append(idleLabel);
 panel.insertBefore(idleRow, controls);
 
-// Model picker for the vector sample and generated characters in public/.
+// Model picker for the vector sample and the generated hero in public/.
 // Built once, like the Idle row, so it survives the per-model control rebuilds.
 const modelRow = document.createElement("div");
 modelRow.className = "control";
@@ -157,7 +157,6 @@ modelLabelText.textContent = "Model";
 const modelSelect = document.createElement("select");
 for (const [value, text] of [
   ["vector", "Vector sample"],
-  ["textured", "Textured sample"],
   ["hero", "Hero character"],
 ] as const) {
   const opt = document.createElement("option");
@@ -183,14 +182,10 @@ async function switchModel(which: string): Promise<void> {
   const seq = ++modelSwitchSeq;
   try {
     let raw: unknown = sampleModel;
-    if (which === "textured" || which === "hero") {
-      // BASE_URL-relative: these live in public/, so under a GitHub Pages
+    if (which === "hero") {
+      // BASE_URL-relative: hero.iki lives in public/, so under a GitHub Pages
       // sub-path build the fetch must carry the same base as the page.
-      const res = await fetch(
-        `${import.meta.env.BASE_URL}${
-          which === "hero" ? "hero.iki" : "textured-sample.iki"
-        }`,
-      );
+      const res = await fetch(`${import.meta.env.BASE_URL}hero.iki`);
       if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
       raw = await res.json();
     }
