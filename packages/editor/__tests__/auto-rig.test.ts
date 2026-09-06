@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ROLE_TABLE,
   bakeEyelidFoldWarp,
+  bakeHairSwayWarp,
   bakeHeadTurnGridWarp2DCentered,
   bakeHeadTurnGridWarpCentered,
   bboxToTransform,
@@ -755,8 +756,8 @@ describe("head-turn depth parallax", () => {
       700,
       { parallaxUnit: unit },
     );
-    // Front keeps its three sway bindings and gains the parallax; back has only it.
-    expect(front).toHaveLength(4);
+    // Each hair layer carries exactly the parallax binding.
+    expect(front).toHaveLength(1);
     expect(back).toHaveLength(1);
     expect(parallaxOf(front)).toBeDefined();
     expect(parallaxOf(back)).toBeDefined();
@@ -861,6 +862,42 @@ describe("head-turn depth parallax", () => {
   });
 });
 
+describe("bakeHairSwayWarp", () => {
+  const mesh = createPixelGridMesh(4, 4, 200, 400);
+
+  it("pins the top row and swings the bottom row by tipShift at ±range", () => {
+    const w = bakeHairSwayWarp(mesh, "sway", 36, 20);
+    expect(w.keyforms.map((k) => k.value)).toEqual([-20, 20]);
+    const [neg, pos] = w.keyforms;
+    for (let v = 0; v < mesh.vertices.length / 2; v++) {
+      const y = mesh.vertices[v * 2 + 1];
+      if (y === 200) {
+        expect(pos.offsets[v * 2]).toBe(0);
+        expect(neg.offsets[v * 2]).toBe(0);
+      }
+      if (y === -200) {
+        expect(pos.offsets[v * 2]).toBeCloseTo(36, 9);
+        expect(neg.offsets[v * 2]).toBeCloseTo(-36, 9);
+      }
+      expect(pos.offsets[v * 2 + 1]).toBe(0);
+    }
+  });
+
+  it("bends rather than hinges: the swing grows faster toward the ends", () => {
+    const w = bakeHairSwayWarp(mesh, "sway", 36, 20);
+    const pos = w.keyforms[1];
+    const stride = 5;
+    // Walk column 0 top to bottom: successive row-to-row increments grow.
+    let prevInc = 0;
+    for (let row = 1; row <= 4; row++) {
+      const inc =
+        pos.offsets[row * stride * 2] - pos.offsets[(row - 1) * stride * 2];
+      expect(inc).toBeGreaterThan(prevInc);
+      prevInc = inc;
+    }
+  });
+});
+
 describe("hair-sway physics", () => {
   const canvas = { width: 1000, height: 1000 };
 
@@ -892,21 +929,64 @@ describe("hair-sway physics", () => {
     }
   });
 
-  it("binds rotate + translateX on HairSwayX to the hair_front part", () => {
-    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
-    const hair = model.parts.find((p) => p.id === "hair_front");
-    expect(hair).toBeDefined();
-    const sway = (hair!.bindings ?? []).filter(
-      (b) => b.parameter === StandardParameter.HairSwayX,
+  const swayWarpsOf = (
+    model: ReturnType<typeof generateIkiFromLayerSet>,
+    id: string,
+  ) =>
+    (model.parts.find((p) => p.id === id)!.warps ?? []).filter((w) =>
+      [StandardParameter.HairSwayX, StandardParameter.HairSwayZ].includes(
+        w.parameter as typeof StandardParameter.HairSwayX,
+      ),
     );
-    expect(sway.find((b) => b.channel === "rotate")).toMatchObject({
-      from: -8,
-      to: 8,
-    });
-    expect(sway.find((b) => b.channel === "translateX")).toMatchObject({
-      from: -10,
-      to: 10,
-    });
+
+  it("both hair parts swing on HairSwayX and HairSwayZ through root-pinned warps", () => {
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+    for (const id of ["hair_front", "hair_back"]) {
+      const warps = swayWarpsOf(model, id);
+      expect(warps.map((w) => w.parameter).sort()).toEqual(
+        [StandardParameter.HairSwayX, StandardParameter.HairSwayZ].sort(),
+      );
+      const part = model.parts.find((p) => p.id === id)!;
+      const topY = Math.max(
+        ...part.mesh!.vertices.filter((_, i) => i % 2 === 1),
+      );
+      for (const w of warps) {
+        for (const k of w.keyforms) {
+          for (let v = 0; v < part.mesh!.vertices.length / 2; v++) {
+            // Roots stay put; nothing moves vertically.
+            if (part.mesh!.vertices[v * 2 + 1] === topY) {
+              expect(k.offsets[v * 2]).toBe(0);
+            }
+            expect(k.offsets[v * 2 + 1]).toBe(0);
+          }
+        }
+      }
+    }
+    // No sway binding survives on either part.
+    for (const id of ["hair_front", "hair_back"]) {
+      const b = model.parts.find((p) => p.id === id)!.bindings ?? [];
+      expect(
+        b.some((x) =>
+          [StandardParameter.HairSwayX, StandardParameter.HairSwayZ].includes(
+            x.parameter as typeof StandardParameter.HairSwayX,
+          ),
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it("the longer back hair swings further than the bangs, in pixels", () => {
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+    const tip = (id: string) => {
+      const w = swayWarpsOf(model, id).find(
+        (x) => x.parameter === StandardParameter.HairSwayX,
+      )!;
+      const k = w.keyforms.find((x) => x.value > 0)!;
+      return Math.max(...k.offsets.filter((_, i) => i % 2 === 0));
+    };
+    // Fixture heights: hair_front 400, hair_back 700 — same fraction of each.
+    expect(tip("hair_front")).toBeCloseTo(0.09 * 400, 6);
+    expect(tip("hair_back")).toBeCloseTo(0.09 * 700, 6);
   });
 
   it("declares the HairSwayX and HairSwayZ parameters when hair is present", () => {
@@ -920,16 +1000,6 @@ describe("hair-sway physics", () => {
     }
   });
 
-  it("binds a HairSwayZ rotate on hair_front so it swings behind a tilt", () => {
-    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
-    const hair = model.parts.find((p) => p.id === "hair_front")!;
-    const tilt = (hair.bindings ?? []).filter(
-      (b) => b.parameter === StandardParameter.HairSwayZ,
-    );
-    expect(tilt).toHaveLength(1);
-    expect(tilt[0]).toMatchObject({ channel: "rotate", from: -6, to: 6 });
-  });
-
   it("emits NO physics / param / binding without a hair_front layer", () => {
     const model = generateIkiFromLayerSet(assemblyLayers(), canvas);
     expect(model.physics).toBeUndefined();
@@ -938,8 +1008,10 @@ describe("hair-sway physics", () => {
       StandardParameter.HairSwayZ,
     ];
     expect(model.parameters.some((p) => swayIds.includes(p.id))).toBe(false);
-    const anySway = model.parts.some((part) =>
-      (part.bindings ?? []).some((b) => swayIds.includes(b.parameter)),
+    const anySway = model.parts.some(
+      (part) =>
+        (part.bindings ?? []).some((b) => swayIds.includes(b.parameter)) ||
+        (part.warps ?? []).some((w) => swayIds.includes(w.parameter)),
     );
     expect(anySway).toBe(false);
   });
@@ -1319,23 +1391,11 @@ describe("bindings", () => {
     expect(bindingsForRole(spec, "hair_back", 800, 700)).toHaveLength(0);
   });
 
-  it("bindingsForRole: hair_front without a parallaxUnit returns sway only", () => {
+  it("bindingsForRole: hair_front without a parallaxUnit returns no bindings", () => {
+    // Its sway is a root-pinned warp, not a binding: a rotate binding would
+    // pivot the bangs about their centre and lift the roots off the hairline.
     const spec = ROLE_TABLE["hair_front"];
-    const bindings = bindingsForRole(spec, "hair_front", 700, 400);
-    expect(bindings).toHaveLength(3);
-    const swayIds: string[] = [
-      StandardParameter.HairSwayX,
-      StandardParameter.HairSwayZ,
-    ];
-    expect(bindings.every((b) => swayIds.includes(b.parameter))).toBe(true);
-    expect(bindings.find((b) => b.channel === "rotate")).toMatchObject({
-      from: -8,
-      to: 8,
-    });
-    expect(bindings.find((b) => b.channel === "translateX")).toMatchObject({
-      from: -10,
-      to: 10,
-    });
+    expect(bindingsForRole(spec, "hair_front", 700, 400)).toHaveLength(0);
   });
 
   it("bindingsForRole: brow_L returns 2 bindings with left params, raw-symmetric", () => {
@@ -1567,22 +1627,25 @@ describe("assembly", () => {
     }
   });
 
-  it("static hair_back part has no mesh and width/height equal to cropW/cropH", () => {
+  it("hair_back is a mesh part on the head deformer, sized like the other meshes", () => {
+    // It used to be a static quad; it became a mesh so the sway warp can swing
+    // its ends. It still hangs from headDeformer, not faceWarp: its silhouette
+    // gets no cylinder bend.
     const model = generateIkiFromLayerSet(assemblyLayers(), {
       width: 1000,
       height: 1000,
     });
-    const hairBack = assemblyLayers().find((l) => l.role === "hair_back")!;
-    const part = model.parts.find((p) => p.id === "hair_back");
-    expect(part?.mesh).toBeUndefined();
-    expect(part?.width).toBe(hairBack.cropW);
-    expect(part?.height).toBe(hairBack.cropH);
+    const hair = model.parts.find((p) => p.id === "hair_back")!;
+    expect(hair.mesh).toBeDefined();
+    expect(hair.width).toBe(1);
+    expect(hair.height).toBe(1);
+    expect(hair.deformer).toBe("headDeformer");
+    const xs = hair.mesh!.vertices.filter((_, i) => i % 2 === 0);
+    const ys = hair.mesh!.vertices.filter((_, i) => i % 2 === 1);
+    expect(Math.max(...xs) - Math.min(...xs)).toBe(800); // cropW
+    expect(Math.max(...ys) - Math.min(...ys)).toBe(700); // cropH
   });
 
-  // The torso hangs from no deformer at all. Every other role rides either
-  // headDeformer or faceWarp, so these lock the one exception in place: a body
-  // that picked up a deformer would swing with the head turn, and a body inside
-  // the faceWarp union would stretch the head-turn grid across the shoulders.
   it("body part carries no deformer, so the head turns without it", () => {
     const model = generateIkiFromLayerSet(bodyLayers(), {
       width: 1000,

@@ -71,10 +71,11 @@ export interface LayerInput {
  *   eye_R = character's right eye = screen left side.
  */
 export const ROLE_TABLE: Record<string, RoleSpec> = {
-  // The silhouette behind the face: a rigid quad on the head, with no warp of
-  // its own. Its share of the turn is the depth-parallax translateX in
-  // bindingsForRole, which swings it against the face.
-  hair_back: { deformer: "headDeformer", order: 0, mesh: false },
+  // The silhouette behind the face. It rides the head rigidly (no cylinder
+  // bend — a spinning cylinder's silhouette does not move) but is a MESH so the
+  // hair-sway warp can swing its ends; its share of the turn is the
+  // depth-parallax translateX in bindingsForRole.
+  hair_back: { deformer: "headDeformer", order: 0, mesh: true },
   // The torso. Alone among the roles it hangs from NO deformer: the head turns
   // about the neck pivot while the shoulders stay put, which is what keeps the
   // character from reading as a floating head. Drawn over the back hair so long
@@ -629,10 +630,9 @@ const HAIR_BACK_NOD_DEPTH = -0.07;
  * Derive the IkiBinding[] for a part from its role spec and crop dimensions.
  *
  * - face, blush, nose → no bindings
- * - hair_front: HairSwayX rotate (-8..8) + translateX (-10..10), and HairSwayZ
- *     rotate (-6..6) — secondary-motion sway behind the head turn and tilt,
- *     driven by the PhysicsMotion springs (rigs emitted in generateIkiFromLayerSet)
- *     — plus the AngleX depth-parallax translateX (needs `parallaxUnit`)
+ * - hair_front: the AngleX depth-parallax translateX (needs `parallaxUnit`).
+ *     Its sway is NOT a binding — a rotate would pivot the bangs about their
+ *     centre — but a root-pinned warp, attached in generateIkiFromLayerSet.
  * - hair_back: the AngleX depth-parallax translateX, and an AngleY translateY
  *     that tucks its crown under the bent front hair (needs `parallaxUnitY`)
  * - brow_L/R: BrowLeftY/RightY translateY (raise/lower) + BrowLeftAngle/RightAngle rotate
@@ -805,35 +805,7 @@ export function bindingsForRole(
         to: shiftY,
       });
     }
-    if (!isFront) return parallax;
-
-    // Hair sway: ParamHairSwayX / ParamHairSwayZ (PhysicsMotion spring outputs)
-    // lag/overshoot the head turn and the head tilt. The turn magnitudes match
-    // the hand-authored sample; the tilt is rotation only and a little smaller,
-    // since the whole head already rolls and a tilt reads larger per degree.
-    // hair_back gets no sway. The rigs that drive both outputs are emitted in
-    // generateIkiFromLayerSet when a hair_front layer is present.
-    return [
-      {
-        parameter: StandardParameter.HairSwayX,
-        channel: "rotate",
-        from: -8,
-        to: 8,
-      },
-      {
-        parameter: StandardParameter.HairSwayX,
-        channel: "translateX",
-        from: -10,
-        to: 10,
-      },
-      {
-        parameter: StandardParameter.HairSwayZ,
-        channel: "rotate",
-        from: -6,
-        to: 6,
-      },
-      ...parallax,
-    ];
+    return parallax;
   }
 
   // face, blush_*, nose → no bindings
@@ -880,6 +852,60 @@ export function bakeEyelidFoldWarp(
     keyforms: [
       { value: 0, offsets: closed },
       { value: 1, offsets: zeros },
+    ],
+  };
+}
+
+// ── bakeHairSwayWarp ───────────────────────────────────────────────────────────
+
+/** Tip travel of a swaying hair part at full sway, as a fraction of its own
+ *  height — "the ends swing 9% of the hair's length". Long back hair therefore
+ *  swings further than the bangs in pixels, as it should. */
+const HAIR_SWAY_TIP_FRACTION = 0.09;
+/** Exponent on distance-from-root. 1 would be a hinge (straight shear); hair
+ *  bends, so the swing grows faster toward the ends. */
+const HAIR_SWAY_CURL = 1.5;
+/** Range of the HairSwayX / HairSwayZ output parameters. */
+const HAIR_SWAY_RANGE = 20;
+
+/**
+ * Root-pinned sideways sway for a hair part, as a per-vertex warp.
+ *
+ * Parts have no pivot — a `rotate` binding turns a part about its crop centre.
+ * Used for sway that swung the bangs' ROOTS off the hairline as much as their
+ * ends, which is exactly how hair does not move. This warp instead leaves the
+ * top row of the mesh where it is and displaces each row sideways by
+ * `tipShift · u^HAIR_SWAY_CURL`, with `u` the row's distance from the top as a
+ * fraction of the height: 0 at the roots, 1 at the ends.
+ *
+ * Keyforms sit at ±range with the rest pose in between, so a zero parameter is
+ * zero offsets. Offsets are in the mesh's own pixel frame (+y up, centered),
+ * matching `createPixelGridMesh` — pass the SAME mesh the part renders.
+ */
+export function bakeHairSwayWarp(
+  mesh: IkiMesh,
+  parameter: string,
+  tipShift: number,
+  range: number,
+): IkiWarp {
+  let top = -Infinity;
+  let bottom = Infinity;
+  for (let i = 1; i < mesh.vertices.length; i += 2) {
+    top = Math.max(top, mesh.vertices[i]);
+    bottom = Math.min(bottom, mesh.vertices[i]);
+  }
+  const height = top - bottom;
+  const swing: number[] = [];
+  for (let i = 0; i < mesh.vertices.length; i += 2) {
+    const u = height > 0 ? (top - mesh.vertices[i + 1]) / height : 0;
+    swing.push(tipShift * Math.pow(u, HAIR_SWAY_CURL), 0);
+  }
+  return {
+    parameter,
+    keyforms: [
+      // `0 - v`, not `-v`: the pinned root row must stay a plain +0.
+      { value: -range, offsets: swing.map((v) => 0 - v) },
+      { value: range, offsets: swing },
     ],
   };
 }
@@ -1023,15 +1049,15 @@ export function generateIkiFromLayerSet(
       {
         id: StandardParameter.HairSwayX,
         name: "Hair Sway X",
-        min: -20,
-        max: 20,
+        min: -HAIR_SWAY_RANGE,
+        max: HAIR_SWAY_RANGE,
         default: 0,
       },
       {
         id: StandardParameter.HairSwayZ,
         name: "Hair Sway Z",
-        min: -20,
-        max: 20,
+        min: -HAIR_SWAY_RANGE,
+        max: HAIR_SWAY_RANGE,
         default: 0,
       },
     );
@@ -1253,6 +1279,27 @@ export function generateIkiFromLayerSet(
       if (roleBindings.length > 0) {
         part.bindings = roleBindings;
       }
+      // Hair sway: the PhysicsMotion springs lag AngleX / AngleZ onto
+      // HairSwayX / HairSwayZ (rigs and params exist only with front hair), and
+      // both hair parts swing their ends on them with the roots pinned. The back
+      // hair is longer, so the same fraction of its height is a bigger swing.
+      if ((role === "hair_front" || role === "hair_back") && hasHair) {
+        const tipShift = HAIR_SWAY_TIP_FRACTION * cropH;
+        part.warps = [
+          bakeHairSwayWarp(
+            mesh,
+            StandardParameter.HairSwayX,
+            tipShift,
+            HAIR_SWAY_RANGE,
+          ),
+          bakeHairSwayWarp(
+            mesh,
+            StandardParameter.HairSwayZ,
+            tipShift,
+            HAIR_SWAY_RANGE,
+          ),
+        ];
+      }
       // Eye blink = fold: the white (eye_) and the lash (lash_) fold shut via a
       // warp toward the shared crease; iris/pupil/highlight clip to the white, so
       // the closing white CUTS them away (round, not squashed) and the lash lands
@@ -1283,8 +1330,9 @@ export function generateIkiFromLayerSet(
       }
       return part;
     } else {
-      // Static quad: no mesh, sized to the crop. It still takes bindings —
-      // hair_back has no mesh but does carry the head-turn depth parallax.
+      // Static quad: no mesh, sized to the crop. It still takes bindings: no
+      // static role carries any today, but this branch once dropped them
+      // silently, and the next static role with a binding must not hit that.
       const part: IkiPart = {
         id: role,
         color: [1, 1, 1, 1] as [number, number, number, number],
@@ -1313,6 +1361,7 @@ export function generateIkiFromLayerSet(
     // sways behind the head turn (same constants as the hand-authored sample),
     // and a second lags AngleZ onto HairSwayZ so it swings behind a tilt. Two
     // rigs because a rig has one input and one output (validator-enforced).
+    // Both hair parts read the outputs through root-pinned sway warps.
     // Omitted when there is no front hair to drive.
     physics: hasHair
       ? [

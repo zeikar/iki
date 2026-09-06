@@ -14,8 +14,15 @@ Head tilt reaches the idle motion and the hair.
 - `@ikijs/format`: adds `StandardParameter.HairSwayZ` (`ParamHairSwayZ`), a
   physics output for hair swinging behind a head tilt, alongside `HairSwayX`.
 - `@ikijs/editor`: when a `hair_front` layer is present the auto-rigger now
-  emits a second spring rig, `hairTilt`, that lags `AngleZ` onto `HairSwayZ`,
-  declares the parameter, and binds a ±6° rotate on the front hair. Two rigs
-  because a rig has exactly one input and one output.
+  emits a second spring rig, `hairTilt`, that lags `AngleZ` onto `HairSwayZ`
+  and declares the parameter. Two rigs because a rig has exactly one input
+  and one output. Hair sway is no longer a `rotate`/`translateX` binding on
+  the front hair — parts have no pivot, so that turned the bangs about their
+  centre and lifted the roots off the hairline. Both hair layers now carry
+  root-pinned sway warps (`bakeHairSwayWarp`, exported) on `HairSwayX` and
+  `HairSwayZ`: the top row stays put and the ends swing 9% of the part's
+  height at full sway, so the long back hair swings further than the bangs.
+  `hair_back` is a mesh part for this; it still hangs from `headDeformer`
+  with no cylinder bend.
 - `@ikijs/mcp`: `list_standard_parameters` lists the new parameter and spells
   out AngleZ's sign convention.
