@@ -7,11 +7,14 @@
 
 > 息 (breath) · 生き (life) · 粋 (chic)
 
-**Iki** is an open 2D rig puppet animation engine for the web — a from-scratch
-alternative to Live2D and [Inochi2D](https://inochi2d.com/). You author a
-character as layered parts wired to a small set of parameters, and the runtime
-animates it in WebGL. A host (such as [Charivo](https://github.com/zeikar/charivo))
-drives those parameters from lip-sync, gaze, blink, and expressions.
+**Iki** is an open, **MIT-licensed** 2D rig puppet animation engine for the web —
+a from-scratch alternative to Live2D and [Inochi2D](https://inochi2d.com/). You
+author a character as layered parts wired to a small set of parameters, and the
+runtime animates it in WebGL. A host (such as
+[Charivo](https://github.com/zeikar/charivo)) drives those parameters from
+lip-sync, gaze, blink, and expressions — and an AI agent can build the character
+in the first place, from role-named PNG layers to a rigged model, through the
+bundled MCP server.
 
 > Status: **early, but real.** The runtime renders parameter-driven color quads,
 > atlas-sampled texture parts, warp-mesh and grid deformation, stencil clipping
@@ -21,8 +24,14 @@ drives those parameters from lip-sync, gaze, blink, and expressions.
 
 ## Why
 
+- **MIT, all of it.** Runtime, format, editor core, generator, MCP server. No
+  publication license, no revenue tiers, no per-title fee — ship a commercial
+  app or a VTuber model without asking anyone.
 - **Open format.** The `.iki` model is a plain, documented schema you own —
   which is what makes AI-driven model generation tractable.
+- **Characters an AI agent can build.** Role-named PNG layers in, a rigged
+  model that blinks, talks, turns and nods out, over MCP. That is the part Iki
+  is really exploring.
 - **Web-native.** WebGL runtime, TypeScript, no native toolchain.
 - **Host-agnostic.** The engine knows nothing about Charivo or any host; it
   just plays `.iki` models. Charivo consumes it through a thin `render-iki`
@@ -35,19 +44,22 @@ every dimension that matters to an artist — editor, tooling, ecosystem, and th
 quality ceiling of what you can rig with it. [Inochi2D](https://inochi2d.com/)
 is the established open-source project in this space. Iki is not trying to
 replace either. It exists because three things it wanted never lined up in one
-place:
+place: a permissive license, a plain-text format, and a rig an agent can build.
 
-- **A format you own.** `.iki` is plain JSON with a documented schema and a
-  fail-fast validator. You can read a model in a text editor, diff it in git,
-  and generate one from a script.
-- **Web-first, no native toolchain.** TypeScript and WebGL2. `npm install` and
-  it runs in a browser — no SDK download, nothing to compile for the runtime.
-- **Rigging an agent can drive.** Because the format is open and small, an AI
-  agent can take role-named PNG layers to a rigged, animating model through an
-  MCP server. That is the part Iki is really exploring.
+|                          | Live2D Cubism                                                                                                                                            | Inochi2D                     | Iki                                                       |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | --------------------------------------------------------- |
+| License                  | Proprietary SDK license; a publication license is required to distribute, with exemptions for individuals and small businesses ([terms][live2d-license]) | BSD-2-Clause                 | **MIT**                                                   |
+| Editor                   | Cubism Editor (paid PRO tier, free tier)                                                                                                                 | Inochi Creator (open source) | Headless editor core + example app (early)                |
+| Model format             | `.moc3`, compiled and proprietary                                                                                                                        | Open                         | Plain JSON with a documented schema and a validator       |
+| Runtime                  | Native SDKs, including a Web SDK                                                                                                                         | Native (D)                   | TypeScript + WebGL2, `npm install`                        |
+| An AI agent can build it | —                                                                                                                                                        | —                            | Yes: `auto_rig_from_layers` over MCP, plus a Claude skill |
+| Maturity                 | Industry standard                                                                                                                                        | Established                  | Early (0.x, schema still settling)                        |
+
+[live2d-license]: https://www.live2d.com/en/sdk/license/
 
 If you need production-grade 2D rigging today, use Cubism. If you want an open
-web format you can script against, that is what this is.
+web format you can script against, under a license that never asks about your
+revenue, that is what this is.
 
 ## Packages
 
@@ -125,8 +137,10 @@ positive x (the viewer's right).
 
 ## FAQ
 
-**Can I use this commercially?** Yes — MIT, for the engine, the format and the
-tooling. Models you make are yours.
+**Can I use this commercially?** Yes. Everything in this repo is MIT — engine,
+format, editor core, generator, MCP server. There is no publication license,
+no revenue threshold and no per-title fee; the only obligation is the MIT
+notice. Models you make are yours.
 
 **Can it load Live2D models?** No. `.moc3` is a proprietary compiled format;
 Iki has its own open schema and no importer for it.
