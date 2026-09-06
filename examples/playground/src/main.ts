@@ -184,8 +184,12 @@ async function switchModel(which: string): Promise<void> {
   try {
     let raw: unknown = sampleModel;
     if (which === "textured" || which === "hero") {
+      // BASE_URL-relative: these live in public/, so under a GitHub Pages
+      // sub-path build the fetch must carry the same base as the page.
       const res = await fetch(
-        which === "hero" ? "/hero.iki" : "/textured-sample.iki",
+        `${import.meta.env.BASE_URL}${
+          which === "hero" ? "hero.iki" : "textured-sample.iki"
+        }`,
       );
       if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
       raw = await res.json();
