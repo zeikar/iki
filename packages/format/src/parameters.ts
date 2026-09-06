@@ -31,7 +31,10 @@ export const StandardParameter = {
   AngleX: "ParamAngleX",
   /** Head angle, vertical degrees. */
   AngleY: "ParamAngleY",
-  /** Head tilt / roll degrees. */
+  /** Head tilt / roll degrees. Positive tilts the top of the head toward the
+   *  viewer's right (clockwise on screen), matching Live2D's ParamAngleZ so a
+   *  host's head-tracking maps 1:1; note this is the opposite sense from the
+   *  CCW-positive brow angles below. */
   AngleZ: "ParamAngleZ",
   /** Idle breath (0 .. 1), cycled by the host. */
   Breath: "ParamBreath",

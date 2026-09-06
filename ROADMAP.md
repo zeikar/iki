@@ -28,7 +28,8 @@ deliberately deferred.
    - A Claude skill chains image generation → layer compose → rig in one gesture
    - Head-turn depth parallax: the bangs lead the face and the back hair swings against it, so a turn reads as a head rotating rather than a flat cutout sliding
    - Head nod: `AngleY` drives the face warp as one 2D grid warp (`warp2d`) over turn × nod, with a gentler vertical bend so the hair crown stays whole
-   - Deferred: ML segmentation of a single flat illustration (today the parts arrive as separate layers); `AngleZ` (the head cannot tilt)
+   - Head tilt: `AngleZ` rolls the head about the neck pivot, clockwise-positive to match Live2D
+   - Deferred: ML segmentation of a single flat illustration (today the parts arrive as separate layers)
 7. **Physics / secondary motion** — done
    - Spring-mass-damper rigs (`model.physics`) driven by the `PhysicsMotion` peer driver
    - Multi-segment gravity-hung chains (`model.physicsChains`) driven by `HairChainMotion`, for hair strands that lag and swing on a head turn

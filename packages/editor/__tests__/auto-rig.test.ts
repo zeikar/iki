@@ -673,6 +673,60 @@ describe("head nod (AngleY)", () => {
   });
 });
 
+// ── describe("head tilt (AngleZ)") ───────────────────────────────────────────
+
+describe("head tilt (AngleZ)", () => {
+  const canvas = { width: 1000, height: 1000 };
+  const headOf = (model: ReturnType<typeof generateIkiFromLayerSet>) =>
+    model.deformers!.find((d) => d.id === "headDeformer") as {
+      bindings: {
+        parameter: string;
+        channel: string;
+        from: number;
+        to: number;
+      }[];
+    };
+
+  it("declares AngleZ and rolls the head one degree per degree", () => {
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+    expect(
+      model.parameters.find((p) => p.id === StandardParameter.AngleZ),
+    ).toMatchObject({ min: -30, max: 30, default: 0 });
+    const tilt = headOf(model).bindings.filter(
+      (b) => b.parameter === StandardParameter.AngleZ,
+    );
+    expect(tilt).toHaveLength(1);
+    expect(tilt[0].channel).toBe("rotate");
+    expect(Math.abs(tilt[0].to - tilt[0].from)).toBe(60);
+    expect(tilt[0].from).toBeCloseTo(-tilt[0].to, 10);
+    expect(() => parseIkiModel(structuredClone(model))).not.toThrow();
+  });
+
+  it("positive AngleZ is clockwise, the same sense as the lean into a turn", () => {
+    // Live2D's sample motions give AngleZ the sign of AngleX, and the rig's
+    // AngleX lean already rotates clockwise at +AngleX (engine rotate is
+    // CCW-positive, so clockwise is a negative `to`). A host mapping
+    // head-tracking roll onto AngleZ must land on the same side.
+    const head = headOf(generateIkiFromLayerSet(hairFrontLayers(), canvas));
+    const lean = head.bindings.find(
+      (b) => b.parameter === StandardParameter.AngleX && b.channel === "rotate",
+    )!;
+    const tilt = head.bindings.find(
+      (b) => b.parameter === StandardParameter.AngleZ,
+    )!;
+    expect(Math.sign(tilt.to)).toBe(Math.sign(lean.to));
+    expect(tilt.to).toBeLessThan(0);
+  });
+
+  it("the nod stays a translate, so only two rotations ever sum", () => {
+    const head = headOf(generateIkiFromLayerSet(hairFrontLayers(), canvas));
+    const rotates = head.bindings.filter((b) => b.channel === "rotate");
+    expect(rotates.map((b) => b.parameter).sort()).toEqual(
+      [StandardParameter.AngleX, StandardParameter.AngleZ].sort(),
+    );
+  });
+});
+
 // ── describe("head-turn depth parallax") ─────────────────────────────────────
 
 describe("head-turn depth parallax", () => {

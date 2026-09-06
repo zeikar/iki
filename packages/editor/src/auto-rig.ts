@@ -964,6 +964,13 @@ export function generateIkiFromLayerSet(
       default: 0,
     },
     {
+      id: StandardParameter.AngleZ,
+      name: "Head Angle Z",
+      min: -30,
+      max: 30,
+      default: 0,
+    },
+    {
       id: StandardParameter.Breath,
       name: "Breath",
       min: 0,
@@ -1138,14 +1145,26 @@ export function generateIkiFromLayerSet(
           from: -50,
           to: 50,
         },
-        // Nod: a vertical translate only. No rotate — AngleX already owns the
-        // rotate channel, and a second rigid rotation would sum with it at
-        // diagonal poses, collapsing yaw and pitch into one roll.
+        // Nod: a vertical translate only. No rotate — a pitch expressed as a
+        // rigid rotation would sum with the roll below at diagonal poses,
+        // collapsing pitch into roll.
         {
           parameter: StandardParameter.AngleY,
           channel: "translateY" as const,
           from: -NOD_TRAVEL,
           to: NOD_TRAVEL,
+        },
+        // Tilt: the whole head rolls about the neck pivot, one degree per
+        // degree. Positive AngleZ is clockwise on screen (engine rotate is
+        // CCW-positive, hence the flipped from/to) — Live2D's convention, and
+        // the same sense as the lean above: in Live2D's own sample motions
+        // AngleZ carries the sign of AngleX 214 times out of 222. The two
+        // rotations sum, which is correct for two rolls about one pivot.
+        {
+          parameter: StandardParameter.AngleZ,
+          channel: "rotate" as const,
+          from: 30,
+          to: -30,
         },
         {
           parameter: StandardParameter.Breath,
