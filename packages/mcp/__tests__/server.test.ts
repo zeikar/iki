@@ -205,6 +205,26 @@ describe("MCP server integration", () => {
     expect(fs.existsSync(outPath)).toBe(true);
   });
 
+  it("auto_rig_from_layers accepts quantizeColors through the tool schema", async () => {
+    pair = await createPair();
+    const dir = tmpDir();
+    const paths = await writeRequiredLayers(dir);
+    const outPath = path.join(dir, "model.iki");
+
+    const result = await pair.client.callTool({
+      name: "auto_rig_from_layers",
+      arguments: {
+        layers: paths.map((p) => ({ path: p })),
+        outputPath: outPath,
+        quantizeColors: 16,
+      },
+    });
+
+    expect((result.structuredContent as { ok: boolean }).ok).toBe(true);
+    expect(result.isError).toBeFalsy();
+    expect(fs.existsSync(outPath)).toBe(true);
+  });
+
   it("auto_rig_from_layers returns ok:false + INVALID: (not isError) for a bad path", async () => {
     pair = await createPair();
     const dir = tmpDir();

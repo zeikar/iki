@@ -113,6 +113,15 @@ export function createIkiMcpServer(): McpServer {
           .describe(
             "Output .iki path (resolved against cwd; parent dir must exist).",
           ),
+        quantizeColors: z
+          .number()
+          .int()
+          .min(2)
+          .max(256)
+          .optional()
+          .describe(
+            "Palette-quantize the atlas PNG to this many colours (2..256). Flat-shaded art keeps its look at 256 and the model shrinks to about a quarter; omit for lossless.",
+          ),
       },
     },
     async (args) => {

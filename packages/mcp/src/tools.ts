@@ -238,6 +238,9 @@ export interface AutoRigInput {
   layers: AutoRigLayerInput[];
   /** Output `.iki` path (relative paths resolve against the process cwd). */
   outputPath?: string;
+  /** Palette-quantize the atlas PNG to this many colours (integer, 2..256).
+   *  Omitted = lossless. See renderAtlasToDataUri for the size/quality trade. */
+  quantizeColors?: number;
 }
 
 export type AutoRigResult =
@@ -298,6 +301,17 @@ export async function autoRigFromLayers(
     const outPath = resolveOutputPath(
       input.outputPath ?? "auto-rigged-model.iki",
     );
+    const quantizeColors = input.quantizeColors;
+    if (
+      quantizeColors !== undefined &&
+      (!Number.isInteger(quantizeColors) ||
+        quantizeColors < 2 ||
+        quantizeColors > 256)
+    ) {
+      throw new AutoRigInputError(
+        `quantizeColors must be an integer in 2..256, got ${String(quantizeColors)}`,
+      );
+    }
 
     // Resolve paths + role-map up front (input boundary; no decode needed).
     // parseLayerRoles throws on unknown/duplicate/missing-required roles.
@@ -395,7 +409,7 @@ export async function autoRigFromLayers(
       );
     }
 
-    const dataUri = await renderAtlasToDataUri(crops, layout);
+    const dataUri = await renderAtlasToDataUri(crops, layout, quantizeColors);
     if (dataUri.length > MAX_OUTPUT_BYTES) {
       throw new AutoRigInputError(
         `atlas data URI ${dataUri.length} bytes exceeds ${MAX_OUTPUT_BYTES}`,

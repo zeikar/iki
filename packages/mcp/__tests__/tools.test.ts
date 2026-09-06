@@ -283,6 +283,87 @@ describe("autoRigFromLayers", () => {
     for (const d of createdDirs) fs.rmSync(d, { recursive: true, force: true });
   });
 
+  // A noisy face so the lossless atlas has real entropy to shrink.
+  async function writeNoisyLayers(dir: string): Promise<string[]> {
+    const noisy = await sharp({
+      create: {
+        width: 60,
+        height: 60,
+        channels: 4,
+        background: { r: 200, g: 120, b: 60, alpha: 1 },
+        noise: { type: "gaussian", mean: 128, sigma: 40 },
+      },
+    })
+      .png()
+      .toBuffer();
+    const face = path.join(dir, "face.png");
+    await sharp({
+      create: {
+        width: CANVAS,
+        height: CANVAS,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .composite([{ input: noisy, left: 20, top: 20 }])
+      .png()
+      .toFile(face);
+    return [
+      face,
+      await writeLayerPng(dir, "eye_L.png", { x: 30, y: 35, w: 12, h: 8 }),
+      await writeLayerPng(dir, "eye_R.png", { x: 58, y: 35, w: 12, h: 8 }),
+      await writeLayerPng(dir, "mouth.png", { x: 42, y: 60, w: 16, h: 8 }),
+    ];
+  }
+
+  it("quantizeColors shrinks the atlas and still writes a valid PNG-textured model", async () => {
+    const dir = tmpDir();
+    const paths = await writeNoisyLayers(dir);
+    const layers = paths.map((p) => ({ path: p }));
+
+    const lossless = await autoRigFromLayers({
+      layers,
+      outputPath: path.join(dir, "lossless.iki"),
+    });
+    const quantized = await autoRigFromLayers({
+      layers,
+      outputPath: path.join(dir, "quantized.iki"),
+      quantizeColors: 16,
+    });
+    expect(lossless.ok && quantized.ok).toBe(true);
+    if (!lossless.ok || !quantized.ok) return;
+    expect(quantized.atlasBytes).toBeLessThan(lossless.atlasBytes);
+
+    const written = JSON.parse(
+      fs.readFileSync(path.join(dir, "quantized.iki"), "utf8"),
+    );
+    const model = parseIkiModel(written);
+    const source = model.textures[0].source;
+    expect(source.startsWith("data:image/png;base64,")).toBe(true);
+    // It decodes as a palette PNG with at most the requested colours.
+    const meta = await sharp(
+      Buffer.from(source.slice("data:image/png;base64,".length), "base64"),
+    ).metadata();
+    expect(meta.format).toBe("png");
+    expect(meta.paletteBitDepth).toBeDefined();
+    expect(meta.paletteBitDepth!).toBeLessThanOrEqual(4);
+  });
+
+  it("rejects a quantizeColors outside 2..256 or non-integer as ok:false", async () => {
+    const dir = tmpDir();
+    const paths = await writeRequiredLayers(dir);
+    for (const bad of [1, 257, 0, 12.5, -8]) {
+      const result = await autoRigFromLayers({
+        layers: paths.map((p) => ({ path: p })),
+        outputPath: path.join(dir, "model.iki"),
+        quantizeColors: bad,
+      });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toMatch(/quantizeColors/);
+    }
+  });
+
   it("produces a renderable validated .iki with an embedded base64 PNG atlas", async () => {
     const dir = tmpDir();
     const paths = await writeRequiredLayers(dir);
