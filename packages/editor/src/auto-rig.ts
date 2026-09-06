@@ -601,15 +601,19 @@ const EYE_STACK_PREFIXES = ["eye_", "iris_", "pupil_", "highlight_"] as const;
 
 /** Signed depth of each hair layer from the head cylinder's axis, as a fraction
  *  of the cylinder radius; positive is toward the viewer. Tuned by eye against
- *  the rendered turn, not derived: at 0.22 the bangs read as a separate sheet
- *  sliding off the scalp, and below about 0.10 the turn goes flat again.
+ *  the rendered turn, not derived.
+ *
+ *  The bangs lead the face by a little. 0.16 was right while the back hair
+ *  stood still and the lead was the only depth cue; once the back hair bent
+ *  and bulged on the turn the same lead read as the bangs running ahead of
+ *  the head, so it came down. At 0.06 the layering all but vanishes.
  *
  *  hair_back follows the head at about 60% of its travel (its counter-shift
  *  takes ~20px off headDeformer's +50px). A deeper value that held the back of
  *  the head still in world space read as the face sliding over a backdrop; the
  *  turn cue for the back hair comes from its bend (bakeHairBackTurnWarp), not
  *  from lagging the head. */
-const HAIR_FRONT_DEPTH = 0.16;
+const HAIR_FRONT_DEPTH = 0.1;
 const HAIR_BACK_DEPTH = -0.08;
 
 /** Rigid vertical travel of the head at full nod (px at AngleY = ±30). */
