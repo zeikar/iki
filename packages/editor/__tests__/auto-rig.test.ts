@@ -883,13 +883,18 @@ describe("bakeHairBackTurnWarp", () => {
     }
   });
 
-  it("turning right tucks the near edge behind more than the far edge moves, without folding", () => {
+  it("turning right tucks the near edge in and bulges the far edge out, without folding", () => {
     const right = w.keyforms[2].offsets;
     const row = 2 * stride; // middle row
-    const nearEdge = right[(row + 4) * 2]; // x = +400
-    const farEdge = right[row * 2]; // x = -400
+    const nearEdge = right[(row + 4) * 2]; // x = +400, toward the turn
+    const farEdge = right[row * 2]; // x = -400, away from it
+    // Both move left: the near edge toward the centre (tucks behind the face),
+    // the far edge away from it (the hidden volume swings into view).
     expect(nearEdge).toBeLessThan(0);
-    expect(Math.abs(nearEdge)).toBeGreaterThan(Math.abs(farEdge));
+    expect(farEdge).toBeLessThan(0);
+    // The bulge is the far edge's motion; a bare cylinder bend would leave it
+    // slightly INSIDE its rest position (+12px on this mesh).
+    expect(Math.abs(farEdge)).toBeGreaterThan(0.12 * 400);
     // Order preserved along the row: no cell folds.
     let prev = -Infinity;
     for (let col = 0; col <= 4; col++) {
@@ -897,6 +902,16 @@ describe("bakeHairBackTurnWarp", () => {
       expect(x).toBeGreaterThan(prev);
       prev = x;
     }
+  });
+
+  it("the bulge is one-sided: a column is pushed out only when it is the far side", () => {
+    // Column x = +200. On a right turn it is the near side and only the bend
+    // acts on it, tucking it toward the centre. On a left turn it is the far
+    // side: a bare bend would still leave it slightly inside its rest
+    // position (-17px on this mesh), so an OUTWARD move can only be the bulge.
+    const col = 2 * stride + 3; // middle row, x = +200
+    expect(w.keyforms[2].offsets[col * 2]).toBeLessThan(0); // right turn
+    expect(w.keyforms[0].offsets[col * 2]).toBeGreaterThan(0); // left turn
   });
 
   it("bends far flatter than the face: the near edge folds in by well under its half-width", () => {

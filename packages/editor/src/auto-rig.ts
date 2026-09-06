@@ -866,6 +866,13 @@ export function bakeEyelidFoldWarp(
  *  ~180px. At 2.5 the near side tucks behind the face and the far side fills
  *  out, which is the whole cue. */
 const HAIR_BACK_BEND_RADIUS_FACTOR = 2.5;
+/** How far the back hair's far edge bulges OUT at full turn, as a fraction of
+ *  the part's half-width. A cylinder bend barely moves the far edge (it just
+ *  stops compressing), but on a real head the hair volume hidden behind the
+ *  far side swings into view and the silhouette fills out. Grows linearly
+ *  from the centre column to the far edge. Judged from renders: at ~0.32 the
+ *  far strands look pulled thin. */
+const HAIR_BACK_FAR_BULGE = 0.22;
 
 /**
  * The back hair's share of the head turn, as a per-vertex warp on AngleX.
@@ -873,8 +880,9 @@ const HAIR_BACK_BEND_RADIUS_FACTOR = 2.5;
  * hair_back hangs from the rigid headDeformer, not faceWarp, so without this it
  * turned as a flat sheet: the face foreshortened and slid while the silhouette
  * behind it kept its rest outline. This runs the same pinned cylinder bend the
- * face uses over the part's own columns, at a flatter radius: on a turn the
- * near side compresses behind the face and the far side comes into view.
+ * face uses over the part's own columns, at a flatter radius, plus a far-side
+ * bulge (HAIR_BACK_FAR_BULGE): on a turn the near side compresses behind the
+ * face and the far side swings out and fills.
  */
 export function bakeHairBackTurnWarp(
   mesh: IkiMesh,
@@ -886,13 +894,20 @@ export function bakeHairBackTurnWarp(
     left = Math.min(left, mesh.vertices[i]);
     right = Math.max(right, mesh.vertices[i]);
   }
-  const radius = ((right - left) / 2) * HAIR_BACK_BEND_RADIUS_FACTOR;
+  const halfWidth = (right - left) / 2;
+  const radius = halfWidth * HAIR_BACK_BEND_RADIUS_FACTOR;
+  const bulge = HAIR_BACK_FAR_BULGE * halfWidth;
   const DEG_TO_RAD = Math.PI / 180;
   const keyforms = [-HEAD_TURN_MAX_DEG, 0, HEAD_TURN_MAX_DEG].map((deg) => {
     const theta = deg * DEG_TO_RAD;
+    // Turning right (s = +1) the far side is x < 0; the bulge pushes it further
+    // left, i.e. outward. Full strength at the keyform stops, zero at rest.
+    const s = Math.sign(deg);
     const offsets: number[] = [];
     for (let i = 0; i < mesh.vertices.length; i += 2) {
-      offsets.push(pinnedCylinderBend(mesh.vertices[i], radius, theta), 0);
+      const x = mesh.vertices[i];
+      const far = Math.max(0, (-s * x) / halfWidth);
+      offsets.push(pinnedCylinderBend(x, radius, theta) - s * bulge * far, 0);
     }
     return { value: deg, offsets };
   });
