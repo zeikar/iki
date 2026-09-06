@@ -1,6 +1,6 @@
 {
   "name": "@ikijs/engine",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "WebGL2 runtime that plays .iki 2D puppet models in the browser — an open-source Live2D alternative for VTuber-style avatar animation",
   "keywords": [
     "iki",
