@@ -18,7 +18,7 @@ deliberately deferred.
    - **5a. Load → numeric part edit → live preview → validated export** — done
    - **5b. Texture/atlas import + per-part UV (quad parts)** — done
    - **5c. Per-part texturing + per-vertex mesh-UV remap** — done (existing face/eyes/mouth meshes take a per-part texture that rides the warp). Deferred to a later slice: mesh topology editing (triangulation / vertex add-move-delete / quad→mesh) and base-UV persistence across reload.
-   - **5d. Warp-deformer grid keyform authoring by canvas dragging** — done (drag the existing `faceWarp` grid control points to author the `IkiGridWarp` keyform that the head-turn rides). Deferred: per-part `warps` authoring, new deformer types, cols/rows resize, multi-keyform timeline, 2D/multi-driver grids (#4d).
+   - **5d. Warp-deformer grid keyform authoring by canvas dragging** — done (drag the existing `faceWarp` grid control points to author the `IkiGridWarp` keyform that the head-turn rides). Deferred: per-part `warps` authoring, new deformer types, cols/rows resize, multi-keyform timeline, 2D/multi-driver grids (#4d) — which auto-rigged models now use, so their grid keyforms are not drag-authorable yet.
    - **5e. Matrix-deformer hierarchy authoring (numeric)** — done (select a deformer → edit `pivot` / `transform` / parameter bindings numerically; reparent deformers and attach parts via dropdowns, with cycle / non-matrix-parent / mesh-on-warp validation that fails fast)
    - **5f. Deformer create/delete, canvas pivot gizmo, create-from-scratch** — done
    - **5g. Physics rig authoring** — done (Inspector CRUD over `model.physics` through invertible commands). Deferred: chain (`physicsChains`) authoring.
@@ -27,7 +27,8 @@ deliberately deferred.
    - PSD import in the editor; the `auto_rig_from_layers` tool in [`@ikijs/mcp`](./packages/mcp) so an agent can go from PNGs to a renderable `.iki` on disk
    - A Claude skill chains image generation → layer compose → rig in one gesture
    - Head-turn depth parallax: the bangs lead the face and the back hair swings against it, so a turn reads as a head rotating rather than a flat cutout sliding
-   - Deferred: ML segmentation of a single flat illustration (today the parts arrive as separate layers); `AngleY`/`AngleZ` (the auto-rigger emits `AngleX` only, so the head cannot nod or tilt)
+   - Head nod: `AngleY` drives the face warp as one 2D grid warp (`warp2d`) over turn × nod, with a gentler vertical bend so the hair crown stays whole
+   - Deferred: ML segmentation of a single flat illustration (today the parts arrive as separate layers); `AngleZ` (the head cannot tilt)
 7. **Physics / secondary motion** — done
    - Spring-mass-damper rigs (`model.physics`) driven by the `PhysicsMotion` peer driver
    - Multi-segment gravity-hung chains (`model.physicsChains`) driven by `HairChainMotion`, for hair strands that lag and swing on a head turn

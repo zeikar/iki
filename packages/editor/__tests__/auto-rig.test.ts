@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ROLE_TABLE,
   bakeEyelidFoldWarp,
+  bakeHeadTurnGridWarp2DCentered,
   bakeHeadTurnGridWarpCentered,
   bboxToTransform,
   bindingsForRole,
@@ -515,6 +516,163 @@ function hairFrontLayers(): LayerInput[] {
   ];
 }
 
+// ── describe("head nod (AngleY)") ────────────────────────────────────────────
+
+describe("head nod (AngleY)", () => {
+  const canvas = { width: 1000, height: 1000 };
+  // A grid whose middle row sits exactly on centerY = 0, so the pinned axis
+  // row is a real row of control points.
+  const grid = {
+    cols: 4,
+    rows: 4,
+    points: generateGridPoints(4, 4, -400, 400, -300, 300),
+  };
+  const cell = (
+    w: { valuesX: number[]; keyforms2d: { offsets: number[] }[] },
+    angleX: number,
+    angleY: number,
+  ) => w.keyforms2d[angleY * w.valuesX.length + angleX];
+
+  it("bakes a 3x3 lattice in the format's row-major layout", () => {
+    const w = bakeHeadTurnGridWarp2DCentered(grid, "ax", "ay", 0, 0);
+    expect(w.valuesX).toEqual([-30, 0, 30]);
+    expect(w.valuesY).toEqual([-30, 0, 30]);
+    expect(w.keyforms2d).toHaveLength(9);
+    for (const k of w.keyforms2d) {
+      expect(k.offsets).toHaveLength(grid.points.length);
+    }
+  });
+
+  it("the AngleY=0 row IS the 1D turn bake, so the turn did not change", () => {
+    const w = bakeHeadTurnGridWarp2DCentered(grid, "ax", "ay", 0, 0);
+    const turn = bakeHeadTurnGridWarpCentered(grid, "ax", 0);
+    for (const [i, angle] of [-30, 0, 30].entries()) {
+      const k1d = turn.keyforms.find((k) => k.value === angle)!;
+      const k2d = cell(w, i, 1);
+      for (let n = 0; n < k1d.offsets.length; n++) {
+        expect(k2d.offsets[n]).toBeCloseTo(k1d.offsets[n], 9);
+      }
+    }
+  });
+
+  it("pins the axis row: points on centerY never move vertically", () => {
+    const w = bakeHeadTurnGridWarp2DCentered(grid, "ax", "ay", 0, 0);
+    for (const k of w.keyforms2d) {
+      for (let p = 0; p < grid.points.length / 2; p++) {
+        if (grid.points[p * 2 + 1] === 0) {
+          expect(k.offsets[p * 2 + 1]).toBeCloseTo(0, 10);
+        }
+      }
+    }
+  });
+
+  it("a full nod foreshortens without folding, the far side most", () => {
+    const w = bakeHeadTurnGridWarp2DCentered(grid, "ax", "ay", 0, 0);
+    const up = cell(w, 1, 2); // AngleX=0, AngleY=+30
+    const stride = grid.cols + 1;
+    for (let col = 0; col <= grid.cols; col++) {
+      const column = [];
+      for (let row = 0; row <= grid.rows; row++) {
+        const p = row * stride + col;
+        const restY = grid.points[p * 2 + 1];
+        column.push({ restY, y: restY + up.offsets[p * 2 + 1] });
+      }
+      column.sort((a, b) => a.restY - b.restY);
+      // Order preserved along the column: no cell folds.
+      for (let k = 1; k < column.length; k++) {
+        expect(column[k].y).toBeGreaterThan(column[k - 1].y);
+      }
+      const bottom = column[0];
+      const top = column[column.length - 1];
+      // The whole column foreshortens...
+      expect(top.y - bottom.y).toBeLessThan(top.restY - bottom.restY);
+      // ...and looking up, the top edge (turning away) travels further than
+      // the bottom edge (turning toward the viewer).
+      expect(Math.abs(top.y - top.restY)).toBeGreaterThan(
+        Math.abs(bottom.y - bottom.restY),
+      );
+    }
+  });
+
+  it("the generated model declares AngleY and drives faceWarp with a 2D warp", () => {
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+    expect(
+      model.parameters.find((p) => p.id === StandardParameter.AngleY),
+    ).toMatchObject({ min: -30, max: 30, default: 0 });
+    const faceWarp = model.deformers!.find((d) => d.id === "faceWarp") as {
+      warps?: unknown;
+      warp2d?: { parameter: string; parameterY: string };
+    };
+    expect(faceWarp.warps).toBeUndefined();
+    expect(faceWarp.warp2d).toMatchObject({
+      parameter: StandardParameter.AngleX,
+      parameterY: StandardParameter.AngleY,
+    });
+    // Still a valid model end to end.
+    expect(() => parseIkiModel(structuredClone(model))).not.toThrow();
+  });
+
+  it("the head nods with a symmetric vertical translate and no second rotate", () => {
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+    const head = model.deformers!.find((d) => d.id === "headDeformer") as {
+      bindings: {
+        parameter: string;
+        channel: string;
+        from: number;
+        to: number;
+      }[];
+    };
+    const nod = head.bindings.filter(
+      (b) => b.parameter === StandardParameter.AngleY,
+    );
+    expect(nod).toHaveLength(1);
+    expect(nod[0].channel).toBe("translateY");
+    expect(nod[0].to).toBeGreaterThan(0);
+    expect(nod[0].from).toBeCloseTo(-nod[0].to, 10);
+  });
+
+  it("on the nod only the back hair moves, and it follows the crown down", () => {
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+    const nodOf = (id: string) =>
+      (model.parts.find((p) => p.id === id)!.bindings ?? []).find(
+        (b) =>
+          b.parameter === StandardParameter.AngleY &&
+          b.channel === "translateY",
+      ) as { from: number; to: number } | undefined;
+    // The bangs already ride the vertical bend; extra lead lifted them off the
+    // brows.
+    expect(nodOf("hair_front")).toBeUndefined();
+    // Looking up (+AngleY) bends the front crown down; the rigid back hair has
+    // to follow or it shows above it as a second crown.
+    const back = nodOf("hair_back")!;
+    expect(back.to).toBeLessThan(0);
+    expect(back.from).toBeCloseTo(-back.to, 10);
+  });
+
+  it("the nod bends the face gentler than the turn does", () => {
+    // Same square grid, same radius on both axes: only NOD_BEND separates the
+    // top edge's vertical travel from the right edge's horizontal travel.
+    const w = bakeHeadTurnGridWarp2DCentered(
+      {
+        cols: 4,
+        rows: 4,
+        points: generateGridPoints(4, 4, -400, 400, -400, 400),
+      },
+      "ax",
+      "ay",
+      0,
+      0,
+    );
+    const stride = 5;
+    const turn = cell(w, 2, 1); // AngleX=+30, AngleY=0
+    const nod = cell(w, 1, 2); // AngleX=0, AngleY=+30
+    const rightEdgeDx = Math.abs(turn.offsets[(2 * stride + 4) * 2]); // middle row, last col
+    const topEdgeDy = Math.abs(nod.offsets[(0 * stride + 2) * 2 + 1]); // top row, middle col
+    expect(topEdgeDy).toBeGreaterThan(0);
+    expect(topEdgeDy).toBeLessThan(0.6 * rightEdgeDx);
+  });
+});
+
 // ── describe("head-turn depth parallax") ─────────────────────────────────────
 
 describe("head-turn depth parallax", () => {
@@ -853,17 +1011,25 @@ describe("warp", () => {
     expect(headDef!.pivot.y).toBeLessThan(faceBottom);
   });
 
-  it("faceWarp.warps[0] has a value-0 keyform with all-zero offsets", () => {
+  it("faceWarp.warp2d's rest cell (AngleX=0, AngleY=0) has all-zero offsets", () => {
     const canvas = { width: 1000, height: 1000 };
     const model = generateIkiFromLayerSet(offCenterLayers(), canvas);
     const faceWarpDef = model.deformers?.find((d) => d.id === "faceWarp") as
-      | { warps?: { keyforms: { value: number; offsets: number[] }[] }[] }
+      | {
+          warps?: unknown;
+          warp2d?: {
+            valuesX: number[];
+            valuesY: number[];
+            keyforms2d: { offsets: number[] }[];
+          };
+        }
       | undefined;
-    expect(faceWarpDef?.warps).toBeDefined();
-    const warp = faceWarpDef!.warps![0];
-    const centerKeyform = warp.keyforms.find((k) => k.value === 0);
-    expect(centerKeyform).toBeDefined();
-    for (const offset of centerKeyform!.offsets) {
+    expect(faceWarpDef?.warps).toBeUndefined();
+    const warp = faceWarpDef!.warp2d!;
+    const i = warp.valuesX.indexOf(0);
+    const j = warp.valuesY.indexOf(0);
+    const rest = warp.keyforms2d[j * warp.valuesX.length + i];
+    for (const offset of rest.offsets) {
       expect(offset).toBeCloseTo(0, 10);
     }
   });

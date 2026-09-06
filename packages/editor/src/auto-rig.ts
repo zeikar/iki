@@ -11,6 +11,7 @@ import {
   StandardParameter,
   parseIkiModel,
   type IkiBinding,
+  type IkiGrid2DWarp,
   type IkiGridWarp,
   type IkiMesh,
   type IkiModel,
@@ -483,34 +484,112 @@ export function bakeHeadTurnGridWarpCentered(
 
   const keyforms = ANGLES.map((angleDeg) => {
     const theta = angleDeg * DEG_TO_RAD;
-    // Displacement of the point on the cylinder axis (localX === 0).
-    const axisShift = RADIUS * Math.sin(theta);
     const offsets: number[] = [];
-
     for (let i = 0; i < pointCount; i++) {
-      const x = grid.points[i * 2];
-      const localX = x - centerX;
-      // Clamp localX/RADIUS to [-1,1] to keep asin defined at boundary points.
-      const alpha = Math.asin(Math.max(-1, Math.min(1, localX / RADIUS)));
-      const xPrime = centerX + RADIUS * Math.sin(alpha + theta);
-      // Pin the axis column. Rotating a cylinder slides its whole visible
-      // surface sideways by RADIUS*sin(theta) — 170px on a 430px-wide face at
-      // 30 degrees — on top of the foreshortening. That bulk slide is what
-      // shoves the head off the shoulders and detaches the back hair; the
-      // foreshortening alone is what reads as a turn. Subtracting it leaves the
-      // differential and keeps the offsets monotonic, so no cell folds.
-      // Deliberate lateral head motion stays available on headDeformer's own
-      // translateX binding, where it can be tuned independently.
-      const dx = xPrime - x - axisShift;
+      const dx = pinnedCylinderBend(
+        grid.points[i * 2] - centerX,
+        RADIUS,
+        theta,
+      );
       // dy is zero — cylinder bend only deforms horizontal position.
       offsets.push(dx, 0);
     }
-
     return { value: angleDeg, offsets };
   });
 
   // keyforms are sorted ascending by construction (ANGLES = [-30, 0, 30]).
   return { parameter, keyforms };
+}
+
+/**
+ * Displacement of a point at signed distance `local` from the cylinder axis
+ * after the cylinder rotates by `theta`, with the axis column pinned.
+ *
+ * Rotating a cylinder slides its whole visible surface sideways by
+ * RADIUS*sin(theta) — 170px on a 430px-wide face at 30 degrees — on top of the
+ * foreshortening. That bulk slide is what shoves the head off the shoulders and
+ * detaches the back hair; the foreshortening alone is what reads as a turn.
+ * Subtracting it leaves the differential and keeps the offsets monotonic, so no
+ * cell folds. Deliberate bulk head motion stays on headDeformer's own translate
+ * bindings, where it can be tuned independently, and the hair layers get their
+ * depth-scaled share of it back through `headTurnParallaxUnit`.
+ */
+function pinnedCylinderBend(
+  local: number,
+  radius: number,
+  theta: number,
+): number {
+  // Clamp local/radius to [-1,1] to keep asin defined at boundary points.
+  const alpha = Math.asin(Math.max(-1, Math.min(1, local / radius)));
+  return radius * Math.sin(alpha + theta) - local - radius * Math.sin(theta);
+}
+
+/**
+ * Bake the head turn AND nod as one 2D grid warp over AngleX × AngleY.
+ *
+ * The same pinned cylinder bend as `bakeHeadTurnGridWarpCentered`, applied per
+ * axis: dx from the horizontal bend at valuesX[i], dy from a vertical bend at
+ * valuesY[j] about `centerY`. The axes are independent (dx depends only on x
+ * and the yaw, dy only on y and the pitch), which is the same separable
+ * convention the playground's 2D bake ships; the row at AngleY=0 is exactly the
+ * 1D bake.
+ *
+ * Y uses its own radius from the grid's vertical extent about `centerY`, with
+ * the same margin factor, so the same no-fold guarantee holds: |local|/radius
+ * stays ≤ 1/1.2 and asin(1/1.2) + 30° < 90°. The pitch itself is scaled by
+ * NOD_BEND — see that constant for why a full nod is not a full 30° bend.
+ *
+ * Layout is the format's row-major `k(i, j) = j * valuesX.length + i`.
+ */
+export function bakeHeadTurnGridWarp2DCentered(
+  grid: IkiWarpGrid,
+  parameterX: string,
+  parameterY: string,
+  centerX: number,
+  centerY: number,
+): IkiGrid2DWarp {
+  const STOPS = [-HEAD_TURN_MAX_DEG, 0, HEAD_TURN_MAX_DEG];
+  const halfWidth = (grid.points[grid.cols * 2] - grid.points[0]) / 2;
+  const RADIUS_X = halfWidth * HEAD_CYLINDER_RADIUS_FACTOR;
+
+  const pointCount = grid.points.length / 2;
+  let halfHeight = 0;
+  for (let i = 0; i < pointCount; i++) {
+    halfHeight = Math.max(
+      halfHeight,
+      Math.abs(grid.points[i * 2 + 1] - centerY),
+    );
+  }
+  const RADIUS_Y = halfHeight * HEAD_CYLINDER_RADIUS_FACTOR;
+
+  const DEG_TO_RAD = Math.PI / 180;
+  const keyforms2d: { offsets: number[] }[] = [];
+  for (const angleY of STOPS) {
+    const thetaY = angleY * NOD_BEND * DEG_TO_RAD;
+    for (const angleX of STOPS) {
+      const thetaX = angleX * DEG_TO_RAD;
+      const offsets: number[] = [];
+      for (let i = 0; i < pointCount; i++) {
+        offsets.push(
+          pinnedCylinderBend(grid.points[i * 2] - centerX, RADIUS_X, thetaX),
+          pinnedCylinderBend(
+            grid.points[i * 2 + 1] - centerY,
+            RADIUS_Y,
+            thetaY,
+          ),
+        );
+      }
+      keyforms2d.push({ offsets });
+    }
+  }
+
+  return {
+    parameter: parameterX,
+    parameterY,
+    valuesX: STOPS,
+    valuesY: STOPS,
+    keyforms2d,
+  };
 }
 
 // ── bindingsForRole ───────────────────────────────────────────────────────────
@@ -530,14 +609,31 @@ const EYE_STACK_PREFIXES = ["eye_", "iris_", "pupil_", "highlight_"] as const;
 const HAIR_FRONT_DEPTH = 0.16;
 const HAIR_BACK_DEPTH = -0.2;
 
+/** Rigid vertical travel of the head at full nod (px at AngleY = ±30). */
+const NOD_TRAVEL = 30;
+/** Geometric pitch per degree of ParamAngleY: a full ±30 nod bends the face
+ *  cylinder by ±15°. The face-warp grid reaches up to the hair crown, which
+ *  sits near 45° on the vertical cylinder; a full 30° pitch there drops the
+ *  bangs' crown ~140px while the rigid back hair stays put, and the back
+ *  hair's crown pops out above it as a second silhouette. At half pitch the
+ *  drop stays under the back hair and the nod still foreshortens visibly. */
+const NOD_BEND = 0.5;
+/** Vertical share of the nod for hair_back, as a fraction of the vertical
+ *  parallax unit. The bangs already ride the vertical bend, so they get no
+ *  extra lead on the nod — with one they lifted clear off the brows. The back
+ *  hair, a rigid quad, only needs to follow the bent crown down so it stays
+ *  tucked beneath it. */
+const HAIR_BACK_NOD_DEPTH = -0.07;
+
 /**
  * Derive the IkiBinding[] for a part from its role spec and crop dimensions.
  *
  * - face, blush, nose → no bindings
  * - hair_front: HairSwayX rotate (-8..8) + translateX (-10..10) — secondary-motion
  *     sway driven by the PhysicsMotion spring (rig emitted in generateIkiFromLayerSet)
- *     — plus an AngleX depth-parallax translateX, which needs `parallaxUnit`
- * - hair_back: the AngleX depth-parallax translateX alone (it has no sway)
+ *     — plus the AngleX depth-parallax translateX (needs `parallaxUnit`)
+ * - hair_back: the AngleX depth-parallax translateX, and an AngleY translateY
+ *     that tucks its crown under the bent front hair (needs `parallaxUnitY`)
  * - brow_L/R: BrowLeftY/RightY translateY (raise/lower) + BrowLeftAngle/RightAngle rotate
  *     (each brow rotates its own, CCW-positive)
  * - eye-stack:
@@ -554,7 +650,11 @@ export function bindingsForRole(
   role: string,
   cropW: number,
   cropH: number,
-  options: { hasMouthOpen?: boolean; parallaxUnit?: number } = {},
+  options: {
+    hasMouthOpen?: boolean;
+    parallaxUnit?: number;
+    parallaxUnitY?: number;
+  } = {},
 ): IkiBinding[] {
   const isEyeStack = EYE_STACK_PREFIXES.some((p) => role.startsWith(p));
 
@@ -682,20 +782,28 @@ export function bindingsForRole(
     // transforms before it binds), so the shift has to stay within the grid's
     // 12% margin. For a union centered on the face that margin is about twice
     // the shift; the generated-model test pins the real headroom.
-    const shift =
-      (isFront ? HAIR_FRONT_DEPTH : HAIR_BACK_DEPTH) *
-      (options.parallaxUnit ?? 0);
-    const parallax: IkiBinding[] =
-      shift === 0
-        ? []
-        : [
-            {
-              parameter: StandardParameter.AngleX,
-              channel: "translateX",
-              from: -shift,
-              to: shift,
-            },
-          ];
+    const depth = isFront ? HAIR_FRONT_DEPTH : HAIR_BACK_DEPTH;
+    const parallax: IkiBinding[] = [];
+    const shiftX = depth * (options.parallaxUnit ?? 0);
+    if (shiftX !== 0) {
+      parallax.push({
+        parameter: StandardParameter.AngleX,
+        channel: "translateX",
+        from: -shiftX,
+        to: shiftX,
+      });
+    }
+    // On the nod only the rigid back hair moves; see HAIR_BACK_NOD_DEPTH.
+    const shiftY =
+      (isFront ? 0 : HAIR_BACK_NOD_DEPTH) * (options.parallaxUnitY ?? 0);
+    if (shiftY !== 0) {
+      parallax.push({
+        parameter: StandardParameter.AngleY,
+        channel: "translateY",
+        from: -shiftY,
+        to: shiftY,
+      });
+    }
     if (!isFront) return parallax;
 
     // Hair sway: ParamHairSwayX (a PhysicsMotion spring output) lags/overshoots
@@ -849,6 +957,13 @@ export function generateIkiFromLayerSet(
       default: 0,
     },
     {
+      id: StandardParameter.AngleY,
+      name: "Head Angle Y",
+      min: -30,
+      max: 30,
+      default: 0,
+    },
+    {
       id: StandardParameter.Breath,
       name: "Breath",
       min: 0,
@@ -977,9 +1092,13 @@ export function generateIkiFromLayerSet(
     ),
   };
 
-  // Depth-parallax unit for the hair layers, from the same half-width the
-  // cylinder bake derives its radius from.
+  // Depth-parallax units for the hair layers, from the same extents the
+  // cylinder bake derives its radii from: half-width about the face center for
+  // the turn, the larger vertical reach about it for the nod.
+  const faceCenterY = faceTransform.y;
+  const halfH = Math.max(faceCenterY - unionMinY, unionMaxY - faceCenterY);
   const parallaxUnit = headTurnParallaxUnit(halfW);
+  const parallaxUnitY = headTurnParallaxUnit(halfH);
 
   // ── headDeformer pivot (neck): slightly below the face bottom ─────────────
   // faceBottom is the model-space y of the bottom edge of the face crop.
@@ -990,11 +1109,13 @@ export function generateIkiFromLayerSet(
     y: faceBottom - faceCropH * 0.15, // 15% below face bottom = neck
   };
 
-  // ── Bake center-relative head-turn cylinder warp ──────────────────────────
-  const faceWarpBake = bakeHeadTurnGridWarpCentered(
+  // ── Bake the center-relative turn × nod cylinder warp ─────────────────────
+  const faceWarp2d = bakeHeadTurnGridWarp2DCentered(
     faceGrid,
     StandardParameter.AngleX,
+    StandardParameter.AngleY,
     faceCenterX,
+    faceCenterY,
   );
 
   // ── Deformers ─────────────────────────────────────────────────────────────
@@ -1017,6 +1138,15 @@ export function generateIkiFromLayerSet(
           from: -50,
           to: 50,
         },
+        // Nod: a vertical translate only. No rotate — AngleX already owns the
+        // rotate channel, and a second rigid rotation would sum with it at
+        // diagonal poses, collapsing yaw and pitch into one roll.
+        {
+          parameter: StandardParameter.AngleY,
+          channel: "translateY" as const,
+          from: -NOD_TRAVEL,
+          to: NOD_TRAVEL,
+        },
         {
           parameter: StandardParameter.Breath,
           channel: "translateY" as const,
@@ -1027,12 +1157,14 @@ export function generateIkiFromLayerSet(
     },
     // faceWarp: cylinder-bend warp parented to headDeformer; grid is symmetric
     // about faceCenterX so the bake's cylinder axis aligns with the face center.
+    // One 2D warp carries both the turn and the nod (a deformer holds either
+    // `warps` or `warp2d`, never both).
     {
       kind: "warp" as const,
       id: "faceWarp",
       parent: "headDeformer",
       grid: faceGrid,
-      warps: [faceWarpBake],
+      warp2d: faceWarp2d,
     },
   ];
 
@@ -1061,6 +1193,7 @@ export function generateIkiFromLayerSet(
     const roleBindings = bindingsForRole(spec, role, cropW, cropH, {
       hasMouthOpen,
       parallaxUnit,
+      parallaxUnitY,
     });
     // `IkiPart.deformer` is optional, so a "none" role states its detachment by
     // leaving the field off rather than naming a deformer that must exist.
