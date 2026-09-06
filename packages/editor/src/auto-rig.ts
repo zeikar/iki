@@ -70,8 +70,9 @@ export interface LayerInput {
  *   eye_R = character's right eye = screen left side.
  */
 export const ROLE_TABLE: Record<string, RoleSpec> = {
-  // hair_back stays rigid (silhouette behind the face); per-layer front/back
-  // depth parallax is a later slice.
+  // The silhouette behind the face: a rigid quad on the head, with no warp of
+  // its own. Its share of the turn is the depth-parallax translateX in
+  // bindingsForRole, which swings it against the face.
   hair_back: { deformer: "headDeformer", order: 0, mesh: false },
   // The torso. Alone among the roles it hangs from NO deformer: the head turns
   // about the neck pivot while the shoulders stay put, which is what keeps the
@@ -413,6 +414,32 @@ export function createPixelGridMesh(
   return { vertices, uvs, indices };
 }
 
+// ── Head-turn cylinder constants ─────────────────────────────────────────────
+
+/** Cylinder radius as a multiple of the warp grid's half-width. The 0.6/0.5
+ *  margin ratio matches the local mesh bake and keeps asin clear of +/-1. */
+const HEAD_CYLINDER_RADIUS_FACTOR = 0.6 / 0.5;
+/** Outer keyform stop of the head-turn bake, matching ParamAngleX's range. */
+const HEAD_TURN_MAX_DEG = 30;
+
+/**
+ * Sideways slide, at full head turn, of a surface sitting one full cylinder
+ * radius in front of the rotation axis — the unit of depth parallax.
+ *
+ * This is exactly the bulk `axisShift` that `bakeHeadTurnGridWarpCentered`
+ * subtracts back out of the face warp. Pinning it there was right: applied to
+ * the face it shoved the head off the shoulders. But it is also the whole depth
+ * cue, so layers that do NOT sit on the face plane have to get their own share
+ * of it back, scaled by how far in front of (or behind) the axis they sit.
+ */
+export function headTurnParallaxUnit(gridHalfWidth: number): number {
+  return (
+    gridHalfWidth *
+    HEAD_CYLINDER_RADIUS_FACTOR *
+    Math.sin(HEAD_TURN_MAX_DEG * (Math.PI / 180))
+  );
+}
+
 // ── bakeHeadTurnGridWarpCentered ──────────────────────────────────────────────
 
 /**
@@ -446,11 +473,10 @@ export function bakeHeadTurnGridWarpCentered(
   centerX: number,
 ): IkiGridWarp {
   // Keyform stops (degrees) match ParamAngleX's −30..30 range.
-  const ANGLES = [-30, 0, 30] as const;
+  const ANGLES = [-HEAD_TURN_MAX_DEG, 0, HEAD_TURN_MAX_DEG] as const;
   // Cylinder radius in MODEL units, derived from the grid's symmetric half-width.
-  // Same 0.6/0.5 margin ratio as the local mesh bake — keeps asin clear of ±1.
   const halfWidth = (grid.points[grid.cols * 2] - grid.points[0]) / 2;
-  const RADIUS = halfWidth * (0.6 / 0.5);
+  const RADIUS = halfWidth * HEAD_CYLINDER_RADIUS_FACTOR;
 
   const pointCount = grid.points.length / 2;
   const DEG_TO_RAD = Math.PI / 180;
@@ -493,12 +519,25 @@ export function bakeHeadTurnGridWarpCentered(
 // Hoisted to module scope so it is not reallocated on every bindingsForRole call.
 const EYE_STACK_PREFIXES = ["eye_", "iris_", "pupil_", "highlight_"] as const;
 
+/** Signed depth of each hair layer from the head cylinder's axis, as a fraction
+ *  of the cylinder radius; positive is toward the viewer. Tuned by eye against
+ *  the rendered turn, not derived: at 0.22/-0.28 the bangs read as a separate
+ *  sheet sliding off the scalp, and below about 0.10 the turn goes flat again.
+ *
+ *  hair_back's counter-shift very nearly cancels headDeformer's own +50px
+ *  translateX, so the back of the head holds its ground while the face sweeps
+ *  across it. That is the intent, not an accident of two numbers meeting. */
+const HAIR_FRONT_DEPTH = 0.16;
+const HAIR_BACK_DEPTH = -0.2;
+
 /**
  * Derive the IkiBinding[] for a part from its role spec and crop dimensions.
  *
- * - face, hair_back, blush, nose → no bindings
+ * - face, blush, nose → no bindings
  * - hair_front: HairSwayX rotate (-8..8) + translateX (-10..10) — secondary-motion
  *     sway driven by the PhysicsMotion spring (rig emitted in generateIkiFromLayerSet)
+ *     — plus an AngleX depth-parallax translateX, which needs `parallaxUnit`
+ * - hair_back: the AngleX depth-parallax translateX alone (it has no sway)
  * - brow_L/R: BrowLeftY/RightY translateY (raise/lower) + BrowLeftAngle/RightAngle rotate
  *     (each brow rotates its own, CCW-positive)
  * - eye-stack:
@@ -515,7 +554,7 @@ export function bindingsForRole(
   role: string,
   cropW: number,
   cropH: number,
-  options: { hasMouthOpen?: boolean } = {},
+  options: { hasMouthOpen?: boolean; parallaxUnit?: number } = {},
 ): IkiBinding[] {
   const isEyeStack = EYE_STACK_PREFIXES.some((p) => role.startsWith(p));
 
@@ -633,11 +672,36 @@ export function bindingsForRole(
     }
   }
 
-  if (role === "hair_front") {
+  if (role === "hair_front" || role === "hair_back") {
+    const isFront = role === "hair_front";
+    // Depth parallax on the head turn. Both hair layers ride the head but
+    // neither sits on the face plane, so neither may track it exactly: the
+    // bangs lead the face and the back hair swings against it. Without this the
+    // hair is glued flat to the face and the turn reads as a cutout sliding.
+    // Shifting the mesh moves it INSIDE the warp grid (applyWarpToChild
+    // transforms before it binds), so the shift has to stay within the grid's
+    // 12% margin. For a union centered on the face that margin is about twice
+    // the shift; the generated-model test pins the real headroom.
+    const shift =
+      (isFront ? HAIR_FRONT_DEPTH : HAIR_BACK_DEPTH) *
+      (options.parallaxUnit ?? 0);
+    const parallax: IkiBinding[] =
+      shift === 0
+        ? []
+        : [
+            {
+              parameter: StandardParameter.AngleX,
+              channel: "translateX",
+              from: -shift,
+              to: shift,
+            },
+          ];
+    if (!isFront) return parallax;
+
     // Hair sway: ParamHairSwayX (a PhysicsMotion spring output) lags/overshoots
     // the head turn. Fixed magnitudes match the hand-authored sample. hair_back
-    // stays rigid (no sway). The PhysicsMotion rig that drives HairSwayX is
-    // emitted in generateIkiFromLayerSet when a hair_front layer is present.
+    // gets no sway. The PhysicsMotion rig that drives HairSwayX is emitted in
+    // generateIkiFromLayerSet when a hair_front layer is present.
     return [
       {
         parameter: StandardParameter.HairSwayX,
@@ -651,10 +715,11 @@ export function bindingsForRole(
         from: -10,
         to: 10,
       },
+      ...parallax,
     ];
   }
 
-  // face, blush_*, nose, hair_back → no bindings
+  // face, blush_*, nose → no bindings
   return [];
 }
 
@@ -912,6 +977,10 @@ export function generateIkiFromLayerSet(
     ),
   };
 
+  // Depth-parallax unit for the hair layers, from the same half-width the
+  // cylinder bake derives its radius from.
+  const parallaxUnit = headTurnParallaxUnit(halfW);
+
   // ── headDeformer pivot (neck): slightly below the face bottom ─────────────
   // faceBottom is the model-space y of the bottom edge of the face crop.
   // The neck pivot sits 15% of the face crop height below the face bottom.
@@ -991,6 +1060,7 @@ export function generateIkiFromLayerSet(
     const t = bboxToTransform(bbox, canvasW, canvasH, role);
     const roleBindings = bindingsForRole(spec, role, cropW, cropH, {
       hasMouthOpen,
+      parallaxUnit,
     });
     // `IkiPart.deformer` is optional, so a "none" role states its detachment by
     // leaving the field off rather than naming a deformer that must exist.
@@ -1043,8 +1113,9 @@ export function generateIkiFromLayerSet(
       }
       return part;
     } else {
-      // Static quad: no mesh, sized to the crop.
-      return {
+      // Static quad: no mesh, sized to the crop. It still takes bindings —
+      // hair_back has no mesh but does carry the head-turn depth parallax.
+      const part: IkiPart = {
         id: role,
         color: [1, 1, 1, 1] as [number, number, number, number],
         width: cropW,
@@ -1053,6 +1124,10 @@ export function generateIkiFromLayerSet(
         transform: t,
         deformer: deformerId,
       };
+      if (roleBindings.length > 0) {
+        part.bindings = roleBindings;
+      }
+      return part;
     }
   });
 

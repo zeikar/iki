@@ -9,6 +9,7 @@ import {
   createPixelGridMesh,
   generateGridPoints,
   generateIkiFromLayerSet,
+  headTurnParallaxUnit,
   parseLayerRoles,
   validateLayerInputs,
   type LayerInput,
@@ -514,6 +515,140 @@ function hairFrontLayers(): LayerInput[] {
   ];
 }
 
+// ── describe("head-turn depth parallax") ─────────────────────────────────────
+
+describe("head-turn depth parallax", () => {
+  const canvas = { width: 1000, height: 1000 };
+
+  /** The AngleX translateX binding a hair part carries, or undefined. */
+  const parallaxOf = (bindings: { parameter: string; channel: string }[]) =>
+    bindings.find(
+      (b) =>
+        b.parameter === StandardParameter.AngleX && b.channel === "translateX",
+    ) as { from: number; to: number } | undefined;
+
+  it("bindingsForRole: a parallaxUnit adds one AngleX translateX to each hair layer", () => {
+    const unit = 250;
+    const front = bindingsForRole(
+      ROLE_TABLE["hair_front"],
+      "hair_front",
+      700,
+      400,
+      { parallaxUnit: unit },
+    );
+    const back = bindingsForRole(
+      ROLE_TABLE["hair_back"],
+      "hair_back",
+      800,
+      700,
+      { parallaxUnit: unit },
+    );
+    // Front keeps its two sway bindings and gains the parallax; back has only it.
+    expect(front).toHaveLength(3);
+    expect(back).toHaveLength(1);
+    expect(parallaxOf(front)).toBeDefined();
+    expect(parallaxOf(back)).toBeDefined();
+  });
+
+  it("the bangs lead the head and the back hair swings against it", () => {
+    const unit = 250;
+    const front = parallaxOf(
+      bindingsForRole(ROLE_TABLE["hair_front"], "hair_front", 700, 400, {
+        parallaxUnit: unit,
+      }),
+    )!;
+    const back = parallaxOf(
+      bindingsForRole(ROLE_TABLE["hair_back"], "hair_back", 800, 700, {
+        parallaxUnit: unit,
+      }),
+    )!;
+    // headDeformer's own AngleX translateX runs -50 -> 50, so a positive `to`
+    // means the layer travels WITH the head and a negative one against it.
+    expect(front.to).toBeGreaterThan(0);
+    expect(back.to).toBeLessThan(0);
+    // The face plane sits between them: neither layer tracks it.
+    expect(front.to).not.toBeCloseTo(back.to, 5);
+  });
+
+  it("rest is untouched: both parallax bindings are symmetric about zero", () => {
+    // ParamAngleX defaults to 0, mid-range, so an asymmetric binding would
+    // shift the hair in the rest pose — the pose every proportion is judged on.
+    for (const [role, cropW, cropH] of [
+      ["hair_front", 700, 400],
+      ["hair_back", 800, 700],
+    ] as const) {
+      const b = parallaxOf(
+        bindingsForRole(ROLE_TABLE[role], role, cropW, cropH, {
+          parallaxUnit: 250,
+        }),
+      )!;
+      expect(b.from).toBeCloseTo(-b.to, 10);
+    }
+  });
+
+  it("headTurnParallaxUnit uses the same cylinder radius as the warp bake", () => {
+    // The unit IS the bulk axis shift the bake pins out. If the two ever derive
+    // the radius differently, the hair stops matching the face's foreshortening.
+    const halfW = 400;
+    const grid = {
+      cols: 4,
+      rows: 4,
+      points: generateGridPoints(4, 4, -halfW, halfW, -300, 300),
+    };
+    const baked = bakeHeadTurnGridWarpCentered(
+      grid,
+      StandardParameter.AngleX,
+      0,
+    );
+    const at30 = baked.keyforms.find((k) => k.value === 30)!;
+
+    const radius = headTurnParallaxUnit(halfW) / Math.sin((30 * Math.PI) / 180);
+    const theta = (30 * Math.PI) / 180;
+    // Re-derive the rightmost grid column's pinned dx from that radius.
+    const alpha = Math.asin(halfW / radius);
+    const expected =
+      radius * Math.sin(alpha + theta) - halfW - radius * Math.sin(theta);
+    expect(at30.offsets[4 * 2]).toBeCloseTo(expected, 6);
+  });
+
+  it("the generated model shifts both hair layers, and rest still nets zero", () => {
+    const layers = hairFrontLayers();
+    const model = generateIkiFromLayerSet(layers, canvas);
+    const front = parallaxOf(
+      model.parts.find((p) => p.id === "hair_front")!.bindings ?? [],
+    );
+    const back = parallaxOf(
+      model.parts.find((p) => p.id === "hair_back")!.bindings ?? [],
+    );
+    expect(front).toBeDefined();
+    expect(back).toBeDefined();
+    expect(front!.to).toBeGreaterThan(0);
+    expect(back!.to).toBeLessThan(0);
+  });
+
+  it("the shifted hair_front mesh still fits inside the faceWarp grid", () => {
+    // applyWarpToChild transforms a vertex BEFORE binding it to the rest grid,
+    // so the parallax shift moves the bangs within the grid. Past the edge the
+    // binding clamps and the outer strands smear onto the edge cell's offset,
+    // which at full turn is a ~3x jump from its neighbour.
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+    const grid = model.deformers!.find((d) => d.id === "faceWarp")!.grid;
+    const gridMaxX = grid.points[grid.cols * 2];
+    const gridMinX = grid.points[0];
+
+    const hair = model.parts.find((p) => p.id === "hair_front")!;
+    const xs = hair.mesh!.vertices.filter((_, i) => i % 2 === 0);
+    const shift = parallaxOf(hair.bindings ?? [])!.to;
+    // Sway translateX rides on top of the parallax and is bounded by ±10.
+    const SWAY_MAX = 10;
+    const right = hair.transform!.x + Math.max(...xs) + shift + SWAY_MAX;
+    const left = hair.transform!.x + Math.min(...xs) - shift - SWAY_MAX;
+
+    expect(right).toBeLessThan(gridMaxX);
+    expect(left).toBeGreaterThan(gridMinX);
+  });
+});
+
 describe("hair-sway physics", () => {
   const canvas = { width: 1000, height: 1000 };
 
@@ -932,12 +1067,12 @@ describe("bindings", () => {
     expect(bindingsForRole(spec, "face", 300, 400)).toHaveLength(0);
   });
 
-  it("bindingsForRole: hair_back (static) returns empty array", () => {
+  it("bindingsForRole: hair_back without a parallaxUnit returns empty array", () => {
     const spec = ROLE_TABLE["hair_back"];
     expect(bindingsForRole(spec, "hair_back", 800, 700)).toHaveLength(0);
   });
 
-  it("bindingsForRole: hair_front returns rotate + translateX sway on HairSwayX", () => {
+  it("bindingsForRole: hair_front without a parallaxUnit returns sway only", () => {
     const spec = ROLE_TABLE["hair_front"];
     const bindings = bindingsForRole(spec, "hair_front", 700, 400);
     expect(bindings).toHaveLength(2);

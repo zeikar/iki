@@ -26,7 +26,8 @@ deliberately deferred.
    - `generateIkiFromLayerSet` (`@ikijs/editor`) rigs role-named layers (`face`, `eye_L/R`, `mouth`, plus optional iris / brow / lash / hair) into a model that blinks, gazes, talks, turns, and emotes
    - PSD import in the editor; the `auto_rig_from_layers` tool in [`@ikijs/mcp`](./packages/mcp) so an agent can go from PNGs to a renderable `.iki` on disk
    - A Claude skill chains image generation → layer compose → rig in one gesture
-   - Deferred: ML segmentation of a single flat illustration (today the parts arrive as separate layers)
+   - Head-turn depth parallax: the bangs lead the face and the back hair swings against it, so a turn reads as a head rotating rather than a flat cutout sliding
+   - Deferred: ML segmentation of a single flat illustration (today the parts arrive as separate layers); `AngleY`/`AngleZ` (the auto-rigger emits `AngleX` only, so the head cannot nod or tilt)
 7. **Physics / secondary motion** — done
    - Spring-mass-damper rigs (`model.physics`) driven by the `PhysicsMotion` peer driver
    - Multi-segment gravity-hung chains (`model.physicsChains`) driven by `HairChainMotion`, for hair strands that lag and swing on a head turn
