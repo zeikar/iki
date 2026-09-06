@@ -2,6 +2,7 @@
 
 [![@ikijs/engine on npm](https://img.shields.io/npm/v/@ikijs/engine?label=%40ikijs%2Fengine&color=cb3837&logo=npm)](https://www.npmjs.com/package/@ikijs/engine)
 [![@ikijs/format on npm](https://img.shields.io/npm/v/@ikijs/format?label=%40ikijs%2Fformat&color=cb3837&logo=npm)](https://www.npmjs.com/package/@ikijs/format)
+[![Live demo](https://img.shields.io/badge/demo-zeikar.dev%2Fiki-E9A23B)](https://zeikar.dev/iki/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Built with HyperClaude](https://img.shields.io/badge/Built%20with-HyperClaude-D97757?logo=anthropic&logoColor=white)](http://zeikar.dev/hyperclaude/)
 
@@ -21,6 +22,15 @@ bundled MCP server.
 > masks, and spring/chain physics. The editor authors parts, deformers, and
 > physics rigs; the generator rigs a character from role-named PNG/PSD layers,
 > including through an MCP server that AI agents can drive.
+
+## Try it
+
+No install — both demos run in the browser:
+
+- **[Playground](https://zeikar.dev/iki/playground/)** — drag the sliders
+  that a host would drive, on a hand-authored model or a generated character.
+- **[Editor](https://zeikar.dev/iki/editor/)** — author parts, deformers,
+  and physics rigs, import a layered PSD, and export a validated `.iki`.
 
 ## Why
 
@@ -63,14 +73,14 @@ revenue, that is what this is.
 
 ## Packages
 
-| Package                                        | What it is                                                                                                                                         |
-| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`@ikijs/format`](./packages/format)           | The `.iki` model schema, types, loader, and validator                                                                                              |
-| [`@ikijs/engine`](./packages/engine)           | WebGL2 runtime that plays a `.iki` model                                                                                                           |
-| [`@ikijs/editor`](./packages/editor)           | Headless editing core (no UI): EditorDocument, edit commands, undo/redo, atlas layout/UV helpers, auto-rigger (depends only on @ikijs/format)      |
-| [`@ikijs/mcp`](./packages/mcp)                 | stdio MCP server exposing `.iki` read/validate plus `auto_rig_from_layers` to AI agents                                                            |
-| [`examples/playground`](./examples/playground) | Slider-driven demo of a hand-authored model                                                                                                        |
-| [`examples/editor`](./examples/editor)         | Private React+Zustand app — load/import art, numeric part + deformer + physics editing, pivot gizmo, live IkiPlayer preview, validated .iki export |
+| Package                                                                                     | What it is                                                                                                                                         |
+| ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@ikijs/format`](./packages/format)                                                        | The `.iki` model schema, types, loader, and validator                                                                                              |
+| [`@ikijs/engine`](./packages/engine)                                                        | WebGL2 runtime that plays a `.iki` model                                                                                                           |
+| [`@ikijs/editor`](./packages/editor)                                                        | Headless editing core (no UI): EditorDocument, edit commands, undo/redo, atlas layout/UV helpers, auto-rigger (depends only on @ikijs/format)      |
+| [`@ikijs/mcp`](./packages/mcp)                                                              | stdio MCP server exposing `.iki` read/validate plus `auto_rig_from_layers` to AI agents                                                            |
+| [`examples/playground`](./examples/playground) ([live](https://zeikar.dev/iki/playground/)) | Slider-driven demo of a hand-authored model                                                                                                        |
+| [`examples/editor`](./examples/editor) ([live](https://zeikar.dev/iki/editor/))             | Private React+Zustand app — load/import art, numeric part + deformer + physics editing, pivot gizmo, live IkiPlayer preview, validated .iki export |
 
 ## Install
 

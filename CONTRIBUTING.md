@@ -14,6 +14,20 @@ pnpm playground   # open the Vite URL and drag the sliders
 
 Node >= 22.13 and pnpm >= 11 (the repo pins its own pnpm version).
 
+## The demo site
+
+<https://zeikar.dev/iki/> is the landing page in `site/` plus both example
+apps, rebuilt by `.github/workflows/pages.yml` on every push to `main`.
+
+```bash
+pnpm build:site   # assembles dist/ exactly as the workflow does
+```
+
+The apps are served from a sub-path there, so anything they fetch at runtime has
+to go through `import.meta.env.BASE_URL` rather than an absolute `/path`. To
+check that locally, serve `dist/` from under an `/iki/` prefix — opening
+`dist/index.html` straight off the filesystem will not catch a base-path bug.
+
 ## Before you open a PR
 
 ```bash
