@@ -32,6 +32,7 @@
   "packageManager": "pnpm@11.25.0",
   "scripts": {
     "build": "pnpm -r --filter './packages/*' build",
+    "build:site": "node ./scripts/build-site.mjs",
     "dev": "pnpm -r --parallel dev",
     "typecheck": "pnpm -r --parallel typecheck",
     "format": "prettier --write .",
