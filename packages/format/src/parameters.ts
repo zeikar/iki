@@ -48,6 +48,8 @@ export const StandardParameter = {
   BrowRightAngle: "ParamBrowRAngle",
   /** Horizontal hair sway. Physics OUTPUT — driven by the spring, not set by the host. */
   HairSwayX: "ParamHairSwayX",
+  /** Hair sway behind a head tilt. Physics OUTPUT — driven by the spring, not set by the host. */
+  HairSwayZ: "ParamHairSwayZ",
 } as const;
 
 export type StandardParameterId =

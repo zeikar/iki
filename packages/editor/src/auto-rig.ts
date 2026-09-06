@@ -629,8 +629,9 @@ const HAIR_BACK_NOD_DEPTH = -0.07;
  * Derive the IkiBinding[] for a part from its role spec and crop dimensions.
  *
  * - face, blush, nose → no bindings
- * - hair_front: HairSwayX rotate (-8..8) + translateX (-10..10) — secondary-motion
- *     sway driven by the PhysicsMotion spring (rig emitted in generateIkiFromLayerSet)
+ * - hair_front: HairSwayX rotate (-8..8) + translateX (-10..10), and HairSwayZ
+ *     rotate (-6..6) — secondary-motion sway behind the head turn and tilt,
+ *     driven by the PhysicsMotion springs (rigs emitted in generateIkiFromLayerSet)
  *     — plus the AngleX depth-parallax translateX (needs `parallaxUnit`)
  * - hair_back: the AngleX depth-parallax translateX, and an AngleY translateY
  *     that tucks its crown under the bent front hair (needs `parallaxUnitY`)
@@ -806,9 +807,11 @@ export function bindingsForRole(
     }
     if (!isFront) return parallax;
 
-    // Hair sway: ParamHairSwayX (a PhysicsMotion spring output) lags/overshoots
-    // the head turn. Fixed magnitudes match the hand-authored sample. hair_back
-    // gets no sway. The PhysicsMotion rig that drives HairSwayX is emitted in
+    // Hair sway: ParamHairSwayX / ParamHairSwayZ (PhysicsMotion spring outputs)
+    // lag/overshoot the head turn and the head tilt. The turn magnitudes match
+    // the hand-authored sample; the tilt is rotation only and a little smaller,
+    // since the whole head already rolls and a tilt reads larger per degree.
+    // hair_back gets no sway. The rigs that drive both outputs are emitted in
     // generateIkiFromLayerSet when a hair_front layer is present.
     return [
       {
@@ -822,6 +825,12 @@ export function bindingsForRole(
         channel: "translateX",
         from: -10,
         to: 10,
+      },
+      {
+        parameter: StandardParameter.HairSwayZ,
+        channel: "rotate",
+        from: -6,
+        to: 6,
       },
       ...parallax,
     ];
@@ -1007,16 +1016,25 @@ export function generateIkiFromLayerSet(
     },
   ];
 
-  // Hair-sway output param (physics-driven), declared only when there is front
-  // hair to drive — keeps no-hair models free of an unused parameter.
+  // Hair-sway output params (physics-driven), declared only when there is front
+  // hair to drive — keeps no-hair models free of unused parameters.
   if (hasHair) {
-    parameters.push({
-      id: StandardParameter.HairSwayX,
-      name: "Hair Sway X",
-      min: -20,
-      max: 20,
-      default: 0,
-    });
+    parameters.push(
+      {
+        id: StandardParameter.HairSwayX,
+        name: "Hair Sway X",
+        min: -20,
+        max: 20,
+        default: 0,
+      },
+      {
+        id: StandardParameter.HairSwayZ,
+        name: "Hair Sway Z",
+        min: -20,
+        max: 20,
+        default: 0,
+      },
+    );
   }
 
   // ── Face layer: derive center and crop for pivot + grid ───────────────────
@@ -1291,15 +1309,25 @@ export function generateIkiFromLayerSet(
     parameters,
     deformers,
     parts,
-    // Secondary motion: a spring lags AngleX onto HairSwayX so front hair sways
-    // behind the head turn (same constants as the hand-authored sample). Omitted
-    // when there is no front hair to drive.
+    // Secondary motion: one spring lags AngleX onto HairSwayX so front hair
+    // sways behind the head turn (same constants as the hand-authored sample),
+    // and a second lags AngleZ onto HairSwayZ so it swings behind a tilt. Two
+    // rigs because a rig has one input and one output (validator-enforced).
+    // Omitted when there is no front hair to drive.
     physics: hasHair
       ? [
           {
             id: "hairSway",
             input: { parameter: StandardParameter.AngleX, weight: 1 },
             output: { parameter: StandardParameter.HairSwayX, scale: -10 },
+            mass: 1,
+            stiffness: 80,
+            damping: 10,
+          },
+          {
+            id: "hairTilt",
+            input: { parameter: StandardParameter.AngleZ, weight: 1 },
+            output: { parameter: StandardParameter.HairSwayZ, scale: -10 },
             mass: 1,
             stiffness: 80,
             damping: 10,

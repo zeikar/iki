@@ -19,7 +19,7 @@ const GAZE_RETARGET_MAX_MS = 3000;
 const GAZE_EASE_RATE = 0.001;
 
 // Head sway: sums of slow sines with near-coprime periods, so the drift never
-// visibly repeats. Degrees — small against the ±30° standard AngleX/Y range,
+// visibly repeats. Degrees — small against the ±30° standard AngleX/Y/Z range,
 // but enough continuous head motion to keep hair physics from sleeping.
 const SWAY_X_AMP_A_DEG = 2.2;
 const SWAY_X_PERIOD_A_MS = 6100;
@@ -27,6 +27,10 @@ const SWAY_X_AMP_B_DEG = 1.3;
 const SWAY_X_PERIOD_B_MS = 9700;
 const SWAY_Y_AMP_DEG = 1.6;
 const SWAY_Y_PERIOD_MS = 7300;
+// Roll is the smallest and slowest of the three: an idle head barely tilts,
+// and a tilt reads much larger than a turn of the same degrees.
+const SWAY_Z_AMP_DEG = 1.1;
+const SWAY_Z_PERIOD_MS = 11300;
 
 // --- Small pure helpers -------------------------------------------------------
 
@@ -153,11 +157,12 @@ export class IdleMotion {
     this.sink(StandardParameter.EyeballX, this.gazeCurrentX);
     this.sink(StandardParameter.EyeballY, this.gazeCurrentY);
 
-    // Head sway keeps the character (and any hair physics reading AngleX/Y)
+    // Head sway keeps the character (and any hair physics reading AngleX/Y/Z)
     // from freezing solid between blinks. Models without these parameters
     // ignore the writes (ParameterStore drops unknown ids).
     this.sink(StandardParameter.AngleX, this.swayX());
     this.sink(StandardParameter.AngleY, this.swayY());
+    this.sink(StandardParameter.AngleZ, this.swayZ());
   }
 
   // ---------------------------------------------------------------------------
@@ -174,6 +179,7 @@ export class IdleMotion {
     // Sway sines are all 0 at clock 0 — the head starts centered.
     this.sink(StandardParameter.AngleX, 0);
     this.sink(StandardParameter.AngleY, 0);
+    this.sink(StandardParameter.AngleZ, 0);
   }
 
   /** Returns the current eye-open value (0..1) and advances blink state. */
@@ -224,6 +230,13 @@ export class IdleMotion {
   private swayY(): number {
     return (
       SWAY_Y_AMP_DEG * Math.sin((2 * Math.PI * this.clockMs) / SWAY_Y_PERIOD_MS)
+    );
+  }
+
+  /** Head roll sway in degrees, pure function of the internal clock. */
+  private swayZ(): number {
+    return (
+      SWAY_Z_AMP_DEG * Math.sin((2 * Math.PI * this.clockMs) / SWAY_Z_PERIOD_MS)
     );
   }
 

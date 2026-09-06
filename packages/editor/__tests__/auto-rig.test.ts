@@ -755,8 +755,8 @@ describe("head-turn depth parallax", () => {
       700,
       { parallaxUnit: unit },
     );
-    // Front keeps its two sway bindings and gains the parallax; back has only it.
-    expect(front).toHaveLength(3);
+    // Front keeps its three sway bindings and gains the parallax; back has only it.
+    expect(front).toHaveLength(4);
     expect(back).toHaveLength(1);
     expect(parallaxOf(front)).toBeDefined();
     expect(parallaxOf(back)).toBeDefined();
@@ -864,18 +864,32 @@ describe("head-turn depth parallax", () => {
 describe("hair-sway physics", () => {
   const canvas = { width: 1000, height: 1000 };
 
-  it("emits one hair-sway rig when a hair_front layer is present", () => {
+  it("emits the turn and tilt hair rigs when a hair_front layer is present", () => {
     const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
     expect(model.physics).toBeDefined();
-    expect(model.physics).toHaveLength(1);
-    const rig = model.physics![0];
-    expect(rig.input.parameter).toBe(StandardParameter.AngleX);
-    expect(rig.input.weight).toBe(1);
-    expect(rig.output.parameter).toBe(StandardParameter.HairSwayX);
-    expect(rig.output.scale).toBe(-10);
-    expect(rig.mass).toBe(1);
-    expect(rig.stiffness).toBe(80);
-    expect(rig.damping).toBe(10);
+    expect(model.physics).toHaveLength(2);
+    const [sway, tilt] = model.physics!;
+    expect(sway.input).toEqual({
+      parameter: StandardParameter.AngleX,
+      weight: 1,
+    });
+    expect(sway.output).toEqual({
+      parameter: StandardParameter.HairSwayX,
+      scale: -10,
+    });
+    expect(tilt.input).toEqual({
+      parameter: StandardParameter.AngleZ,
+      weight: 1,
+    });
+    expect(tilt.output).toEqual({
+      parameter: StandardParameter.HairSwayZ,
+      scale: -10,
+    });
+    for (const rig of [sway, tilt]) {
+      expect(rig.mass).toBe(1);
+      expect(rig.stiffness).toBe(80);
+      expect(rig.damping).toBe(10);
+    }
   });
 
   it("binds rotate + translateX on HairSwayX to the hair_front part", () => {
@@ -895,24 +909,37 @@ describe("hair-sway physics", () => {
     });
   });
 
-  it("declares the HairSwayX parameter when hair is present", () => {
+  it("declares the HairSwayX and HairSwayZ parameters when hair is present", () => {
     const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
-    const param = model.parameters.find(
-      (p) => p.id === StandardParameter.HairSwayX,
+    for (const id of [
+      StandardParameter.HairSwayX,
+      StandardParameter.HairSwayZ,
+    ]) {
+      const param = model.parameters.find((p) => p.id === id);
+      expect(param).toMatchObject({ min: -20, max: 20, default: 0 });
+    }
+  });
+
+  it("binds a HairSwayZ rotate on hair_front so it swings behind a tilt", () => {
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+    const hair = model.parts.find((p) => p.id === "hair_front")!;
+    const tilt = (hair.bindings ?? []).filter(
+      (b) => b.parameter === StandardParameter.HairSwayZ,
     );
-    expect(param).toMatchObject({ min: -20, max: 20, default: 0 });
+    expect(tilt).toHaveLength(1);
+    expect(tilt[0]).toMatchObject({ channel: "rotate", from: -6, to: 6 });
   });
 
   it("emits NO physics / param / binding without a hair_front layer", () => {
     const model = generateIkiFromLayerSet(assemblyLayers(), canvas);
     expect(model.physics).toBeUndefined();
-    expect(
-      model.parameters.some((p) => p.id === StandardParameter.HairSwayX),
-    ).toBe(false);
+    const swayIds: string[] = [
+      StandardParameter.HairSwayX,
+      StandardParameter.HairSwayZ,
+    ];
+    expect(model.parameters.some((p) => swayIds.includes(p.id))).toBe(false);
     const anySway = model.parts.some((part) =>
-      (part.bindings ?? []).some(
-        (b) => b.parameter === StandardParameter.HairSwayX,
-      ),
+      (part.bindings ?? []).some((b) => swayIds.includes(b.parameter)),
     );
     expect(anySway).toBe(false);
   });
@@ -1295,10 +1322,12 @@ describe("bindings", () => {
   it("bindingsForRole: hair_front without a parallaxUnit returns sway only", () => {
     const spec = ROLE_TABLE["hair_front"];
     const bindings = bindingsForRole(spec, "hair_front", 700, 400);
-    expect(bindings).toHaveLength(2);
-    expect(
-      bindings.every((b) => b.parameter === StandardParameter.HairSwayX),
-    ).toBe(true);
+    expect(bindings).toHaveLength(3);
+    const swayIds: string[] = [
+      StandardParameter.HairSwayX,
+      StandardParameter.HairSwayZ,
+    ];
+    expect(bindings.every((b) => swayIds.includes(b.parameter))).toBe(true);
     expect(bindings.find((b) => b.channel === "rotate")).toMatchObject({
       from: -8,
       to: 8,

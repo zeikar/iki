@@ -5,7 +5,7 @@ Where Iki is and where it is going. The short version lives in
 deliberately deferred.
 
 1. **Format + runtime** (parameter-driven color quads) — done
-   - **Idle motion** — host-agnostic `IdleMotion` driver (auto-blink / breath / gaze drift) shipped by the engine, consumed by the playground and the editor preview — done
+   - **Idle motion** — host-agnostic `IdleMotion` driver (auto-blink / breath / gaze drift / head sway on all three axes) shipped by the engine, consumed by the playground and the editor preview — done
 2. **Charivo adapter** — [`@charivo/render-iki`](https://github.com/zeikar/charivo/tree/main/packages/render-iki) implementing the renderer contract — working as a private local-dogfood package in the Charivo repo
 3. **Textures** — atlas + UV-rect texture sampling, `color` as tint multiplier — done
    > Atlas authors should add padding / extruded borders between sub-rects to avoid LINEAR-filter bleeding.
@@ -33,6 +33,6 @@ deliberately deferred.
 7. **Physics / secondary motion** — done
    - Spring-mass-damper rigs (`model.physics`) driven by the `PhysicsMotion` peer driver
    - Multi-segment gravity-hung chains (`model.physicsChains`) driven by `HairChainMotion`, for hair strands that lag and swing on a head turn
-   - Auto-rig emits a hair-sway rig automatically when a `hair_front` layer is present
+   - Auto-rig emits hair-sway rigs automatically when a `hair_front` layer is present — one behind the head turn, one behind the tilt
    - Deferred: warp-aware chains, auto-generated chain rigs
 8. **Clipping masks** — done (stencil-based; e.g. an iris clipped to the sclera so it never spills at extreme gaze)

@@ -15,11 +15,13 @@ const EMITTED_IDS = new Set([
   StandardParameter.EyeballY,
   StandardParameter.AngleX,
   StandardParameter.AngleY,
+  StandardParameter.AngleZ,
 ]);
 
 // Head-sway envelope bounds matching the impl's intent — NOT imported from impl.
 const SWAY_X_MAX_DEG = 2.2 + 1.3;
 const SWAY_Y_MAX_DEG = 1.6;
+const SWAY_Z_MAX_DEG = 1.1;
 
 /** Build a capturing sink → Map<id, emitted values in order>. */
 function makeSink(): {
@@ -96,6 +98,7 @@ describe("sink-only contract", () => {
     expect(emissions.get(StandardParameter.EyeballY)![0]).toBe(0);
     expect(emissions.get(StandardParameter.AngleX)![0]).toBe(0);
     expect(emissions.get(StandardParameter.AngleY)![0]).toBe(0);
+    expect(emissions.get(StandardParameter.AngleZ)![0]).toBe(0);
   });
 
   it("every update (including first) emits exactly all 7 ids", () => {
@@ -254,16 +257,36 @@ describe("head sway", () => {
     for (const v of emissions.get(StandardParameter.AngleY)!) {
       expect(Math.abs(v)).toBeLessThanOrEqual(SWAY_Y_MAX_DEG + eps);
     }
+    for (const v of emissions.get(StandardParameter.AngleZ)!) {
+      expect(Math.abs(v)).toBeLessThanOrEqual(SWAY_Z_MAX_DEG + eps);
+    }
   });
 
-  it("actually sways: both axes visit both sides of center", () => {
+  it("actually sways: all three axes visit both sides of center", () => {
     const emissions = drive(timestamps(0, 240, 50), cyclingRng([0.5]));
     const xs = emissions.get(StandardParameter.AngleX)!;
     const ys = emissions.get(StandardParameter.AngleY)!;
+    const zs = emissions.get(StandardParameter.AngleZ)!;
     expect(Math.max(...xs)).toBeGreaterThan(1);
     expect(Math.min(...xs)).toBeLessThan(-1);
     expect(Math.max(...ys)).toBeGreaterThan(0.5);
     expect(Math.min(...ys)).toBeLessThan(-0.5);
+    expect(Math.max(...zs)).toBeGreaterThan(0.5);
+    expect(Math.min(...zs)).toBeLessThan(-0.5);
+  });
+
+  it("roll is the gentlest axis: its envelope stays under the turn's", () => {
+    // A tilt of n degrees reads far larger than a turn of n degrees, so the
+    // idle must never roll as far as it yaws.
+    expect(SWAY_Z_MAX_DEG).toBeLessThan(SWAY_Y_MAX_DEG);
+    const emissions = drive(timestamps(0, 240, 50), cyclingRng([0.5]));
+    const maxZ = Math.max(
+      ...emissions.get(StandardParameter.AngleZ)!.map(Math.abs),
+    );
+    const maxX = Math.max(
+      ...emissions.get(StandardParameter.AngleX)!.map(Math.abs),
+    );
+    expect(maxZ).toBeLessThan(maxX);
   });
 
   it("a huge dt pause cannot teleport the head", () => {

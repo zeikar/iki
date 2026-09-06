@@ -187,7 +187,8 @@ const STANDARD_PARAMETER_INFO: StandardParameterInfo[] = [
   },
   {
     id: StandardParameter.AngleZ,
-    description: "Head tilt / roll degrees.",
+    description:
+      "Head tilt / roll degrees; positive tilts the top of the head toward the viewer's right (clockwise), as in Live2D.",
   },
   {
     id: StandardParameter.Breath,
@@ -213,6 +214,11 @@ const STANDARD_PARAMETER_INFO: StandardParameterInfo[] = [
     id: StandardParameter.HairSwayX,
     description:
       "Horizontal hair-sway driver. Physics OUTPUT — driven by the spring, hosts should not set it directly.",
+  },
+  {
+    id: StandardParameter.HairSwayZ,
+    description:
+      "Hair-sway driver behind a head tilt. Physics OUTPUT — driven by the spring, hosts should not set it directly.",
   },
 ];
 
