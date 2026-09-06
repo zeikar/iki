@@ -60,7 +60,7 @@ That is why the caps below are not optional, and why the critic is asked to call
 ## Cost
 
 Every `regenerate` is a billed `codex exec` taking minutes. A full part set is
-8 roles × 2 variants = 16 jobs. **Check the quota before starting** — a run that
+9 parts × 2 variants = 18 jobs. **Check the quota before starting** — a run that
 dies halfway leaves a half-updated parts dir:
 
 ```bash

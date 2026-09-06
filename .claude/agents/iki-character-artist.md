@@ -93,7 +93,9 @@ the prompt patterns and the hard-won pitfalls. Then:
 
 4. **Rig** — pipe a `tools/call` for `auto_rig_from_layers` to
    `node <repo>/packages/mcp/dist/cli.js`, run from `<workdir>` (the tool
-   confines output to its cwd). Pass every `layers/*.png` except `preview.png`.
+   confines output to its cwd). Pass every `layers/*.png` except `preview.png`,
+   and `"quantizeColors": 256` so the model the orchestrator loads in the
+   playground is the compact one (a lossless atlas is ~4× larger).
 
 ## Applying findings
 

@@ -1,6 +1,6 @@
 ---
 name: iki-character
-description: Generate a renderable, auto-rigged Iki character (`.iki`) from one gesture — drive codex-image to draw role-separated transparent part PNGs (eyeless face base, sclera, iris, mouth, lash, brow, front hair), compose them into canvas-aligned role layers with the bundled `compose.cjs`, then call the `auto_rig_from_layers` MCP tool to emit a rigged `.iki` that blinks, gazes, opens its mouth, turns its head, and emotes with its brows. Use whenever the user asks to "make/generate/create an Iki character" from scratch (no existing art).
+description: Generate a renderable, auto-rigged Iki character (`.iki`) from one gesture — drive codex-image to draw role-separated transparent part PNGs (eyeless face base, sclera, iris, closed + open mouth, lash, brow, front and back hair, torso), compose them into canvas-aligned role layers with the bundled `compose.cjs`, then call the `auto_rig_from_layers` MCP tool to emit a rigged `.iki` that blinks, gazes, lip-syncs, turns, nods and tilts its head with swaying hair, and emotes with its brows. Use whenever the user asks to "make/generate/create an Iki character" from scratch (no existing art).
 ---
 
 # Iki Character (gen-AI → compose → auto-rig)
@@ -47,18 +47,21 @@ The hard part is **getting clean role-separated parts out of codex-image** (an e
 
 ## The role set this skill generates (full-expression default)
 
-Mirrors `@ikijs/editor` `ROLE_TABLE` / `REQUIRED_ROLES`. **Required:** `face`, `eye_L`, `eye_R`, `mouth`. The composer additionally emits `iris_L/R` (gaze), `lash_L/R` (blink-fold cover), `brow_L/R` (expression), `hair_front`, and the two optional back layers `hair_back` + `body`. That set gives a character that **blinks (eyelid-fold), gazes, opens/forms its mouth, turns its head, and raises/tilts its brows** — on a torso that stays put while the head turns.
+Mirrors `@ikijs/editor` `ROLE_TABLE` / `REQUIRED_ROLES`. **Required:** `face`, `eye_L`, `eye_R`, `mouth`. The composer additionally emits `iris_L/R` (gaze), `lash_L/R` (blink-fold cover), `brow_L/R` (expression), `hair_front`, and the optional `mouth_open`, `hair_back` and `body`. That set gives a character that **blinks (eyelid-fold), gazes, lip-syncs, turns / nods / tilts its head with hair that sways behind it, and raises/tilts its brows** — on a torso that stays put while the head moves.
 
-| codex-image part                                         | composer output role(s)                              | drives                                                           |
-| -------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------- |
-| `body.png` (shoulders/chest, NO head)                    | `body`                                               | nothing — the one part on no deformer, so it holds still         |
-| `hair_back.png` (hair behind the head)                   | `hair_back`                                          | rigid; rides the head rotation                                   |
-| `face.png` (NO eyes, NO mouth)                           | `face`                                               | head-turn warp, breath                                           |
-| `mouth.png` (closed)                                     | `mouth`                                              | MouthOpen / MouthForm                                            |
-| `eyewhite.png` (white almond + dark lashes, **NO iris**) | `eye_L/R` (split sclera) + `lash_L/R` (split lashes) | blink-fold (sclera = clip mask + fold; lash folds over the seam) |
-| `iris.png` (colored disc + pupil + highlight)            | `iris_L/R`                                           | gaze (EyeballX/Y), auto-clipped to the sclera                    |
-| `brow.png` (one eyebrow)                                 | `brow_L/R` (mirrored)                                | BrowY / BrowAngle                                                |
-| `hair_front.png` (bangs)                                 | `hair_front`                                         | rides the face warp on head-turn                                 |
+| codex-image part                                         | composer output role(s)                              | drives                                                                                 |
+| -------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `body.png` (shoulders/chest, NO head)                    | `body`                                               | nothing — the one part on no deformer, so it holds still                               |
+| `hair_back.png` (hair behind the head)                   | `hair_back`                                          | follows the head turn and bends with it; its ends swing on the hair-sway springs       |
+| `face.png` (NO eyes, NO mouth)                           | `face`                                               | turn × nod cylinder warp (`warp2d`), tilt, breath                                      |
+| `mouth.png` (closed)                                     | `mouth`                                              | MouthForm; fades out as MouthOpen rises when `mouth_open` is present                   |
+| `mouth_open.png` (open, same width)                      | `mouth_open`                                         | MouthOpen cross-fade — this is what makes lip-sync read as a mouth, not a smear        |
+| `eyewhite.png` (white almond + dark lashes, **NO iris**) | `eye_L/R` (split sclera) + `lash_L/R` (split lashes) | blink-fold (sclera = clip mask + fold; lash folds over the seam)                       |
+| `iris.png` (colored disc + pupil + highlight)            | `iris_L/R`                                           | gaze (EyeballX/Y), auto-clipped to the sclera                                          |
+| `brow.png` (one eyebrow)                                 | `brow_L/R` (mirrored)                                | BrowY / BrowAngle                                                                      |
+| `hair_front.png` (bangs)                                 | `hair_front`                                         | rides the face warp, leads it a little on the turn; its ends swing on the hair springs |
+
+Without `mouth_open`, MouthOpen stretches the closed mouth (`scaleY` up to 3×) — fine for a portrait, a blurred band for lip-sync.
 
 `body` is the only role attached to **no** deformer. Without it the neck ends in mid-air and the character reads as a floating head; painting shoulders into `face.png` instead is worse, because `face` rides the head-turn warp and the shoulders would bend with the head.
 
@@ -79,22 +82,12 @@ Prompt skeleton (fill `<STYLE>` consistently, e.g. "flat anime cel-shaded, soft 
 - **brow.png** — "A single anime eyebrow, `<STYLE>`. Transparent background, one brow only, gentle arch."
 - **hair_front.png** — "Front hair / bangs for an anime character, `<STYLE>`, framing an empty face from above. Transparent background, front layer only (no back hair, no face)."
 - **hair_back.png** — "Back hair silhouette for an anime character, `<STYLE>`, the mass of hair that falls behind the head and shoulders. Transparent background, no face, no bangs."
+- **mouth_open.png** — "The same anime mouth as `mouth.png` but open mid-speech, `<STYLE>`: parted lips, dark interior, a hint of teeth. Same width and line weight as the closed mouth. Transparent background, centered, nothing else." _(`LAYOUT` gives it the same `cx`/`w` as `mouth` and aligns the top lip, so draw it the same width.)_
 - **body.png** — "Head-less shoulders and upper chest of an anime character, `<STYLE>`, front-facing, simple clothing. **NO head, NO neck stump, NO face** — the shoulder line and torso only. Transparent background, centered."
 
 Save each to the parts dir with the **exact filenames above** (`compose.cjs` expects them).
 
 ### Step 2 — Compose into canvas role layers
-
-After composing, always run the geometry check — it encodes the failure modes
-that each cost a real regeneration round to find by eye (iris/sclera ratio, a
-sclera too flat to hold a round iris, an iris off the white's centre of mass,
-lash/sclera drift, art cut through by its own frame):
-
-```bash
-NODE_PATH=packages/mcp/node_modules node .../iki-character/measure.cjs <layersDir>
-```
-
-Tune `LAYOUT` until it reports `all geometry checks passed`. It is free.
 
 Run the bundled composer (it lives next to this file):
 
@@ -103,7 +96,18 @@ node /Users/.../.claude/skills/iki-character/compose.cjs <partsDir> <layersDir>
 # e.g. node .../compose.cjs /tmp/iki-char/parts /tmp/iki-char/layers
 ```
 
-It alpha-trims, resizes, mirrors L/R, and pastes each part at its `LAYOUT` center on a shared 1000×1000 transparent canvas, then writes role-named PNGs (`face.png`, `eye_L.png`, …) + a flattened `preview.png` to `<layersDir>`.
+It alpha-trims, resizes, mirrors L/R, and pastes each part at its `LAYOUT` center on a shared `CANVAS`×`CANVAS` transparent canvas (1100 px), then writes role-named PNGs (`face.png`, `eye_L.png`, …) + a flattened `preview.png` to `<layersDir>`.
+
+Then always run the geometry check — it encodes the failure modes that each
+cost a real regeneration round to find by eye (iris/sclera ratio, a sclera too
+flat to hold a round iris, an iris off the white's centre of mass, lash/sclera
+drift, art cut through by its own frame):
+
+```bash
+NODE_PATH=packages/mcp/node_modules node .../iki-character/measure.cjs <layersDir>
+```
+
+Tune `LAYOUT` until it reports `all geometry checks passed`. It is free.
 
 **Read `preview.png`** to check alignment. The default `LAYOUT` assumes the standard framing prompted above; if eyes/mouth/brows are off, **edit the `LAYOUT` block at the top of `compose.cjs`** (cx/cy/w per role) and re-run. Composing is pure/deterministic and **does not** re-bill — iterate freely. Keep `iris` width smaller than the sclera opening so it sits inside before runtime clipping.
 
@@ -124,15 +128,19 @@ Call `auto_rig_from_layers` with the canvas role layers (full PNG paths) and an 
     { "path": "/tmp/iki-char/layers/lash_L.png" },
     { "path": "/tmp/iki-char/layers/lash_R.png" },
     { "path": "/tmp/iki-char/layers/mouth.png" },
+    { "path": "/tmp/iki-char/layers/mouth_open.png" },
     { "path": "/tmp/iki-char/layers/brow_L.png" },
     { "path": "/tmp/iki-char/layers/brow_R.png" },
     { "path": "/tmp/iki-char/layers/hair_front.png" },
   ],
   "outputPath": "iki-character.iki",
+  "quantizeColors": 256,
 }
 ```
 
 Role is derived from the file basename (override per layer with `fileName` if needed). The tool decodes/crops/atlases itself (sharp, internal) and writes a renderable `.iki`, returning its path. A missing required role or a layer whose size ≠ the canvas comes back as `{ ok: false, error }` — fix the layers and retry.
+
+`quantizeColors` palette-quantizes the atlas PNG. Flat-shaded art keeps its look at 256 colours and the model drops to about a quarter of its lossless size (the hero demo: 3.5MB → 0.9MB), which is what makes it loadable on a page. Leave it out while iterating on the art; put it in for the model you ship.
 
 Driving the **bin** over stdio when the server isn't registered (run from the dir you want the `.iki` in):
 
@@ -147,7 +155,9 @@ printf '%s\n' \
 
 ### Step 4 — Render-verify
 
-Load the `.iki` in the playground and confirm it renders + animates. Use the **iki-visual-test** skill: `pnpm playground`, then `window.__iki.load(<model>)`, drive `ParamEyeLOpen`/`ParamEyeROpen` (blink-fold), `ParamEyeBallX/Y` (gaze), `ParamMouthOpenY`/`ParamMouthForm`, `ParamAngleX` (head turn), `ParamBrowLY`/`RY`/`LAngle`/`RAngle` (expression), and screenshot before/after. A clean console (no `IkiFormatError`/WebGL error) plus visibly-driving parameters = success.
+Load the `.iki` in the playground and confirm it renders + animates. Use the **iki-visual-test** skill: `pnpm playground`, then `window.__iki.load(<model>)`, drive `ParamEyeLOpen`/`ParamEyeROpen` (blink-fold), `ParamEyeBallX/Y` (gaze), `ParamMouthOpenY`/`ParamMouthForm`, `ParamAngleX`/`ParamAngleY`/`ParamAngleZ` (turn / nod / tilt), `ParamBrowLY`/`RY`/`LAngle`/`RAngle` (expression), and screenshot before/after. A clean console (no `IkiFormatError`/WebGL error) plus visibly-driving parameters = success.
+
+`ParamHairSwayX`/`ParamHairSwayZ` are physics OUTPUTS: the springs write them, so do not judge the hair with `reset()` + `setParam` — physics only advances inside the playground's idle loop. Turn idle on and watch, or set the sway parameters directly to see the root-pinned swing shape.
 
 To feed the disk `.iki` to `load()`: vite blocks `/@fs/` for paths **outside the workspace root** (a `/tmp/...` model 403s), so copy the `.iki` into the playground's `public/` (`examples/playground/public/<name>.iki`, served at `/<name>.iki`) and `fetch` it with a cache-buster (`?t=Date.now()`), then `await res.json()`. Remove the temp `public/` file afterward (it is not part of the slice).
 
@@ -156,10 +166,10 @@ To feed the disk `.iki` to `load()`: vite blocks `/@fs/` for paths **outside the
 - **"NO iris" on the eyewhite is the flakiest prompt.** codex-image often paints an iris anyway. Generate **2–3 eyewhite variants** and pick the cleanest iris-free one; a leaked colored iris breaks `prepEyeSplit` (the luminance split would misclassify a dark/saturated iris as lash). If all variants leak, regenerate with a stronger negation ("empty white interior, absolutely no colored circle").
 - **The eyewhite must be a SOLID FILLED white almond, not an outline.** The first generation often comes back as a thin line-art ring with a transparent interior — useless as a clip mask. Demand "SOLID FILLED pure-white almond, the entire interior painted opaque white". The blink-fold also reads best when the **upper lash is the boldest dark element**; a heavy full-almond outline still works (the split keeps only the top fraction as the lash via `LASH_KEEP_FRACTION`), but a clean white with a distinct top lash folds most cleanly.
 - **The face base must have NO eyes and NO mouth.** A face with baked eyes can't blink/gaze (the eye stack would double up). Re-prompt until the eye/mouth sockets are bare skin.
-- **Size the iris off the sclera, not by eye.** `LAYOUT` derives `IRIS_W` from `EYE_W * 0.6`; keep that ratio when retuning. The auto-rig clips iris→sclera at runtime, so a big iris cannot spill — the real failure is the opposite one, and it already shipped: the first generated sample had an iris 32% of the sclera width and read as a bead floating in white.
+- **Size the iris off the sclera, not by eye.** `LAYOUT` derives `IRIS_W` from `EYE_W` (0.56 on the hero; the reference measured 0.70–0.73, anything under ~0.45 reads as a bead); keep the ratio when retuning `EYE_W`. The auto-rig clips iris→sclera at runtime, so a big iris cannot spill — the real failure is the opposite one, and it already shipped: the first generated sample had an iris 32% of the sclera width and read as a bead floating in white.
 - **Opaque-on-white parts** are handled by `keyWhiteToAlpha` (keys >238 RGB to alpha), but transparent output is cleaner — ask for it. White-rimmed parts (e.g. a white highlight on the iris) can be clipped by the key; prefer transparent generation for those.
 - **MCP output is cwd-confined.** `auto_rig_from_layers` rejects an `outputPath` that escapes the launch cwd (must end in `.iki`, realpath-checked, atomic rename). Launch the bin from where you want the file.
-- **Style drift across parts.** Independent generations can mismatch hue/line-weight. Keep one `<STYLE>` string identical across all six prompts; regenerate the outlier, not the whole set.
+- **Style drift across parts.** Independent generations can mismatch hue/line-weight. Keep one `<STYLE>` string identical across every prompt; regenerate the outlier, not the whole set.
 - **Composer needs `sharp`, which is not a repo dep.** Don't `pnpm add sharp` to a workspace package — install it ad hoc in the scratch dir (or use `@ikijs/mcp`'s copy). sharp stays confined to `@ikijs/mcp` in the repo.
 - **Don't commit generated character art or reference models.** Generated PNGs and any reference model (e.g. Hiyori) are scratch/gitignored — keep them out of the repo. This slice ships the **skill + composer only**.
 
