@@ -12,21 +12,23 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # The PAT below does the release branch push, the PR, the tags and the
+    # GitHub releases; the job's own token only needs to read the checkout and
+    # mint the OIDC token for npm trusted publishing.
     permissions:
-      contents: write # commit the version bump, create GitHub releases
-      pull-requests: write # open/update the release PR
-      id-token: write # mint the OIDC token for npm trusted publishing
+      contents: read
+      id-token: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          # The release branch is pushed with a PAT, not GITHUB_TOKEN: events
-          # raised by GITHUB_TOKEN never start a workflow run, which left every
-          # release PR with a red, job-less CI run. With the PAT the PR gets a
-          # real CI pass over the bumped versions. Same token below.
-          token: ${{ secrets.CHANGESETS_TOKEN }}
+          # Do not leave clone credentials in .git/config: everything after
+          # this step (dependency build scripts, `pnpm release`) would be able
+          # to read them. The changesets action pushes the release branch with
+          # its own token (below), which it writes to ~/.netrc itself.
+          persist-credentials: false
 
       # No `version:` — action-setup reads the root packageManager pin, so a
       # bump there moves local and CI together.
@@ -76,8 +78,13 @@ jobs:
           publish: pnpm release
           title: "chore: release packages"
           commit: "chore: release packages"
-          # Passed as the input, not the GITHUB_TOKEN env: the action documents
-          # that the env var does not configure it.
+          # A fine-grained PAT scoped to this repo, not GITHUB_TOKEN: events
+          # raised by GITHUB_TOKEN never start a workflow run, which left every
+          # release PR with a red, job-less CI run. With the PAT the PR gets a
+          # real CI pass over the bumped versions. Passed as the input, with no
+          # GITHUB_TOKEN env alongside: in the action's source the env var
+          # takes precedence over the input, so setting both would silently
+          # pick whichever is in the env.
           github-token: ${{ secrets.CHANGESETS_TOKEN }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
