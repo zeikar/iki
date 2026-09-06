@@ -147,9 +147,8 @@ idleLabel.append(idleLabelText, idleCheckbox);
 idleRow.append(idleLabel);
 panel.insertBefore(idleRow, controls);
 
-// Model picker: the hand-authored vector sample vs the generated textured
-// sample (public/textured-sample.iki). Built once, like the Idle row, so it
-// survives the per-model control rebuilds.
+// Model picker for the vector sample and generated characters in public/.
+// Built once, like the Idle row, so it survives the per-model control rebuilds.
 const modelRow = document.createElement("div");
 modelRow.className = "control";
 const modelLabel = document.createElement("label");
@@ -159,6 +158,7 @@ const modelSelect = document.createElement("select");
 for (const [value, text] of [
   ["vector", "Vector sample"],
   ["textured", "Textured sample"],
+  ["hero", "Hero character"],
 ] as const) {
   const opt = document.createElement("option");
   opt.value = value;
@@ -183,8 +183,10 @@ async function switchModel(which: string): Promise<void> {
   const seq = ++modelSwitchSeq;
   try {
     let raw: unknown = sampleModel;
-    if (which === "textured") {
-      const res = await fetch("/textured-sample.iki");
+    if (which === "textured" || which === "hero") {
+      const res = await fetch(
+        which === "hero" ? "/hero.iki" : "/textured-sample.iki",
+      );
       if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
       raw = await res.json();
     }
