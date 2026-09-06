@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ROLE_TABLE,
   bakeEyelidFoldWarp,
+  bakeHairBackTurnWarp,
   bakeHairSwayWarp,
   bakeHeadTurnGridWarp2DCentered,
   bakeHeadTurnGridWarpCentered,
@@ -862,6 +863,49 @@ describe("head-turn depth parallax", () => {
   });
 });
 
+describe("bakeHairBackTurnWarp", () => {
+  const mesh = createPixelGridMesh(4, 4, 800, 700);
+  const w = bakeHairBackTurnWarp(mesh, "ax");
+  const stride = 5;
+
+  it("keys the turn at -30/0/30 with a zero rest keyform", () => {
+    expect(w.keyforms.map((k) => k.value)).toEqual([-30, 0, 30]);
+    for (const o of w.keyforms[1].offsets) expect(o).toBeCloseTo(0, 10);
+  });
+
+  it("pins the centre column and moves nothing vertically", () => {
+    for (const k of w.keyforms) {
+      for (let v = 0; v < mesh.vertices.length / 2; v++) {
+        if (mesh.vertices[v * 2] === 0)
+          expect(k.offsets[v * 2]).toBeCloseTo(0, 10);
+        expect(k.offsets[v * 2 + 1]).toBe(0);
+      }
+    }
+  });
+
+  it("turning right tucks the near edge behind more than the far edge moves, without folding", () => {
+    const right = w.keyforms[2].offsets;
+    const row = 2 * stride; // middle row
+    const nearEdge = right[(row + 4) * 2]; // x = +400
+    const farEdge = right[row * 2]; // x = -400
+    expect(nearEdge).toBeLessThan(0);
+    expect(Math.abs(nearEdge)).toBeGreaterThan(Math.abs(farEdge));
+    // Order preserved along the row: no cell folds.
+    let prev = -Infinity;
+    for (let col = 0; col <= 4; col++) {
+      const x = mesh.vertices[(row + col) * 2] + right[(row + col) * 2];
+      expect(x).toBeGreaterThan(prev);
+      prev = x;
+    }
+  });
+
+  it("bends far flatter than the face: the near edge folds in by well under its half-width", () => {
+    const right = w.keyforms[2].offsets;
+    const nearEdge = Math.abs(right[(2 * stride + 4) * 2]);
+    expect(nearEdge).toBeLessThan(0.3 * 400);
+  });
+});
+
 describe("bakeHairSwayWarp", () => {
   const mesh = createPixelGridMesh(4, 4, 200, 400);
 
@@ -973,6 +1017,23 @@ describe("hair-sway physics", () => {
         ),
       ).toBe(false);
     }
+  });
+
+  it("only the back hair bends on AngleX through its own part warp", () => {
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+    const turnWarps = (id: string) =>
+      (model.parts.find((p) => p.id === id)!.warps ?? []).filter(
+        (w) => w.parameter === StandardParameter.AngleX,
+      );
+    expect(turnWarps("hair_back")).toHaveLength(1);
+    expect(turnWarps("hair_front")).toHaveLength(0);
+    // Present even without front hair (it is the turn, not the sway).
+    const bare = generateIkiFromLayerSet(assemblyLayers(), canvas);
+    expect(
+      (bare.parts.find((p) => p.id === "hair_back")!.warps ?? []).filter(
+        (w) => w.parameter === StandardParameter.AngleX,
+      ),
+    ).toHaveLength(1);
   });
 
   it("the longer back hair swings further than the bangs, in pixels", () => {

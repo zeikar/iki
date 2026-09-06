@@ -71,10 +71,10 @@ export interface LayerInput {
  *   eye_R = character's right eye = screen left side.
  */
 export const ROLE_TABLE: Record<string, RoleSpec> = {
-  // The silhouette behind the face. It rides the head rigidly (no cylinder
-  // bend — a spinning cylinder's silhouette does not move) but is a MESH so the
-  // hair-sway warp can swing its ends; its share of the turn is the
-  // depth-parallax translateX in bindingsForRole.
+  // The silhouette behind the face. It rides the rigid head (not faceWarp,
+  // whose grid it would stretch across the shoulders) as a MESH: it bends on
+  // the turn through its own part warp (bakeHairBackTurnWarp) and swings its
+  // ends on the hair-sway warps.
   hair_back: { deformer: "headDeformer", order: 0, mesh: true },
   // The torso. Alone among the roles it hangs from NO deformer: the head turns
   // about the neck pivot while the shoulders stay put, which is what keeps the
@@ -601,14 +601,16 @@ const EYE_STACK_PREFIXES = ["eye_", "iris_", "pupil_", "highlight_"] as const;
 
 /** Signed depth of each hair layer from the head cylinder's axis, as a fraction
  *  of the cylinder radius; positive is toward the viewer. Tuned by eye against
- *  the rendered turn, not derived: at 0.22/-0.28 the bangs read as a separate
- *  sheet sliding off the scalp, and below about 0.10 the turn goes flat again.
+ *  the rendered turn, not derived: at 0.22 the bangs read as a separate sheet
+ *  sliding off the scalp, and below about 0.10 the turn goes flat again.
  *
- *  hair_back's counter-shift very nearly cancels headDeformer's own +50px
- *  translateX, so the back of the head holds its ground while the face sweeps
- *  across it. That is the intent, not an accident of two numbers meeting. */
+ *  hair_back follows the head at about 60% of its travel (its counter-shift
+ *  takes ~20px off headDeformer's +50px). A deeper value that held the back of
+ *  the head still in world space read as the face sliding over a backdrop; the
+ *  turn cue for the back hair comes from its bend (bakeHairBackTurnWarp), not
+ *  from lagging the head. */
 const HAIR_FRONT_DEPTH = 0.16;
-const HAIR_BACK_DEPTH = -0.2;
+const HAIR_BACK_DEPTH = -0.08;
 
 /** Rigid vertical travel of the head at full nod (px at AngleY = ±30). */
 const NOD_TRAVEL = 30;
@@ -854,6 +856,47 @@ export function bakeEyelidFoldWarp(
       { value: 1, offsets: zeros },
     ],
   };
+}
+
+// ── bakeHairBackTurnWarp ──────────────────────────────────────────────────────
+
+/** Cylinder radius for the back hair's turn bend, as a multiple of the part's
+ *  own half-width. Much flatter than the face's 1.2: the back hair spans the
+ *  whole head, and at the face's curvature its near edge would fold in by
+ *  ~180px. At 2.5 the near side tucks behind the face and the far side fills
+ *  out, which is the whole cue. */
+const HAIR_BACK_BEND_RADIUS_FACTOR = 2.5;
+
+/**
+ * The back hair's share of the head turn, as a per-vertex warp on AngleX.
+ *
+ * hair_back hangs from the rigid headDeformer, not faceWarp, so without this it
+ * turned as a flat sheet: the face foreshortened and slid while the silhouette
+ * behind it kept its rest outline. This runs the same pinned cylinder bend the
+ * face uses over the part's own columns, at a flatter radius: on a turn the
+ * near side compresses behind the face and the far side comes into view.
+ */
+export function bakeHairBackTurnWarp(
+  mesh: IkiMesh,
+  parameter: string,
+): IkiWarp {
+  let left = Infinity;
+  let right = -Infinity;
+  for (let i = 0; i < mesh.vertices.length; i += 2) {
+    left = Math.min(left, mesh.vertices[i]);
+    right = Math.max(right, mesh.vertices[i]);
+  }
+  const radius = ((right - left) / 2) * HAIR_BACK_BEND_RADIUS_FACTOR;
+  const DEG_TO_RAD = Math.PI / 180;
+  const keyforms = [-HEAD_TURN_MAX_DEG, 0, HEAD_TURN_MAX_DEG].map((deg) => {
+    const theta = deg * DEG_TO_RAD;
+    const offsets: number[] = [];
+    for (let i = 0; i < mesh.vertices.length; i += 2) {
+      offsets.push(pinnedCylinderBend(mesh.vertices[i], radius, theta), 0);
+    }
+    return { value: deg, offsets };
+  });
+  return { parameter, keyforms };
 }
 
 // ── bakeHairSwayWarp ───────────────────────────────────────────────────────────
@@ -1298,6 +1341,14 @@ export function generateIkiFromLayerSet(
             tipShift,
             HAIR_SWAY_RANGE,
           ),
+        ];
+      }
+      // The back hair's turn: it gets no cylinder bend from a deformer, so it
+      // bends on its own. Part warps sum, so this sits beside the sway.
+      if (role === "hair_back") {
+        part.warps = [
+          ...(part.warps ?? []),
+          bakeHairBackTurnWarp(mesh, StandardParameter.AngleX),
         ];
       }
       // Eye blink = fold: the white (eye_) and the lash (lash_) fold shut via a
