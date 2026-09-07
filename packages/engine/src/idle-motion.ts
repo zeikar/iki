@@ -7,7 +7,15 @@ import { clamp } from "./math";
 
 const BLINK_INTERVAL_MIN_MS = 1500;
 const BLINK_INTERVAL_MAX_MS = 6000;
-const BLINK_DURATION_MS = 120; // full close+open cycle
+// A blink closes fast and opens slower, with a moment shut in between. Live2D's
+// CubismEyeBlink defaults are 100 ms closing / 50 ms closed / 150 ms opening
+// (linear); the human blink-kinematics literature has the down-phase at roughly
+// a third of the whole and the up-phase decelerating into the open pose. These
+// three are a judgement inside the 150–180 ms range.
+const BLINK_CLOSE_MS = 60;
+const BLINK_HOLD_MS = 20;
+const BLINK_OPEN_MS = 100;
+const BLINK_DURATION_MS = BLINK_CLOSE_MS + BLINK_HOLD_MS + BLINK_OPEN_MS; // 180
 
 const BREATH_PERIOD_MS = 3500;
 
@@ -38,10 +46,25 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
-/** Blink envelope: 1 at phase 0 and 1, 0 at the midpoint (triangle dip). */
-function blinkEnvelope(phase: number): number {
-  // phase in [0,1]; map to a symmetric triangle: 0→1, 0.5→0, 1→1
-  return 2 * Math.abs(phase - 0.5);
+/**
+ * Eye-open value over one blink, `phase` ∈ [0, 1]: 1 at both ends, 0 across the
+ * hold. Close is a smoothstep (soft start, soft landing on the lid); open is a
+ * quadratic ease-out (the lid leaves the hold at speed and settles). Exported
+ * for the shape tests; not part of the package entry.
+ */
+export function blinkEnvelope(phase: number): number {
+  const ms = phase * BLINK_DURATION_MS;
+  if (ms <= 0) return 1;
+  if (ms < BLINK_CLOSE_MS) {
+    const t = ms / BLINK_CLOSE_MS;
+    return 1 - t * t * (3 - 2 * t);
+  }
+  if (ms <= BLINK_CLOSE_MS + BLINK_HOLD_MS) return 0; // inclusive: the close point is exactly 0 for any retune
+  if (ms < BLINK_DURATION_MS) {
+    const t = (ms - BLINK_CLOSE_MS - BLINK_HOLD_MS) / BLINK_OPEN_MS;
+    return 1 - (1 - t) * (1 - t);
+  }
+  return 1;
 }
 
 /** Pick a random point within a disk of `radius` using the injected rng. */

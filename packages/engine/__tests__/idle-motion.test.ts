@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { StandardParameter } from "@ikijs/format";
 import { IdleMotion } from "@ikijs/engine";
+import { blinkEnvelope } from "../src/idle-motion";
 
 // Local timing literals matching the impl's intent — NOT imported from impl.
-const BLINK_DURATION_MS = 120;
+const BLINK_CLOSE_MS = 60;
+const BLINK_HOLD_MS = 20;
+const BLINK_DURATION_MS = 180;
 const BREATH_PERIOD_MS = 3500;
 const GAZE_RADIUS = 0.3;
 
@@ -120,6 +123,77 @@ describe("sink-only contract", () => {
 });
 
 // ---------------------------------------------------------------------------
+// blink envelope (pure function)
+// ---------------------------------------------------------------------------
+
+describe("blink envelope", () => {
+  const CLOSE_PHASE = BLINK_CLOSE_MS / BLINK_DURATION_MS; // 1/3
+  const HOLD_END_PHASE = (BLINK_CLOSE_MS + BLINK_HOLD_MS) / BLINK_DURATION_MS; // 4/9
+
+  it("is 1 at both endpoints and for any phase outside [0, 1]", () => {
+    expect(blinkEnvelope(0)).toBe(1);
+    expect(blinkEnvelope(1)).toBe(1);
+    expect(blinkEnvelope(-0.5)).toBe(1);
+    expect(blinkEnvelope(-0.001)).toBe(1);
+    expect(blinkEnvelope(1.5)).toBe(1);
+  });
+
+  it("is shut (0) across the whole hold, phase ∈ [CLOSE/T, (CLOSE+HOLD)/T]", () => {
+    for (let i = 0; i <= 1000; i++) {
+      const phase = CLOSE_PHASE + (i / 1000) * (HOLD_END_PHASE - CLOSE_PHASE);
+      expect(blinkEnvelope(phase)).toBe(0);
+    }
+  });
+
+  it("is monotone: non-increasing while closing, non-decreasing while opening", () => {
+    let prevClose = blinkEnvelope(0);
+    for (let i = 1; i <= 1000; i++) {
+      const v = blinkEnvelope((i / 1000) * CLOSE_PHASE);
+      expect(v).toBeLessThanOrEqual(prevClose + 1e-9);
+      prevClose = v;
+    }
+    let prevOpen = blinkEnvelope(HOLD_END_PHASE);
+    for (let i = 1; i <= 1000; i++) {
+      const phase = HOLD_END_PHASE + (i / 1000) * (1 - HOLD_END_PHASE);
+      const v = blinkEnvelope(phase);
+      expect(v).toBeGreaterThanOrEqual(prevOpen - 1e-9);
+      prevOpen = v;
+    }
+  });
+
+  it("is asymmetric: first zero at phase 1/3 < 0.5, and the open span exceeds the close span", () => {
+    let firstZero = -1;
+    let lastZero = -1;
+    for (let i = 0; i <= 1000; i++) {
+      if (blinkEnvelope(i / 1000) === 0) {
+        if (firstZero === -1) firstZero = i;
+        lastZero = i;
+      }
+    }
+    expect(firstZero / 1000).toBeCloseTo(CLOSE_PHASE, 2);
+    expect(1 - lastZero / 1000).toBeGreaterThan(firstZero / 1000);
+    expect(blinkEnvelope(CLOSE_PHASE - 1e-6)).toBeGreaterThan(0);
+    expect(blinkEnvelope(CLOSE_PHASE)).toBe(0);
+    expect(blinkEnvelope(HOLD_END_PHASE)).toBe(0);
+    expect(blinkEnvelope(HOLD_END_PHASE + 1e-6)).toBeGreaterThan(0);
+  });
+
+  it("has smooth (eased) ends, not a linear corner", () => {
+    // A symmetric linear triangle would give 0.98 / 0.98 here — this pins the easing.
+    expect(blinkEnvelope(0.01)).toBeGreaterThan(0.99);
+    expect(blinkEnvelope(0.99)).toBeGreaterThan(0.99);
+  });
+
+  it("stays within [0, 1] across the whole phase range", () => {
+    for (let i = 0; i <= 1000; i++) {
+      const v = blinkEnvelope(i / 1000);
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // blink
 // ---------------------------------------------------------------------------
 
@@ -131,9 +205,9 @@ describe("blink", () => {
    * After the first (anchor) update: prevNowMs = 0, clockMs stays 0.
    * Then 15 updates of 100ms → clockMs = 1500 → blink triggers.
    *
-   * During blink: clockMs ∈ [1500, 1620]. Fine-step through it.
+   * During blink: clockMs ∈ [1500, 1680]. Fine-step through it.
    */
-  it("eye values dip near 0 at mid-blink and return to 1 after", () => {
+  it("eye values dip near 0 at mid-blink and return to 1 after, asymmetrically", () => {
     const { sink, emissions } = makeSink();
     // rng call order: [0]=blinkAt (0→1500ms), [1]=gazeAt (1→3000ms, past our test window)
     // [2]=next blinkAt after blink ends (0.5→safe interval)
@@ -154,8 +228,10 @@ describe("blink", () => {
     // Step at clock=1500: blink starts here (clockMs hits 1500)
     motion.update(1500);
 
-    // Fine-step through the 120ms blink window at ~20ms each
-    for (let ms = 1520; ms <= 1620; ms += 20) {
+    // Fine-step through the whole blink window at 20ms, bound from the local
+    // constant (not a literal) so a retune of the timing constants doesn't
+    // silently stop covering the tail of the envelope.
+    for (let ms = 1520; ms <= 1500 + BLINK_DURATION_MS; ms += 20) {
       motion.update(ms);
     }
 
@@ -165,17 +241,34 @@ describe("blink", () => {
     // Both eye series must be identical at every step
     expect(leftSeries).toEqual(rightSeries);
 
-    // Updates during blink are indices 15 (clockMs=1500) through 21 (clockMs=1620)
+    // Updates during blink are indices 15 (clockMs=1500) through 24 (clockMs=1680)
     const blinkSlice = leftSeries.slice(15); // from clock=1500 onward
-    // The dip must sit at the MIDDLE of the envelope, not the edges: at
-    // blink start (phase 0) the eye is still open, at phase 0.5 it is shut.
-    // An inverted envelope (closed at the edges) fails both assertions.
-    expect(blinkSlice[0]).toBeCloseTo(1, 5); // clockMs=1500, phase=0 → open
-    expect(blinkSlice[3]).toBeLessThan(0.1); // clockMs=1560, phase=0.5 → shut
+    // The dip must sit across the HOLD of the envelope, not the edges: at
+    // blink start (phase 0) the eye is still open, at the close point (60ms
+    // in) it is shut, and it stays shut through the hold.
+    expect(blinkSlice[0]).toBeCloseTo(1, 5); // clockMs=1500, phase 0 → open
+    expect(blinkSlice[3]).toBe(0); // clockMs=1560, close point → shut
+    expect(blinkSlice[4]).toBe(0); // clockMs=1580, hold end → still shut
 
     // After blink completes (last sample in blinkSlice), eyes return to 1
     const lastInSlice = blinkSlice[blinkSlice.length - 1];
-    expect(lastInSlice).toBe(1);
+    expect(lastInSlice).toBe(1); // clockMs=1680
+
+    // Asymmetry, observed on the driven series: fewer non-zero samples on the
+    // way down to the first 0 than on the way up from the last 0 back to 1.
+    const zeroIndices = blinkSlice
+      .map((v, i) => (v === 0 ? i : -1))
+      .filter((i) => i >= 0);
+    const firstZero = zeroIndices[0];
+    const lastZero = zeroIndices[zeroIndices.length - 1];
+    const closingSamples = blinkSlice.slice(1, firstZero); // 1520, 1540
+    const openingSamples = blinkSlice.slice(
+      lastZero + 1,
+      blinkSlice.length - 1,
+    ); // 1600–1660
+    expect(closingSamples).toHaveLength(2);
+    expect(openingSamples).toHaveLength(4);
+    expect(closingSamples.length).toBeLessThan(openingSamples.length);
   });
 
   it("eyes stay at 1 between blinks", () => {
