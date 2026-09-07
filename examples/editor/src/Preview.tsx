@@ -1,30 +1,9 @@
-import {
-  IkiPlayer,
-  IdleMotion,
-  PhysicsMotion,
-  HairChainMotion,
-} from "@ikijs/engine";
-import { StandardParameter } from "@ikijs/format";
+import { IkiMotion, IkiPlayer } from "@ikijs/engine";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 
 import { GridOverlay } from "./GridOverlay";
 import { PivotOverlay } from "./PivotOverlay";
 import { useEditorStore } from "./store";
-
-// The eight "life" parameters the idle driver writes. Restore touches only ids
-// the loaded model actually declares. Keep in step with IdleMotion: a parameter
-// it writes but this list omits stays at its last sway value after idle stops,
-// and the grid overlay (drawn from the store) drifts off the rendered face.
-const IDLE_PARAM_IDS = [
-  StandardParameter.EyeOpenLeft,
-  StandardParameter.EyeOpenRight,
-  StandardParameter.Breath,
-  StandardParameter.EyeballX,
-  StandardParameter.EyeballY,
-  StandardParameter.AngleX,
-  StandardParameter.AngleY,
-  StandardParameter.AngleZ,
-] as const;
 
 interface PreviewProps {
   playerRef: MutableRefObject<IkiPlayer | null>;
@@ -97,66 +76,34 @@ export function Preview({ playerRef }: PreviewProps) {
     const player = playerRef.current;
     if (!idleOn || gridEditMode || !player) return;
 
-    const descriptors = player.getParameters();
-    const byId = new Map(descriptors.map((p) => [p.id, p]));
+    const byId = new Map(player.getParameters().map((p) => [p.id, p]));
 
     // Ephemeral driver sink: writes the player but NOT the authoring store.
     // The drivers read the pose back off the player, so physics sees idle's
-    // same-frame writes (and slider writes, which hit the same player).
-    const drive = (id: string, value: number): void => {
-      player.setParameter(id, value);
-    };
-
-    const idle = new IdleMotion(drive);
-
-    // Secondary-motion spring (the playground's peer). Reads its input off the
-    // player and writes its output param through the same sink. A model
-    // without physics rigs is a no-op. Output params are restored on cleanup
-    // alongside the idle params. Rigs are re-read on `revision` (deps) so a doc
-    // edit/reload rebuilds the driver with the current model's rigs.
-    const rigs = useEditorStore.getState().doc.getModel().physics ?? [];
-    const physics = new PhysicsMotion(
-      rigs,
-      descriptors,
+    // same-frame writes (and slider writes, which hit the same player). The
+    // model is read imperatively so the rebuild on `loadGeneration` (deps)
+    // picks up the current rigs and chains; an empty set is a no-op.
+    const motion = new IkiMotion(
+      useEditorStore.getState().doc.getModel(),
       (id) => player.getParameter(id),
-      drive,
-    );
-
-    // Multi-segment angular-chain driver (peer of PhysicsMotion). A model without
-    // physicsChains is a no-op (empty array). Chain segment outputs are restored
-    // on cleanup alongside physics and idle params.
-    const chains = useEditorStore.getState().doc.getModel().physicsChains ?? [];
-    const chainMotion = new HairChainMotion(
-      chains,
-      descriptors,
-      useEditorStore.getState().doc.getModel().deformers ?? [],
-      (id) => player.getParameter(id),
-      drive,
+      (id, value) => player.setParameter(id, value),
     );
 
     let frame = requestAnimationFrame(function tick() {
-      const now = performance.now();
-      idle.update(now);
-      physics.update(now);
-      chainMotion.update(now);
+      motion.update(performance.now());
       frame = requestAnimationFrame(tick);
     });
 
     return () => {
       cancelAnimationFrame(frame);
-      // Restore the authored pose on the SAME player the loop drove — both the
-      // idle params and the physics/chain OUTPUT params the drivers overwrote.
-      // Only touch ids the loaded model declares — never `.default` on an absent one.
+      // Restore the authored pose on the SAME player the loop drove, for every
+      // parameter the drivers wrote. Only touch ids the loaded model declares —
+      // never `.default` on an absent one.
       const { params } = useEditorStore.getState();
-      const restoreIds = new Set<string>([
-        ...IDLE_PARAM_IDS,
-        ...rigs.map((r) => r.output.parameter),
-        ...chains.flatMap((c) => c.segments.map((s) => s.output.parameter)),
-      ]);
-      for (const id of restoreIds) {
-        if (byId.has(id)) {
-          player.setParameter(id, params[id] ?? byId.get(id)!.default);
-        }
+      for (const id of motion.drivenParameterIds) {
+        const descriptor = byId.get(id);
+        if (descriptor)
+          player.setParameter(id, params[id] ?? descriptor.default);
       }
     };
     // Keyed on `loadGeneration` only. `revision` fires the instant the doc
