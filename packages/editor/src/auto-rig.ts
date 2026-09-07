@@ -655,10 +655,14 @@ const EYE_STACK_PREFIXES = ["eye_", "iris_", "pupil_", "highlight_"] as const;
  *  of the cylinder radius; positive is toward the viewer. Tuned by eye against
  *  the rendered turn, not derived.
  *
- *  The bangs lead the face by a little. 0.16 was right while the back hair
- *  stood still and the lead was the only depth cue; once the back hair bent
- *  and bulged on the turn the same lead read as the bangs running ahead of
- *  the head, so it came down. At 0.06 the layering all but vanishes.
+ *  The bangs lead the face by a little — HAIR_FRONT_DEPTH is the FRINGE TIPS'
+ *  lead specifically, not the whole sheet's: the crown is root-pinned by the
+ *  warp that applies it, not a binding (see bindingsForRole's doc for why).
+ *  0.16 was right while the shift was rigid and the back hair stood still, the
+ *  lead the only depth cue; once the back hair bent and bulged on the turn the
+ *  same lead read as the bangs running ahead of the head, so it came down. At
+ *  0.06 the layering all but vanishes. 0.1 is settled with the lead
+ *  root-pinned: the fringe tips get it, the crown gets none.
  *
  *  hair_back follows the head at about 60% of its travel (its counter-shift
  *  takes ~20px off headDeformer's +50px). A deeper value that held the back of
@@ -688,9 +692,10 @@ const HAIR_BACK_NOD_DEPTH = -0.07;
  * Derive the IkiBinding[] for a part from its role spec and crop dimensions.
  *
  * - face, blush, nose → no bindings
- * - hair_front: the AngleX depth-parallax translateX (needs `parallaxUnit`).
- *     Its sway is NOT a binding — a rotate would pivot the bangs about their
- *     centre — but a root-pinned warp, attached in generateIkiFromLayerSet.
+ * - hair_front: no bindings. Both its sway AND its AngleX turn lead are
+ *     root-pinned warps attached in generateIkiFromLayerSet — a rigid
+ *     translate/rotate would carry the whole sheet (crown included) with the
+ *     fringe tips, instead of leading from them.
  * - hair_back: the AngleX depth-parallax translateX, and an AngleY translateY
  *     that tucks its crown under the bent front hair (needs `parallaxUnitY`)
  * - brow_L/R: BrowLeftY/RightY translateY (raise/lower) + BrowLeftAngle/RightAngle rotate
@@ -835,25 +840,22 @@ export function bindingsForRole(
 
   if (role === "hair_front" || role === "hair_back") {
     const isFront = role === "hair_front";
-    // Depth parallax on the head turn. Both hair layers ride the head but
-    // neither sits on the face plane, so neither may track it exactly: the
-    // bangs lead the face and the back hair swings against it. Without this the
-    // hair is glued flat to the face and the turn reads as a cutout sliding.
-    // Shifting the mesh moves it INSIDE the warp grid (applyWarpToChild
-    // transforms before it binds), so the shift has to stay within the grid's
-    // 12% margin. The shift alone always does (0.06 * halfW against a margin
-    // of 0.12 * span); the sway warps that ride on top of it are capped
-    // against the remaining headroom where they are attached.
-    const depth = isFront ? HAIR_FRONT_DEPTH : HAIR_BACK_DEPTH;
+    // Depth parallax on the head turn, for hair_back only: it hangs rigid off
+    // headDeformer, so without a shift on top of the face turn it stayed flat
+    // while the face beneath it foreshortened, reading as a cutout sliding.
+    // hair_front leads the same way but as a root-pinned warp attached in
+    // generateIkiFromLayerSet, not a binding here — see the doc above for why.
     const parallax: IkiBinding[] = [];
-    const shiftX = depth * (options.parallaxUnit ?? 0);
-    if (shiftX !== 0) {
-      parallax.push({
-        parameter: StandardParameter.AngleX,
-        channel: "translateX",
-        from: -shiftX,
-        to: shiftX,
-      });
+    if (!isFront) {
+      const shiftX = HAIR_BACK_DEPTH * (options.parallaxUnit ?? 0);
+      if (shiftX !== 0) {
+        parallax.push({
+          parameter: StandardParameter.AngleX,
+          channel: "translateX",
+          from: -shiftX,
+          to: shiftX,
+        });
+      }
     }
     // On the nod only the rigid back hair moves; see HAIR_BACK_NOD_DEPTH.
     const shiftY =
@@ -1003,6 +1005,9 @@ const HAIR_SWAY_PEAK_FRACTION = 0.56;
  * Keyforms sit at ±range with the rest pose in between, so a zero parameter is
  * zero offsets. Offsets are in the mesh's own pixel frame (+y up, centered),
  * matching `createPixelGridMesh` — pass the SAME mesh the part renders.
+ *
+ * Also reused for the bangs' AngleX turn lead: same root-pinned shape, driven
+ * by the turn instead of a sway spring.
  */
 export function bakeHairSwayWarp(
   mesh: IkiMesh,
@@ -1456,12 +1461,14 @@ export function generateIkiFromLayerSet(
       if (roleBindings.length > 0) {
         part.bindings = roleBindings;
       }
-      // Hair sway: the PhysicsMotion springs lag AngleX / AngleZ onto
-      // HairSwayX / HairSwayZ (rigs and params exist only with front hair), and
-      // both hair parts swing their ends on them with the roots pinned. The back
-      // hair is longer, so the same fraction of its height is a bigger swing.
+      // Hair sway and turn lead: the PhysicsMotion springs lag AngleX / AngleZ
+      // onto HairSwayX / HairSwayZ (rigs and params exist only with front
+      // hair), and both hair parts swing their ends on them with the roots
+      // pinned. The back hair is longer, so the same fraction of its height is
+      // a bigger swing.
       if ((role === "hair_front" || role === "hair_back") && hasHair) {
         let tipShift = HAIR_SWAY_TIP_FRACTION * cropH;
+        let leadWarp: IkiWarp | undefined;
         if (role === "hair_front") {
           // hair_front is a faceWarp child: its vertices are swayed and
           // parallax-shifted BEFORE they bind to the rest grid, and past the
@@ -1477,9 +1484,22 @@ export function generateIkiFromLayerSet(
               faceGridMaxX - (t.x + cropW / 2),
               t.x - cropW / 2 - faceGridMinX,
             ) - shift;
+          // The lead alone can never exhaust the headroom (tips get
+          // 0.06·halfW against a ≥0.12·span margin); Math.max(0, headroom)
+          // only guards the sway, which can still turn it negative.
           tipShift = Math.min(
             tipShift,
             Math.max(0, headroom) / HAIR_SWAY_PEAK_FRACTION,
+          );
+          // The bangs' turn lead: root-pinned like the sway, keyed to
+          // HEAD_TURN_MAX_DEG instead of a sway spring's range — see
+          // bindingsForRole's doc for why this is a warp, not a binding.
+          // Warp order in the array doesn't matter; they sum.
+          leadWarp = bakeHairSwayWarp(
+            mesh,
+            StandardParameter.AngleX,
+            shift,
+            HEAD_TURN_MAX_DEG,
           );
         }
         part.warps = [
@@ -1495,6 +1515,7 @@ export function generateIkiFromLayerSet(
             tipShift,
             HAIR_SWAY_RANGE,
           ),
+          ...(leadWarp ? [leadWarp] : []),
         ];
       }
       // The back hair's turn: it gets no cylinder bend from a deformer, so it

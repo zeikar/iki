@@ -807,7 +807,13 @@ describe("head-turn depth parallax", () => {
         b.parameter === StandardParameter.AngleX && b.channel === "translateX",
     ) as { from: number; to: number } | undefined;
 
-  it("bindingsForRole: a parallaxUnit adds one AngleX translateX to each hair layer", () => {
+  // Mirrors auto-rig.ts's HAIR_FRONT_DEPTH, matching the impl, not imported —
+  // it isn't exported: pinned here so the lead's exact numeric value can be
+  // checked against the parallaxUnit recovered from the model's own faceWarp
+  // grid.
+  const HAIR_FRONT_DEPTH = 0.1;
+
+  it("bindingsForRole: a parallaxUnit adds one AngleX translateX to hair_back only", () => {
     const unit = 250;
     const front = bindingsForRole(
       ROLE_TABLE["hair_front"],
@@ -823,47 +829,76 @@ describe("head-turn depth parallax", () => {
       700,
       { parallaxUnit: unit },
     );
-    // Each hair layer carries exactly the parallax binding.
-    expect(front).toHaveLength(1);
+    // The bangs' lead is a warp (attached in generateIkiFromLayerSet), not a
+    // binding — hair_front carries none here.
+    expect(front).toHaveLength(0);
     expect(back).toHaveLength(1);
-    expect(parallaxOf(front)).toBeDefined();
     expect(parallaxOf(back)).toBeDefined();
   });
 
   it("the bangs lead the head and the back hair swings against it", () => {
-    const unit = 250;
-    const front = parallaxOf(
-      bindingsForRole(ROLE_TABLE["hair_front"], "hair_front", 700, 400, {
-        parallaxUnit: unit,
-      }),
-    )!;
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
     const back = parallaxOf(
-      bindingsForRole(ROLE_TABLE["hair_back"], "hair_back", 800, 700, {
-        parallaxUnit: unit,
-      }),
+      model.parts.find((p) => p.id === "hair_back")!.bindings ?? [],
     )!;
-    // headDeformer's own AngleX translateX runs -50 -> 50, so a positive `to`
-    // means the layer travels WITH the head and a negative one against it.
-    expect(front.to).toBeGreaterThan(0);
+    // headDeformer's own AngleX translateX runs -50 -> 50, so a negative `to`
+    // means hair_back travels AGAINST the head.
     expect(back.to).toBeLessThan(0);
-    // The face plane sits between them: neither layer tracks it.
-    expect(front.to).not.toBeCloseTo(back.to, 5);
+
+    // The bangs' lead is a root-pinned warp on hair_front, not a binding.
+    const front = model.parts.find((p) => p.id === "hair_front")!;
+    const lead = front.warps!.find(
+      (w) => w.parameter === StandardParameter.AngleX,
+    )!;
+    const atMax = lead.keyforms.find((k) => k.value === 30)!;
+    const atMin = lead.keyforms.find((k) => k.value === -30)!;
+    const topY = Math.max(
+      ...front.mesh!.vertices.filter((_, i) => i % 2 === 1),
+    );
+    const bottomY = Math.min(
+      ...front.mesh!.vertices.filter((_, i) => i % 2 === 1),
+    );
+    // The shared parallaxUnit, recovered from the faceWarp grid's own
+    // half-width (hairHeadroomAt below reads the same grid edges).
+    const grid = model.deformers!.find((d) => d.id === "faceWarp")!.grid;
+    const parallaxUnit = headTurnParallaxUnit(
+      (grid.points[grid.cols * 2] - grid.points[0]) / 2,
+    );
+    for (let v = 0; v < front.mesh!.vertices.length / 2; v++) {
+      const vy = front.mesh!.vertices[v * 2 + 1];
+      if (vy === topY) {
+        // Root pinned: the crown row does not move, at either keyform.
+        expect(atMax.offsets[v * 2]).toBe(0);
+        expect(atMin.offsets[v * 2]).toBe(0);
+      }
+      if (vy === bottomY) {
+        // Fringe tips carry the full lead, WITH the head.
+        expect(atMax.offsets[v * 2]).toBeCloseTo(
+          HAIR_FRONT_DEPTH * parallaxUnit,
+          6,
+        );
+        expect(atMax.offsets[v * 2]).toBeGreaterThan(0);
+      }
+    }
+    // -30 is the exact negation of +30, so rest (value 0, between the two
+    // keyforms) nets zero. (Summed rather than toEqual(map(v => -v)): the y
+    // channel is a literal 0 on one side and 0 - 0 on the other, +0 vs -0.)
+    for (let i = 0; i < atMax.offsets.length; i++) {
+      expect(atMin.offsets[i] + atMax.offsets[i]).toBeCloseTo(0, 10);
+    }
   });
 
-  it("rest is untouched: both parallax bindings are symmetric about zero", () => {
+  it("rest is untouched: the back-hair parallax binding is symmetric about zero", () => {
     // ParamAngleX defaults to 0, mid-range, so an asymmetric binding would
     // shift the hair in the rest pose — the pose every proportion is judged on.
-    for (const [role, cropW, cropH] of [
-      ["hair_front", 700, 400],
-      ["hair_back", 800, 700],
-    ] as const) {
-      const b = parallaxOf(
-        bindingsForRole(ROLE_TABLE[role], role, cropW, cropH, {
-          parallaxUnit: 250,
-        }),
-      )!;
-      expect(b.from).toBeCloseTo(-b.to, 10);
-    }
+    // (hair_front carries no binding; its rest is its warp's mid-point between
+    // symmetric keyforms, asserted above.)
+    const b = parallaxOf(
+      bindingsForRole(ROLE_TABLE["hair_back"], "hair_back", 800, 700, {
+        parallaxUnit: 250,
+      }),
+    )!;
+    expect(b.from).toBeCloseTo(-b.to, 10);
   });
 
   it("headTurnParallaxUnit uses the same cylinder radius as the warp bake", () => {
@@ -891,19 +926,19 @@ describe("head-turn depth parallax", () => {
     expect(at30.offsets[4 * 2]).toBeCloseTo(expected, 6);
   });
 
-  it("the generated model shifts both hair layers, and rest still nets zero", () => {
+  it("the generated model shifts hair_back via a binding and hair_front via a warp", () => {
     const layers = hairFrontLayers();
     const model = generateIkiFromLayerSet(layers, canvas);
-    const front = parallaxOf(
-      model.parts.find((p) => p.id === "hair_front")!.bindings ?? [],
-    );
-    const back = parallaxOf(
-      model.parts.find((p) => p.id === "hair_back")!.bindings ?? [],
-    );
-    expect(front).toBeDefined();
-    expect(back).toBeDefined();
-    expect(front!.to).toBeGreaterThan(0);
-    expect(back!.to).toBeLessThan(0);
+    const front = model.parts.find((p) => p.id === "hair_front")!;
+    const back = model.parts.find((p) => p.id === "hair_back")!;
+    // hair_front has NO translateX binding: its lead is the warp checked above.
+    expect(parallaxOf(front.bindings ?? [])).toBeUndefined();
+    expect(
+      front.warps!.some((w) => w.parameter === StandardParameter.AngleX),
+    ).toBe(true);
+    const backParallax = parallaxOf(back.bindings ?? []);
+    expect(backParallax).toBeDefined();
+    expect(backParallax!.to).toBeLessThan(0);
   });
 
   // One hair spring peaks near 11.2 of its ±20 range (ζ ≈ 0.56 on a ±10
@@ -911,7 +946,8 @@ describe("head-turn depth parallax", () => {
   const SPRING_PEAK = 11.2;
 
   /** Worst-case x reach of hair_front's tips at parameter `v` on ONE sway warp,
-   *  plus the parallax shift, against the faceWarp grid's x-edges. */
+   *  plus the turn lead's own warp (both root-pinned, so both peak at the same
+   *  tip row), against the faceWarp grid's x-edges. */
   const hairHeadroomAt = (
     model: ReturnType<typeof generateIkiFromLayerSet>,
     v: number,
@@ -921,7 +957,12 @@ describe("head-turn depth parallax", () => {
     const gridMinX = grid.points[0];
     const hair = model.parts.find((p) => p.id === "hair_front")!;
     const xs = hair.mesh!.vertices.filter((_, i) => i % 2 === 0);
-    const shift = parallaxOf(hair.bindings ?? [])!.to;
+    const lead = (hair.warps ?? []).find(
+      (w) => w.parameter === StandardParameter.AngleX,
+    )!;
+    const shift = Math.max(
+      ...lead.keyforms[1].offsets.filter((_, i) => i % 2 === 0),
+    );
     const sway = (hair.warps ?? []).find(
       (w) => w.parameter === StandardParameter.HairSwayX,
     )!;
@@ -1196,14 +1237,14 @@ describe("hair-sway physics", () => {
     }
   });
 
-  it("only the back hair bends on AngleX through its own part warp", () => {
+  it("both hair parts carry their own AngleX part warp: the back's bend, the bangs' lead", () => {
     const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
     const turnWarps = (id: string) =>
       (model.parts.find((p) => p.id === id)!.warps ?? []).filter(
         (w) => w.parameter === StandardParameter.AngleX,
       );
     expect(turnWarps("hair_back")).toHaveLength(1);
-    expect(turnWarps("hair_front")).toHaveLength(0);
+    expect(turnWarps("hair_front")).toHaveLength(1);
     // Present even without front hair (it is the turn, not the sway).
     const bare = generateIkiFromLayerSet(assemblyLayers(), canvas);
     expect(
