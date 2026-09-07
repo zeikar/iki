@@ -1,5 +1,35 @@
 # @ikijs/editor
 
+## 0.3.0
+
+### Minor Changes
+
+- 28049af: The torso (`body`) now rides a `bodyDeformer` that follows the turn at 30 % of
+  the head's travel and its breath bob at half amplitude — no more shoulders bolted
+  to the canvas while the head breathes; the head's own motion is unchanged
+  (sibling deformers, as in the hand-authored sample). Turn/nod bakes key
+  at 15° stops (five per axis): the engine blends linearly between stops and
+  the cylinder bend is sin-based, so the old ±30-only lattice over-bent the
+  far columns by up to 15 px at 15° on the hero — now under 4 px at any
+  angle. Meshes are
+  sized to their art (`meshCellsFor`: 64 px cells, 4–8 per axis) and the
+  face-warp grid is 6×6, so the bend renders as a curve instead of ~4
+  facets across the head. Rigs are regenerated, not migrated: an existing
+  `.iki` is untouched until re-rigged.
+
+### Patch Changes
+
+- b21b048: Auto-rigged bangs (`hair_front`) lead the head turn from their tips, not their
+  crown: the depth lead is now a root-pinned warp instead of a rigid translate,
+  so the crown no longer runs ahead of the back hair on a turn and the far-side
+  strands slide far less across the cheek. Rigs are regenerated, not migrated.
+- c6825c4: Auto-rigged heads no longer roll with the turn. The ±6° "lean into the turn"
+  on `AngleX`, inherited from the hand-authored sample, rotated the whole head
+  about the neck pivot — which sits about a head below the crown — so on every
+  turn the top of the head swung far further than the chin and read as lunging
+  ahead of the face. The turn is now a pure yaw (translate + face warp); roll is
+  `AngleZ`'s alone.
+
 ## 0.2.1
 
 ### Patch Changes
