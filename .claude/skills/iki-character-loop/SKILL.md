@@ -95,9 +95,9 @@ invalidates every prior score.
    — the stops sit 15° apart, so that is `ParamAngleX` at 7.5 and at 22.5,
    `ParamAngleY` at the same two, and (its stops being 0 and 1) `ParamEyeLOpen`
    at 0.5. Rig breakage surfaces in the turn and blink poses, which a
-   front-facing screenshot hides; motion defects surface only between stops,
-   because the stops themselves are authored keyforms and look right by
-   construction.
+   front-facing screenshot hides; the between-stop poses expose interpolation
+   defects that the endpoint shots miss (the engine blends linearly between
+   authored keyforms), so both sets need looking at.
    **The rest shot must be untouched**: `reset()` and screenshot, nothing set
    afterwards. Every proportion the critic measures is measured against it, so a
    flattering hero pose saved as `rest.png` silently invalidates the whole round
