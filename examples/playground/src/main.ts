@@ -1,9 +1,4 @@
-import {
-  HairChainMotion,
-  IdleMotion,
-  IkiPlayer,
-  PhysicsMotion,
-} from "@ikijs/engine";
+import { IkiMotion, IkiPlayer } from "@ikijs/engine";
 import { parseIkiModel } from "@ikijs/format";
 import { sampleModel } from "./sample-model";
 
@@ -23,13 +18,13 @@ const slidersById = new Map<
   { slider: HTMLInputElement; readout: HTMLSpanElement }
 >();
 
-// The most recently loaded parsed model — startIdle reads its `physics` rigs and
-// `parameters` (descriptors) to construct the PhysicsMotion driver.
+// The most recently loaded parsed model — startIdle constructs the motion
+// drivers from it.
 let parsedModel: ReturnType<typeof parseIkiModel> | undefined;
 
 // Single write path: sets the value on the player, then syncs slider + readout
-// from what the engine actually stored. Used by the slider handlers, the idle
-// loop, the physics loop, and the dev setParam API.
+// from what the engine actually stored. Used by the slider handlers, the motion
+// loop, and the dev setParam API.
 function mirrorParam(id: string, value: number): void {
   player.setParameter(id, value);
   // Read back rather than re-deriving the clamp: the engine owns the range
@@ -84,39 +79,23 @@ let idleRafId: number | undefined;
 function startIdle(): void {
   // Idempotent: do nothing if already running.
   if (idleRafId !== undefined) return;
+  // Nothing to drive until the first model lands; the post-load startIdle()
+  // call below starts the loop then.
+  if (parsedModel === undefined) return;
 
-  // Construct fresh instances each start so the first update always establishes
-  // a clean time base (no leftover prevNowMs from a prior run). PhysicsMotion is
-  // a peer driver of IdleMotion: it reads the live pose straight off the player
-  // and writes its output through the same mirrorParam sink. An empty rig list
-  // (model without physics) is a harmless no-op.
-  const idle = new IdleMotion(mirrorParam);
-  const physics = new PhysicsMotion(
-    parsedModel?.physics ?? [],
-    parsedModel?.parameters ?? [],
-    (id) => player.getParameter(id),
-    mirrorParam,
-  );
-  // Peer driver for multi-segment hair chains: self-computes its anchor's world
-  // rotation from the deformers + current params, so it only needs the same
-  // read/sink. Empty physicsChains is a harmless no-op.
-  const chains = new HairChainMotion(
-    parsedModel?.physicsChains ?? [],
-    parsedModel?.parameters ?? [],
-    parsedModel?.deformers ?? [],
+  // Construct a fresh instance each start so the first update always
+  // establishes a clean time base (no leftover prevNowMs from a prior run).
+  // The drivers read the live pose straight off the player and write through
+  // mirrorParam so the sliders track them; the player renders on its OWN
+  // render loop (drivers/rendering decoupled — no same-frame render guarantee).
+  const motion = new IkiMotion(
+    parsedModel,
     (id) => player.getParameter(id),
     mirrorParam,
   );
 
   function frame(): void {
-    // One clock read per frame keeps both drivers' dt in lockstep. Physics runs
-    // right AFTER idle; both write params via mirrorParam, and the player renders
-    // the updated params on its OWN render loop (drivers/rendering decoupled,
-    // exactly like IdleMotion today — there is no same-frame render guarantee).
-    const now = performance.now();
-    idle.update(now);
-    physics.update(now);
-    chains.update(now);
+    motion.update(performance.now());
     idleRafId = requestAnimationFrame(frame);
   }
   idleRafId = requestAnimationFrame(frame);
@@ -196,7 +175,7 @@ async function switchModel(which: string): Promise<void> {
     await loadModel(raw);
     if (seq !== modelSwitchSeq) return; // superseded while loading
     loadedModelValue = which;
-    // Reconstruct the idle/physics drivers against the new model's rigs.
+    // Rebuild the motion drivers against the new model.
     if (idleCheckbox.checked) {
       stopIdle();
       startIdle();
@@ -245,7 +224,9 @@ try {
 }
 
 // Checkbox is on by default; start the idle loop after the first model load.
-startIdle();
+// (An uncheck during the fetch is honoured too — the mirror image of
+// startIdle()'s early return before a model has landed.)
+if (idleCheckbox.checked) startIdle();
 
 // Dev-only injection API for Playwright visual tests (see
 // .claude/skills/iki-visual-test). Stripped from production builds: in a vite
