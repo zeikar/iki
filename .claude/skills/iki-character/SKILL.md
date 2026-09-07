@@ -171,7 +171,7 @@ To feed the disk `.iki` to `load()`: vite blocks `/@fs/` for paths **outside the
 - **MCP output is cwd-confined.** `auto_rig_from_layers` rejects an `outputPath` that escapes the launch cwd (must end in `.iki`, realpath-checked, atomic rename). Launch the bin from where you want the file.
 - **Style drift across parts.** Independent generations can mismatch hue/line-weight. Keep one `<STYLE>` string identical across every prompt; regenerate the outlier, not the whole set.
 - **Composer needs `sharp`, which is not a repo dep.** Don't `pnpm add sharp` to a workspace package — install it ad hoc in the scratch dir (or use `@ikijs/mcp`'s copy). sharp stays confined to `@ikijs/mcp` in the repo.
-- **Don't commit generated character art or reference models.** Generated PNGs and any reference model (e.g. Hiyori) are scratch/gitignored — keep them out of the repo. This slice ships the **skill + composer only**.
+- **Don't commit generated character art or reference models — and don't derive art from one.** Generated PNGs and any reference model (e.g. Hiyori) are scratch/gitignored; keep them out of the repo. Studying a sample's _rig_ is fine: load it in its own runtime, watch how its turn reads, build our own bend to match the technique — that is observing rendered output and applying a method. Feeding its _art_ to codex-image is not: the generated character then carries that character's design. Hiyori's per-character terms forbid that — no changes of any kind to the design — and the Free Material Agreement counts it as 流用, diverting the material into models made with third-party software. `.gitignore` stops distribution, not derivation. This slice ships the **skill + composer only**.
 
 ## What this skill does NOT change
 

@@ -10,7 +10,7 @@ one that is _good_, by giving the process the two things a single pass lacks: a
 fixed target to aim at, and someone to say how far off it is.
 
 ```
-reference (codex-image, once)
+references (codex-image, once)
       │
       ▼
   ┌─► artist ──► rigged .iki ──► orchestrator renders ──► critic ──┐
@@ -72,23 +72,32 @@ Prefer them, and let the artist exhaust them before spending on generation.
 
 ## Procedure
 
-### Step 0 — reference
+### Step 0 — references
 
 Generate 2–3 candidates with the **codex-image** skill and let the user pick, or
 accept a reference the user supplies. It must be a single front-facing character
-in the target style. Keep it at `<workdir>/reference.png` — everything is judged
-against it, so changing it mid-loop invalidates every prior score.
+in the target style. Then generate one image of the SAME character at roughly
+3/4 view — a head turn judged against a front-facing drawing has no target. Keep
+them at `<workdir>/reference.png` and `<workdir>/reference-34.png`; both are
+frozen, because everything is judged against them and changing either mid-loop
+invalidates every prior score.
 
 ### Step 1 — round
 
-1. Dispatch **iki-character-artist** with `reference`, `workdir`, `round`, and
-   the critic's findings (none on round 1). It returns a rigged `.iki`.
+1. Dispatch **iki-character-artist** with `reference` (the front view only —
+   `gen-parts.sh` attaches it to every job), `workdir`, `round`, and the
+   critic's findings (none on round 1). It returns a rigged `.iki`.
 2. **Render it yourself.** Copy the model to
    `examples/playground/public/<name>.iki`, load it via the **iki-visual-test**
    skill, and screenshot at least: rest, head-turn (`ParamAngleX` near its
-   limit), blink (`ParamEyeLOpen` ≈ 0), gaze (`ParamEyeBallX` near its limit).
-   The turn and blink poses are where rig defects surface — a front-facing
-   screenshot hides most of them.
+   limit), blink (`ParamEyeLOpen` ≈ 0), gaze (`ParamEyeBallX` near its limit),
+   and the poses **midway between the rig's keyform stops** on each moving axis
+   — the stops sit 15° apart, so that is `ParamAngleX` at 7.5 and at 22.5,
+   `ParamAngleY` at the same two, and (its stops being 0 and 1) `ParamEyeLOpen`
+   at 0.5. Rig breakage surfaces in the turn and blink poses, which a
+   front-facing screenshot hides; motion defects surface only between stops,
+   because the stops themselves are authored keyforms and look right by
+   construction.
    **The rest shot must be untouched**: `reset()` and screenshot, nothing set
    afterwards. Every proportion the critic measures is measured against it, so a
    flattering hero pose saved as `rest.png` silently invalidates the whole round
@@ -96,8 +105,9 @@ against it, so changing it mid-loop invalidates every prior score.
    reference" were judged against a head turned nine degrees.
    Rendering stays with you because the Playwright browser is a single shared
    resource; two agents driving it collide.
-3. Dispatch **iki-character-critic** with `reference`, `layers`, the render
-   paths and `round`. It returns scores and typed findings.
+3. Dispatch **iki-character-critic** with `reference`, `reference-34`, `layers`,
+   `renders` (the render paths), `round` and `scores` (the previous rounds'
+   `SCORES:` lines). It returns scores and typed findings.
 4. Route: `regenerate` and `retune` go back to the artist. Handle `escalate`
    yourself — decide whether the package change is warranted, and if it is,
    make it as normal code work with a test and a changeset. Never let the loop
@@ -110,10 +120,12 @@ Stop on the first of:
 - critic returns `ship`
 - critic returns `stop`
 - **3 rounds that spent generation** (the billed cap)
-- two consecutive rounds with no total-score improvement
+- two consecutive rounds in which **no axis reached a new maximum** — keep a
+  high-water mark per axis, because an unweighted total nets a real `rig` 3→4
+  against a `palette` 4→3 drift and reads as no progress
 
-Then report to the user: the final render, the score trajectory across rounds,
-what remains unfixed, and every escalation with your recommendation.
+Then report to the user: the final render, the per-axis score trajectory across
+rounds, what remains unfixed, and every escalation with your recommendation.
 
 ## Escalations you should expect
 
@@ -125,7 +137,9 @@ head-turn sideways travel already needed this treatment once. Treat a repeated
 ## Do not
 
 - Let either agent edit `packages/`.
-- Change the reference mid-loop.
+- Change either reference mid-loop.
+- Use a licensed sample model's art as a reference — see the iki-character
+  pitfalls.
 - Regenerate the whole part set because one part is wrong.
 - Run the loop when `codex login status` reports the quota exhausted — it will
   fail every generation job in seconds and burn rounds doing nothing.
