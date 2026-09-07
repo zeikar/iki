@@ -47,11 +47,11 @@ The hard part is **getting clean role-separated parts out of codex-image** (an e
 
 ## The role set this skill generates (full-expression default)
 
-Mirrors `@ikijs/editor` `ROLE_TABLE` / `REQUIRED_ROLES`. **Required:** `face`, `eye_L`, `eye_R`, `mouth`. The composer additionally emits `iris_L/R` (gaze), `lash_L/R` (blink-fold cover), `brow_L/R` (expression), `hair_front`, and the optional `mouth_open`, `hair_back` and `body`. That set gives a character that **blinks (eyelid-fold), gazes, lip-syncs, turns / nods / tilts its head with hair that sways behind it, and raises/tilts its brows** — on a torso that stays put while the head moves.
+Mirrors `@ikijs/editor` `ROLE_TABLE` / `REQUIRED_ROLES`. **Required:** `face`, `eye_L`, `eye_R`, `mouth`. The composer additionally emits `iris_L/R` (gaze), `lash_L/R` (blink-fold cover), `brow_L/R` (expression), `hair_front`, and the optional `mouth_open`, `hair_back` and `body`. That set gives a character that **blinks (eyelid-fold), gazes, lip-syncs, turns / nods / tilts its head with hair that sways behind it, and raises/tilts its brows** — on a torso that follows the turn a little and breathes.
 
 | codex-image part                                         | composer output role(s)                              | drives                                                                                 |
 | -------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `body.png` (shoulders/chest, NO head)                    | `body`                                               | nothing — the one part on no deformer, so it holds still                               |
+| `body.png` (shoulders/chest, NO head)                    | `body`                                               | `bodyDeformer` — a light share of the head turn and half the head's breath bob         |
 | `hair_back.png` (hair behind the head)                   | `hair_back`                                          | follows the head turn and bends with it; its ends swing on the hair-sway springs       |
 | `face.png` (NO eyes, NO mouth)                           | `face`                                               | turn × nod cylinder warp (`warp2d`), tilt, breath                                      |
 | `mouth.png` (closed)                                     | `mouth`                                              | MouthForm; fades out as MouthOpen rises when `mouth_open` is present                   |
@@ -63,7 +63,7 @@ Mirrors `@ikijs/editor` `ROLE_TABLE` / `REQUIRED_ROLES`. **Required:** `face`, `
 
 Without `mouth_open`, MouthOpen stretches the closed mouth (`scaleY` up to 3×) — fine for a portrait, a blurred band for lip-sync.
 
-`body` is the only role attached to **no** deformer. Without it the neck ends in mid-air and the character reads as a floating head; painting shoulders into `face.png` instead is worse, because `face` rides the head-turn warp and the shoulders would bend with the head.
+`body` rides its own `bodyDeformer`, never the head's: without it the neck ends in mid-air and the character reads as a floating head; painting shoulders into `face.png` instead is worse, because `face` rides the head-turn warp and the shoulders would bend with the head.
 
 `eye_L/R` and `lash_L/R` both come from the **single** `eyewhite.png` — `compose.cjs prepEyeSplit()` splits it by luminance into a clean white sclera (the dark outline/lash recolored white = the clip-mask shape) and a dark **upper-lash** layer (only the top fraction of the dark pixels; the lower almond rim is dropped). Both are cropped to the **same** eye bbox and placed with `noTrim`, so the lash stays anchored ABOVE the sclera center — on blink it folds DOWN over the eye (like the sample model) instead of the whole eye shrinking in place. This is deliberate: asking codex-image for a _separately clean_ sclera and lash is less reliable than splitting one lashed white deterministically.
 

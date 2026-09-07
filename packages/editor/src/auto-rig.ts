@@ -26,10 +26,10 @@ import {
 export interface RoleSpec {
   /**
    * Which deformer the part is attached to in the generated rig. `"none"`
-   * attaches it to nothing, so the part holds still in world space while
-   * headDeformer turns the head — what a torso has to do.
+   * attaches it to nothing, so it holds still in world space; no shipped
+   * role uses it.
    */
-  deformer: "faceWarp" | "headDeformer" | "none";
+  deformer: "faceWarp" | "headDeformer" | "bodyDeformer" | "none";
   /** Back-to-front draw order. Higher = in front. */
   order: number;
   /** Whether this part gets a warp mesh (true) or is a static quad (false). */
@@ -76,11 +76,12 @@ export const ROLE_TABLE: Record<string, RoleSpec> = {
   // the turn through its own part warp (bakeHairBackTurnWarp) and swings its
   // ends on the hair-sway warps.
   hair_back: { deformer: "headDeformer", order: 0, mesh: true },
-  // The torso. Alone among the roles it hangs from NO deformer: the head turns
-  // about the neck pivot while the shoulders stay put, which is what keeps the
-  // character from reading as a floating head. Drawn over the back hair so long
-  // hair falls behind the shoulders.
-  body: { deformer: "none", order: 5, mesh: false },
+  // The torso. It rides its own rigid deformer, not the head's: the head turns
+  // about the neck pivot while the shoulders follow at BODY_TURN_FOLLOW and
+  // follow the head's breath bob, which is what keeps the character from
+  // reading as a floating head. Drawn over the back hair so long hair falls
+  // behind the shoulders.
+  body: { deformer: "bodyDeformer", order: 5, mesh: false },
   face: { deformer: "faceWarp", order: 10, mesh: true },
   nose: { deformer: "faceWarp", order: 15, mesh: true },
   blush_L: { deformer: "faceWarp", order: 20, mesh: true },
@@ -416,6 +417,41 @@ export function createPixelGridMesh(
   return { vertices, uvs, indices };
 }
 
+// ── Mesh density ─────────────────────────────────────────────────────────────
+
+/** Target size of one mesh cell. A part's vertices sample the face-warp grid
+ *  (and its own per-vertex warps) at this spacing; the GPU is linear between
+ *  them, so the spacing bounds how smooth a bend can render. 64 px puts two
+ *  vertices per FACE_GRID_CELLS cell on the hero and eight rows on the back
+ *  hair for the sway curl. */
+const MESH_CELL_PX = 64;
+/** Cell-count floor / ceiling per axis: small parts stay at 4×4 (their
+ *  bakes fold/collapse them, they never bend), a canvas-spanning layer is
+ *  capped at 81 vertices so per-vertex warps stay cheap. */
+const MESH_CELLS_MIN = 4;
+const MESH_CELLS_MAX = 8;
+
+/** Cell counts for a pixel-grid mesh of a `w`×`h` crop: `round(size / MESH_CELL_PX)`
+ *  per axis, clamped to [MESH_CELLS_MIN, MESH_CELLS_MAX]. Exported for tests. */
+export function meshCellsFor(
+  w: number,
+  h: number,
+): { cols: number; rows: number } {
+  const cells = (px: number) =>
+    Math.max(
+      MESH_CELLS_MIN,
+      Math.min(MESH_CELLS_MAX, Math.round(px / MESH_CELL_PX)),
+    );
+  return { cols: cells(w), rows: cells(h) };
+}
+
+/** Cells per axis of the face-warp grid. Bilinear cells render the cylinder
+ *  bend as a chord: on the hero (821 px across) 4 cells = 205 px chords with
+ *  a 12 px worst-case sag at full turn on the bangs, 6 cells halve it for
+ *  ~10 KB of keyforms. The fold guard is radius-from-reach and does not
+ *  depend on this. */
+const FACE_GRID_CELLS = 6;
+
 // ── Head-turn cylinder constants ─────────────────────────────────────────────
 
 /** Cylinder radius as a multiple of the warp grid's half-width. The 0.6/0.5
@@ -423,6 +459,15 @@ export function createPixelGridMesh(
 const HEAD_CYLINDER_RADIUS_FACTOR = 0.6 / 0.5;
 /** Outer keyform stop of the head-turn bake, matching ParamAngleX's range. */
 const HEAD_TURN_MAX_DEG = 30;
+
+/** Keyform stops of the head-turn / nod bakes, degrees. The engine blends
+ *  parameter-LINEARLY between stops but the cylinder bend is sin-based, so the
+ *  stops must be dense enough that the chord stays near the arc: at 15° spacing
+ *  the worst mid-stop error on the hero's grid is ≈4 px at the outer column
+ *  (3.7 px at 7.5°, 4.0 px at 22.5°) against 15.5 px with stops at ±30 only.
+ *  The bake is analytic, so extra stops cost only model bytes. Ascending,
+ *  symmetric, includes 0 (the rest cell). */
+const HEAD_TURN_STOPS = [-30, -15, 0, 15, 30] as const;
 
 /**
  * Sideways slide, at full head turn, of a surface sitting one full cylinder
@@ -472,15 +517,16 @@ export function headTurnParallaxUnit(gridHalfWidth: number): number {
  * whether or not the grid is symmetric about the axis.
  *
  * No production caller since faceWarp moved to the 2D bake; kept as the 1D
- * reference that the 2D bake's tests compare their AngleY = 0 row against.
+ * reference that the 2D bake's tests compare their AngleY = 0 row against,
+ * keyed on the same `HEAD_TURN_STOPS`.
  */
 export function bakeHeadTurnGridWarpCentered(
   grid: IkiWarpGrid,
   parameter: string,
   centerX: number,
 ): IkiGridWarp {
-  // Keyform stops (degrees) match ParamAngleX's −30..30 range.
-  const ANGLES = [-HEAD_TURN_MAX_DEG, 0, HEAD_TURN_MAX_DEG] as const;
+  // Keyform stops (degrees), matching ParamAngleX's −30..30 range.
+  const ANGLES = HEAD_TURN_STOPS;
   // Cylinder radius in MODEL units, from the grid's reach about the axis.
   const RADIUS = gridReach(grid, 0, centerX) * HEAD_CYLINDER_RADIUS_FACTOR;
 
@@ -502,7 +548,7 @@ export function bakeHeadTurnGridWarpCentered(
     return { value: angleDeg, offsets };
   });
 
-  // keyforms are sorted ascending by construction (ANGLES = [-30, 0, 30]).
+  // keyforms are sorted ascending by construction (HEAD_TURN_STOPS).
   return { parameter, keyforms };
 }
 
@@ -564,7 +610,7 @@ export function bakeHeadTurnGridWarp2DCentered(
   centerX: number,
   centerY: number,
 ): IkiGrid2DWarp {
-  const STOPS = [-HEAD_TURN_MAX_DEG, 0, HEAD_TURN_MAX_DEG];
+  const STOPS = [...HEAD_TURN_STOPS];
   const RADIUS_X = gridReach(grid, 0, centerX) * HEAD_CYLINDER_RADIUS_FACTOR;
   const RADIUS_Y = gridReach(grid, 1, centerY) * HEAD_CYLINDER_RADIUS_FACTOR;
   const pointCount = grid.points.length / 2;
@@ -986,6 +1032,24 @@ export function bakeHairSwayWarp(
   };
 }
 
+// ── Rigid head travel + body follow ─────────────────────────────────────────
+
+/** Rigid sideways travel of the head at full turn (px at AngleX = ±30). */
+const HEAD_TURN_TRAVEL = 50;
+/** The torso's share of that travel. Below ~0.2 the shoulders still read as
+ *  bolted down; at 1 the neck stops articulating. 0.3 keeps 70 % of the turn
+ *  in the neck while the shoulders visibly come along. Judged in the
+ *  playground, not derived. */
+const BODY_TURN_FOLLOW = 0.3;
+/** Vertical travel of the head at full breath (px, +y up; negative = down). */
+const HEAD_BREATH_BOB = -12;
+/** The torso's share of the head's breath bob, SAME direction. In phase with
+ *  the head (not the sample model's counter-phase +6/−12, which reads as a
+ *  shrug: chest up while the head settles) so the neck compresses by 6 px, not
+ *  18. Moving DOWN also keeps the torso's flat canvas-bottom cut off-canvas —
+ *  a rise would lift that hard edge into view every breath. */
+const BODY_BREATH_FOLLOW = 0.5;
+
 // ── generateIkiFromLayerSet ───────────────────────────────────────────────────
 
 /**
@@ -997,9 +1061,12 @@ export function bakeHairSwayWarp(
  *   - Emit the standard parameters (same ids/ranges as sample-model.ts), plus a
  *     conditional HairSwayX descriptor + hair-sway physics rig when a hair_front
  *     layer is present.
- *   - Build headDeformer (matrix, neck pivot, AngleX+Breath bindings) and faceWarp
- *     (warp, 4×4, baked cylinder warp center-relative on faceCenterX).
- *   - Mesh parts (spec.mesh===true) → width:1, height:1, pixel grid mesh 4×4 + role bindings.
+ *   - Build headDeformer (matrix, neck pivot, AngleX+Breath bindings),
+ *     bodyDeformer when a body layer is present (matrix, torso-base pivot,
+ *     AngleX follow + Breath follow), and faceWarp (warp, FACE_GRID_CELLS²,
+ *     baked cylinder warp center-relative on faceCenterX).
+ *   - Mesh parts (spec.mesh===true) → width:1, height:1, pixel grid mesh sized by
+ *     meshCellsFor + role bindings.
  *   - Static parts (spec.mesh===false) → width:cropW, height:cropH, no mesh.
  *   - Part ids equal the role string (deterministic, no crypto.randomUUID).
  *   - Return parseIkiModel(structuredClone(model)) — every caller gets a
@@ -1015,6 +1082,7 @@ export function generateIkiFromLayerSet(
   // Hair-sway secondary motion is gated on a front-hair layer being present.
   const hasHair = layers.some((l) => l.role === "hair_front");
   const hasMouthOpen = layers.some((l) => l.role === "mouth_open");
+  const bodyLayer = layers.find((l) => l.role === "body");
 
   // ── Standard parameters — verbatim from sample-model.ts ──────────────────
   const parameters: IkiParameter[] = [
@@ -1207,11 +1275,11 @@ export function generateIkiFromLayerSet(
   const faceGridMaxX = faceCenterX + halfW;
 
   const faceGrid = {
-    cols: 4,
-    rows: 4,
+    cols: FACE_GRID_CELLS,
+    rows: FACE_GRID_CELLS,
     points: generateGridPoints(
-      4,
-      4,
+      FACE_GRID_CELLS,
+      FACE_GRID_CELLS,
       faceGridMinX,
       faceGridMaxX,
       unionMinY,
@@ -1261,8 +1329,8 @@ export function generateIkiFromLayerSet(
         {
           parameter: StandardParameter.AngleX,
           channel: "translateX" as const,
-          from: -50,
-          to: 50,
+          from: -HEAD_TURN_TRAVEL,
+          to: HEAD_TURN_TRAVEL,
         },
         // Nod: a vertical translate only. No rotate — a pitch expressed as a
         // rigid rotation would sum with the AngleZ roll below at diagonal
@@ -1289,7 +1357,7 @@ export function generateIkiFromLayerSet(
           parameter: StandardParameter.Breath,
           channel: "translateY" as const,
           from: 0,
-          to: -12,
+          to: HEAD_BREATH_BOB,
         },
       ],
     },
@@ -1305,6 +1373,39 @@ export function generateIkiFromLayerSet(
       warp2d: faceWarp2d,
     },
   ];
+
+  // bodyDeformer: the torso's own rigid deformer. A sibling of headDeformer, not
+  // its parent, so the head's own bindings stay untouched; reparent the head
+  // under it once the torso gains a rotation. Translate-only, so the pivot is
+  // inert today; it sits at the torso base, where a future lean would rock from.
+  if (bodyLayer) {
+    const bt = bboxToTransform(
+      bodyLayer.bbox,
+      bodyLayer.canvasW,
+      bodyLayer.canvasH,
+      "body",
+    );
+    deformers.push({
+      id: "bodyDeformer",
+      pivot: { x: bt.x, y: bt.y - bodyLayer.cropH / 2 },
+      bindings: [
+        // Low-weight follow of the turn, same direction as the head.
+        {
+          parameter: StandardParameter.AngleX,
+          channel: "translateX" as const,
+          from: -BODY_TURN_FOLLOW * HEAD_TURN_TRAVEL,
+          to: BODY_TURN_FOLLOW * HEAD_TURN_TRAVEL,
+        },
+        // Breath: follow the head's bob, same direction, half amplitude.
+        {
+          parameter: StandardParameter.Breath,
+          channel: "translateY" as const,
+          from: 0,
+          to: BODY_BREATH_FOLLOW * HEAD_BREATH_BOB,
+        },
+      ],
+    });
+  }
 
   // ── Shared closed-eye crease per side ─────────────────────────────────────
   // The white AND the lash fold to the SAME seam (derived from the eye-white
@@ -1340,7 +1441,8 @@ export function generateIkiFromLayerSet(
     if (spec.mesh) {
       // Warp-deformer child: width:1, height:1 with a pixel grid mesh centered
       // at the crop center. The engine applies the part transform to position it.
-      const mesh = createPixelGridMesh(4, 4, cropW, cropH);
+      const { cols, rows } = meshCellsFor(cropW, cropH);
+      const mesh = createPixelGridMesh(cols, rows, cropW, cropH);
       const part: IkiPart = {
         id: role,
         color: [1, 1, 1, 1] as [number, number, number, number],

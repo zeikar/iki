@@ -211,9 +211,9 @@ const pct = (v) => `${(v * 100).toFixed(0)}%`;
 
   // 1b. A straight cut through the drawing, wherever it falls in the bbox.
   for (const [role, m] of Object.entries(s)) {
-    // `body` is the one role rigged to no deformer, so it cannot move and no
-    // pose can uncover a cut in it. Its neck is deliberately cut flat at the
-    // top, where the jaw covers it; flagging that is a false positive.
+    // `body` moves only as a rigid whole (a light share of the head's turn
+    // and breath), so no pose can uncover a cut in it; its top is deliberately
+    // cut flat where the jaw covers it.
     if (role === "body") continue;
     if (
       m.flatCutRun > FLAT_CUT_MAX_FRAC * m.w &&

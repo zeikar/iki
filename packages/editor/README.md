@@ -56,9 +56,9 @@ leaves the document untouched.
 
 `generateIkiFromLayerSet` turns role-named layers (`face`, `eye_L`, `eye_R`,
 `mouth`, plus optional `iris_*`, `brow_*`, `lash_*`, `hair_front`, `hair_back`,
-…) into a rigged model that blinks, gazes, opens its mouth, turns its head, and
-emotes with its brows — including a hair-sway physics rig when a `hair_front`
-layer is present.
+…) into a rigged model that blinks, gazes, opens its mouth, turns its head on a
+torso that follows and breathes, and emotes with its brows — including a
+hair-sway physics rig when a `hair_front` layer is present.
 
 It takes **already-decoded** layer geometry (`LayerInput`), never pixels, which
 is what keeps this package free of any image dependency: the editor app

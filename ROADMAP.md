@@ -29,6 +29,8 @@ deliberately deferred.
    - Head-turn depth parallax: the bangs lead the face, the back hair follows at a distance and bends so its near side tucks behind the face — a turn reads as a head rotating rather than a flat cutout sliding
    - Head nod: `AngleY` drives the face warp as one 2D grid warp (`warp2d`) over turn × nod, with a gentler vertical bend so the hair crown stays whole
    - Head tilt: `AngleZ` rolls the head about the neck pivot, clockwise-positive to match Live2D
+   - Torso: `body` rides a `bodyDeformer` that follows the turn at a light share and the breath bob at half amplitude, so the shoulders come along instead of staying bolted to the canvas
+   - Motion fidelity: turn/nod keyforms at 15° stops, a 6×6 face grid, and meshes sized to the art (`meshCellsFor`), so mid-angle poses and full turns render as curves rather than chords
    - Deferred: ML segmentation of a single flat illustration (today the parts arrive as separate layers)
 7. **Physics / secondary motion** — done
    - Spring-mass-damper rigs (`model.physics`) driven by the `PhysicsMotion` peer driver

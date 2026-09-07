@@ -13,6 +13,7 @@ import {
   generateGridPoints,
   generateIkiFromLayerSet,
   headTurnParallaxUnit,
+  meshCellsFor,
   parseLayerRoles,
   validateLayerInputs,
   type LayerInput,
@@ -529,17 +530,28 @@ describe("head nod (AngleY)", () => {
     rows: 4,
     points: generateGridPoints(4, 4, -400, 400, -300, 300),
   };
+  // Takes angle VALUES (degrees), not lattice indices.
   const cell = (
-    w: { valuesX: number[]; keyforms2d: { offsets: number[] }[] },
+    w: {
+      valuesX: number[];
+      valuesY: number[];
+      keyforms2d: { offsets: number[] }[];
+    },
     angleX: number,
     angleY: number,
-  ) => w.keyforms2d[angleY * w.valuesX.length + angleX];
+  ) => {
+    const ix = w.valuesX.indexOf(angleX);
+    const iy = w.valuesY.indexOf(angleY);
+    if (ix < 0) throw new Error(`cell: angleX stop ${angleX} not found`);
+    if (iy < 0) throw new Error(`cell: angleY stop ${angleY} not found`);
+    return w.keyforms2d[iy * w.valuesX.length + ix];
+  };
 
-  it("bakes a 3x3 lattice in the format's row-major layout", () => {
+  it("bakes a 5×5 lattice at 15° stops in the format's row-major layout", () => {
     const w = bakeHeadTurnGridWarp2DCentered(grid, "ax", "ay", 0, 0);
-    expect(w.valuesX).toEqual([-30, 0, 30]);
-    expect(w.valuesY).toEqual([-30, 0, 30]);
-    expect(w.keyforms2d).toHaveLength(9);
+    expect(w.valuesX).toEqual([-30, -15, 0, 15, 30]);
+    expect(w.valuesY).toEqual([-30, -15, 0, 15, 30]);
+    expect(w.keyforms2d).toHaveLength(25);
     for (const k of w.keyforms2d) {
       expect(k.offsets).toHaveLength(grid.points.length);
     }
@@ -548,13 +560,38 @@ describe("head nod (AngleY)", () => {
   it("the AngleY=0 row IS the 1D turn bake, so the turn did not change", () => {
     const w = bakeHeadTurnGridWarp2DCentered(grid, "ax", "ay", 0, 0);
     const turn = bakeHeadTurnGridWarpCentered(grid, "ax", 0);
-    for (const [i, angle] of [-30, 0, 30].entries()) {
+    for (const angle of w.valuesX) {
       const k1d = turn.keyforms.find((k) => k.value === angle)!;
-      const k2d = cell(w, i, 1);
+      const k2d = cell(w, angle, 0);
       for (let n = 0; n < k1d.offsets.length; n++) {
         expect(k2d.offsets[n]).toBeCloseTo(k1d.offsets[n], 9);
       }
     }
+  });
+
+  it("mid stops are the analytic bend, not the chord between ±30 and 0", () => {
+    const w = bakeHeadTurnGridWarp2DCentered(grid, "ax", "ay", 0, 0);
+    const R = 400 * (0.6 / 0.5); // grid's x-reach about centerX=0 is 400 → R = 480
+    const theta15 = 15 * (Math.PI / 180);
+    const mid = cell(w, 15, 0);
+    for (let i = 0; i < grid.points.length / 2; i++) {
+      const x = grid.points[i * 2];
+      const alpha = Math.asin(Math.max(-1, Math.min(1, x / R)));
+      const expectedDx =
+        R * Math.sin(alpha + theta15) - x - R * Math.sin(theta15);
+      expect(mid.offsets[i * 2]).toBeCloseTo(expectedDx, 8);
+    }
+    // Guard against a lattice built by linear interpolation between ±30 and 0:
+    // the analytic bend at the outer column differs from the chord's midpoint.
+    const full = cell(w, 30, 0);
+    let maxDiff = 0;
+    for (let i = 0; i < grid.points.length / 2; i++) {
+      maxDiff = Math.max(
+        maxDiff,
+        Math.abs(mid.offsets[i * 2] - 0.5 * full.offsets[i * 2]),
+      );
+    }
+    expect(maxDiff).toBeGreaterThan(1);
   });
 
   it("does not fold on a grid that is not symmetric about the axis", () => {
@@ -603,7 +640,7 @@ describe("head nod (AngleY)", () => {
 
   it("a full nod foreshortens without folding, the far side most", () => {
     const w = bakeHeadTurnGridWarp2DCentered(grid, "ax", "ay", 0, 0);
-    const up = cell(w, 1, 2); // AngleX=0, AngleY=+30
+    const up = cell(w, 0, 30); // AngleX=0, AngleY=+30
     const stride = grid.cols + 1;
     for (let col = 0; col <= grid.cols; col++) {
       const column = [];
@@ -699,8 +736,8 @@ describe("head nod (AngleY)", () => {
       0,
     );
     const stride = 5;
-    const turn = cell(w, 2, 1); // AngleX=+30, AngleY=0
-    const nod = cell(w, 1, 2); // AngleX=0, AngleY=+30
+    const turn = cell(w, 30, 0); // AngleX=+30, AngleY=0
+    const nod = cell(w, 0, 30); // AngleX=0, AngleY=+30
     const rightEdgeDx = Math.abs(turn.offsets[(2 * stride + 4) * 2]); // middle row, last col
     const topEdgeDy = Math.abs(nod.offsets[(0 * stride + 2) * 2 + 1]); // top row, middle col
     expect(topEdgeDy).toBeGreaterThan(0);
@@ -1281,6 +1318,18 @@ function offCenterLayers(): LayerInput[] {
 // ── describe("warp") ─────────────────────────────────────────────────────────
 
 describe("warp", () => {
+  it("faceWarp grid is FACE_GRID_CELLS per axis", () => {
+    const canvas = { width: 1000, height: 1000 };
+    const model = generateIkiFromLayerSet(offCenterLayers(), canvas);
+    const faceWarpDef = model.deformers?.find((d) => d.id === "faceWarp");
+    const grid = (
+      faceWarpDef as { grid: { cols: number; rows: number; points: number[] } }
+    ).grid;
+    expect(grid.cols).toBe(6);
+    expect(grid.rows).toBe(6);
+    expect(grid.points).toHaveLength(2 * 49); // (6+1) * (6+1) points
+  });
+
   it("faceWarp grid encloses all faceWarp children (4 bounds)", () => {
     const canvas = { width: 1000, height: 1000 };
     const model = generateIkiFromLayerSet(offCenterLayers(), canvas);
@@ -1780,6 +1829,88 @@ describe("eyelid fold", () => {
   });
 });
 
+describe("meshCellsFor", () => {
+  it("clamps to [4,8] per axis, rounds by MESH_CELL_PX, and is monotone", () => {
+    expect(meshCellsFor(130, 75)).toEqual({ cols: 4, rows: 4 }); // floors to the minimum
+    expect(meshCellsFor(402, 452)).toEqual({ cols: 6, rows: 7 }); // the hero's face
+    expect(meshCellsFor(802, 933)).toEqual({ cols: 8, rows: 8 }); // caps at the ceiling
+    expect(meshCellsFor(1000, 1)).toEqual({ cols: 8, rows: 4 }); // axes size independently
+
+    const widths = [50, 130, 300, 402, 600, 802, 1200];
+    let prevCols = -Infinity;
+    for (const w of widths) {
+      const { cols } = meshCellsFor(w, 452);
+      expect(cols).toBeGreaterThanOrEqual(prevCols);
+      prevCols = cols;
+    }
+    const heights = [50, 130, 300, 452, 600, 933, 1200];
+    let prevRows = -Infinity;
+    for (const h of heights) {
+      const { rows } = meshCellsFor(402, h);
+      expect(rows).toBeGreaterThanOrEqual(prevRows);
+      prevRows = rows;
+    }
+  });
+});
+
+describe("per-vertex bakes generalize to any grid (not just 4×4/stride-5)", () => {
+  it("bakeEyelidFoldWarp / bakeHairSwayWarp / bakeHairBackTurnWarp all work on an odd-cols mesh", () => {
+    // Odd cols/rows deliberately: none of these bakes may assume a stride.
+    const mesh = createPixelGridMesh(7, 9, 300, 500);
+    const tipShift = 36;
+
+    const fold = bakeEyelidFoldWarp(mesh, "p", -12, 0);
+    const sway = bakeHairSwayWarp(mesh, "p", tipShift, 20);
+    const turn = bakeHairBackTurnWarp(mesh, "p");
+    for (const k of [...fold.keyforms, ...sway.keyforms, ...turn.keyforms]) {
+      expect(k.offsets).toHaveLength(mesh.vertices.length);
+    }
+
+    // Sway: root row pinned, tip row swings by exactly tipShift.
+    const swayPlus = sway.keyforms.find((k) => k.value === 20)!;
+    const swayMinus = sway.keyforms.find((k) => k.value === -20)!;
+    const top = Math.max(...mesh.vertices.filter((_, i) => i % 2 === 1));
+    const bottom = Math.min(...mesh.vertices.filter((_, i) => i % 2 === 1));
+    for (let i = 0; i < mesh.vertices.length; i += 2) {
+      const vy = mesh.vertices[i + 1];
+      if (vy === top) {
+        expect(swayPlus.offsets[i]).toBeCloseTo(0, 10);
+        expect(swayMinus.offsets[i]).toBeCloseTo(0, 10);
+      }
+      if (vy === bottom) {
+        expect(swayPlus.offsets[i]).toBeCloseTo(tipShift, 10);
+        expect(swayMinus.offsets[i]).toBeCloseTo(-tipShift, 10);
+      }
+      expect(swayPlus.offsets[i + 1]).toBe(0);
+    }
+
+    // Turn: rest keyform is all-zero, and no row folds (x-order preserved). A
+    // 7-column mesh has no x=0 column to pin directly, so this is the
+    // equivalent invariant to bakeHairBackTurnWarp's "pins the centre column" check.
+    const turnRest = turn.keyforms.find((k) => k.value === 0)!;
+    for (const o of turnRest.offsets) expect(o).toBeCloseTo(0, 10);
+    const stride = 8; // 7 cols → 8 vertex columns
+    for (const k of turn.keyforms) {
+      for (let row = 0; row * stride < mesh.vertices.length / 2; row++) {
+        let prev = -Infinity;
+        for (let col = 0; col < stride; col++) {
+          const p = row * stride + col;
+          const x = mesh.vertices[p * 2] + k.offsets[p * 2];
+          expect(x).toBeGreaterThan(prev);
+          prev = x;
+        }
+      }
+    }
+
+    // Fold with k=0: every vertex's closed y collapses onto the crease line.
+    const closed = fold.keyforms.find((k) => k.value === 0)!;
+    for (let i = 0; i < mesh.vertices.length; i += 2) {
+      const closedY = mesh.vertices[i + 1] + closed.offsets[i + 1];
+      expect(closedY).toBeCloseTo(-12, 9);
+    }
+  });
+});
+
 describe("assembly", () => {
   it("does not throw (parseIkiModel gate passes)", () => {
     expect(() =>
@@ -1810,8 +1941,7 @@ describe("assembly", () => {
     }
   });
 
-  it("mesh parts have mesh.vertices.length === 2 * (cols+1) * (rows+1) for 4×4 grid", () => {
-    // 4×4 grid → 5×5 = 25 vertices → 50 components
+  it("mesh parts are sized by meshCellsFor", () => {
     const model = generateIkiFromLayerSet(assemblyLayers(), {
       width: 1000,
       height: 1000,
@@ -1819,13 +1949,20 @@ describe("assembly", () => {
     for (const layer of assemblyLayers()) {
       const spec = ROLE_TABLE[layer.role];
       if (spec.mesh) {
+        const { cols, rows } = meshCellsFor(layer.cropW, layer.cropH);
         const part = model.parts.find((p) => p.id === layer.role);
         expect(
           part?.mesh?.vertices.length,
           `${layer.role}.mesh.vertices.length`,
-        ).toBe(2 * 5 * 5);
+        ).toBe(2 * (cols + 1) * (rows + 1));
       }
     }
+    // The fixture exercises both ends of the clamp: face (600×600) hits the
+    // cap, eye_L (150×100) hits the floor.
+    const face = model.parts.find((p) => p.id === "face");
+    const eyeL = model.parts.find((p) => p.id === "eye_L");
+    expect(face?.mesh?.vertices.length).toBe(2 * 9 * 9);
+    expect(eyeL?.mesh?.vertices.length).toBe(2 * 5 * 5);
   });
 
   it("hair_back is a mesh part on the head deformer, sized like the other meshes", () => {
@@ -1847,26 +1984,124 @@ describe("assembly", () => {
     expect(Math.max(...ys) - Math.min(...ys)).toBe(700); // cropH
   });
 
-  it("body part carries no deformer, so the head turns without it", () => {
+  it("body rides bodyDeformer as a static quad", () => {
     const model = generateIkiFromLayerSet(bodyLayers(), {
       width: 1000,
       height: 1000,
     });
     const body = model.parts.find((p) => p.id === "body");
     expect(body).toBeDefined();
-    expect(body?.deformer).toBeUndefined();
+    expect(body?.deformer).toBe("bodyDeformer");
     expect(body?.mesh).toBeUndefined();
+    expect(body?.width).toBe(960); // cropW
+    expect(body?.height).toBe(390); // cropH
   });
 
-  it("every non-body part still names a deformer", () => {
+  it("every part names a deformer", () => {
     const model = generateIkiFromLayerSet(bodyLayers(), {
       width: 1000,
       height: 1000,
     });
     for (const part of model.parts) {
-      if (part.id === "body") continue;
       expect(part.deformer, `${part.id}.deformer`).toBeDefined();
     }
+  });
+
+  it("bodyDeformer follows the turn at 30% of the head's travel and follows the head's breath bob at half amplitude", () => {
+    const model = generateIkiFromLayerSet(bodyLayers(), {
+      width: 1000,
+      height: 1000,
+    });
+    type MatrixDeformer = {
+      id: string;
+      parent?: string;
+      pivot: { x: number; y: number };
+      bindings: {
+        parameter: string;
+        channel: string;
+        from: number;
+        to: number;
+      }[];
+    };
+    const head = model.deformers!.find(
+      (d) => d.id === "headDeformer",
+    ) as MatrixDeformer;
+    const bodyDeformer = model.deformers!.find(
+      (d) => d.id === "bodyDeformer",
+    ) as MatrixDeformer;
+    expect(bodyDeformer).toBeDefined();
+    expect(bodyDeformer.parent).toBeUndefined();
+    expect(bodyDeformer.bindings).toHaveLength(2);
+
+    const headTurn = head.bindings.find(
+      (b) => b.parameter === StandardParameter.AngleX,
+    )!;
+    const bodyTurn = bodyDeformer.bindings.find(
+      (b) => b.parameter === StandardParameter.AngleX,
+    )!;
+    expect(bodyTurn.channel).toBe("translateX");
+    expect(bodyTurn.to).toBeCloseTo(0.3 * headTurn.to, 10);
+    expect(bodyTurn.from).toBeCloseTo(-bodyTurn.to, 10);
+
+    const headBreath = head.bindings.find(
+      (b) => b.parameter === StandardParameter.Breath,
+    )!;
+    const bodyBreath = bodyDeformer.bindings.find(
+      (b) => b.parameter === StandardParameter.Breath,
+    )!;
+    expect(bodyBreath.channel).toBe("translateY");
+    expect(bodyBreath.from).toBe(0);
+    expect(bodyBreath.to).toBeCloseTo(0.5 * headBreath.to, 10);
+    // Same sign as the head, smaller magnitude.
+    expect(Math.sign(bodyBreath.to)).toBe(Math.sign(headBreath.to));
+    expect(Math.abs(bodyBreath.to)).toBeLessThan(Math.abs(headBreath.to));
+
+    expect(bodyDeformer.bindings.some((b) => b.channel === "rotate")).toBe(
+      false,
+    );
+
+    const bodyLayer = bodyLayers().find((l) => l.role === "body")!;
+    const bt = bboxToTransform(
+      bodyLayer.bbox,
+      bodyLayer.canvasW,
+      bodyLayer.canvasH,
+    );
+    expect(bodyDeformer.pivot.x).toBeCloseTo(bt.x, 10);
+    expect(bodyDeformer.pivot.y).toBeCloseTo(bt.y - bodyLayer.cropH / 2, 10);
+  });
+
+  it("the head is unchanged by the body", () => {
+    const withBody = generateIkiFromLayerSet(bodyLayers(), {
+      width: 1000,
+      height: 1000,
+    });
+    const withoutBody = generateIkiFromLayerSet(assemblyLayers(), {
+      width: 1000,
+      height: 1000,
+    });
+    const headOf = (model: ReturnType<typeof generateIkiFromLayerSet>) =>
+      model.deformers!.find((d) => d.id === "headDeformer");
+    expect(JSON.stringify(headOf(withBody))).toBe(
+      JSON.stringify(headOf(withoutBody)),
+    );
+  });
+
+  it("no bodyDeformer without a body layer", () => {
+    const model = generateIkiFromLayerSet(assemblyLayers(), {
+      width: 1000,
+      height: 1000,
+    });
+    expect(
+      model.deformers!.find((d) => d.id === "bodyDeformer"),
+    ).toBeUndefined();
+  });
+
+  it("a model with a body passes the validator end to end", () => {
+    const model = generateIkiFromLayerSet(bodyLayers(), {
+      width: 1000,
+      height: 1000,
+    });
+    expect(() => parseIkiModel(structuredClone(model))).not.toThrow();
   });
 
   it("body is drawn over hair_back and under face", () => {
