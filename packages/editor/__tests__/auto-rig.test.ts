@@ -1070,10 +1070,56 @@ describe("bakeHairBackTurnWarp", () => {
   const mesh = createPixelGridMesh(4, 4, 800, 700);
   const w = bakeHairBackTurnWarp(mesh, "ax");
   const stride = 5;
+  // The mesh's half-width is 400, so the bake derives these from it.
+  const RADIUS = 400 * 2.5; // HAIR_BACK_BEND_RADIUS_FACTOR
+  const BULGE = 0.22 * 400; // HAIR_BACK_FAR_BULGE
+  /** Keyform at a turn stop, by value: the stops are not fixed by position. */
+  const kf = (deg: number) => {
+    const found = w.keyforms.find((k) => k.value === deg);
+    if (!found) throw new Error(`kf: turn stop ${deg} not found`);
+    return found;
+  };
+  const bendAt = (x: number, deg: number) => {
+    const theta = deg * (Math.PI / 180);
+    const alpha = Math.asin(x / RADIUS);
+    return RADIUS * Math.sin(alpha + theta) - x - RADIUS * Math.sin(theta);
+  };
 
-  it("keys the turn at -30/0/30 with a zero rest keyform", () => {
-    expect(w.keyforms.map((k) => k.value)).toEqual([-30, 0, 30]);
-    for (const o of w.keyforms[1].offsets) expect(o).toBeCloseTo(0, 10);
+  it("keys the turn at -30/-15/0/15/30 with a zero rest keyform", () => {
+    expect(w.keyforms.map((k) => k.value)).toEqual([-30, -15, 0, 15, 30]);
+    for (const o of kf(0).offsets) expect(o).toBeCloseTo(0, 10);
+  });
+
+  it("mid stops are the analytic bend, not the chord between ±30 and 0", () => {
+    const mid = kf(15);
+    for (let v = 0; v < mesh.vertices.length / 2; v++) {
+      const x = mesh.vertices[v * 2];
+      // Turning right the far side is x < 0, and the bulge ramps with the angle.
+      const far = Math.max(0, -x / 400);
+      expect(mid.offsets[v * 2]).toBeCloseTo(
+        bendAt(x, 15) - 0.5 * BULGE * far,
+        8,
+      );
+    }
+    // Guard against a lattice the engine would have to interpolate from ±30
+    // and 0: the sin-based bend at the outer column is nowhere near the chord.
+    const full = kf(30);
+    const outer = 2 * stride; // middle row, x = -400
+    expect(
+      Math.abs(mid.offsets[outer * 2] - 0.5 * full.offsets[outer * 2]),
+    ).toBeGreaterThan(5);
+  });
+
+  it("the bulge is exactly half strength at half turn, so the extra stops did not step it", () => {
+    const mid = kf(15);
+    const full = kf(30);
+    for (let v = 0; v < mesh.vertices.length / 2; v++) {
+      const x = mesh.vertices[v * 2];
+      // Isolate the bulge: it is whatever the offset is on top of the bend.
+      const midBulge = bendAt(x, 15) - mid.offsets[v * 2];
+      const fullBulge = bendAt(x, 30) - full.offsets[v * 2];
+      expect(midBulge).toBeCloseTo(0.5 * fullBulge, 8);
+    }
   });
 
   it("pins the centre column and moves nothing vertically", () => {
@@ -1087,7 +1133,7 @@ describe("bakeHairBackTurnWarp", () => {
   });
 
   it("turning right tucks the near edge in and bulges the far edge out, without folding", () => {
-    const right = w.keyforms[2].offsets;
+    const right = kf(30).offsets;
     const row = 2 * stride; // middle row
     const nearEdge = right[(row + 4) * 2]; // x = +400, toward the turn
     const farEdge = right[row * 2]; // x = -400, away from it
@@ -1113,12 +1159,12 @@ describe("bakeHairBackTurnWarp", () => {
     // side: a bare bend would still leave it slightly inside its rest
     // position (-17px on this mesh), so an OUTWARD move can only be the bulge.
     const col = 2 * stride + 3; // middle row, x = +200
-    expect(w.keyforms[2].offsets[col * 2]).toBeLessThan(0); // right turn
-    expect(w.keyforms[0].offsets[col * 2]).toBeGreaterThan(0); // left turn
+    expect(kf(30).offsets[col * 2]).toBeLessThan(0); // right turn
+    expect(kf(-30).offsets[col * 2]).toBeGreaterThan(0); // left turn
   });
 
   it("bends far flatter than the face: the near edge folds in by well under its half-width", () => {
-    const right = w.keyforms[2].offsets;
+    const right = kf(30).offsets;
     const nearEdge = Math.abs(right[(2 * stride + 4) * 2]);
     expect(nearEdge).toBeLessThan(0.3 * 400);
   });

@@ -944,6 +944,11 @@ const HAIR_BACK_FAR_BULGE = 0.22;
  * face uses over the part's own columns, at a flatter radius, plus a far-side
  * bulge (HAIR_BACK_FAR_BULGE): on a turn the near side compresses behind the
  * face and the far side swings out and fills.
+ *
+ * Keyed on `HEAD_TURN_STOPS` — see there for why the stops sit 15° apart. The
+ * back hair needs that density as much as the face does: on the hero its
+ * three-stop chord diverged from the analytic bend by ~14 px at the outer
+ * column at half turn, enough that its silhouette disagreed with the face's.
  */
 export function bakeHairBackTurnWarp(
   mesh: IkiMesh,
@@ -959,16 +964,19 @@ export function bakeHairBackTurnWarp(
   const radius = halfWidth * HAIR_BACK_BEND_RADIUS_FACTOR;
   const bulge = HAIR_BACK_FAR_BULGE * halfWidth;
   const DEG_TO_RAD = Math.PI / 180;
-  const keyforms = [-HEAD_TURN_MAX_DEG, 0, HEAD_TURN_MAX_DEG].map((deg) => {
+  const keyforms = HEAD_TURN_STOPS.map((deg) => {
     const theta = deg * DEG_TO_RAD;
     // Turning right (s = +1) the far side is x < 0; the bulge pushes it further
-    // left, i.e. outward. Full strength at the keyform stops, zero at rest.
+    // left, i.e. outward. Unlike the bend it grows LINEARLY with the turn, so
+    // each stop takes its own share of it: at full bulge on every stop the mid
+    // stops would step it to full at 15° instead of ramping it. Zero at rest.
     const s = Math.sign(deg);
+    const bulgeAtStop = (bulge * deg) / HEAD_TURN_MAX_DEG;
     const offsets: number[] = [];
     for (let i = 0; i < mesh.vertices.length; i += 2) {
       const x = mesh.vertices[i];
       const far = Math.max(0, (-s * x) / halfWidth);
-      offsets.push(pinnedCylinderBend(x, radius, theta) - s * bulge * far, 0);
+      offsets.push(pinnedCylinderBend(x, radius, theta) - bulgeAtStop * far, 0);
     }
     return { value: deg, offsets };
   });
