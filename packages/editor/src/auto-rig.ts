@@ -1253,12 +1253,11 @@ export function generateIkiFromLayerSet(
       id: "headDeformer",
       pivot: neckPivot,
       bindings: [
-        {
-          parameter: StandardParameter.AngleX,
-          channel: "rotate" as const,
-          from: 6,
-          to: -6,
-        },
+        // The turn is a pure yaw: no roll rides on AngleX. The sample model's
+        // ±6° "lean into the turn" was tried here and dropped — rotating about
+        // the neck pivot swings the crown (~500px above it) far more than the
+        // chin, so the top of the head appeared to lunge ahead of the face on
+        // every turn. Roll is AngleZ's job, below.
         {
           parameter: StandardParameter.AngleX,
           channel: "translateX" as const,
@@ -1266,8 +1265,8 @@ export function generateIkiFromLayerSet(
           to: 50,
         },
         // Nod: a vertical translate only. No rotate — a pitch expressed as a
-        // rigid rotation would sum with the roll below at diagonal poses,
-        // collapsing pitch into roll.
+        // rigid rotation would sum with the AngleZ roll below at diagonal
+        // poses, collapsing pitch into roll.
         {
           parameter: StandardParameter.AngleY,
           channel: "translateY" as const,
@@ -1276,10 +1275,10 @@ export function generateIkiFromLayerSet(
         },
         // Tilt: the whole head rolls about the neck pivot, one degree per
         // degree. Positive AngleZ is clockwise on screen (engine rotate is
-        // CCW-positive, hence the flipped from/to) — Live2D's convention, and
-        // the same sense as the lean above: in Live2D's own sample motions
-        // AngleZ carries the sign of AngleX 214 times out of 222. The two
-        // rotations sum, which is correct for two rolls about one pivot.
+        // CCW-positive, hence the flipped from/to) — Live2D's convention: in
+        // its own sample motions AngleZ carries the sign of AngleX 214 times
+        // out of 222, i.e. a head that leans into its turn tilts clockwise on
+        // a turn to the viewer's right. The only rotate binding on the head.
         {
           parameter: StandardParameter.AngleZ,
           channel: "rotate" as const,

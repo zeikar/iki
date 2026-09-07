@@ -737,28 +737,24 @@ describe("head tilt (AngleZ)", () => {
     expect(() => parseIkiModel(structuredClone(model))).not.toThrow();
   });
 
-  it("positive AngleZ is clockwise, the same sense as the lean into a turn", () => {
-    // Live2D's sample motions give AngleZ the sign of AngleX, and the rig's
-    // AngleX lean already rotates clockwise at +AngleX (engine rotate is
-    // CCW-positive, so clockwise is a negative `to`). A host mapping
+  it("positive AngleZ is clockwise: engine rotate is CCW-positive, so `to` is negative", () => {
+    // Live2D's convention (its sample motions give AngleZ the sign of AngleX,
+    // i.e. clockwise on a turn to the viewer's right). A host mapping
     // head-tracking roll onto AngleZ must land on the same side.
     const head = headOf(generateIkiFromLayerSet(hairFrontLayers(), canvas));
-    const lean = head.bindings.find(
-      (b) => b.parameter === StandardParameter.AngleX && b.channel === "rotate",
-    )!;
     const tilt = head.bindings.find(
       (b) => b.parameter === StandardParameter.AngleZ,
     )!;
-    expect(Math.sign(tilt.to)).toBe(Math.sign(lean.to));
-    expect(tilt.to).toBeLessThan(0);
+    expect(tilt.from).toBe(30);
+    expect(tilt.to).toBe(-30);
   });
 
-  it("the nod stays a translate, so only two rotations ever sum", () => {
+  it("the tilt is the head's only rotation: the turn does not roll it", () => {
+    // A roll riding on AngleX swung the crown ahead of the face on every turn
+    // (the neck pivot sits ~a head below it), so the turn is a pure yaw.
     const head = headOf(generateIkiFromLayerSet(hairFrontLayers(), canvas));
     const rotates = head.bindings.filter((b) => b.channel === "rotate");
-    expect(rotates.map((b) => b.parameter).sort()).toEqual(
-      [StandardParameter.AngleX, StandardParameter.AngleZ].sort(),
-    );
+    expect(rotates.map((b) => b.parameter)).toEqual([StandardParameter.AngleZ]);
   });
 });
 
