@@ -87,6 +87,15 @@ describe("sink-only contract", () => {
     expect(new Set(emissions.keys())).toEqual(EMITTED_IDS);
   });
 
+  it("publishes the ids it emits — same set, write order, no duplicates", () => {
+    const ids = new IdleMotion(() => {}).drivenParameterIds;
+    expect(new Set(ids)).toEqual(EMITTED_IDS);
+    expect(ids).toHaveLength(EMITTED_IDS.size);
+    // Map keys keep first-insertion order, so one drive's key order IS the write order.
+    const emissions = drive(timestamps(0, 10, 100), cyclingRng([0.5]));
+    expect([...emissions.keys()]).toEqual([...ids]);
+  });
+
   it("first update emits resting pose: eyes=1, breath=0.5, gaze=0,0, sway=0,0", () => {
     const { sink, emissions } = makeSink();
     const motion = new IdleMotion(sink, { rng: cyclingRng([0.5]) });

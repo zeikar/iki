@@ -220,4 +220,22 @@ describe("PhysicsMotion", () => {
     const emissions = drive([], PARAMS, () => 30, timestamps(1000, 3, 16));
     expect(emissions.size).toBe(0);
   });
+
+  it("publishes each rig's output parameter, in rig order", () => {
+    const second: IkiPhysics = {
+      id: "second",
+      input: { parameter: INPUT, weight: 1 },
+      output: { parameter: "ParamOther", scale: 5 },
+      mass: 1,
+      stiffness: 40,
+      damping: 6,
+    };
+    const motion = new PhysicsMotion(
+      [rig(), second],
+      PARAMS,
+      () => 0,
+      () => {},
+    );
+    expect(motion.drivenParameterIds).toEqual([OUTPUT, "ParamOther"]);
+  });
 });

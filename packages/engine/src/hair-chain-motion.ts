@@ -58,6 +58,8 @@ interface ChainData {
  * The host schedules updates; this class has no timers, rAF, DOM, or Date.now.
  */
 export class HairChainMotion {
+  /** Every segment's output, chain by chain — what `emitSegment` writes. */
+  readonly drivenParameterIds: readonly string[];
   private readonly chainData: ChainData[];
   private readonly params: Map<string, IkiParameter>;
   private readonly deformers: IkiDeformer[];
@@ -89,6 +91,9 @@ export class HairChainMotion {
       ),
       state: chain.segments.map(() => ({ angle: 0, angularVelocity: 0 })),
     }));
+    this.drivenParameterIds = chains.flatMap((c) =>
+      c.segments.map((s) => s.output.parameter),
+    );
   }
 
   /**

@@ -61,7 +61,7 @@ export interface IdleMotionOptions {
 }
 
 /**
- * Pure-logic idle-animation driver. Animates the seven "life" parameters
+ * Pure-logic idle-animation driver. Animates the eight "life" parameters
  * (eyes, breath, gaze, head sway) on an internal clock so tab-backgrounding
  * or irregular frame delivery can't produce teleports or snap-close blinks.
  *
@@ -73,6 +73,22 @@ export interface IdleMotionOptions {
  * The host is responsible for scheduling; this class has no timers or rAF.
  */
 export class IdleMotion {
+  /**
+   * Every parameter id {@link update} and `emitRestingPose` write, in write
+   * order. Published so a host (or IkiMotion) can restore them after it
+   * stops driving — keep in step with those two methods; the test suite
+   * pins this list to the actual emissions.
+   */
+  readonly drivenParameterIds: readonly string[] = [
+    StandardParameter.EyeOpenLeft,
+    StandardParameter.EyeOpenRight,
+    StandardParameter.Breath,
+    StandardParameter.EyeballX,
+    StandardParameter.EyeballY,
+    StandardParameter.AngleX,
+    StandardParameter.AngleY,
+    StandardParameter.AngleZ,
+  ];
   private readonly sink: (id: string, value: number) => void;
   private readonly rng: () => number;
 

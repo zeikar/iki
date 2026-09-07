@@ -11,3 +11,4 @@ export {
 export { IdleMotion, type IdleMotionOptions } from "./idle-motion";
 export { PhysicsMotion } from "./physics-motion";
 export { HairChainMotion } from "./hair-chain-motion";
+export { IkiMotion } from "./iki-motion";

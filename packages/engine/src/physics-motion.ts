@@ -54,6 +54,8 @@ interface RigState {
  * updated params on its own render loop (drivers and rendering are decoupled).
  */
 export class PhysicsMotion {
+  /** The output parameter of every rig, in rig order — what `emit` writes. */
+  readonly drivenParameterIds: readonly string[];
   private readonly rigs: readonly IkiPhysics[];
   private readonly read: (id: string) => number;
   private readonly sink: (id: string, value: number) => void;
@@ -74,6 +76,7 @@ export class PhysicsMotion {
     this.sink = sink;
     this.params = new Map(params.map((p) => [p.id, p]));
     this.state = rigs.map(() => ({ x: 0, v: 0 }));
+    this.drivenParameterIds = rigs.map((rig) => rig.output.parameter);
   }
 
   /**

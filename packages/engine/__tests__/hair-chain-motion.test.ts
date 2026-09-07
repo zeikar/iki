@@ -247,4 +247,15 @@ describe("HairChainMotion", () => {
     void now;
     expect(emissions.size).toBe(0);
   });
+
+  it("publishes every segment's output, chain by chain", () => {
+    const motion = new HairChainMotion(
+      [makeChain()],
+      PARAMS,
+      DEFORMERS,
+      () => 0,
+      () => {},
+    );
+    expect(motion.drivenParameterIds).toEqual([SEG0_OUT, SEG1_OUT]);
+  });
 });
