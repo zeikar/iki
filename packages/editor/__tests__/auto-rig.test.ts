@@ -1187,6 +1187,51 @@ describe("bakeHairBackTurnWarp", () => {
     const nearEdge = Math.abs(right[(2 * stride + 4) * 2]);
     expect(nearEdge).toBeLessThan(0.3 * 400);
   });
+
+  it("the far side swings out at one speed: every 7.5° step outward and within 25% of the widest", () => {
+    for (const deg of [15, -15]) {
+      const s = Math.sign(deg);
+      const mid = kf(deg);
+      const full = kf(30 * s);
+      for (let v = 0; v < mesh.vertices.length / 2; v++) {
+        const x = mesh.vertices[v * 2];
+        if (farOf(x, deg) <= 0) continue;
+        const o15 = mid.offsets[v * 2];
+        const o30 = full.offsets[v * 2];
+        // What the viewer actually sees: the engine blends parameter-linearly
+        // between stops, so 7.5° and 22.5° are the midpoints of their cells.
+        const shown = [0, o15 / 2, o15, (o15 + o30) / 2, o30];
+        const steps = shown.slice(1).map((o, i) => o - shown[i]);
+        const widest = Math.max(...steps.map(Math.abs));
+        for (const step of steps) {
+          // Outward first, as a floor — even the stalling bake never reversed at
+          // these stops, so it is the envelope below that does the work.
+          expect(step * s).toBeLessThan(0);
+          // And at the same speed. The chord makes them exactly equal; 25% is
+          // the envelope the cue tolerates before it reads as a stall. At
+          // 11879aa the far edge (x = -400) moved 52.0 units through the first
+          // 15° and 24.2 through the second — two steps each — a ratio of 0.46
+          // this bound rejects.
+          expect(Math.abs(step)).toBeGreaterThan(0.75 * widest);
+        }
+      }
+    }
+  });
+
+  it("the ±30 keyforms are the bare bend minus the full bulge, untouched by the far-side chord", () => {
+    for (const deg of [30, -30]) {
+      for (let v = 0; v < mesh.vertices.length / 2; v++) {
+        const x = mesh.vertices[v * 2];
+        // Stated in bendAt alone — no chord in it — so it holds independently of
+        // how the mid stops are derived. At full turn the two branches coincide,
+        // which is why the hero's full-turn silhouette is the one already shipped.
+        expect(kf(deg).offsets[v * 2]).toBeCloseTo(
+          bendAt(x, deg) - ((BULGE * deg) / 30) * farOf(x, deg),
+          8,
+        );
+      }
+    }
+  });
 });
 
 describe("bakeHairSwayWarp", () => {
