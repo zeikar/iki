@@ -1084,30 +1084,47 @@ describe("bakeHairBackTurnWarp", () => {
     const alpha = Math.asin(x / RADIUS);
     return RADIUS * Math.sin(alpha + theta) - x - RADIUS * Math.sin(theta);
   };
+  /** How far this column counts as the far side at this stop: 0 on the near
+   *  side and at the centre column, 1 at the far edge. */
+  const farOf = (x: number, deg: number) =>
+    Math.max(0, (-Math.sign(deg) * x) / 400);
+  /** The bend the bake applies: the analytic bend on the near side, the chord
+   *  of the column's own ±30 keyform on the far side. */
+  const turnBendAt = (x: number, deg: number) =>
+    farOf(x, deg) > 0
+      ? (Math.abs(deg) / 30) * bendAt(x, Math.sign(deg) * 30)
+      : bendAt(x, deg);
 
   it("keys the turn at -30/-15/0/15/30 with a zero rest keyform", () => {
     expect(w.keyforms.map((k) => k.value)).toEqual([-30, -15, 0, 15, 30]);
     for (const o of kf(0).offsets) expect(o).toBeCloseTo(0, 10);
   });
 
-  it("mid stops are the analytic bend, not the chord between ±30 and 0", () => {
-    const mid = kf(15);
-    for (let v = 0; v < mesh.vertices.length / 2; v++) {
-      const x = mesh.vertices[v * 2];
-      // Turning right the far side is x < 0, and the bulge ramps with the angle.
-      const far = Math.max(0, -x / 400);
-      expect(mid.offsets[v * 2]).toBeCloseTo(
-        bendAt(x, 15) - 0.5 * BULGE * far,
-        8,
-      );
+  it("mid stops: the near side is the analytic bend, the far side the chord of its ±30 keyform", () => {
+    for (const deg of [15, -15]) {
+      const mid = kf(deg);
+      for (let v = 0; v < mesh.vertices.length / 2; v++) {
+        const x = mesh.vertices[v * 2];
+        // The bulge ramps with the angle, on the far side only.
+        expect(mid.offsets[v * 2]).toBeCloseTo(
+          turnBendAt(x, deg) - ((BULGE * deg) / 30) * farOf(x, deg),
+          8,
+        );
+      }
     }
-    // Guard against a lattice the engine would have to interpolate from ±30
-    // and 0: the sin-based bend at the outer column is nowhere near the chord.
+    const mid = kf(15);
     const full = kf(30);
-    const outer = 2 * stride; // middle row, x = -400
+    // The NEAR side is a lattice the engine could not have interpolated from
+    // ±30 and 0: the sin-based bend there is nowhere near the chord.
+    const nearCol = 2 * stride + 4; // middle row, x = +400
     expect(
-      Math.abs(mid.offsets[outer * 2] - 0.5 * full.offsets[outer * 2]),
+      Math.abs(mid.offsets[nearCol * 2] - 0.5 * full.offsets[nearCol * 2]),
     ).toBeGreaterThan(5);
+    // The FAR side IS that chord, exactly — it is keyed as one.
+    const farCol = 2 * stride; // middle row, x = -400
+    expect(
+      Math.abs(mid.offsets[farCol * 2] - 0.5 * full.offsets[farCol * 2]),
+    ).toBeLessThan(1e-8);
   });
 
   it("the bulge is exactly half strength at half turn, so the extra stops did not step it", () => {
@@ -1115,9 +1132,11 @@ describe("bakeHairBackTurnWarp", () => {
     const full = kf(30);
     for (let v = 0; v < mesh.vertices.length / 2; v++) {
       const x = mesh.vertices[v * 2];
-      // Isolate the bulge: it is whatever the offset is on top of the bend.
-      const midBulge = bendAt(x, 15) - mid.offsets[v * 2];
-      const fullBulge = bendAt(x, 30) - full.offsets[v * 2];
+      // Isolate the bulge: it is whatever the offset is on top of the bend the
+      // bake applies at that stop — on the far side the chord, not the analytic
+      // bend, or the gap between the two would count as bulge.
+      const midBulge = turnBendAt(x, 15) - mid.offsets[v * 2];
+      const fullBulge = turnBendAt(x, 30) - full.offsets[v * 2];
       expect(midBulge).toBeCloseTo(0.5 * fullBulge, 8);
     }
   });

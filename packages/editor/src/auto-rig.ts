@@ -946,9 +946,20 @@ const HAIR_BACK_FAR_BULGE = 0.22;
  * face and the far side swings out and fills.
  *
  * Keyed on `HEAD_TURN_STOPS` — see there for why the stops sit 15° apart. The
- * back hair needs that density as much as the face does: on the hero its
- * three-stop chord diverged from the analytic bend by ~14 px at the outer
- * column at half turn, enough that its silhouette disagreed with the face's.
+ * near side needs that density as much as the face does: it takes the analytic
+ * bend at every stop, and on the hero the three-stop chord diverged from it by
+ * 12.5 model units at the near outer column at half turn (chord −47.8 against
+ * the analytic −35.3), enough that its silhouette disagreed with the face's.
+ *
+ * The FAR side is deliberately NOT analytic: it is the chord of its own ±30
+ * keyform, scaled linearly by the angle. A cylinder's far column reverses once
+ * the turn passes |asin(x/radius)|/2 (≈12° at the hero's far edge), so net of
+ * the linear bulge that edge moved 52 model units through the first 15° and
+ * only 24 through the second — it swung out and then stalled, where a sheet
+ * revealed from behind the head should swing out at one speed. Linear in the
+ * angle it is 38 and 38. The ±30 keyforms and the rest keyform are unchanged
+ * by construction: at |deg| = 30 the two branches coincide, at 0 nothing is
+ * far, and the centre column is pinned on both.
  */
 export function bakeHairBackTurnWarp(
   mesh: IkiMesh,
@@ -967,16 +978,24 @@ export function bakeHairBackTurnWarp(
   const keyforms = HEAD_TURN_STOPS.map((deg) => {
     const theta = deg * DEG_TO_RAD;
     // Turning right (s = +1) the far side is x < 0; the bulge pushes it further
-    // left, i.e. outward. Unlike the bend it grows LINEARLY with the turn, so
-    // each stop takes its own share of it: at full bulge on every stop the mid
-    // stops would step it to full at 15° instead of ramping it. Zero at rest.
+    // left, i.e. outward. It grows LINEARLY with the turn — unlike the near
+    // side's analytic bend — so each stop takes its own share of it: at full
+    // bulge on every stop the mid stops would step it to full at 15° instead
+    // of ramping it. Zero at rest.
     const s = Math.sign(deg);
+    const turnFraction = Math.abs(deg) / HEAD_TURN_MAX_DEG;
+    const fullTheta = s * HEAD_TURN_MAX_DEG * DEG_TO_RAD;
     const bulgeAtStop = (bulge * deg) / HEAD_TURN_MAX_DEG;
     const offsets: number[] = [];
     for (let i = 0; i < mesh.vertices.length; i += 2) {
       const x = mesh.vertices[i];
       const far = Math.max(0, (-s * x) / halfWidth);
-      offsets.push(pinnedCylinderBend(x, radius, theta) - bulgeAtStop * far, 0);
+      // The far side is the chord of its own ±30 keyform — see the doc comment.
+      const bend =
+        far > 0
+          ? turnFraction * pinnedCylinderBend(x, radius, fullTheta)
+          : pinnedCylinderBend(x, radius, theta);
+      offsets.push(bend - bulgeAtStop * far, 0);
     }
     return { value: deg, offsets };
   });
