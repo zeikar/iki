@@ -22,6 +22,10 @@ export interface DecodedPng {
   height: number;
   /** Straight-alpha RGBA bytes, stride-4 (parity with canvas getImageData). */
   rgba: Buffer;
+  /** Whether the FILE carried an alpha channel, before `.ensureAlpha()` added
+   *  one. A generated part without it is opaque on a white background and needs
+   *  that white keyed out before it can layer (see ./compose). */
+  hasAlpha: boolean;
 }
 
 /**
@@ -47,7 +51,12 @@ export async function decodePng(filePath: string): Promise<DecodedPng> {
       .ensureAlpha()
       .raw()
       .toBuffer({ resolveWithObject: true });
-    return { width: info.width, height: info.height, rgba: data };
+    return {
+      width: info.width,
+      height: info.height,
+      rgba: data,
+      hasAlpha: metadata.hasAlpha ?? false,
+    };
   } catch (e) {
     if (e instanceof AutoRigInputError) throw e;
     const msg = e instanceof Error ? e.message : String(e);

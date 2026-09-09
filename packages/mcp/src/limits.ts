@@ -206,7 +206,10 @@ export function resolveOutputDir(dirPath: string): string {
  * symlink at `outPath` cannot redirect the write outside the working tree.
  * Throws AutoRigInputError("write: …") on failure.
  */
-export function writeFileAtomic(outPath: string, data: string): void {
+export function writeFileAtomic(
+  outPath: string,
+  data: string | Uint8Array,
+): void {
   const tmp = `${outPath}.${process.pid}.${Date.now()}.tmp`;
   try {
     fs.writeFileSync(tmp, data);
