@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import path from "node:path";
 import {
   parseIkiModel,
@@ -34,6 +33,7 @@ import {
   MAX_OUTPUT_BYTES,
   resolveInputPath,
   resolveOutputPath,
+  writeFileAtomic,
 } from "./limits";
 
 export type ValidateResult = { ok: true } | { ok: false; error: string };
@@ -435,23 +435,9 @@ export async function autoRigFromLayers(
     const finalModel = parseIkiModel(doc.getModel());
 
     // Write to a fresh temp file in the verified directory, then atomically
-    // rename over the target. `rename` REPLACES the destination entry rather
-    // than following it, so an existing `.iki` symlink at outPath cannot
-    // redirect the write outside the working tree (and the write is atomic).
-    expectInput("write", () => {
-      const tmp = `${outPath}.${process.pid}.${Date.now()}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify(finalModel));
-      try {
-        fs.renameSync(tmp, outPath);
-      } catch (e) {
-        try {
-          fs.rmSync(tmp, { force: true });
-        } catch {
-          // best-effort temp cleanup; surface the original rename error
-        }
-        throw e;
-      }
-    });
+    // rename over the target — see writeFileAtomic for why an existing `.iki`
+    // symlink at outPath cannot redirect the write outside the working tree.
+    writeFileAtomic(outPath, JSON.stringify(finalModel));
 
     return {
       ok: true,

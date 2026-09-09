@@ -1,5 +1,6 @@
 /**
- * Resource guards + fail-fast path resolution for the Node auto-rig tool.
+ * Resource guards + fail-fast path resolution and atomic writes for the Node
+ * auto-rig tool.
  *
  * These constants bound an agent-supplied layer set so a malformed or oversized
  * request fails fast with a path-qualified message rather than exhausting memory
@@ -41,6 +42,23 @@ export class AutoRigInputError extends Error {
 }
 
 /**
+ * Reject an empty/whitespace or URL-looking caller-supplied path, shared by
+ * {@link resolveInputPath} and {@link resolveInputDir}. `noun` and `kind`
+ * shape the thrown message so each caller reports in its own vocabulary
+ * (e.g. a directory input was never supposed to look like "a file path").
+ */
+function rejectEmptyOrUrl(inputPath: string, noun: string, kind: string): void {
+  if (typeof inputPath !== "string" || inputPath.trim() === "") {
+    throw new AutoRigInputError(`${noun} is empty`);
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(inputPath)) {
+    throw new AutoRigInputError(
+      `${noun} must be a ${kind}, not a URL: ${inputPath}`,
+    );
+  }
+}
+
+/**
  * Resolve a caller-supplied input file path against the MCP process cwd and
  * confirm it points at a readable file. Throws AutoRigInputError (path-qualified)
  * for empty/URL-looking strings, a missing file, or a directory.
@@ -52,19 +70,13 @@ export class AutoRigInputError extends Error {
  * break the documented generate-a-character flow, which composes its layers in
  * a scratch directory (`/tmp/iki-char/layers/…`) and rigs them into a model
  * under the project. Revisit only if this server ever runs with wider
- * privileges than the person driving it.
+ * privileges than the person driving it. The same reasoning covers
+ * {@link resolveInputDir}, its directory counterpart.
  *
  * Param is named `inputPath` (not `path`) to avoid shadowing the node:path import.
  */
 export function resolveInputPath(inputPath: string): string {
-  if (typeof inputPath !== "string" || inputPath.trim() === "") {
-    throw new AutoRigInputError("layer path is empty");
-  }
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(inputPath)) {
-    throw new AutoRigInputError(
-      `layer path must be a file path, not a URL: ${inputPath}`,
-    );
-  }
+  rejectEmptyOrUrl(inputPath, "layer path", "file path");
   const resolved = path.resolve(process.cwd(), inputPath);
   let stat: fs.Stats;
   try {
@@ -78,6 +90,47 @@ export function resolveInputPath(inputPath: string): string {
     );
   }
   return resolved;
+}
+
+/** Directory counterpart to {@link resolveInputPath} — see its doc comment. */
+export function resolveInputDir(dirPath: string): string {
+  rejectEmptyOrUrl(dirPath, "layers dir", "directory path");
+  const resolved = path.resolve(process.cwd(), dirPath);
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(resolved);
+  } catch {
+    throw new AutoRigInputError(`layers dir not found: ${resolved}`);
+  }
+  if (!stat.isDirectory()) {
+    throw new AutoRigInputError(`layers path is not a directory: ${resolved}`);
+  }
+  return resolved;
+}
+
+/**
+ * Confine an already-verified-to-exist directory to the MCP process working
+ * directory, comparing REAL paths (statSync/writeFileSync follow symlinks, so
+ * a lexical startsWith check can be bypassed by a symlinked dir under cwd).
+ * Shared by {@link resolveOutputPath} and {@link resolveOutputDir} — both are
+ * write-side boundaries where an unrestricted target is an
+ * arbitrary-file-overwrite surface. `label` and `original` shape the thrown
+ * message (path-qualified with the caller's original, unresolved string).
+ */
+function confineToWorkingDirectory(
+  root: string,
+  dir: string,
+  label: string,
+  original: string,
+): string {
+  const realRoot = fs.realpathSync(root);
+  const realDir = fs.realpathSync(dir);
+  if (realDir !== realRoot && !realDir.startsWith(realRoot + path.sep)) {
+    throw new AutoRigInputError(
+      `${label} escapes the working directory: ${original}`,
+    );
+  }
+  return realDir;
 }
 
 /**
@@ -112,15 +165,64 @@ export function resolveOutputPath(outputPath: string): string {
   if (!stat.isDirectory()) {
     throw new AutoRigInputError(`output parent is not a directory: ${dir}`);
   }
-  // Confine on REAL paths (statSync/writeFileSync follow symlinks, so a lexical
-  // startsWith check can be bypassed by a symlinked dir under cwd). Compare the
-  // symlink-resolved parent against the symlink-resolved root.
-  const realRoot = fs.realpathSync(root);
-  const realDir = fs.realpathSync(dir);
-  if (realDir !== realRoot && !realDir.startsWith(realRoot + path.sep)) {
+  const realDir = confineToWorkingDirectory(
+    root,
+    dir,
+    "output path",
+    outputPath,
+  );
+  return path.join(realDir, path.basename(resolved));
+}
+
+/**
+ * Resolve a caller-supplied output DIRECTORY against the MCP process cwd.
+ * Unlike {@link resolveOutputPath}, no filename is appended — the directory
+ * itself must already exist (the tool never creates directories, fail-fast) —
+ * and is confined via {@link confineToWorkingDirectory}. Returns the
+ * realpath'd directory.
+ */
+export function resolveOutputDir(dirPath: string): string {
+  if (typeof dirPath !== "string" || dirPath.trim() === "") {
+    throw new AutoRigInputError("output dir is empty");
+  }
+  const root = process.cwd();
+  const resolved = path.resolve(root, dirPath);
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(resolved);
+  } catch {
+    throw new AutoRigInputError(`output dir not found: ${resolved}`);
+  }
+  if (!stat.isDirectory()) {
+    throw new AutoRigInputError(`output dir is not a directory: ${resolved}`);
+  }
+  return confineToWorkingDirectory(root, resolved, "output dir", dirPath);
+}
+
+/**
+ * Write `data` to `outPath` atomically: write to a fresh temp file in the
+ * same directory, then `renameSync` over the target. `rename` REPLACES the
+ * destination directory entry rather than following it, so an existing
+ * symlink at `outPath` cannot redirect the write outside the working tree.
+ * Throws AutoRigInputError("write: …") on failure.
+ */
+export function writeFileAtomic(outPath: string, data: string): void {
+  const tmp = `${outPath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    fs.writeFileSync(tmp, data);
+    try {
+      fs.renameSync(tmp, outPath);
+    } catch (e) {
+      try {
+        fs.rmSync(tmp, { force: true });
+      } catch {
+        // best-effort temp cleanup; surface the original rename error
+      }
+      throw e;
+    }
+  } catch (e) {
     throw new AutoRigInputError(
-      `output path escapes the working directory: ${outputPath}`,
+      `write: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
-  return path.join(realDir, path.basename(resolved));
 }
