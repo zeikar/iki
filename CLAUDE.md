@@ -16,6 +16,12 @@ Read [README.md](./README.md) first for what Iki is, the package map, and the ro
 - **Before 1.0**, v1 is unstable: the schema may change (including tightening or removing fields) without a version bump. The packages are published from 0.1.0 on, so such a change DOES reach users — a 0.x release can reject a model an earlier one accepted. Call it out in the changeset even though no bump is required.
 - **From 1.0 on**, any breaking change to the `.iki` schema must bump `IKI_FORMAT_VERSION`.
 
+## Claude Code plugin
+
+- `plugin/` is the Claude Code plugin — the character-generation skills, their two agents, and `.mcp.json` — published from the root `.claude-plugin/marketplace.json` and declared for this repo in `.claude/settings.json`. `.claude/` keeps only what is meaningless outside a checkout (`iki-visual-test`).
+- Those skills document the auto-rig contract: the role table, the `auto_rig_from_layers` schema, the parameter ids, and the `@ikijs/mcp` range pinned in `.mcp.json`. Change one of those in `packages/` and update `plugin/` in the SAME commit — that co-location is why the plugin lives here instead of its own repo.
+- Bump `plugin/.claude-plugin/plugin.json` `version` by hand. The plugin is not an npm package, so it takes no changeset.
+
 ## Validation
 
 - Run `pnpm verify` (build + typecheck + format:check) for repo-wide validation.

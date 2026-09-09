@@ -78,6 +78,7 @@ web format you can script against, that is what this is.
 | [`@ikijs/mcp`](./packages/mcp)                                                              | stdio MCP server exposing `.iki` read/validate plus `auto_rig_from_layers` to AI agents                                                            |
 | [`examples/playground`](./examples/playground) ([live](https://zeikar.dev/iki/playground/)) | Slider-driven demo of the generated hero character and a hand-authored model                                                                       |
 | [`examples/editor`](./examples/editor) ([live](https://zeikar.dev/iki/editor/))             | Private React+Zustand app — load/import art, numeric part + deformer + physics editing, pivot gizmo, live IkiPlayer preview, validated .iki export |
+| [`plugin/`](./plugin)                                                                       | Claude Code plugin — the character-generation skills, their two agents, and the MCP server, wired up in one install                                |
 
 ## Install
 
