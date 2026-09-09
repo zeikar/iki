@@ -126,29 +126,55 @@ idleLabel.append(idleLabelText, idleCheckbox);
 idleRow.append(idleLabel);
 panel.insertBefore(idleRow, controls);
 
-// Model picker for the generated hero in public/ and the vector sample. Hero
-// leads so the select's default already names the model the page starts on.
-// Built once, like the Idle row, so it survives the per-model control rebuilds.
+// Model picker for the generated hero in public/, the vector sample, and a
+// local .iki file. Hero leads so the select's default already names the model
+// the page starts on. Built once, like the Idle row, so it survives the
+// per-model control rebuilds.
 const modelRow = document.createElement("div");
 modelRow.className = "control";
 const modelLabel = document.createElement("label");
 const modelLabelText = document.createElement("span");
 modelLabelText.textContent = "Model";
 const modelSelect = document.createElement("select");
+// "file" is the trigger entry (always re-selectable, opens the file dialog);
+// "local" is added once a file has actually loaded, titled with its name.
+let fileOption: HTMLOptionElement | undefined;
 for (const [value, text] of [
   ["hero", "Hero character"],
   ["vector", "Vector sample"],
+  ["file", "Load a .iki file…"],
 ] as const) {
   const opt = document.createElement("option");
   opt.value = value;
   opt.textContent = text;
   modelSelect.append(opt);
+  if (value === "file") fileOption = opt;
 }
+// Built once, beside the select, so it survives buildControls() rebuilds too.
+const fileInput = document.createElement("input");
+fileInput.type = "file";
+fileInput.accept = ".iki,application/json";
+fileInput.hidden = true;
 modelSelect.addEventListener("change", () => {
+  if (modelSelect.value === "file") {
+    fileInput.click();
+    return;
+  }
   void switchModel(modelSelect.value);
 });
+// The dialog was dismissed without picking a file: roll the select back so it
+// doesn't sit on the trigger entry claiming a model that was never loaded.
+fileInput.addEventListener("cancel", () => {
+  modelSelect.value = loadedModelValue;
+});
+fileInput.addEventListener("change", () => {
+  const file = fileInput.files?.[0];
+  // Clear so re-choosing the same file still fires this event.
+  fileInput.value = "";
+  if (file) void switchModel("local", file);
+});
 modelLabel.append(modelLabelText, modelSelect);
-modelRow.append(modelLabel);
+modelRow.append(modelLabel, fileInput);
 panel.insertBefore(modelRow, controls);
 
 // Monotonic token so a slow fetch can't clobber a newer selection: only the
@@ -157,6 +183,12 @@ let modelSwitchSeq = 0;
 // The picker value of the model actually loaded — the failure path rolls the
 // select back to this so the UI never claims a model that didn't load.
 let loadedModelValue = "hero";
+// The raw model of the last successfully loaded local file, so re-selecting
+// "local" (e.g. after switching away and back) doesn't need to reopen the
+// file dialog.
+let cachedLocalRaw: unknown;
+// The "local" <option>, created on the first successful file load.
+let localOption: HTMLOptionElement | undefined;
 
 // BASE_URL-relative: models in public/ are served beside the page, so under a
 // GitHub Pages sub-path build the fetch must carry the same base as the page.
@@ -166,14 +198,31 @@ async function fetchModel(file: string): Promise<unknown> {
   return res.json();
 }
 
-async function switchModel(which: string): Promise<void> {
+async function switchModel(which: string, file?: File): Promise<void> {
   const seq = ++modelSwitchSeq;
   try {
     let raw: unknown = sampleModel;
     if (which === "hero") raw = await fetchModel("hero.iki");
+    if (which === "local")
+      raw = file ? JSON.parse(await file.text()) : cachedLocalRaw;
     if (seq !== modelSwitchSeq) return; // superseded while fetching
     await loadModel(raw);
     if (seq !== modelSwitchSeq) return; // superseded while loading
+    if (which === "local" && file) {
+      cachedLocalRaw = raw;
+      if (!localOption) {
+        if (!fileOption) {
+          throw new Error(
+            "Iki: model picker is missing the file trigger option",
+          );
+        }
+        localOption = document.createElement("option");
+        localOption.value = "local";
+        modelSelect.insertBefore(localOption, fileOption);
+      }
+      localOption.textContent = file.name;
+      modelSelect.value = "local";
+    }
     loadedModelValue = which;
     // Rebuild the motion drivers against the new model.
     if (idleCheckbox.checked) {
