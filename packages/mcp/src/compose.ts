@@ -413,6 +413,17 @@ export async function composeLayersFromParts(
     // target before spending the decode budget on a run that cannot be written.
     const outDir = resolveOutputDir(input.outDir);
     const partsDir = resolveInputDir(input.partsDir);
+    // resolveOutputDir already realpath's outDir; resolveInputDir does not (its
+    // reads are deliberately unconfined), so realpath partsDir here too before
+    // comparing — otherwise a symlink alias of the same directory would slip
+    // past a lexical check. Composing a parts dir into itself would overwrite
+    // originals like face.png/hair_front.png with resized, cropped layers, and
+    // skipped-role cleanup would delete sources with no surviving part.
+    if (fs.realpathSync(partsDir) === outDir) {
+      throw new AutoRigInputError(
+        `partsDir and outDir resolve to the same directory (${outDir}): composing would overwrite the source parts`,
+      );
+    }
     const layout = resolveLayout(input.layout);
 
     const split = await prepEyeSplit(partsDir);

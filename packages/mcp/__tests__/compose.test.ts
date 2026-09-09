@@ -379,4 +379,29 @@ describe("composeLayersFromParts", () => {
     const meta = await sharp(target).metadata();
     expect([meta.width, meta.height]).toEqual([CANVAS, CANVAS]);
   });
+
+  it("rejects partsDir and outDir resolving to the same directory", async () => {
+    const dir = outDir();
+    await writePartsSet(dir);
+    const before = digest(dir);
+
+    const error = await composeError({ partsDir: dir, outDir: dir });
+
+    expect(error).toMatch(/partsDir and outDir resolve to the same directory/);
+    // The rejection must fire before any decode/write touches the sources.
+    expect(digest(dir)).toEqual(before);
+  });
+
+  it("rejects partsDir aliasing outDir through a symlink", async () => {
+    const dir = outDir();
+    await writePartsSet(dir);
+    const before = digest(dir);
+    const link = path.join(outDir(), "alias");
+    fs.symlinkSync(dir, link);
+
+    const error = await composeError({ partsDir: link, outDir: dir });
+
+    expect(error).toMatch(/partsDir and outDir resolve to the same directory/);
+    expect(digest(dir)).toEqual(before);
+  });
 });
