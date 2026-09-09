@@ -940,26 +940,26 @@ const HAIR_BACK_FAR_BULGE = 0.22;
  *
  * hair_back hangs from the rigid headDeformer, not faceWarp, so without this it
  * turned as a flat sheet: the face foreshortened and slid while the silhouette
- * behind it kept its rest outline. This runs the same pinned cylinder bend the
- * face uses over the part's own columns, at a flatter radius, plus a far-side
- * bulge (HAIR_BACK_FAR_BULGE): on a turn the near side compresses behind the
- * face and the far side swings out and fills.
+ * behind it kept its rest outline. Over the part's own columns, at a flatter
+ * radius than the face: the NEAR side takes the same pinned cylinder bend the
+ * face uses, so it compresses behind the face; the FAR side takes the chord of
+ * its own ±30 keyform, linear in the angle, plus a bulge (HAIR_BACK_FAR_BULGE),
+ * so it swings out and fills.
  *
  * Keyed on `HEAD_TURN_STOPS` — see there for why the stops sit 15° apart. The
- * near side needs that density as much as the face does: it takes the analytic
- * bend at every stop, and on the hero the three-stop chord diverged from it by
- * 12.5 model units at the near outer column at half turn (chord −47.8 against
- * the analytic −35.3), enough that its silhouette disagreed with the face's.
+ * near side needs that density as much as the face does: on the hero the
+ * three-stop chord diverged from the analytic bend by 12.5 model units at the
+ * near outer column at half turn (chord −47.8 against −35.3), enough that its
+ * silhouette disagreed with the face's.
  *
- * The FAR side is deliberately NOT analytic: it is the chord of its own ±30
- * keyform, scaled linearly by the angle. A cylinder's far column reverses once
- * the turn passes |asin(x/radius)|/2 (≈12° at the hero's far edge), so net of
- * the linear bulge that edge moved 52 model units through the first 15° and
- * only 24 through the second — it swung out and then stalled, where a sheet
- * revealed from behind the head should swing out at one speed. Linear in the
- * angle it is 38 and 38. The ±30 keyforms and the rest keyform are unchanged
- * by construction: at |deg| = 30 the two branches coincide, at 0 nothing is
- * far, and the centre column is pinned on both.
+ * The far side is deliberately not analytic. A cylinder's far column reverses
+ * once the turn passes |asin(x/radius)|/2 (≈12° at the hero's far edge), so
+ * net of the linear bulge that edge moved 52 model units through the first
+ * 15° and only 24 through the second — it swung out and then stalled, where a
+ * sheet revealed from behind the head should swing out at one speed. Linear in
+ * the angle it is 38 and 38. The ±30 keyforms and the rest keyform are
+ * unchanged by construction: at |deg| = 30 the two branches coincide, at 0
+ * nothing is far, and the centre column is pinned on both.
  */
 export function bakeHairBackTurnWarp(
   mesh: IkiMesh,
