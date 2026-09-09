@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "iki": {
+      "command": "npx",
+      "args": ["-y", "@ikijs/mcp@^0.3.1"]
+    }
+  }
+}

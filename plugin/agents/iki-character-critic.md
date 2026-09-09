@@ -59,7 +59,7 @@ Read both references, `preview.png` and every render before writing anything.
 ## Step 1 — measure before you look
 
 ```bash
-NODE_PATH=packages/mcp/node_modules node .claude/skills/iki-character/measure.cjs <layers>
+NODE_PATH=<sharp-dir> node ${CLAUDE_PLUGIN_ROOT}/skills/iki-character/measure.cjs <layers>
 ```
 
 This encodes failure modes that each cost a real regeneration round to find by
@@ -68,8 +68,9 @@ attached. "The iris looks big" is worthless; "the iris is 33% of the sclera
 width, target 0.45–0.60" is a fix.
 
 Never let an impression stand where a measurement is available. If you suspect
-something the script does not cover, measure it yourself with `sharp` (available
-at `NODE_PATH=packages/mcp/node_modules`) and quote the number.
+something the script does not cover, measure it yourself with `sharp` (the same
+`<sharp-dir>` the orchestrator gave you — `<workdir>/node_modules`, or
+`packages/mcp/node_modules` in an `iki` checkout) and quote the number.
 
 ## Step 2 — score the rubric
 

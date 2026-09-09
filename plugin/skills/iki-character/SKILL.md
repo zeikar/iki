@@ -31,19 +31,18 @@ The hard part is **getting clean role-separated parts out of codex-image** (an e
 
 ## Prerequisites
 
-- **codex-image skill** available (it shells out to `codex exec` with the built-in `image_generation` tool; **billed, takes minutes**, supports background-parallel generation). Confirm the user is OK spending on generation before starting.
-- **`sharp`** resolvable for `compose.cjs`. It is not a repo dependency (sharp is confined to `@ikijs/mcp`). Run the composer from a scratch dir with sharp installed, e.g.:
+- **An image generator** for Step 1. The **codex-image skill** is the one these prompts were tuned against (it shells out to `codex exec` with the built-in `image_generation` tool; **billed, takes minutes**, supports background-parallel generation) — confirm the user is OK spending on generation before starting. Anything that returns transparent, role-separated PNGs works; the prompts below are the substance, the driver is not.
+- **`sharp`**, for `compose.cjs` and `measure.cjs`. The plugin does not vendor it (in the iki repo, sharp is confined to `@ikijs/mcp`). Node resolves `require` from the **script's** directory, so install it in the scratch dir and point `NODE_PATH` at it:
   ```bash
   mkdir -p /tmp/iki-char/parts && cd /tmp/iki-char && npm i sharp --silent
+  export NODE_PATH=/tmp/iki-char/node_modules
   ```
-  (or reuse `packages/mcp/node_modules` via `NODE_PATH`).
-- **`auto_rig_from_layers` MCP tool** reachable. Two ways:
-  - The user has the **iki MCP server configured** (a `mcp__*__auto_rig_from_layers` tool is available) — call it directly.
-  - Local dev with the server **not** registered: build and drive the **bin** over stdio:
-    ```bash
-    pnpm --filter @ikijs/mcp build   # produces packages/mcp/dist/cli.js
-    ```
-    then send a JSON-RPC `tools/call` to `node packages/mcp/dist/cli.js` (see Step 3). The tool **confines the output `.iki` to the process cwd** (realpath + atomic rename), so launch the bin from the dir you want the model written under.
+  Inside an `iki` checkout, `NODE_PATH=packages/mcp/node_modules` reuses the workspace copy instead of installing anything.
+- **`auto_rig_from_layers` MCP tool** reachable. The plugin bundles the server (`.mcp.json` → `npx -y @ikijs/mcp`), so `mcp__iki__auto_rig_from_layers` is normally already in the tool list — look before doing anything else. When it is absent (server disabled) or you are developing `packages/mcp` and want the working-tree build, drive the **bin** over stdio instead:
+  ```bash
+  pnpm --filter @ikijs/mcp build   # produces packages/mcp/dist/cli.js
+  ```
+  then send a JSON-RPC `tools/call` to `node packages/mcp/dist/cli.js` (see Step 3). Either way the tool **confines the output `.iki` to the process cwd** (realpath + atomic rename), so the MCP server's cwd — or the dir you launch the bin from — is where the model can be written.
 
 ## The role set this skill generates (full-expression default)
 
@@ -92,8 +91,9 @@ Save each to the parts dir with the **exact filenames above** (`compose.cjs` exp
 Run the bundled composer (it lives next to this file):
 
 ```bash
-node /Users/.../.claude/skills/iki-character/compose.cjs <partsDir> <layersDir>
-# e.g. node .../compose.cjs /tmp/iki-char/parts /tmp/iki-char/layers
+node ${CLAUDE_PLUGIN_ROOT}/skills/iki-character/compose.cjs <partsDir> <layersDir>
+# e.g. NODE_PATH=/tmp/iki-char/node_modules \
+#        node ${CLAUDE_PLUGIN_ROOT}/skills/iki-character/compose.cjs /tmp/iki-char/parts /tmp/iki-char/layers
 ```
 
 It alpha-trims, resizes, mirrors L/R, and pastes each part at its `LAYOUT` center on a shared `CANVAS`×`CANVAS` transparent canvas (1100 px), then writes role-named PNGs (`face.png`, `eye_L.png`, …) + a flattened `preview.png` to `<layersDir>`.
@@ -104,7 +104,7 @@ flat to hold a round iris, an iris off the white's centre of mass, lash/sclera
 drift, art cut through by its own frame):
 
 ```bash
-NODE_PATH=packages/mcp/node_modules node .../iki-character/measure.cjs <layersDir>
+node ${CLAUDE_PLUGIN_ROOT}/skills/iki-character/measure.cjs <layersDir>
 ```
 
 Tune `LAYOUT` until it reports `all geometry checks passed`. It is free.
@@ -150,12 +150,12 @@ printf '%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"0"}}}' \
   '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"auto_rig_from_layers","arguments":{"layers":[...],"outputPath":"iki-character.iki"}}}' \
-  | node /Users/.../packages/mcp/dist/cli.js
+  | node <iki-checkout>/packages/mcp/dist/cli.js
 ```
 
 ### Step 4 — Render-verify
 
-Load the `.iki` in the playground and confirm it renders + animates. Use the **iki-visual-test** skill: `pnpm playground`, then `window.__iki.load(<model>)`, drive `ParamEyeLOpen`/`ParamEyeROpen` (blink-fold), `ParamEyeBallX/Y` (gaze), `ParamMouthOpenY`/`ParamMouthForm`, `ParamAngleX`/`ParamAngleY`/`ParamAngleZ` (turn / nod / tilt), `ParamBrowLY`/`RY`/`LAngle`/`RAngle` (expression), and screenshot before/after. A clean console (no `IkiFormatError`/WebGL error) plus visibly-driving parameters = success.
+Load the `.iki` in the playground and confirm it renders + animates. This step needs an **`iki` checkout** — the playground and the `iki-visual-test` skill it drives live in the repo, not in this plugin. Without one, load the model in whatever viewer embeds `@ikijs/engine` and drive the same parameters. In the repo, use the **iki-visual-test** skill: `pnpm playground`, then `window.__iki.load(<model>)`, drive `ParamEyeLOpen`/`ParamEyeROpen` (blink-fold), `ParamEyeBallX/Y` (gaze), `ParamMouthOpenY`/`ParamMouthForm`, `ParamAngleX`/`ParamAngleY`/`ParamAngleZ` (turn / nod / tilt), `ParamBrowLY`/`RY`/`LAngle`/`RAngle` (expression), and screenshot before/after. A clean console (no `IkiFormatError`/WebGL error) plus visibly-driving parameters = success.
 
 `ParamHairSwayX`/`ParamHairSwayZ` are physics OUTPUTS: the springs write them, so do not judge the hair with `reset()` + `setParam` — physics only advances inside the playground's idle loop. Turn idle on and watch, or set the sway parameters directly to see the root-pinned swing shape.
 

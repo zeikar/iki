@@ -1,0 +1,22 @@
+{
+  "name": "iki",
+  "version": "0.1.0",
+  "description": "Generate a rigged, animated .iki 2D puppet character from a prompt: role-separated part art, deterministic composition, and auto-rigging over the Iki MCP server.",
+  "author": {
+    "name": "Zeikar",
+    "url": "https://github.com/zeikar"
+  },
+  "homepage": "https://zeikar.dev/iki/",
+  "repository": "https://github.com/zeikar/iki",
+  "license": "MIT",
+  "keywords": [
+    "iki",
+    "live2d",
+    "vtuber",
+    "2d-animation",
+    "character-generation",
+    "auto-rig",
+    "puppet",
+    "mcp"
+  ]
+}

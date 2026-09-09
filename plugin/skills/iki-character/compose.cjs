@@ -8,10 +8,11 @@
 //   srcDir  directory holding the codex-image parts (default: ./parts)
 //   outDir  directory to write role-named canvas layers (default: ./layers)
 //
-// Only dependency is `sharp`. Run from a dir where `sharp` resolves (the e2e
-// installs it ad hoc, e.g. `npm i sharp` in a scratch dir), or `node --require`
-// a sharp install. The composer is pure/deterministic: same parts -> same
-// layers, so re-run freely after tuning LAYOUT (no image re-generation needed).
+// Only dependency is `sharp`. Node resolves it from THIS file's directory, so
+// an install elsewhere needs NODE_PATH (`npm i sharp` in a scratch dir, then
+// NODE_PATH=<that dir>/node_modules). The composer is pure/deterministic: same
+// parts -> same layers, so re-run freely after tuning LAYOUT (no image
+// re-generation needed).
 const sharp = require("sharp");
 const path = require("path");
 const fs = require("fs");

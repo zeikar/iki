@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "iki": {
+      "source": {
+        "source": "directory",
+        "path": "."
+      }
+    }
+  },
+  "enabledPlugins": {
+    "iki@iki": true
+  }
+}

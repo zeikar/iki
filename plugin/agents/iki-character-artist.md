@@ -42,7 +42,8 @@ You own the character assets. You do not own the packages.
 ## You may edit
 
 - the parts dir (generated part PNGs)
-- `.claude/skills/iki-character/compose.cjs` — the `LAYOUT` block only. It is
+- `${CLAUDE_PLUGIN_ROOT}/skills/iki-character/compose.cjs` — the `LAYOUT` block
+  only. It is
   documented as the per-character tuning surface; tuning it is your job.
 
 ## You must NOT edit
@@ -61,13 +62,14 @@ You own the character assets. You do not own the packages.
 
 ## The pipeline
 
-Read `.claude/skills/iki-character/SKILL.md` first — it carries the role table,
+Read `${CLAUDE_PLUGIN_ROOT}/skills/iki-character/SKILL.md` first — it carries
+the role table,
 the prompt patterns and the hard-won pitfalls. Then:
 
 1. **Generate parts** (only when you have `regenerate` findings, or on round 1):
 
    ```bash
-   .claude/skills/iki-character/gen-parts.sh <reference> <workdir>/parts \
+   ${CLAUDE_PLUGIN_ROOT}/skills/iki-character/gen-parts.sh <reference> <workdir>/parts \
      "<prompt>::<role>.png" ...
    ```
 
@@ -76,24 +78,29 @@ the prompt patterns and the hard-won pitfalls. Then:
 2. **Compose:**
 
    ```bash
-   cd <workdir> && NODE_PATH=<repo>/packages/mcp/node_modules \
-     node <repo>/.claude/skills/iki-character/compose.cjs parts layers
+   cd <workdir> && NODE_PATH=<sharp-dir> \
+     node ${CLAUDE_PLUGIN_ROOT}/skills/iki-character/compose.cjs parts layers
    ```
+
+   `<sharp-dir>` is whatever the SKILL's prerequisites resolved `sharp` to —
+   `<workdir>/node_modules` standalone, `<repo>/packages/mcp/node_modules` in a
+   checkout.
 
 3. **Measure** — always, before declaring anything done:
 
    ```bash
-   NODE_PATH=<repo>/packages/mcp/node_modules \
-     node <repo>/.claude/skills/iki-character/measure.cjs <workdir>/layers
+   NODE_PATH=<sharp-dir> \
+     node ${CLAUDE_PLUGIN_ROOT}/skills/iki-character/measure.cjs <workdir>/layers
    ```
 
    Iterate on `LAYOUT` until it reports `all geometry checks passed`. Composing
    and measuring are free and instant — never ship a layer set with warnings you
    could have tuned away.
 
-4. **Rig** — pipe a `tools/call` for `auto_rig_from_layers` to
-   `node <repo>/packages/mcp/dist/cli.js`, run from `<workdir>` (the tool
-   confines output to its cwd). Pass every `layers/*.png` except `preview.png`,
+4. **Rig** — call `auto_rig_from_layers` on the bundled MCP server
+   (`mcp__iki__*`), or pipe the same `tools/call` to
+   `node <repo>/packages/mcp/dist/cli.js` run from `<workdir>` when you need the
+   working-tree build (either way the tool confines output to its cwd). Pass every `layers/*.png` except `preview.png`,
    and `"quantizeColors": 256` so the model the orchestrator loads in the
    playground is the compact one (a lossless atlas is ~4× larger).
 

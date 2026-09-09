@@ -1,0 +1,15 @@
+{
+  "name": "iki",
+  "owner": {
+    "name": "zeikar",
+    "url": "https://github.com/zeikar"
+  },
+  "description": "The Iki plugin: generate rigged, animated .iki 2D puppet characters with Claude.",
+  "plugins": [
+    {
+      "name": "iki",
+      "source": "./plugin",
+      "description": "Generate a rigged, animated .iki 2D puppet character from a prompt: role-separated part art, deterministic composition, and auto-rigging over the Iki MCP server."
+    }
+  ]
+}

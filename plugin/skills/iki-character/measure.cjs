@@ -7,8 +7,9 @@
 // of the sclera width, target 0.45-0.60" is. Every check below is one that cost
 // a real regeneration or re-tune round to find by eye.
 //
-// Only dependency is `sharp`; run it where sharp resolves (e.g.
-// NODE_PATH=packages/mcp/node_modules).
+// Only dependency is `sharp`. Node resolves it from THIS file's directory, so
+// an install elsewhere needs NODE_PATH (e.g. NODE_PATH=<workdir>/node_modules,
+// or NODE_PATH=packages/mcp/node_modules in an iki checkout).
 const sharp = require("sharp");
 const path = require("path");
 const fs = require("fs");

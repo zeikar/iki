@@ -87,9 +87,10 @@ invalidates every prior score.
 1. Dispatch **iki-character-artist** with `reference` (the front view only —
    `gen-parts.sh` attaches it to every job), `workdir`, `round`, and the
    critic's findings (none on round 1). It returns a rigged `.iki`.
-2. **Render it yourself.** Copy the model to
-   `examples/playground/public/<name>.iki`, load it via the **iki-visual-test**
-   skill, and screenshot at least: rest, head-turn (`ParamAngleX` near its
+2. **Render it yourself.** This loop needs an **`iki` checkout**: the playground
+   and the `iki-visual-test` skill it drives live in the repo, not in this
+   plugin. Copy the model to `examples/playground/public/<name>.iki`, load it via
+   the **iki-visual-test** skill, and screenshot at least: rest, head-turn (`ParamAngleX` near its
    limit), blink (`ParamEyeLOpen` ≈ 0), gaze (`ParamEyeBallX` near its limit),
    and the poses **midway between the rig's keyform stops** on each moving axis
    — the stops sit 15° apart, so that is `ParamAngleX` at 7.5 and at 22.5,
