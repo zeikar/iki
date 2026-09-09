@@ -6,6 +6,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { IKI_FORMAT_VERSION } from "@ikijs/format";
 import { createIkiMcpServer } from "../src/server";
+import { writePartsSet } from "./helpers/parts";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 // Write a 100x100 transparent PNG with one opaque rect (so the layer has a bbox).
@@ -241,6 +242,111 @@ describe("MCP server integration", () => {
 
     expect((result.structuredContent as { ok: boolean }).ok).toBe(false);
     // Expected caller-input failure is a normal result, NOT a protocol error.
+    expect(result.isError).toBeFalsy();
+    const texts = (result.content as { type: string; text: string }[]).filter(
+      (c) => c.type === "text",
+    );
+    expect(texts[0].text).toMatch(/^INVALID:/);
+  });
+
+  it("registers compose_layers_from_parts and measure_layers among the server's tools", async () => {
+    pair = await createPair();
+    const { tools } = await pair.client.listTools();
+    const names = tools.map((t) => t.name);
+    expect(names).toContain("compose_layers_from_parts");
+    expect(names).toContain("measure_layers");
+  });
+
+  it("compose_layers_from_parts composes the parts fixture and returns layers + measure", async () => {
+    pair = await createPair();
+    const partsDir = tmpDir();
+    await writePartsSet(partsDir);
+    const outDir = tmpDir();
+
+    const result = await pair.client.callTool({
+      name: "compose_layers_from_parts",
+      arguments: { partsDir, outDir },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const sc = result.structuredContent as {
+      ok: boolean;
+      layers?: { role: string; path: string }[];
+      measure?: { warnings: string[] };
+    };
+    expect(sc.ok).toBe(true);
+    expect(sc.layers).toBeDefined();
+    expect(sc.measure).toBeDefined();
+    for (const layer of sc.layers ?? []) {
+      expect(fs.existsSync(layer.path)).toBe(true);
+    }
+
+    // Text must list every written path, in order, then the geometry report —
+    // a regression in the join order/separator or a dropped report would
+    // otherwise pass CI silently (structuredContent alone can't catch it).
+    const texts = (result.content as { type: string; text: string }[]).filter(
+      (c) => c.type === "text",
+    );
+    const paths = (sc.layers ?? []).map((l) => l.path);
+    const lines = texts[0].text.split("\n");
+    expect(lines.slice(0, paths.length)).toEqual(paths);
+    expect(lines[paths.length]).toBe(`# layers  (${outDir})`);
+  });
+
+  it("compose_layers_from_parts returns ok:false + INVALID: (not isError) for a missing partsDir", async () => {
+    pair = await createPair();
+    const missing = path.join(
+      process.cwd(),
+      "node_modules",
+      ".does-not-exist-parts",
+    );
+    const outDir = tmpDir();
+
+    const result = await pair.client.callTool({
+      name: "compose_layers_from_parts",
+      arguments: { partsDir: missing, outDir },
+    });
+
+    expect((result.structuredContent as { ok: boolean }).ok).toBe(false);
+    expect(result.isError).toBeFalsy();
+    const texts = (result.content as { type: string; text: string }[]).filter(
+      (c) => c.type === "text",
+    );
+    expect(texts[0].text).toMatch(/^INVALID:/);
+  });
+
+  it("measure_layers reports on a composed layers dir", async () => {
+    pair = await createPair();
+    const partsDir = tmpDir();
+    await writePartsSet(partsDir);
+    const outDir = tmpDir();
+    await pair.client.callTool({
+      name: "compose_layers_from_parts",
+      arguments: { partsDir, outDir },
+    });
+
+    const result = await pair.client.callTool({
+      name: "measure_layers",
+      arguments: { layersDir: outDir },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const texts = (result.content as { type: string; text: string }[]).filter(
+      (c) => c.type === "text",
+    );
+    expect(texts[0].text).toMatch(/^# layers/);
+  });
+
+  it("measure_layers returns ok:false + INVALID: (not isError) for a missing dir", async () => {
+    pair = await createPair();
+    const missing = path.join(process.cwd(), "node_modules", ".does-not-exist");
+
+    const result = await pair.client.callTool({
+      name: "measure_layers",
+      arguments: { layersDir: missing },
+    });
+
+    expect((result.structuredContent as { ok: boolean }).ok).toBe(false);
     expect(result.isError).toBeFalsy();
     const texts = (result.content as { type: string; text: string }[]).filter(
       (c) => c.type === "text",

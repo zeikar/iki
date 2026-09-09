@@ -6,6 +6,8 @@ import {
   listStandardParameters,
   autoRigFromLayers,
 } from "./tools";
+import { composeLayersFromParts } from "./compose";
+import { measureLayers, formatMeasureReport } from "./measure";
 
 /** Injected by tsup (and vitest) from this package's package.json version. */
 declare const __MCP_VERSION__: string;
@@ -129,6 +131,92 @@ export function createIkiMcpServer(): McpServer {
         const r = await autoRigFromLayers(args);
         const text = r.ok ? r.path : `INVALID: ${r.error}`;
         return { content: [{ type: "text", text }], structuredContent: r };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: "text", text: `Unexpected error: ${error}` }],
+          structuredContent: { ok: false, error },
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "compose_layers_from_parts",
+    {
+      description:
+        "Composes AI-generated part PNGs into canvas-aligned, role-named PNG layers on disk, ready for auto_rig_from_layers (the eyewhite split, alpha-trim/white-key, and placement pipeline the character-generation skill needs), with the same geometry report measure_layers returns standalone included inline. face, mouth, eyewhite, iris, brow, hair_front are required; hair_back, body, mouth_open are optional.",
+      inputSchema: {
+        partsDir: z
+          .string()
+          .describe(
+            "Directory of the source part PNGs (resolved against cwd).",
+          ),
+        outDir: z
+          .string()
+          .describe(
+            "Existing directory to write the role layer PNGs + preview.png into (resolved against cwd; must already exist; confined to the working directory). Reused across runs: a role this run skips has its stale PNG from an earlier run deleted.",
+          ),
+        layout: z
+          .record(
+            z.string(),
+            z
+              .object({ cx: z.number(), cy: z.number(), w: z.number() })
+              .partial(),
+          )
+          .optional()
+          .describe(
+            "Per-role override merged over the built-in defaults, keyed by role — hair_back, body, face, mouth, mouth_open, eye_L, eye_R, iris_L, iris_R, lash_L, lash_R, brow_L, brow_R, hair_front — e.g. `{ eye_L: { cx: 660 } }`; `w` is 1..1100.",
+          ),
+      },
+    },
+    async (args) => {
+      try {
+        const r = await composeLayersFromParts(args);
+        const text = r.ok
+          ? [
+              ...r.layers.map((l) => l.path),
+              formatMeasureReport({ ...r.measure, layersDir: r.outDir }),
+            ].join("\n")
+          : `INVALID: ${r.error}`;
+        return { content: [{ type: "text", text }], structuredContent: r };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: "text", text: `Unexpected error: ${error}` }],
+          structuredContent: { ok: false, error },
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "measure_layers",
+    {
+      description:
+        "Reports read-only geometry checks over an already-composed layers directory — the same checks compose_layers_from_parts returns inline (iris ratio/offset, eye aspect, cropped/cut edges, missing optional roles). Use to re-check a layers dir without recomposing.",
+      inputSchema: {
+        layersDir: z
+          .string()
+          .describe(
+            "Directory of role-named layer PNGs (resolved against cwd).",
+          ),
+      },
+    },
+    async ({ layersDir }) => {
+      try {
+        const r = await measureLayers({ layersDir });
+        const text = r.ok ? formatMeasureReport(r) : `INVALID: ${r.error}`;
+        // Spread into a fresh object: MeasureResult's ok:true arm is an
+        // intersection with the MeasureReport interface, which TS won't accept
+        // directly against the SDK's `Record<string, unknown>` structuredContent
+        // — spreading drops that nominal interface identity, same value.
+        return {
+          content: [{ type: "text", text }],
+          structuredContent: { ...r },
+        };
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         return {
