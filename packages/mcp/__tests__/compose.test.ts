@@ -422,4 +422,62 @@ describe("composeLayersFromParts", () => {
     expect(w).toMatch(/redrawing the part will reproduce this/);
     expect(w).not.toMatch(/regenerate/);
   });
+
+  it("stretches a role to an explicit h and leaves the rest on their aspect", async () => {
+    const r = await composeOk({
+      partsDir: parts,
+      outDir: outDir(),
+      layout: { eye_L: { h: 80 }, lash_L: { h: 80 } },
+    });
+
+    const eye = r.layers.find((l) => l.role === "eye_L")!;
+    const lash = r.layers.find((l) => l.role === "lash_L")!;
+    expect(eye.height).toBe(80);
+    expect(lash.height).toBe(80);
+    // The pair still shares one frame, which is what the blink fold rides.
+    expect(lash.left).toBe(eye.left);
+    expect(lash.top).toBe(eye.top);
+    // An untouched role keeps the aspect it had without h.
+    const face = r.layers.find((l) => l.role === "face")!;
+    const baseFace = full.layers.find((l) => l.role === "face")!;
+    expect(face.height).toBe(baseFace.height);
+  });
+
+  it("clears the flat-sclera warning the way its own text prescribes", async () => {
+    // Squash the pair flat enough to trip the aspect check, the way a real
+    // generated eyewhite does.
+    const flat = await composeOk({
+      partsDir: parts,
+      outDir: outDir(),
+      layout: { eye_L: { h: 40 }, lash_L: { h: 40 } },
+    });
+    const warning = flat.measure.warnings.find((w) =>
+      /^eye_L: sclera aspect/.test(w),
+    );
+    expect(warning).toBeDefined();
+
+    // Take the h the warning names and set it on the pair, as it instructs.
+    const h = Number(/\.h to (\d+)/.exec(warning!)![1]);
+    const fixed = await composeOk({
+      partsDir: parts,
+      outDir: outDir(),
+      layout: { eye_L: { h }, lash_L: { h } },
+    });
+    expect(
+      fixed.measure.warnings.filter((w) => /^eye_L: sclera aspect/.test(w)),
+    ).toEqual([]);
+  });
+
+  it("rejects an h outside the canvas", async () => {
+    const r = await composeLayersFromParts({
+      partsDir: parts,
+      outDir: outDir(),
+      layout: { eye_L: { h: 0 } },
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok)
+      expect(r.error).toMatch(
+        /layout\.eye_L\.h must be an integer in 1\.\.1100/,
+      );
+  });
 });

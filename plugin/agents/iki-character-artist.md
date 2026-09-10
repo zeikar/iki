@@ -42,7 +42,7 @@ You own the character assets. You do not own the packages.
 ## You may edit
 
 - the parts dir (generated part PNGs)
-- `<workdir>/layout.json` — the per-role `cx`/`cy`/`w` overrides you hand to
+- `<workdir>/layout.json` — the per-role `cx`/`cy`/`w`/`h` overrides you hand to
   `compose_layers_from_parts`. It is the per-character tuning surface; tuning it
   is your job.
 
@@ -124,7 +124,7 @@ the prompt patterns and the hard-won pitfalls. Then:
   take 2 variants of it and pick the clean one.
 - An opaque canvas edge shows a straight seam the moment the head turns, and it
   has two causes the geometry report now tells apart. If the report blames the
-  PLACEMENT, the source is fine — retune that role's `cx`/`cy`/`w` in
+  PLACEMENT, the source is fine — retune that role's `cx`/`cy`/`w`/`h` in
   `layout.json` and recompose, free; redrawing the part reproduces the clip. Only
   when the report says the drawing runs to its own frame is a `regenerate`
   warranted, demanding empty margin on that side.
@@ -132,7 +132,7 @@ the prompt patterns and the hard-won pitfalls. Then:
   differently from the rest (a photoreal iris on a cel-shaded face), that is a
   `regenerate` on that part alone — not a reason to redo the set.
 - `eye_*` and `lash_*` are split from one source and MUST keep identical
-  `cx`/`cy`/`w`. An override that moves one of the pair and not the other pulls
+  `cx`/`cy`/`w`/`h`. An override that moves one of the pair and not the other pulls
   them apart; the geometry report catches the drift.
 
 ## Report

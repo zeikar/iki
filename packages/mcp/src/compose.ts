@@ -58,8 +58,18 @@ interface RoleLayout {
   /** Center in canvas px, origin top-left, y down. */
   cx: number;
   cy: number;
-  /** Target width in px; the height follows the part's aspect ratio. */
+  /** Target width in px. */
   w: number;
+  /**
+   * Target height in px. Omitted, the height follows the part's own aspect
+   * ratio — which is the right default for every role whose drawing already has
+   * the proportions it should. It exists for the one that does not: an eyewhite
+   * comes back flatter than the reference often enough that three generations
+   * asking for "taller" landed at 0.47, while stretching a flat white lens ~15%
+   * is invisible and free. Set it on the sclera and its lash together or the
+   * fold tears — they share one frame.
+   */
+  h?: number;
   optional?: boolean;
   mirror?: boolean;
   noTrim?: boolean;
@@ -143,7 +153,7 @@ const ORDER: Role[] = [
 
 /** Per-role placement overrides; anything omitted keeps the default above. */
 export type LayoutOverride = Partial<
-  Record<Role, { cx?: number; cy?: number; w?: number }>
+  Record<Role, { cx?: number; cy?: number; w?: number; h?: number }>
 >;
 
 export interface ComposeInput {
@@ -211,17 +221,15 @@ function resolveLayout(
       }
       next[field] = value;
     }
-    if (override.w !== undefined) {
-      if (
-        !Number.isInteger(override.w) ||
-        override.w < 1 ||
-        override.w > CANVAS
-      ) {
+    for (const field of ["w", "h"] as const) {
+      const value = override[field];
+      if (value === undefined) continue;
+      if (!Number.isInteger(value) || value < 1 || value > CANVAS) {
         throw new AutoRigInputError(
-          `layout.${role}.w must be an integer in 1..${CANVAS}, got ${String(override.w)}`,
+          `layout.${role}.${field} must be an integer in 1..${CANVAS}, got ${String(value)}`,
         );
       }
-      next.w = override.w;
+      next[field] = value;
     }
     resolved[role as Role] = next;
   }
@@ -284,16 +292,28 @@ async function partBuffer(
   // source decode limit, so the height the resize WOULD produce can be checked
   // against the canvas while only the bounded buffer is allocated.
   const trimmed = await img.png().toBuffer({ resolveWithObject: true });
-  const scaledH = Math.round(
-    (trimmed.info.height * cfg.w) / trimmed.info.width,
-  );
-  if (scaledH > CANVAS) {
-    throw new AutoRigInputError(
-      `layout.${role}.w: resized part ${cfg.w}x${scaledH} exceeds the ${CANVAS} canvas`,
+  // An explicit h is already bounded by resolveLayout; only the aspect-derived
+  // height can run past the canvas.
+  if (cfg.h === undefined) {
+    const scaledH = Math.round(
+      (trimmed.info.height * cfg.w) / trimmed.info.width,
     );
+    if (scaledH > CANVAS) {
+      throw new AutoRigInputError(
+        `layout.${role}.w: resized part ${cfg.w}x${scaledH} exceeds the ${CANVAS} canvas`,
+      );
+    }
   }
   const resized = await sharp(trimmed.data)
-    .resize({ width: cfg.w })
+    // Width alone keeps the source aspect. With h, fit:"fill" is the point —
+    // stretch to the given box instead. Both options stay off the width-only
+    // path: passing height:undefined alongside fit:"fill" makes sharp drop the
+    // aspect it would otherwise preserve.
+    .resize(
+      cfg.h === undefined
+        ? { width: cfg.w }
+        : { width: cfg.w, height: cfg.h, fit: "fill" },
+    )
     .png()
     .toBuffer({ resolveWithObject: true });
   return {

@@ -162,12 +162,17 @@ export function createIkiMcpServer(): McpServer {
           .record(
             z.string(),
             z
-              .object({ cx: z.number(), cy: z.number(), w: z.number() })
+              .object({
+                cx: z.number(),
+                cy: z.number(),
+                w: z.number(),
+                h: z.number(),
+              })
               .partial(),
           )
           .optional()
           .describe(
-            "Per-role override merged over the built-in defaults, keyed by role — hair_back, body, face, mouth, mouth_open, eye_L, eye_R, iris_L, iris_R, lash_L, lash_R, brow_L, brow_R, hair_front — e.g. `{ eye_L: { cx: 660 } }`; `w` is 1..1100.",
+            "Per-role override merged over the built-in defaults, keyed by role — hair_back, body, face, mouth, mouth_open, eye_L, eye_R, iris_L, iris_R, lash_L, lash_R, brow_L, brow_R, hair_front — e.g. `{ eye_L: { cx: 660 } }`. `w` and `h` are integers in 1..1100; omit `h` to keep the part's own aspect, set it to stretch (set it on a sclera and its lash together, or the blink fold tears).",
           ),
       },
     },

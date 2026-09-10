@@ -295,7 +295,10 @@ export async function measureDir(absDir: string): Promise<MeasureReport> {
     if (aspect < EYE_ASPECT_MIN) {
       warnings.push(
         `eye_${side}: sclera aspect h/w=${aspect.toFixed(2)} is flatter than ${EYE_ASPECT_MIN} — ` +
-          `a round iris cannot sit inside it. Regenerate the eyewhite taller, not the iris smaller.`,
+          `a round iris cannot sit inside it. Free fix first: set layout.eye_${side}.h and ` +
+          `layout.lash_${side}.h to ${Math.ceil(eye.w * EYE_ASPECT_MIN)} (both, or the fold tears) — ` +
+          `stretching a flat white lens is invisible. Regenerate the eyewhite taller only if that ` +
+          `distorts the lash.`,
       );
     }
 

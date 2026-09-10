@@ -118,7 +118,7 @@ Iterate until it reports `all geometry checks passed`.
 
 **Read `preview.png`** to check alignment. The built-in default layout assumes
 the standard framing prompted above; if eyes/mouth/brows are off, edit
-`iki-char/layout.json` (per-role `cx`/`cy`/`w`, e.g. `{ "eye_L": { "cx": 660 } }`)
+`iki-char/layout.json` (per-role `cx`/`cy`/`w`/`h`, e.g. `{ "eye_L": { "cx": 660 } }`; `h` stretches a part instead of keeping its aspect — that is how a flat sclera is fixed for free rather than regenerated)
 and call the tool again — free, deterministic, and it does **not** re-bill, so
 iterate freely. Before you change any `w`, read the iris pitfall below: `eye_*`,
 `lash_*` and `iris_*` are four keys that have to move together.
