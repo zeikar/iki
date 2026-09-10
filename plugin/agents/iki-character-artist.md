@@ -122,12 +122,14 @@ the prompt patterns and the hard-won pitfalls. Then:
 - The `eyewhite` "NO iris" prompt is the flakiest of the set — one run came back
   with hair and eyelid skin baked in, which breaks the luminance split. Always
   take 2 variants of it and pick the clean one.
-- An opaque canvas edge shows a straight seam the moment the head turns, and it
-  has two causes the geometry report now tells apart. If the report blames the
-  PLACEMENT, the source is fine — retune that role's `cx`/`cy`/`w` in
-  `layout.json` and recompose, free; redrawing the part reproduces the clip. Only
-  when the report says the drawing runs to its own frame is a `regenerate`
-  warranted, demanding empty margin on that side.
+- An opaque canvas edge shows a straight seam the moment the head turns, and two
+  different faults produce it: the canvas clipped the part, or the drawing runs
+  to its own frame. When the report says the edge sits FLUSH it cannot tell you
+  which — so move that role inward in `layout.json` and recompose, which is free,
+  and remeasure. A clipped placement clears; a drawing at fault stays opaque with
+  margin to spare, and only then is a `regenerate` warranted, demanding empty
+  margin on that side. When the report already reports margin on that side, the
+  drawing is the fault and you can skip straight to the regeneration.
 - Independent generation drifts in style. If one part comes back rendered
   differently from the rest (a photoreal iris on a cel-shaded face), that is a
   `regenerate` on that part alone — not a reason to redo the set.
