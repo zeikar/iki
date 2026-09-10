@@ -42,6 +42,9 @@ const IRIS_OFFSET_MAX_Y = 10;
 // high fraction AND real length are required to separate the two. Observed:
 // genuine crops read 60-93%, circle tangents 8-14%.
 const EDGE_SOLID_MAX = 0.5;
+/** Lash-vs-sclera ink-centre drift tolerated as intrinsic asymmetry, as a
+ *  fraction of the eye width. See the check for why it is not zero. */
+const LASH_CENTRE_TOL_FRAC = 0.03;
 const EDGE_RUN_MIN_PX = 40;
 // Longest straight "art appears out of nothing" run tolerated inside a part, as
 // a fraction of its width. A body generated with hair draped over the shoulders
@@ -230,19 +233,33 @@ export async function measureDir(absDir: string): Promise<MeasureReport> {
   const warnings: string[] = [];
 
   // 1. Art running to its own edge → a straight seam appears on head turn.
+  //    Two very different faults look identical in the flattened layer, and the
+  //    remedies cost differently, so tell them apart before prescribing one: a
+  //    part the CANVAS clipped has no margin left on that side (retune, free),
+  //    while a part placed with room whose own drawing runs to its frame does
+  //    (regenerate, billed). A real run lost a regeneration to this: the source
+  //    kept 44 px of margin and the default layout pushed it 70 px off-canvas,
+  //    so redrawing it reproduced the clip exactly.
   for (const [role, m] of Object.entries(layers)) {
-    const edges: [string, number, number][] = [
-      ["top", m.edgeTop, m.w],
-      ["left", m.edgeLeft, m.h],
-      ["right", m.edgeRight, m.h],
+    const edges: [string, number, number, number][] = [
+      ["top", m.edgeTop, m.w, m.marginTop],
+      ["left", m.edgeLeft, m.h, m.marginLeft],
+      ["right", m.edgeRight, m.h, m.marginRight],
     ];
     // A torso is meant to run off the bottom of the canvas.
-    if (role !== "body") edges.push(["bottom", m.edgeBottom, m.w]);
-    for (const [side, v, span] of edges) {
+    if (role !== "body")
+      edges.push(["bottom", m.edgeBottom, m.w, m.marginBottom]);
+    for (const [side, v, span, margin] of edges) {
       if (v > EDGE_SOLID_MAX && v * span >= EDGE_RUN_MIN_PX) {
+        const remedy =
+          margin === 0
+            ? `the placement pushed it past the canvas ${side} — retune layout.${role}.cx/cy/w. Free, and ` +
+              `redrawing the part will reproduce this.`
+            : `its own drawing runs to the frame ${margin} px inside the canvas — regenerate that part ` +
+              `with empty margin on that side. Billed.`;
         warnings.push(
           `${role}: ${pct(v)} of its ${side} edge is opaque — the art is cut off there, ` +
-            `which shows as a straight seam once the head turns. Regenerate with empty margin on that side.`,
+            `which shows as a straight seam once the head turns. Cause: ${remedy}`,
         );
       }
     }
@@ -313,7 +330,14 @@ export async function measureDir(absDir: string): Promise<MeasureReport> {
     if (lash) {
       const dx = lash.bboxCx - eye.bboxCx;
       const dTop = lash.marginTop - eye.marginTop;
-      if (Math.abs(dx) > 0.5 || Math.abs(dTop) > 0.5) {
+      // dx compares INK centres, and the lash's ink is narrower than the frame it
+      // shares with the sclera, so a lash whose flick runs one way sits a pixel or
+      // two off-centre while its layout entry is perfectly in sync — a real run
+      // measured 1.5 px on a 128 px eye and the warning could not be acted on.
+      // Scale the tolerance with the eye so the desync this guards (14 px on a
+      // real character) still trips it. dTop stays strict: the fold seam rides
+      // that edge, and both layers ink the same top row when they are in sync.
+      if (Math.abs(dx) > eye.w * LASH_CENTRE_TOL_FRAC || Math.abs(dTop) > 0.5) {
         warnings.push(
           `lash_${side}: centre is ${dx.toFixed(1)} px and top edge ${dTop.toFixed(1)} px off eye_${side}. ` +
             `They are split from one source and MUST share cx/cy/w in layout, or the blink fold tears. Retune to match.`,

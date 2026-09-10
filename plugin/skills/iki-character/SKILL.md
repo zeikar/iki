@@ -80,7 +80,7 @@ Invoke the **codex-image** skill to generate the parts **in parallel** into the 
 
 Prompt skeleton (fill `<STYLE>` consistently, e.g. "flat anime cel-shaded, soft lavender hair, blue eyes, clean line art"):
 
-- **face.png** — "Front-facing anime character face base, `<STYLE>`. Skin, ears, neck, face shape only. **NO eyes, NO eyebrows, NO mouth, NO hair** — bare skin where features go. Transparent background, centered."
+- **face.png** — "Front-facing anime character face base, `<STYLE>`. Skin, ears, face shape and a SHORT neck ending just below the jaw. **NO eyes, NO eyebrows, NO mouth, NO hair** — bare skin where features go. Transparent background, centered." _(The neck bound is load-bearing: the default layout anchors this part on its bounding-box centre, so a long neck drags the skull up and the eye line lands too low on it. One run came back with 23% neck and needed a `layout.face.cy` retune to put the eyes back at ~53% of skull height.)_
 - **mouth.png** — "A single small closed anime mouth / lips, `<STYLE>`. Transparent background, centered, nothing else."
 - **eyewhite.png** — "A single anime eye, `<STYLE>`: an almond-shaped **white sclera** with **dark upper eyelashes** along the top. **NO iris, NO pupil, NO colored disc** — just the white interior and the dark lash line. Transparent background, one eye only." _(The "NO iris" negation is the flaky part — see Pitfalls. Generate 2–3 variants and pick the cleanest iris-free one.)_
 - **iris.png** — "A single round anime iris disc, `<STYLE>` eye color: radial colored iris with a dark round pupil and a small white highlight glint, top. Transparent background, just the disc, no eyelid, no sclera, no lashes."

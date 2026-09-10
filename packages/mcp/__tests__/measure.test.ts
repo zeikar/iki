@@ -202,6 +202,35 @@ describe("measureLayers", () => {
     expect(warned(result.warnings, /lash_L: centre is 3\.0 px/)).toBe(true);
   });
 
+  it("separates a canvas-clipped edge from art that runs to its own frame", async () => {
+    const dir = tmpDir();
+    await writeEyeStack(dir);
+    // Flush against the canvas top: margin 0 is what a clipped placement leaves.
+    await writeLayer(dir, "hair_front.png", (set) =>
+      rect(set, 60, 0, 80, 60, DARK),
+    );
+
+    const result = await measureOk(dir);
+    const w = result.warnings.find((x) =>
+      /^hair_front: .* top edge is opaque/.test(x),
+    );
+    expect(w).toMatch(/the placement pushed it past the canvas top/);
+    expect(w).not.toMatch(/regenerate/);
+  });
+
+  it("tolerates a lash whose ink is asymmetric inside a shared frame", async () => {
+    const dir = tmpDir();
+    await writeEyeStack(dir);
+    // 1 px: what a flick that runs one way costs on a 64 px eye. The layout
+    // entries are in sync; there is nothing an artist could retune.
+    await writeLayer(dir, "lash_L.png", (set) =>
+      topArc(set, 101, 100, 64, 40, 4, DARK),
+    );
+
+    const result = await measureOk(dir);
+    expect(warned(result.warnings, /lash_L: centre is/)).toBe(false);
+  });
+
   it("flags a sclera too flat to hold a round iris", async () => {
     const dir = tmpDir();
     await writeLayer(dir, "eye_L.png", (set) =>

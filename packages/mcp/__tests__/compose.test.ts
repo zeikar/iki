@@ -404,4 +404,22 @@ describe("composeLayersFromParts", () => {
     expect(error).toMatch(/partsDir and outDir resolve to the same directory/);
     expect(digest(dir)).toEqual(before);
   });
+
+  it("blames the placement, not the art, when the canvas clips a part", async () => {
+    // The shipped default did exactly this on a real character: the source keeps
+    // its margin and the layout pushes the crown off the canvas top.
+    const r = await composeOk({
+      partsDir: parts,
+      outDir: outDir(),
+      layout: { hair_front: { cy: 10 } },
+    });
+
+    const w = r.measure.warnings.find((x) =>
+      /^hair_front: .* top edge is opaque/.test(x),
+    );
+    expect(w).toMatch(/the placement pushed it past the canvas top/);
+    expect(w).toMatch(/retune layout\.hair_front\.cx\/cy\/w/);
+    expect(w).toMatch(/redrawing the part will reproduce this/);
+    expect(w).not.toMatch(/regenerate/);
+  });
 });

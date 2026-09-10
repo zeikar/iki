@@ -122,9 +122,12 @@ the prompt patterns and the hard-won pitfalls. Then:
 - The `eyewhite` "NO iris" prompt is the flakiest of the set — one run came back
   with hair and eyelid skin baked in, which breaks the luminance split. Always
   take 2 variants of it and pick the clean one.
-- A part whose drawing runs to its own frame edge shows a straight seam the
-  moment the head turns. Demand empty margin on all sides; the geometry report
-  checks for it.
+- An opaque canvas edge shows a straight seam the moment the head turns, and it
+  has two causes the geometry report now tells apart. If the report blames the
+  PLACEMENT, the source is fine — retune that role's `cx`/`cy`/`w` in
+  `layout.json` and recompose, free; redrawing the part reproduces the clip. Only
+  when the report says the drawing runs to its own frame is a `regenerate`
+  warranted, demanding empty margin on that side.
 - Independent generation drifts in style. If one part comes back rendered
   differently from the rest (a photoreal iris on a cel-shaded face), that is a
   `regenerate` on that part alone — not a reason to redo the set.
