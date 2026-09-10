@@ -1,5 +1,23 @@
 # @ikijs/mcp
 
+## 0.5.0
+
+### Minor Changes
+
+- 73047b9: `compose_layers_from_parts` accepts a per-role `h` alongside `cx`/`cy`/`w`.
+
+  Omitting it keeps the part's own aspect ratio, which is what every role wants until one does not. A generated eyewhite comes back flatter than its reference often enough to matter, and until now the only lever was the geometry report's advice to regenerate it taller — advice that cost three billed generations in one real run and still landed short, because the image model satisfies "taller" by tilting the almond rather than opening the eye. Stretching a flat white lens by 15% is invisible, free, and lands every time.
+
+  The flat-sclera warning now names the `h` to set and on which two roles, since a sclera and its lash share one frame and the blink fold tears if only one of them moves.
+
+### Patch Changes
+
+- 6ec5a90: Stop two geometry warnings from prescribing the wrong fix.
+
+  `measure_layers` flagged a lash as out of sync with its sclera whenever the lash's ink was asymmetric inside the frame it shares with the white — a flick that runs one way costs a pixel or two of centre drift while the layout entry is perfectly in sync, so the warning named a retune that could not be made. The centre tolerance now scales with the eye width; the top-edge check, which is the edge the blink fold actually rides, stays strict.
+
+  An opaque canvas edge was always reported as "the art is cut off — regenerate with empty margin", but a part whose own source has margin can still be clipped by where the layout puts it, and regenerating reproduces that exactly. The report already measures what separates the cases well enough to act: an edge with margin left on that side is the drawing's own doing and is worth a regeneration, while an edge sitting flush is worth moving inward and remeasuring first, since that costs nothing and settles it.
+
 ## 0.4.0
 
 ### Minor Changes
