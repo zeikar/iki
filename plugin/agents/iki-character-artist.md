@@ -42,7 +42,7 @@ You own the character assets. You do not own the packages.
 ## You may edit
 
 - the parts dir (generated part PNGs)
-- `<workdir>/layout.json` — the per-role `cx`/`cy`/`w` overrides you hand to
+- `<workdir>/layout.json` — the per-role `cx`/`cy`/`w`/`h` overrides you hand to
   `compose_layers_from_parts`. It is the per-character tuning surface; tuning it
   is your job.
 
@@ -134,7 +134,7 @@ the prompt patterns and the hard-won pitfalls. Then:
   differently from the rest (a photoreal iris on a cel-shaded face), that is a
   `regenerate` on that part alone — not a reason to redo the set.
 - `eye_*` and `lash_*` are split from one source and MUST keep identical
-  `cx`/`cy`/`w`. An override that moves one of the pair and not the other pulls
+  `cx`/`cy`/`w`/`h`. An override that moves one of the pair and not the other pulls
   them apart; the geometry report catches the drift.
 
 ## Report

@@ -1,6 +1,6 @@
 {
   "name": "iki",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Generate a rigged, animated .iki 2D puppet character from a prompt: role-separated part art, deterministic composition, and auto-rigging over the Iki MCP server.",
   "author": {
     "name": "Zeikar",

@@ -118,7 +118,7 @@ Iterate until it reports `all geometry checks passed`.
 
 **Read `preview.png`** to check alignment. The built-in default layout assumes
 the standard framing prompted above; if eyes/mouth/brows are off, edit
-`iki-char/layout.json` (per-role `cx`/`cy`/`w`, e.g. `{ "eye_L": { "cx": 660 } }`)
+`iki-char/layout.json` (per-role `cx`/`cy`/`w`/`h`, e.g. `{ "eye_L": { "cx": 660 } }`; `h` stretches a part instead of keeping its aspect, which is how a sclera too flat to hold a round iris is fixed for free — set it on the sclera and its lash together or the blink fold tears)
 and call the tool again — free, deterministic, and it does **not** re-bill, so
 iterate freely. Before you change any `w`, read the iris pitfall below: `eye_*`,
 `lash_*` and `iris_*` are four keys that have to move together.
@@ -223,4 +223,4 @@ a checkout, the panel slider standalone — to see the root-pinned swing shape.
 
 ## What this skill does NOT change
 
-No engine or format changes — this is prompts and procedure. The composer and the geometry checks ship in `@ikijs/mcp` (`compose_layers_from_parts`, `measure_layers`) beside the capability that already shipped in earlier slices (`auto_rig_from_layers`, the role table, blink-fold/gaze/brow rigging); the plugin pins that server at `^0.4.0` in `.mcp.json` and calls the tools. No changeset — the plugin is not an npm package.
+No engine or format changes — this is prompts and procedure. The composer and the geometry checks ship in `@ikijs/mcp` (`compose_layers_from_parts`, `measure_layers`) beside the capability that already shipped in earlier slices (`auto_rig_from_layers`, the role table, blink-fold/gaze/brow rigging); the plugin pins that server at `^0.5.0` in `.mcp.json` and calls the tools. No changeset — the plugin is not an npm package.
