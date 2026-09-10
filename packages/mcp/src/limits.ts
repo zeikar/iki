@@ -67,9 +67,10 @@ function rejectEmptyOrUrl(inputPath: string, noun: string, kind: string): void {
  * {@link resolveOutputPath}. The asymmetry is intentional, not an oversight: a
  * stray write destroys data, while a read only surfaces a PNG the agent already
  * named and the user's own account can already open. Confining reads would also
- * break the documented generate-a-character flow, which composes its layers in
- * a scratch directory (`/tmp/iki-char/layers/…`) and rigs them into a model
- * under the project. Revisit only if this server ever runs with wider
+ * break the documented generate-a-character flow, which reads its part PNGs
+ * from wherever the image generator dropped them (a downloads folder, a scratch
+ * dir) while everything it writes — the composed layers, the model — stays
+ * under the working directory. Revisit only if this server ever runs with wider
  * privileges than the person driving it. The same reasoning covers
  * {@link resolveInputDir}, its directory counterpart.
  *

@@ -19,7 +19,7 @@ Read [README.md](./README.md) first for what Iki is, the package map, and the ro
 ## Claude Code plugin
 
 - `plugin/` is the Claude Code plugin — the character-generation skills, their two agents, and `.mcp.json` — published from the root `.claude-plugin/marketplace.json` and declared for this repo in `.claude/settings.json`. `.claude/` keeps only what is meaningless outside a checkout (`iki-visual-test`).
-- Those skills document the auto-rig contract: the role table, the `auto_rig_from_layers` schema, the parameter ids, and the `@ikijs/mcp` range pinned in `.mcp.json`. Change one of those in `packages/` and update `plugin/` in the SAME commit — that co-location is why the plugin lives here instead of its own repo.
+- Those skills document the auto-rig contract: the role table, the `compose_layers_from_parts`, `measure_layers` and `auto_rig_from_layers` schemas, the parameter ids, and the `@ikijs/mcp` range pinned in `.mcp.json`. Change one of those in `packages/` and update `plugin/` in the SAME commit — that co-location is why the plugin lives here instead of its own repo.
 - Bump `plugin/.claude-plugin/plugin.json` `version` by hand. The plugin is not an npm package, so it takes no changeset.
 
 ## Validation

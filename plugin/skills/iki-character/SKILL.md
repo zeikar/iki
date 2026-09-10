@@ -1,17 +1,18 @@
 ---
 name: iki-character
-description: Generate a renderable, auto-rigged Iki character (`.iki`) from one gesture — drive codex-image to draw role-separated transparent part PNGs (eyeless face base, sclera, iris, closed + open mouth, lash, brow, front and back hair, torso), compose them into canvas-aligned role layers with the bundled `compose.cjs`, then call the `auto_rig_from_layers` MCP tool to emit a rigged `.iki` that blinks, gazes, lip-syncs, turns, nods and tilts its head with swaying hair, and emotes with its brows. Use whenever the user asks to "make/generate/create an Iki character" from scratch (no existing art).
+description: Generate a renderable, auto-rigged Iki character (`.iki`) from one gesture — drive codex-image to draw role-separated transparent part PNGs (eyeless face base, sclera, iris, closed + open mouth, lash, brow, front and back hair, torso), compose them into canvas-aligned role layers with the `compose_layers_from_parts` MCP tool, then `auto_rig_from_layers` to emit a rigged `.iki` that blinks, gazes, lip-syncs, turns, nods and tilts its head with swaying hair, and emotes with its brows. Use whenever the user asks to "make/generate/create an Iki character" from scratch (no existing art).
 ---
 
 # Iki Character (gen-AI → compose → auto-rig)
 
-Turn "make me a character" into a renderable, animated `.iki` in one autonomous chain. This is the **skills** leg of the Iki north star ("good models FAST via gen-AI + MCP + skills") — the gen-AI leg (codex-image) and the MCP leg (`auto_rig_from_layers`) already exist; this skill binds them with a committed deterministic composer so the whole pipeline is reproducible (no `/tmp` scratch dependency).
+Turn "make me a character" into a renderable, animated `.iki` in one autonomous chain. This is the **skills** leg of the Iki north star ("good models FAST via gen-AI + MCP + skills") — the gen-AI leg (codex-image) and the MCP leg (`@ikijs/mcp`) already exist; this skill binds them.
 
 ```
-codex-image (role-separated part PNGs)  →  compose.cjs (canvas role layers)  →  auto_rig_from_layers (MCP)  →  rigged .iki  →  render-verify
+codex-image (role-separated part PNGs)  →  compose_layers_from_parts  →  auto_rig_from_layers  →  rigged .iki  →  render-verify
+                                           └────────────────── @ikijs/mcp ──────────────────┘
 ```
 
-The hard part is **getting clean role-separated parts out of codex-image** (an eyeless face base, an iris-free white sclera) and **composer determinism** — most of this file is the hard-won prompt patterns and pitfalls that make that reliable.
+The hard part is **getting clean role-separated parts out of codex-image** (an eyeless face base, an iris-free white sclera) — most of this file is the hard-won prompt patterns and pitfalls that make that reliable.
 
 ## When to use
 
@@ -32,17 +33,17 @@ The hard part is **getting clean role-separated parts out of codex-image** (an e
 ## Prerequisites
 
 - **An image generator** for Step 1. The **codex-image skill** is the one these prompts were tuned against (it shells out to `codex exec` with the built-in `image_generation` tool; **billed, takes minutes**, supports background-parallel generation) — confirm the user is OK spending on generation before starting. Anything that returns transparent, role-separated PNGs works; the prompts below are the substance, the driver is not.
-- **`sharp`**, for `compose.cjs` and `measure.cjs`. The plugin does not vendor it (in the iki repo, sharp is confined to `@ikijs/mcp`). Node resolves `require` from the **script's** directory, so install it in the scratch dir and point `NODE_PATH` at it:
+- **The three tools this skill needs** reachable: `compose_layers_from_parts` (Step 2), `measure_layers` (the same geometry checks on their own) and `auto_rig_from_layers` (Step 3). The plugin bundles the server (`.mcp.json` → `npx -y @ikijs/mcp`), so they are normally already in the tool list, plugin-scoped as `mcp__plugin_iki_iki__compose_layers_from_parts`, `mcp__plugin_iki_iki__measure_layers` and `mcp__plugin_iki_iki__auto_rig_from_layers` — look before doing anything else. When they are absent (server disabled) or you are developing `packages/mcp` and want the working-tree build, drive the **bin** over stdio instead:
   ```bash
-  mkdir -p /tmp/iki-char/parts && cd /tmp/iki-char && npm i sharp --silent
-  export NODE_PATH=/tmp/iki-char/node_modules
+  npx -y @ikijs/mcp                # standalone
+  pnpm --filter @ikijs/mcp build   # in an iki checkout: produces packages/mcp/dist/cli.js
   ```
-  Inside an `iki` checkout, `NODE_PATH=packages/mcp/node_modules` reuses the workspace copy instead of installing anything.
-- **`auto_rig_from_layers` MCP tool** reachable. The plugin bundles the server (`.mcp.json` → `npx -y @ikijs/mcp`), so `mcp__iki__auto_rig_from_layers` is normally already in the tool list — look before doing anything else. When it is absent (server disabled) or you are developing `packages/mcp` and want the working-tree build, drive the **bin** over stdio instead:
+  then send JSON-RPC `tools/call` frames to that process (see Step 3). Either way the tools **confine everything they write to the server's cwd** (realpath-checked, atomic rename), so the MCP server's cwd — or the dir you launch the bin from — is where the layers and the model can be written.
+- **A scratch workdir inside that cwd**, `iki-char/`, holding `parts/` (the generated part PNGs), `layers/` (the composed role layers), `layout.json` (the per-role placement overrides, starting as `{}`) and the finished `.iki`. Create it up front. Every example below uses these paths.
   ```bash
-  pnpm --filter @ikijs/mcp build   # produces packages/mcp/dist/cli.js
+  mkdir -p iki-char/parts iki-char/layers
+  echo '{}' > iki-char/layout.json
   ```
-  then send a JSON-RPC `tools/call` to `node packages/mcp/dist/cli.js` (see Step 3). Either way the tool **confines the output `.iki` to the process cwd** (realpath + atomic rename), so the MCP server's cwd — or the dir you launch the bin from — is where the model can be written.
 
 ## The role set this skill generates (full-expression default)
 
@@ -64,13 +65,13 @@ Without `mouth_open`, MouthOpen stretches the closed mouth (`scaleY` up to 3×) 
 
 `body` rides its own `bodyDeformer`, never the head's: without it the neck ends in mid-air and the character reads as a floating head; painting shoulders into `face.png` instead is worse, because `face` rides the head-turn warp and the shoulders would bend with the head.
 
-`eye_L/R` and `lash_L/R` both come from the **single** `eyewhite.png` — `compose.cjs prepEyeSplit()` splits it by luminance into a clean white sclera (the dark outline/lash recolored white = the clip-mask shape) and a dark **upper-lash** layer (only the top fraction of the dark pixels; the lower almond rim is dropped). Both are cropped to the **same** eye bbox and placed with `noTrim`, so the lash stays anchored ABOVE the sclera center — on blink it folds DOWN over the eye (like the sample model) instead of the whole eye shrinking in place. This is deliberate: asking codex-image for a _separately clean_ sclera and lash is less reliable than splitting one lashed white deterministically.
+`eye_L/R` and `lash_L/R` both come from the **single** `eyewhite.png` — the composer's eye split divides it by luminance into a clean white sclera (the dark outline/lash recolored white = the clip-mask shape) and a dark **upper-lash** layer (only the top fraction of the dark pixels; the lower almond rim is dropped). Both are cropped to the **same** eye bbox and placed with `noTrim`, so the lash stays anchored ABOVE the sclera center — on blink it folds DOWN over the eye (like the sample model) instead of the whole eye shrinking in place. This is deliberate: asking codex-image for a _separately clean_ sclera and lash is less reliable than splitting one lashed white deterministically.
 
 ## Procedure
 
 ### Step 1 — Generate role-separated parts with codex-image
 
-Invoke the **codex-image** skill to generate the parts **in parallel** into a parts dir (e.g. `/tmp/iki-char/parts/`). Keep a **shared style descriptor** in every prompt so the parts read as one character (same hair color, eye color, line weight, flat anime cel-shading). Demand a **transparent background, front-facing, centered** part. (If a part comes back opaque-on-white instead of transparent, the composer's `keyWhiteToAlpha` fallback keys near-white to alpha — but transparent is better.)
+Invoke the **codex-image** skill to generate the parts **in parallel** into the parts dir (`iki-char/parts/`). Keep a **shared style descriptor** in every prompt so the parts read as one character (same hair color, eye color, line weight, flat anime cel-shading). Demand a **transparent background, front-facing, centered** part. (If a part comes back opaque-on-white instead of transparent, the composer's `keyWhiteToAlpha` fallback keys near-white to alpha — but transparent is better.)
 
 Prompt skeleton (fill `<STYLE>` consistently, e.g. "flat anime cel-shaded, soft lavender hair, blue eyes, clean line art"):
 
@@ -81,59 +82,69 @@ Prompt skeleton (fill `<STYLE>` consistently, e.g. "flat anime cel-shaded, soft 
 - **brow.png** — "A single anime eyebrow, `<STYLE>`. Transparent background, one brow only, gentle arch."
 - **hair_front.png** — "Front hair / bangs for an anime character, `<STYLE>`, framing an empty face from above. Transparent background, front layer only (no back hair, no face)."
 - **hair_back.png** — "Back hair silhouette for an anime character, `<STYLE>`, the mass of hair that falls behind the head and shoulders. Transparent background, no face, no bangs."
-- **mouth_open.png** — "The same anime mouth as `mouth.png` but open mid-speech, `<STYLE>`: parted lips, dark interior, a hint of teeth. Same width and line weight as the closed mouth. Transparent background, centered, nothing else." _(`LAYOUT` gives it the same `cx`/`w` as `mouth` and aligns the top lip, so draw it the same width.)_
+- **mouth_open.png** — "The same anime mouth as `mouth.png` but open mid-speech, `<STYLE>`: parted lips, dark interior, a hint of teeth. Same width and line weight as the closed mouth. Transparent background, centered, nothing else." _(The default layout gives it the same `cx`/`w` as `mouth` and aligns the top lip, so draw it the same width.)_
 - **body.png** — "Head-less shoulders and upper chest of an anime character, `<STYLE>`, front-facing, simple clothing. **NO head, NO neck stump, NO face** — the shoulder line and torso only. Transparent background, centered."
 
-Save each to the parts dir with the **exact filenames above** (`compose.cjs` expects them).
+Save each to the parts dir with the **exact filenames above** (`compose_layers_from_parts` expects them).
 
 ### Step 2 — Compose into canvas role layers
 
-Run the bundled composer (it lives next to this file):
+Call `compose_layers_from_parts` with the parts dir, the layers dir, and whatever
+`iki-char/layout.json` holds right now:
 
-```bash
-node ${CLAUDE_PLUGIN_ROOT}/skills/iki-character/compose.cjs <partsDir> <layersDir>
-# e.g. NODE_PATH=/tmp/iki-char/node_modules \
-#        node ${CLAUDE_PLUGIN_ROOT}/skills/iki-character/compose.cjs /tmp/iki-char/parts /tmp/iki-char/layers
+```jsonc
+{
+  "partsDir": "iki-char/parts",
+  "outDir": "iki-char/layers",
+  // the contents of iki-char/layout.json — `{}` until you tune something
+  "layout": {},
+}
 ```
 
-It alpha-trims, resizes, mirrors L/R, and pastes each part at its `LAYOUT` center on a shared `CANVAS`×`CANVAS` transparent canvas (1100 px), then writes role-named PNGs (`face.png`, `eye_L.png`, …) + a flattened `preview.png` to `<layersDir>`.
+It alpha-trims, resizes, mirrors L/R and pastes each part at its layout center on
+a shared transparent 1100×1100 canvas, writing role-named PNGs (`face.png`,
+`eye_L.png`, …) plus a flattened `preview.png` into `iki-char/layers/` — which
+must already exist, since the tool never creates it. The result carries the
+written layer paths and, inline, the geometry report — which encodes the failure
+modes that each cost a real regeneration round to find by eye
+(iris/sclera ratio, a sclera too flat to hold a round iris, an iris off the
+white's centre of mass, lash/sclera drift, art cut through by its own frame).
+Iterate until it reports `all geometry checks passed`.
 
-Then always run the geometry check — it encodes the failure modes that each
-cost a real regeneration round to find by eye (iris/sclera ratio, a sclera too
-flat to hold a round iris, an iris off the white's centre of mass, lash/sclera
-drift, art cut through by its own frame):
+**Read `preview.png`** to check alignment. The built-in default layout assumes
+the standard framing prompted above; if eyes/mouth/brows are off, edit
+`iki-char/layout.json` (per-role `cx`/`cy`/`w`, e.g. `{ "eye_L": { "cx": 660 } }`)
+and call the tool again — free, deterministic, and it does **not** re-bill, so
+iterate freely. Before you change any `w`, read the iris pitfall below: `eye_*`,
+`lash_*` and `iris_*` are four keys that have to move together.
 
-```bash
-node ${CLAUDE_PLUGIN_ROOT}/skills/iki-character/measure.cjs <layersDir>
-```
-
-Tune `LAYOUT` until it reports `all geometry checks passed`. It is free.
-
-**Read `preview.png`** to check alignment. The default `LAYOUT` assumes the standard framing prompted above; if eyes/mouth/brows are off, **edit the `LAYOUT` block at the top of `compose.cjs`** (cx/cy/w per role) and re-run. Composing is pure/deterministic and **does not** re-bill — iterate freely. Keep `iris` width smaller than the sclera opening so it sits inside before runtime clipping.
+`measure_layers` re-runs that same report over an existing layers dir
+(`{ "layersDir": "iki-char/layers" }`) — for re-checking a layer set you did not
+just compose.
 
 ### Step 3 — Auto-rig to a renderable `.iki` via MCP
 
-Call `auto_rig_from_layers` with the canvas role layers (full PNG paths) and an output path **under the launch cwd** ending in `.iki`. Input shape:
+Call `auto_rig_from_layers` with the layer paths `compose_layers_from_parts` returned (everything it wrote but `preview.png`) and an `outputPath` ending in `.iki` whose parent directory already exists. Input shape:
 
 ```jsonc
 {
   "layers": [
-    { "path": "/tmp/iki-char/layers/body.png" },
-    { "path": "/tmp/iki-char/layers/hair_back.png" },
-    { "path": "/tmp/iki-char/layers/face.png" },
-    { "path": "/tmp/iki-char/layers/eye_L.png" },
-    { "path": "/tmp/iki-char/layers/eye_R.png" },
-    { "path": "/tmp/iki-char/layers/iris_L.png" },
-    { "path": "/tmp/iki-char/layers/iris_R.png" },
-    { "path": "/tmp/iki-char/layers/lash_L.png" },
-    { "path": "/tmp/iki-char/layers/lash_R.png" },
-    { "path": "/tmp/iki-char/layers/mouth.png" },
-    { "path": "/tmp/iki-char/layers/mouth_open.png" },
-    { "path": "/tmp/iki-char/layers/brow_L.png" },
-    { "path": "/tmp/iki-char/layers/brow_R.png" },
-    { "path": "/tmp/iki-char/layers/hair_front.png" },
+    { "path": "iki-char/layers/body.png" },
+    { "path": "iki-char/layers/hair_back.png" },
+    { "path": "iki-char/layers/face.png" },
+    { "path": "iki-char/layers/eye_L.png" },
+    { "path": "iki-char/layers/eye_R.png" },
+    { "path": "iki-char/layers/iris_L.png" },
+    { "path": "iki-char/layers/iris_R.png" },
+    { "path": "iki-char/layers/lash_L.png" },
+    { "path": "iki-char/layers/lash_R.png" },
+    { "path": "iki-char/layers/mouth.png" },
+    { "path": "iki-char/layers/mouth_open.png" },
+    { "path": "iki-char/layers/brow_L.png" },
+    { "path": "iki-char/layers/brow_R.png" },
+    { "path": "iki-char/layers/hair_front.png" },
   ],
-  "outputPath": "iki-character.iki",
+  "outputPath": "iki-char/iki-character.iki",
   "quantizeColors": 256,
 }
 ```
@@ -142,14 +153,13 @@ Role is derived from the file basename (override per layer with `fileName` if ne
 
 `quantizeColors` palette-quantizes the atlas PNG. Flat-shaded art keeps its look at 256 colours and the model drops to about a quarter of its lossless size (the hero demo: 3.5MB → 0.9MB), which is what makes it loadable on a page. Leave it out while iterating on the art; put it in for the model you ship.
 
-Driving the **bin** over stdio when the server isn't registered (run from the dir you want the `.iki` in):
+Driving the **bin** over stdio when the server isn't registered — run it from the project dir, the same cwd the plugin's server has, so the `iki-char/…` paths resolve:
 
 ```bash
-cd /tmp/iki-char
 printf '%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"0"}}}' \
   '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
-  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"auto_rig_from_layers","arguments":{"layers":[...],"outputPath":"iki-character.iki"}}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"auto_rig_from_layers","arguments":{"layers":[...],"outputPath":"iki-char/iki-character.iki"}}}' \
   | node <iki-checkout>/packages/mcp/dist/cli.js
 ```
 
@@ -166,13 +176,11 @@ To feed the disk `.iki` to `load()`: vite blocks `/@fs/` for paths **outside the
 - **"NO iris" on the eyewhite is the flakiest prompt.** codex-image often paints an iris anyway. Generate **2–3 eyewhite variants** and pick the cleanest iris-free one; a leaked colored iris breaks `prepEyeSplit` (the luminance split would misclassify a dark/saturated iris as lash). If all variants leak, regenerate with a stronger negation ("empty white interior, absolutely no colored circle").
 - **The eyewhite must be a SOLID FILLED white almond, not an outline.** The first generation often comes back as a thin line-art ring with a transparent interior — useless as a clip mask. Demand "SOLID FILLED pure-white almond, the entire interior painted opaque white". The blink-fold also reads best when the **upper lash is the boldest dark element**; a heavy full-almond outline still works (the split keeps only the top fraction as the lash via `LASH_KEEP_FRACTION`), but a clean white with a distinct top lash folds most cleanly.
 - **The face base must have NO eyes and NO mouth.** A face with baked eyes can't blink/gaze (the eye stack would double up). Re-prompt until the eye/mouth sockets are bare skin.
-- **Size the iris off the sclera, not by eye.** `LAYOUT` derives `IRIS_W` from `EYE_W` (0.56 on the hero; the reference measured 0.70–0.73, anything under ~0.45 reads as a bead); keep the ratio when retuning `EYE_W`. The auto-rig clips iris→sclera at runtime, so a big iris cannot spill — the real failure is the opposite one, and it already shipped: the first generated sample had an iris 32% of the sclera width and read as a bead floating in white.
+- **Size the iris off the sclera, not by eye.** The default layout sizes the iris at 0.5625 of the sclera width (the reference measured 0.70–0.73; anything under ~0.45 reads as a bead). `lash_L`/`lash_R.w` are separate keys that merely default to the same width, so an override of `eye_L`/`eye_R.w` must set all four, plus a matching `iris_L`/`iris_R.w` — otherwise the geometry report flags the lash drift, the iris ratio, or both. The auto-rig clips iris→sclera at runtime, so a big iris cannot spill — the real failure is the opposite one, and it already shipped: the first generated sample had an iris 32% of the sclera width and read as a bead floating in white.
 - **Opaque-on-white parts** are handled by `keyWhiteToAlpha` (keys >238 RGB to alpha), but transparent output is cleaner — ask for it. White-rimmed parts (e.g. a white highlight on the iris) can be clipped by the key; prefer transparent generation for those.
-- **MCP output is cwd-confined.** `auto_rig_from_layers` rejects an `outputPath` that escapes the launch cwd (must end in `.iki`, realpath-checked, atomic rename). Launch the bin from where you want the file.
 - **Style drift across parts.** Independent generations can mismatch hue/line-weight. Keep one `<STYLE>` string identical across every prompt; regenerate the outlier, not the whole set.
-- **Composer needs `sharp`, which is not a repo dep.** Don't `pnpm add sharp` to a workspace package — install it ad hoc in the scratch dir (or use `@ikijs/mcp`'s copy). sharp stays confined to `@ikijs/mcp` in the repo.
-- **Don't commit generated character art or reference models — and don't derive art from one.** Generated PNGs and any reference model (e.g. Hiyori) are scratch/gitignored; keep them out of the repo. Studying a sample's _rig_ is fine: load it in its own runtime, watch how its turn reads, build our own bend to match the technique — that is observing rendered output and applying a method. Feeding its _art_ to codex-image is not: the generated character then carries that character's design. Hiyori's per-character terms forbid that — no changes of any kind to the design — and the Free Material Agreement counts it as 流用, diverting the material into models made with third-party software. `.gitignore` stops distribution, not derivation. This slice ships the **skill + composer only**.
+- **Don't commit generated character art or reference models — and don't derive art from one.** The workdir sits inside the project, so `.gitignore` is the only thing keeping it out of the repo: the `iki` repo ignores `iki-char/` and `Hiyori/`; in any other project, add `iki-char/` before the first run. Keep every generated PNG and `.iki` under it — written anywhere else, they land in a commit. Studying a sample's _rig_ is fine: load it in its own runtime, watch how its turn reads, build our own bend to match the technique — that is observing rendered output and applying a method. Feeding its _art_ to codex-image is not: the generated character then carries that character's design. Hiyori's per-character terms forbid that — no changes of any kind to the design — and the Free Material Agreement counts it as 流用, diverting the material into models made with third-party software. `.gitignore` stops distribution, not derivation. The plugin ships the **skill and its prompts** — no art.
 
 ## What this skill does NOT change
 
-No `@ikijs/*` source changes — this is a skill + a standalone composer script. No changeset. The capability (`auto_rig_from_layers`, the role table, blink-fold/gaze/brow rigging) already shipped in earlier slices; this skill only orchestrates them.
+No engine or format changes — this is prompts and procedure. The composer and the geometry checks ship in `@ikijs/mcp` (`compose_layers_from_parts`, `measure_layers`) beside the capability that already shipped in earlier slices (`auto_rig_from_layers`, the role table, blink-fold/gaze/brow rigging); the plugin pins that server at `^0.4.0` in `.mcp.json` and calls the tools. No changeset — the plugin is not an npm package.

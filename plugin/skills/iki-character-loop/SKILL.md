@@ -37,10 +37,10 @@ defects are not art defects. From one real session, six defects:
 
 | Defect                        | Actual cause                     | Regeneration fixes it? |
 | ----------------------------- | -------------------------------- | ---------------------- |
-| Iris reads as a bead in white | `compose.cjs` iris constant      | no                     |
+| Iris reads as a bead in white | the composer's iris ratio        | no                     |
 | Head slides off the shoulders | auto-rig `translateX` binding    | no                     |
 | Brows invisible               | draw order vs. hairstyle         | no                     |
-| Lash misaligned from sclera   | a careless `LAYOUT` edit         | no                     |
+| Lash misaligned from sclera   | a careless `layout.json` edit    | no                     |
 | Straight seam on head turn    | art cut through by its own frame | yes                    |
 | Photoreal iris on a flat face | art style drift                  | yes                    |
 
@@ -72,10 +72,22 @@ Prefer them, and let the artist exhaust them before spending on generation.
 
 ## Procedure
 
-### Step 0 — references
+### Step 0 — workdir and references
 
-Generate 2–3 candidates with the **codex-image** skill and let the user pick, or
-accept a reference the user supplies. It must be a single front-facing character
+`<workdir>` is `iki-char/` **inside the project directory** — build its tree
+before anything else. Every compose and rig call goes through the MCP server,
+which confines what it writes to its own cwd, so a `/tmp` workdir fails all of
+them; the compose tool never creates directories, and `gen-parts.sh` dies on a
+missing parts dir. The `iki` repo ignores `iki-char/`; in any other project add
+it to `.gitignore` before the first run, or the generated art lands in a commit.
+
+```bash
+mkdir -p iki-char/parts iki-char/layers
+echo '{}' > iki-char/layout.json
+```
+
+Now generate 2–3 reference candidates with the **codex-image** skill and let the
+user pick, or accept a reference the user supplies. It must be a single front-facing character
 in the target style. Then generate one image of the SAME character at roughly
 3/4 view — a head turn judged against a front-facing drawing has no target. Keep
 them at `<workdir>/reference.png` and `<workdir>/reference-34.png`; both are

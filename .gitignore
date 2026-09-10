@@ -13,3 +13,6 @@ coverage
 
 # Live2D reference model (licensed — local study reference only, never commit)
 Hiyori/
+
+# Character-generation workdir (the iki-character skill composes and rigs here — generated art, never committed)
+iki-char/
