@@ -23,6 +23,10 @@ set -u -o pipefail
 
 readonly MAX_PARALLEL=5
 
+# Account-gated: a model slug your plan does not carry returns a 400, not a
+# fallback. Override when this default is not available to you.
+CODEX_IMAGE_MODEL="${CODEX_IMAGE_MODEL:-gpt-5.6-luna}"
+
 die() { echo "[error] $*" >&2; exit 1; }
 
 [ $# -ge 3 ] || die "usage: gen-parts.sh <reference.png> <work_dir> \"<prompt>::<out.png>\" [more...]"
@@ -69,11 +73,14 @@ run_one() {
   # tokens of engine layering rules to draw one eyeball, x10 jobs.
   # model_reasoning_effort=low: the model's job is to call the image tool, not to
   # reason; low is gpt-6-astra's own default, which ~/.codex/config.toml overrides.
+  # Model is overridable because models are account-gated — a slug your plan does
+  # not carry comes back as a 400, not a fallback.
   codex exec \
     --sandbox workspace-write \
     --skip-git-repo-check \
     -c project_doc_max_bytes=0 \
     -c model_reasoning_effort=low \
+    -m "$CODEX_IMAGE_MODEL" \
     --cd "$work_dir" \
     -i "$ref" \
     -o "$log_dir/$tag.md" \
