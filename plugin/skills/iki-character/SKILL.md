@@ -39,10 +39,10 @@ The hard part is **getting clean role-separated parts out of codex-image** (an e
   pnpm --filter @ikijs/mcp build   # in an iki checkout: produces packages/mcp/dist/cli.js
   ```
   then send JSON-RPC `tools/call` frames to that process (see Step 3). Either way the tools **confine everything they write to the server's cwd** (realpath-checked, atomic rename), so the MCP server's cwd — or the dir you launch the bin from — is where the layers and the model can be written.
-- **A scratch workdir inside that cwd**, `iki-char/`, holding `parts/` (the generated part PNGs), `layers/` (the composed role layers), `layout.json` (the per-role placement overrides, starting as `{}`) and the finished `.iki`. Create it up front. Every example below uses these paths.
+- **A scratch workdir inside that cwd**, `iki-char/`, holding `parts/` (the generated part PNGs), `layers/` (the composed role layers), `layout.json` (the per-role placement overrides, starting as `{}` the first time) and the finished `.iki`. Create it up front — but only seed `layout.json` if it is not already there, so re-running this skill in a workdir you already tuned (Step 2) does not throw that tuning away; the workdir is gitignored, so there is no repository copy to recover it from. Every example below uses these paths.
   ```bash
   mkdir -p iki-char/parts iki-char/layers
-  echo '{}' > iki-char/layout.json
+  [ -f iki-char/layout.json ] || echo '{}' > iki-char/layout.json
   ```
 
 ## The role set this skill generates (full-expression default)

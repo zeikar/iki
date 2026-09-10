@@ -83,16 +83,22 @@ it to `.gitignore` before the first run, or the generated art lands in a commit.
 
 ```bash
 mkdir -p iki-char/parts iki-char/layers
-echo '{}' > iki-char/layout.json
+[ -f iki-char/layout.json ] || echo '{}' > iki-char/layout.json
 ```
 
-Now generate 2–3 reference candidates with the **codex-image** skill and let the
-user pick, or accept a reference the user supplies. It must be a single front-facing character
+The `layout.json` line only seeds the file when it is missing, so re-entering
+or restarting the loop keeps the tuning you already paid for — the workdir is
+gitignored, so an overwrite here has no repository copy to recover it from.
+
+If `<workdir>/reference.png` and `reference-34.png` already exist (a restart),
+reuse them and skip straight to Step 1 — do not regenerate. Otherwise, generate
+2–3 reference candidates with the **codex-image** skill and let the user pick,
+or accept a reference the user supplies. It must be a single front-facing character
 in the target style. Then generate one image of the SAME character at roughly
 3/4 view — a head turn judged against a front-facing drawing has no target. Keep
 them at `<workdir>/reference.png` and `<workdir>/reference-34.png`; both are
 frozen, because everything is judged against them and changing either mid-loop
-invalidates every prior score.
+or on a restart invalidates every prior score.
 
 ### Step 1 — round
 
