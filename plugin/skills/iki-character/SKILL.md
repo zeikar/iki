@@ -32,7 +32,12 @@ The hard part is **getting clean role-separated parts out of codex-image** (an e
 
 ## Prerequisites
 
-- **An image generator** for Step 1. The **codex-image skill** is the one these prompts were tuned against (it shells out to `codex exec` with the built-in `image_generation` tool; **billed, takes minutes**, supports background-parallel generation) — confirm the user is OK spending on generation before starting. Anything that returns transparent, role-separated PNGs works; the prompts below are the substance, the driver is not.
+- **An image generator** for Step 1. `gen-parts.sh` next to this file is the driver these prompts were tuned against: it shells out to `codex exec` with the built-in `image_generation` tool, attaches the reference to every job, and runs up to five at once. **Billed, minutes per image** — confirm the user is OK spending before starting. Anything that returns transparent, role-separated PNGs works; the prompts below are the substance, the driver is not.
+
+  Jobs run on **`gpt-5.6-luna` at `model_reasoning_effort=low`** — the model only has to call the image tool, so depth buys nothing. Model slugs are **account-gated**: one your plan does not carry comes back as a `400`, not a fallback, so override with `CODEX_IMAGE_MODEL=<slug>` if that default is not yours. The script also passes `project_doc_max_bytes=0`, because the workdir sits inside the project and codex would otherwise inject the repo's `AGENTS.md` and `README.md` into every drawing job.
+
+  **You cannot check quota up front.** `codex login status` reports authentication only — identical output before and after the limit is hit. A refused job exits non-zero with `You've hit your usage limit` and a reset time in its log, so on a big set fire one job and read it before firing the rest.
+
 - **The three tools this skill needs** reachable: `compose_layers_from_parts` (Step 2), `measure_layers` (the same geometry checks on their own) and `auto_rig_from_layers` (Step 3). The plugin bundles the server (`.mcp.json` → `npx -y @ikijs/mcp`), so they are normally already in the tool list, plugin-scoped as `mcp__plugin_iki_iki__compose_layers_from_parts`, `mcp__plugin_iki_iki__measure_layers` and `mcp__plugin_iki_iki__auto_rig_from_layers` — look before doing anything else. When they are absent (server disabled) or you are developing `packages/mcp` and want the working-tree build, drive the **bin** over stdio instead:
   ```bash
   npx -y @ikijs/mcp                # standalone
