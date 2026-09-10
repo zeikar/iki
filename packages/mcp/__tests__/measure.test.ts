@@ -202,7 +202,7 @@ describe("measureLayers", () => {
     expect(warned(result.warnings, /lash_L: centre is 3\.0 px/)).toBe(true);
   });
 
-  it("separates a canvas-clipped edge from art that runs to its own frame", async () => {
+  it("names the free move for a flush edge and the redraw for a cropped one", async () => {
     const dir = tmpDir();
     await writeEyeStack(dir);
     // Flush against the canvas top: margin 0 is what a clipped placement leaves.
@@ -214,8 +214,10 @@ describe("measureLayers", () => {
     const w = result.warnings.find((x) =>
       /^hair_front: .* top edge is opaque/.test(x),
     );
-    expect(w).toMatch(/the placement pushed it past the canvas top/);
-    expect(w).not.toMatch(/regenerate/);
+    expect(w).toMatch(/sits flush against the canvas top/);
+    expect(w).toMatch(/Move it inward first/);
+    // The billed remedy is named only as the fallback, never as the diagnosis.
+    expect(w).toMatch(/regenerate only if/);
   });
 
   it("tolerates a lash whose ink is asymmetric inside a shared frame", async () => {

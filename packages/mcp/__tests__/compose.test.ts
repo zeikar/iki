@@ -405,7 +405,7 @@ describe("composeLayersFromParts", () => {
     expect(digest(dir)).toEqual(before);
   });
 
-  it("blames the placement, not the art, when the canvas clips a part", async () => {
+  it("sends a canvas-clipped part to the free move before any regeneration", async () => {
     // The shipped default did exactly this on a real character: the source keeps
     // its margin and the layout pushes the crown off the canvas top.
     const r = await composeOk({
@@ -417,10 +417,9 @@ describe("composeLayersFromParts", () => {
     const w = r.measure.warnings.find((x) =>
       /^hair_front: .* top edge is opaque/.test(x),
     );
-    expect(w).toMatch(/the placement pushed it past the canvas top/);
+    expect(w).toMatch(/sits flush against the canvas top/);
     expect(w).toMatch(/retune layout\.hair_front\.cx\/cy\/w/);
-    expect(w).toMatch(/redrawing the part will reproduce this/);
-    expect(w).not.toMatch(/regenerate/);
+    expect(w).toMatch(/remeasure; regenerate only if/);
   });
 
   it("stretches a role to an explicit h and leaves the rest on their aspect", async () => {

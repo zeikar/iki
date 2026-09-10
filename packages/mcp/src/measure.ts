@@ -253,8 +253,14 @@ export async function measureDir(absDir: string): Promise<MeasureReport> {
       if (v > EDGE_SOLID_MAX && v * span >= EDGE_RUN_MIN_PX) {
         const remedy =
           margin === 0
-            ? `the placement pushed it past the canvas ${side} — retune layout.${role}.cx/cy/w. Free, and ` +
-              `redrawing the part will reproduce this.`
+            ? // margin 0 is consistent with a clipped placement AND with art
+              // already cropped flush that happens to sit on the boundary, and
+              // the flattened layer cannot separate them — so name the free
+              // move rather than the cause. If moving it inward leaves the
+              // edge opaque, the drawing is the one at fault.
+              `it sits flush against the canvas ${side}, which a clipped placement and already-cropped ` +
+              `art both produce. Move it inward first — retune layout.${role}.cx/cy/w, free — and ` +
+              `remeasure; regenerate only if the edge is still opaque with margin to spare.`
             : `its own drawing runs to the frame ${margin} px inside the canvas — regenerate that part ` +
               `with empty margin on that side. Billed.`;
         warnings.push(
