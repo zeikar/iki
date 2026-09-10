@@ -64,9 +64,16 @@ run_one() {
   local idx=$1 prompt=$2 output=$3
   local tag; tag=$(printf '%03d' "$idx")
 
+  # project_doc_max_bytes=0: the workdir lives inside the iki repo, so without
+  # this codex walks up and injects AGENTS.md + README.md into every job — ~19k
+  # tokens of engine layering rules to draw one eyeball, x10 jobs.
+  # model_reasoning_effort=low: the model's job is to call the image tool, not to
+  # reason; low is gpt-6-astra's own default, which ~/.codex/config.toml overrides.
   codex exec \
     --sandbox workspace-write \
     --skip-git-repo-check \
+    -c project_doc_max_bytes=0 \
+    -c model_reasoning_effort=low \
     --cd "$work_dir" \
     -i "$ref" \
     -o "$log_dir/$tag.md" \
