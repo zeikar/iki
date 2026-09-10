@@ -60,12 +60,16 @@ That is why the caps below are not optional, and why the critic is asked to call
 ## Cost
 
 Every `regenerate` is a billed `codex exec` taking minutes. A full part set is
-9 parts × 2 variants = 18 jobs. **Check the quota before starting** — a run that
-dies halfway leaves a half-updated parts dir:
+9 parts × 2 variants = 18 jobs.
 
-```bash
-codex login status
-```
+**You cannot check the quota up front.** `codex login status` reports
+authentication and nothing else — its output is byte-identical before and after
+the limit is hit — so no precheck stops a run from dying halfway and leaving a
+half-updated parts dir. Quota is only observable by attempting a generation: a
+refused job exits non-zero and its log carries `You've hit your usage limit`
+and a reset time. So fire ONE job and read its result before firing the rest —
+a limit hit there costs one job instead of a batch, and the reset time is what
+you hand back to the user.
 
 `retune` rounds cost nothing: composing and measuring are pure local computation.
 Prefer them, and let the artist exhaust them before spending on generation.
@@ -102,9 +106,19 @@ or on a restart invalidates every prior score.
 
 ### Step 1 — round
 
-1. Dispatch **iki-character-artist** with `reference` (the front view only —
-   `gen-parts.sh` attaches it to every job), `workdir`, `round`, and the
-   critic's findings (none on round 1). It returns a rigged `.iki`.
+1. Dispatch **`iki:iki-character-artist`** with `reference` (the front view
+   only — `gen-parts.sh` attaches it to every job), `workdir`, `round`, and the
+   critic's findings (none on round 1). Both agents ship inside this plugin, so
+   the dispatch name carries its namespace; a bare `iki-character-artist` does
+   not resolve.
+
+   **Expect several dispatches per round.** Generation runs as backgrounded
+   jobs and a subagent cannot wait on them, so the artist returns while the
+   batch is still in flight. That is not a failed round: wait for the parts to
+   land, then resume the SAME agent — it holds the round's context — rather
+   than dispatching a fresh one. If it returns reporting a usage limit instead,
+   the round is over: take the reset time and go to Step 2.
+
 2. **Render it yourself.** Load the artist's `.iki` through the Model picker's
    "Load a .iki file…" entry — the same on both paths; only the load order and
    how you address parameters (id vs. panel label) differ.
@@ -144,7 +158,7 @@ or on a restart invalidates every prior score.
    were judged against a head turned nine degrees.
    Rendering stays with you because the Playwright browser is a single shared
    resource; two agents driving it collide.
-3. Dispatch **iki-character-critic** with `reference`, `reference-34`, `layers`,
+3. Dispatch **`iki:iki-character-critic`** with `reference`, `reference-34`, `layers`,
    `renders` (the render paths), `round` and `scores` (the previous rounds'
    `SCORES:` lines). It returns scores and typed findings.
 4. Route: `regenerate` and `retune` go back to the artist. Handle `escalate`
@@ -180,5 +194,5 @@ head-turn sideways travel already needed this treatment once. Treat a repeated
 - Use a licensed sample model's art as a reference — see the iki-character
   pitfalls.
 - Regenerate the whole part set because one part is wrong.
-- Run the loop when `codex login status` reports the quota exhausted — it will
-  fail every generation job in seconds and burn rounds doing nothing.
+- Treat `codex login status` as a quota check. It reports authentication only —
+  see Cost for what a refused job actually looks like.

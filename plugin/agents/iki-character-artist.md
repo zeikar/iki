@@ -77,6 +77,14 @@ the prompt patterns and the hard-won pitfalls. Then:
 
    This attaches the reference to every job so the parts share one anchor.
 
+   The jobs run in the background and you cannot wait on them, so you will
+   return with the batch still in flight — say so and let the orchestrator
+   resume you once the parts land. If a job is refused for quota (non-zero
+   exit, `You've hit your usage limit` in its log), **stop the round**: report
+   the reset time and what did land. Do not set timers and re-check until the
+   quota returns — you would burn the round's tokens producing nothing, and the
+   orchestrator owns the decision to wait, stop, or fall back.
+
 2. **Compose:** call `compose_layers_from_parts` with
    `partsDir: <workdir>/parts`, `outDir: <workdir>/layers`, and `layout` set to
    the contents of `<workdir>/layout.json`.
@@ -133,5 +141,6 @@ RETUNED: <layout.json keys changed, old -> new>
 MEASURE: <"all geometry checks passed", or the remaining warnings and why>
 MODEL: <path to the rigged .iki>
 ESCALATED: <critic findings you did not act on, verbatim, or "none">
+BLOCKED: <"none", or what stopped the round — for a usage limit, the reset time>
 NOTES: <anything the orchestrator should know>
 ```
