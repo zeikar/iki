@@ -99,10 +99,28 @@ invalidates every prior score.
 1. Dispatch **iki-character-artist** with `reference` (the front view only —
    `gen-parts.sh` attaches it to every job), `workdir`, `round`, and the
    critic's findings (none on round 1). It returns a rigged `.iki`.
-2. **Render it yourself.** This loop needs an **`iki` checkout**: the playground
-   and the `iki-visual-test` skill it drives live in the repo, not in this
-   plugin. Copy the model to `examples/playground/public/<name>.iki`, load it via
-   the **iki-visual-test** skill, and screenshot at least: rest, head-turn (`ParamAngleX` near its
+2. **Render it yourself.** Load the artist's `.iki` through the Model picker's
+   "Load a .iki file…" entry — the same on both paths; only the load order and
+   how you address parameters (id vs. panel label) differ.
+   **Standalone (default):** open https://zeikar.dev/iki/playground/
+   (Playwright MCP) and **uncheck Idle before loading anything** — `load()`
+   resets every parameter to its default, and idle only restarts if the
+   checkbox is still checked at load time, so unchecking first is what makes
+   the rest screenshot genuine. Unchecking Idle _after_ loading is too late:
+   idle has already written a live pose by then, and this build has no
+   `reset()` to undo it. With Idle off, open the Model select, choose the
+   trigger entry, and pick the model's **absolute** path (`browser_file_upload`
+   requires one — e.g. the absolute path to `<workdir>/iki-character.iki`).
+   The panel's sliders carry no `id`/`data-*`, only each parameter's label
+   (`ParamAngleX` = "Head Angle", `ParamAngleY` = "Head Angle Y",
+   `ParamEyeLOpen` = "Eye L", `ParamEyeBallX` = "Gaze X"), so find the
+   `.control` block whose label matches, set that block's `input[type=range]`
+   value, and dispatch an `input` event (`browser_evaluate`).
+   **Inside an `iki` checkout:** `pnpm playground`, load the same file through
+   the same picker, then drive `window.__iki.setParam` / `reset` / `nextFrame`
+   by id per the **iki-visual-test** skill (repo-local, not part of this
+   plugin).
+   Either way, screenshot at least: rest, head-turn (`ParamAngleX` near its
    limit), blink (`ParamEyeLOpen` ≈ 0), gaze (`ParamEyeBallX` near its limit),
    and the poses **midway between the rig's keyform stops** on each moving axis
    — the stops sit 15° apart, so that is `ParamAngleX` at 7.5 and at 22.5,
@@ -111,11 +129,13 @@ invalidates every prior score.
    front-facing screenshot hides; the between-stop poses expose interpolation
    defects that the endpoint shots miss (the engine blends linearly between
    authored keyforms), so both sets need looking at.
-   **The rest shot must be untouched**: `reset()` and screenshot, nothing set
-   afterwards. Every proportion the critic measures is measured against it, so a
-   flattering hero pose saved as `rest.png` silently invalidates the whole round
-   — that has already happened once, and two rounds of "it looks like the
-   reference" were judged against a head turned nine degrees.
+   **The rest shot must be untouched**: standalone, that means Idle was
+   already off before the model loaded and no slider has been touched since;
+   in a checkout, `reset()` and screenshot, nothing set afterwards. Every
+   proportion the critic measures is measured against it, so a flattering
+   hero pose saved as `rest.png` silently invalidates the whole round — that
+   has already happened once, and two rounds of "it looks like the reference"
+   were judged against a head turned nine degrees.
    Rendering stays with you because the Playwright browser is a single shared
    resource; two agents driving it collide.
 3. Dispatch **iki-character-critic** with `reference`, `reference-34`, `layers`,

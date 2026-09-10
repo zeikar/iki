@@ -28,7 +28,7 @@ The hard part is **getting clean role-separated parts out of codex-image** (an e
 
 - The user already has layered art (PNG layers or a PSD) → use the editor's "Import layer set" / PSD import path (`examples/editor`), not generation.
 - The user wants engine/format/rig _capability_ work (new deformer, new role, blink mechanics) → that's a normal code slice, not this skill.
-- The user wants to tweak an existing `.iki`'s parameters/poses → drive the playground (`iki-visual-test`), don't regenerate.
+- The user wants to tweak an existing `.iki`'s parameters/poses → open the playground and drive it directly (deployed, via the Model picker; in a checkout, via `iki-visual-test`), don't regenerate.
 
 ## Prerequisites
 
@@ -165,11 +165,46 @@ printf '%s\n' \
 
 ### Step 4 — Render-verify
 
-Load the `.iki` in the playground and confirm it renders + animates. This step needs an **`iki` checkout** — the playground and the `iki-visual-test` skill it drives live in the repo, not in this plugin. Without one, load the model in whatever viewer embeds `@ikijs/engine` and drive the same parameters. In the repo, use the **iki-visual-test** skill: `pnpm playground`, then `window.__iki.load(<model>)`, drive `ParamEyeLOpen`/`ParamEyeROpen` (blink-fold), `ParamEyeBallX/Y` (gaze), `ParamMouthOpenY`/`ParamMouthForm`, `ParamAngleX`/`ParamAngleY`/`ParamAngleZ` (turn / nod / tilt), `ParamBrowLY`/`RY`/`LAngle`/`RAngle` (expression), and screenshot before/after. A clean console (no `IkiFormatError`/WebGL error) plus visibly-driving parameters = success.
+Load the `.iki` and confirm it renders + animates. Both paths use the Model
+picker's "Load a .iki file…" entry to load it and drive the same parameters —
+only the load order and how you address them (id vs. panel label) differ.
 
-`ParamHairSwayX`/`ParamHairSwayZ` are physics OUTPUTS: the springs write them, so do not judge the hair with `reset()` + `setParam` — physics only advances inside the playground's idle loop. Turn idle on and watch, or set the sway parameters directly to see the root-pinned swing shape.
+**Standalone (default):** open https://zeikar.dev/iki/playground/ (Playwright
+MCP or a normal browser) and **uncheck Idle before loading anything** —
+`load()` resets every parameter to its default, and idle only restarts if the
+checkbox is still checked at load time, so unchecking first is what makes the
+rest screenshot genuine. Unchecking Idle _after_ loading is too late: idle has
+already written a live pose (angle, gaze, breath) into the parameters by then,
+and this build has no `reset()` to undo it. With Idle off, open the Model
+select, choose the trigger entry, and pick the model's **absolute** path
+(`browser_file_upload` requires one — the relative `iki-char/iki-character.iki`
+will not resolve). The panel's sliders carry no `id`/`data-*`, only each
+parameter's friendly label, so drive it **by label**: find the `.control`
+block whose label text matches, set that block's `input[type=range]` value,
+and dispatch an `input` event (`browser_evaluate`), then screenshot
+before/after.
 
-To feed the disk `.iki` to `load()`: vite blocks `/@fs/` for paths **outside the workspace root** (a `/tmp/...` model 403s), so copy the `.iki` into the playground's `public/` (`examples/playground/public/<name>.iki`, served at `/<name>.iki`) and `fetch` it with a cache-buster (`?t=Date.now()`), then `await res.json()`. Remove the temp `public/` file afterward (it is not part of the slice).
+| id                                                                    | panel label                                                  |
+| --------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `ParamEyeLOpen` / `ParamEyeROpen`                                     | Eye L / Eye R (blink-fold)                                   |
+| `ParamEyeBallX` / `ParamEyeBallY`                                     | Gaze X / Gaze Y                                              |
+| `ParamMouthOpenY` / `ParamMouthForm`                                  | Mouth Open / Mouth Form                                      |
+| `ParamAngleX` / `ParamAngleY` / `ParamAngleZ`                         | Head Angle / Head Angle Y / Head Angle Z (turn / nod / tilt) |
+| `ParamBrowLY` / `ParamBrowRY` / `ParamBrowLAngle` / `ParamBrowRAngle` | Brow L Y / Brow R Y / Brow L Angle / Brow R Angle            |
+
+A clean console (no `IkiFormatError`/WebGL error) plus visibly-driving
+parameters = success.
+
+**Inside an `iki` checkout:** `pnpm playground`, load the file through the same
+picker, then drive `window.__iki.setParam` / `reset` / `nextFrame` by id per
+the **iki-visual-test** skill (repo-local, not part of this plugin) — same
+parameters and success criterion as above.
+
+`ParamHairSwayX`/`ParamHairSwayZ` (panel label "Hair Sway X"/"Hair Sway Z") are
+physics OUTPUTS: the springs write them, so do not judge the hair from a
+frozen pose — physics only advances inside the playground's idle loop.
+Recheck Idle and watch, or drive the sway parameters directly — `setParam` in
+a checkout, the panel slider standalone — to see the root-pinned swing shape.
 
 ## Pitfalls (hard-won — read before generating)
 

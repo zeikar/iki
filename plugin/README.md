@@ -43,13 +43,6 @@ separate setup.
   transparent, role-separated PNGs works. Generation is billed and takes
   minutes.
 
-## Known limits
-
-- **Render verification needs an [`iki`](https://github.com/zeikar/iki)
-  checkout.** The last step loads the model in the repo's playground via the
-  repo-local `iki-visual-test` skill. Standalone, load the `.iki` in your own
-  viewer and drive the same parameters.
-
 ## Versioning
 
 `.mcp.json` pins the server to a compatible `@ikijs/mcp` range. The skills
