@@ -16,7 +16,7 @@ import sharp from "sharp";
  */
 
 type RGB = [number, number, number];
-type SetPixel = (x: number, y: number, rgb: RGB) => void;
+type SetPixel = (x: number, y: number, rgb: RGB, alpha?: number) => void;
 
 const WHITE: RGB = [255, 255, 255];
 const DARK: RGB = [20, 20, 30];
@@ -34,12 +34,12 @@ async function writeRgbaPart(
   paint: (set: SetPixel) => void,
 ): Promise<void> {
   const buf = Buffer.alloc(width * height * 4); // all transparent (alpha 0)
-  const set: SetPixel = (x, y, rgb) => {
+  const set: SetPixel = (x, y, rgb, alpha = 255) => {
     const i = (y * width + x) * 4;
     buf[i] = rgb[0];
     buf[i + 1] = rgb[1];
     buf[i + 2] = rgb[2];
-    buf[i + 3] = 255;
+    buf[i + 3] = alpha;
   };
   paint(set);
   await sharp(buf, { raw: { width, height, channels: 4 } })
@@ -135,7 +135,41 @@ const blobPart =
 const PARTS: Record<string, (dir: string) => Promise<void>> = {
   "hair_back.png": blobPart("hair_back.png", 120, 90, 100, 70, HAIR),
   "body.png": blobPart("body.png", 120, 80, 100, 60, DARK),
-  "face.png": blobPart("face.png", 100, 120, 80, 100, SKIN),
+  // The face carries a drawn nose — a dark stroke on the centre line between
+  // the eye row (the ellipse's middle) and the mouth — for the composer's nose
+  // cut to find. `plainFace` leaves it off; `shaded` grades the skin across
+  // 52 levels INSIDE the cut's search window (rows 60–90 between the eye row
+  // and the mouth, or the 18 columns between the eyes), the kind of shading a
+  // generator paints and the cut must not mistake for ink; `translucentNose`
+  // draws the stroke at half alpha.
+  "face.png": (dir) =>
+    writeRgbaPart(dir, "face.png", 100, 120, (set) => {
+      const grade = (t: number): RGB =>
+        SKIN.map((c) =>
+          Math.max(
+            0,
+            Math.min(255, c + Math.round(Math.max(-1, Math.min(1, t)) * 26)),
+          ),
+        ) as RGB;
+      const skinAt = (x: number, y: number): RGB =>
+        shaded === "vertical"
+          ? grade((y - 75) / 15)
+          : shaded === "horizontal"
+            ? grade((x - 50) / 9)
+            : SKIN;
+      for (let y = 0; y < 120; y++) {
+        for (let x = 0; x < 100; x++) {
+          const u = (x + 0.5 - 50) / 40;
+          const v = (y + 0.5 - 60) / 50;
+          if (u * u + v * v <= 1) set(x, y, skinAt(x, y));
+        }
+      }
+      if (plainFace) return;
+      for (let y = 66; y < 79; y++) {
+        for (let x = 49; x < 52; x++)
+          set(x, y, DARK, translucentNose ? 128 : 255);
+      }
+    }),
   "eyewhite.png": (dir) =>
     writeRgbaPart(dir, "eyewhite.png", 72, 48, (set) => {
       const bounds = { width: 72, height: 48 };
@@ -157,15 +191,36 @@ const PARTS: Record<string, (dir: string) => Promise<void>> = {
   "mouth_open.png": blobPart("mouth_open.png", 40, 24, 20, 14, LIP),
 };
 
-/** Write the whole parts set into `dir`, minus any file named in `omit`. */
+/** Set while the face is written; see PARTS["face.png"]. */
+let plainFace = false;
+let shaded: "vertical" | "horizontal" | false = false;
+let translucentNose = false;
+
+/** Write the whole parts set into `dir`, minus any file named in `omit`; with
+ *  `plainFace` the face has no drawn nose, with `shaded` its skin is graded
+ *  top to bottom, with `translucentNose` the nose stroke is half-transparent. */
 export async function writePartsSet(
   dir: string,
-  opts: { omit?: string[] } = {},
+  opts: {
+    omit?: string[];
+    plainFace?: boolean;
+    shaded?: "vertical" | "horizontal";
+    translucentNose?: boolean;
+  } = {},
 ): Promise<void> {
   fs.mkdirSync(dir, { recursive: true });
   const omit = new Set(opts.omit ?? []);
-  for (const [name, write] of Object.entries(PARTS)) {
-    if (omit.has(name)) continue;
-    await write(dir);
+  plainFace = opts.plainFace ?? false;
+  shaded = opts.shaded ?? false;
+  translucentNose = opts.translucentNose ?? false;
+  try {
+    for (const [name, write] of Object.entries(PARTS)) {
+      if (omit.has(name)) continue;
+      await write(dir);
+    }
+  } finally {
+    plainFace = false;
+    shaded = false;
+    translucentNose = false;
   }
 }

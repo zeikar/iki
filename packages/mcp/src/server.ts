@@ -146,7 +146,7 @@ export function createIkiMcpServer(): McpServer {
     "compose_layers_from_parts",
     {
       description:
-        "Composes AI-generated part PNGs into canvas-aligned, role-named PNG layers on disk, ready for auto_rig_from_layers (the eyewhite split, alpha-trim/white-key, and placement pipeline the character-generation skill needs), with the same geometry report measure_layers returns standalone included inline. face, mouth, eyewhite, iris, brow, hair_front are required; hair_back, body, mouth_open are optional.",
+        "Composes AI-generated part PNGs into canvas-aligned, role-named PNG layers on disk, ready for auto_rig_from_layers (the eyewhite split, the nose cut out of the face so the rig can lead the turn with it, alpha-trim/white-key, and placement pipeline the character-generation skill needs), with the same geometry report measure_layers returns standalone included inline. face, mouth, eyewhite, iris, brow, hair_front are required; hair_back, body, mouth_open are optional; nose.png is cut from face.png when it has a drawn nose (reported under `skipped` otherwise).",
       inputSchema: {
         partsDir: z
           .string()
