@@ -12,6 +12,7 @@ import {
   createPixelGridMesh,
   generateGridPoints,
   generateIkiFromLayerSet,
+  headNodParallaxUnit,
   headTurnParallaxUnit,
   meshCellsFor,
   parseLayerRoles,
@@ -519,6 +520,20 @@ function hairFrontLayers(): LayerInput[] {
   ];
 }
 
+/** A nose between assemblyLayers()' eyes and above its mouth — the layer that
+ *  gates the feature depth parallax. */
+function noseLayer(): LayerInput {
+  return {
+    role: "nose",
+    fileName: "nose.png",
+    canvasW: 1000,
+    canvasH: 1000,
+    bbox: { x: 480, y: 420, w: 40, h: 60 },
+    cropW: 40,
+    cropH: 60,
+  };
+}
+
 // ── describe("head nod (AngleY)") ────────────────────────────────────────────
 
 describe("head nod (AngleY)", () => {
@@ -703,17 +718,34 @@ describe("head nod (AngleY)", () => {
     expect(nod[0].from).toBeCloseTo(-nod[0].to, 10);
   });
 
-  it("on the nod only the back hair moves, and it follows the crown down", () => {
-    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+  it("on the nod the bangs slide with the brows and the back hair follows the crown down", () => {
+    const layers: LayerInput[] = [
+      ...hairFrontLayers(),
+      noseLayer(),
+      {
+        role: "brow_L",
+        fileName: "brow_L.png",
+        canvasW: 1000,
+        canvasH: 1000,
+        bbox: { x: 300, y: 260, w: 150, h: 30 },
+        cropW: 150,
+        cropH: 30,
+      },
+    ];
+    const model = generateIkiFromLayerSet(layers, canvas);
     const nodOf = (id: string) =>
       (model.parts.find((p) => p.id === id)!.bindings ?? []).find(
         (b) =>
           b.parameter === StandardParameter.AngleY &&
           b.channel === "translateY",
       ) as { from: number; to: number } | undefined;
-    // The bangs already ride the vertical bend; extra lead lifted them off the
-    // brows.
-    expect(nodOf("hair_front")).toBeUndefined();
+    // The bangs hang from the hairline, on the same surface as the brows: they
+    // slide with them, WITH the head, or the fringe closes onto the brows
+    // looking up and leaves a bare forehead looking down.
+    const front = nodOf("hair_front")!;
+    expect(front.to).toBeGreaterThan(0);
+    expect(front.to).toBe(nodOf("brow_L")!.to);
+    expect(front.from).toBeCloseTo(-front.to, 10);
     // Looking up (+AngleY) bends the front crown down; the rigid back hair has
     // to follow or it shows above it as a second crown.
     const back = nodOf("hair_back")!;
@@ -813,7 +845,7 @@ describe("head-turn depth parallax", () => {
   // grid.
   const HAIR_FRONT_DEPTH = 0.1;
 
-  it("bindingsForRole: a parallaxUnit adds one AngleX translateX to hair_back only", () => {
+  it("bindingsForRole: a parallaxUnit adds one AngleX translateX to hair_back, none to hair_front", () => {
     const unit = 250;
     const front = bindingsForRole(
       ROLE_TABLE["hair_front"],
@@ -1698,7 +1730,8 @@ describe("bindings", () => {
     const canvas = { width: 1000, height: 1000 };
     const model = generateIkiFromLayerSet(offCenterLayers(), canvas);
     const eyeL = model.parts.find((p) => p.id === "eye_L");
-    // Blink is a fold WARP, not a binding; the white also has no gaze.
+    // Blink is a fold WARP, not a binding; the white also has no gaze. (No
+    // nose layer here, so no depth parallax either — see its own describe.)
     expect(eyeL?.bindings).toBeUndefined();
     expect(eyeL!.warps!.length).toBe(1);
     expect(eyeL!.warps![0].parameter).toBe(StandardParameter.EyeOpenLeft);
@@ -2393,5 +2426,185 @@ describe("assembly", () => {
     for (const id of expected) {
       expect(paramIds.has(id), `parameter ${id} present`).toBe(true);
     }
+  });
+});
+
+// ── describe("feature depth parallax") ───────────────────────────────────────
+
+describe("feature depth parallax", () => {
+  const canvas = { width: 1000, height: 1000 };
+  const units = { parallaxUnit: 250, parallaxUnitY: 120, hasNose: true };
+  // Mirrors auto-rig.ts's FEATURE_DEPTH for the eye stack — not exported, so
+  // pinned here the way HAIR_FRONT_DEPTH is above.
+  const EYE_DEPTH = 0.04;
+  // 30° × NOD_BEND (0.5), the half-angle the nod bends at — mirrored likewise.
+  const NOD_THETA = (30 * 0.5 * Math.PI) / 180;
+  type Binding = {
+    parameter: string;
+    channel: string;
+    from: number;
+    to: number;
+  };
+  const slideOf = (
+    bindings: { parameter: string; channel: string }[] | undefined,
+    parameter: string,
+    channel: string,
+  ) =>
+    (bindings ?? []).find(
+      (b) => b.parameter === parameter && b.channel === channel,
+    ) as Binding | undefined;
+  const turnOf = (b: { parameter: string; channel: string }[] | undefined) =>
+    slideOf(b, StandardParameter.AngleX, "translateX");
+  const nodOf = (b: { parameter: string; channel: string }[] | undefined) =>
+    slideOf(b, StandardParameter.AngleY, "translateY");
+
+  it("every feature on the face slides WITH the head on the turn and the nod", () => {
+    const roles = [
+      "eye_L",
+      "iris_R",
+      "pupil_L",
+      "highlight_R",
+      "lash_L",
+      "brow_R",
+      "mouth",
+      "mouth_open",
+      "nose",
+      "blush_L",
+    ];
+    for (const role of roles) {
+      const b = bindingsForRole(ROLE_TABLE[role], role, 100, 50, {
+        ...units,
+        hasMouthOpen: true,
+      });
+      const turn = turnOf(b)!;
+      const nod = nodOf(b)!;
+      // headDeformer's own AngleX translateX runs -50 -> 50 and its AngleY
+      // translateY -30 -> 30, so a positive `to` is WITH the head on both.
+      expect(turn.to, role).toBeGreaterThan(0);
+      expect(turn.from, role).toBeCloseTo(-turn.to, 10);
+      expect(nod.to, role).toBeGreaterThan(0);
+      expect(nod.from, role).toBeCloseTo(-nod.to, 10);
+    }
+  });
+
+  it("the contour, the hair and the body keep their own: face none, bangs nod-only, back hair against", () => {
+    const face = bindingsForRole(ROLE_TABLE["face"], "face", 300, 400, units);
+    expect(face).toHaveLength(0);
+    // The bangs' turn lead is a warp; on the nod they slide with the brows.
+    const bangs = bindingsForRole(
+      ROLE_TABLE["hair_front"],
+      "hair_front",
+      700,
+      400,
+      units,
+    );
+    expect(turnOf(bangs)).toBeUndefined();
+    expect(nodOf(bangs)!.to).toBe(
+      nodOf(bindingsForRole(ROLE_TABLE["brow_L"], "brow_L", 120, 40, units))!
+        .to,
+    );
+    expect(
+      turnOf(
+        bindingsForRole(ROLE_TABLE["hair_back"], "hair_back", 800, 700, units),
+      )!.to,
+    ).toBeLessThan(0);
+    expect(
+      bindingsForRole(ROLE_TABLE["body"], "body", 900, 400, units),
+    ).toHaveLength(0);
+  });
+
+  it("the nose stands off the face; the mouth sits on it with the eye stack, which shares one depth", () => {
+    const to = (role: string) =>
+      turnOf(bindingsForRole(ROLE_TABLE[role], role, 100, 50, units))!.to;
+    expect(to("nose")).toBeGreaterThan(to("mouth"));
+    expect(to("mouth")).toBe(to("eye_L"));
+    expect(to("mouth_open")).toBe(to("mouth"));
+    // iris/pupil/highlight clip to the white and the lash folds onto it: a
+    // different slide would drag them across the sclera on every turn.
+    for (const role of ["iris_L", "pupil_L", "highlight_L", "lash_L"]) {
+      expect(to(role), role).toBe(to("eye_L"));
+    }
+    // Both sides slide the same way — the pair moves as one toward the far side.
+    expect(to("eye_R")).toBe(to("eye_L"));
+    expect(to("brow_R")).toBe(to("brow_L"));
+  });
+
+  it("without the units no parallax is emitted", () => {
+    expect(bindingsForRole(ROLE_TABLE["eye_L"], "eye_L", 100, 50)).toHaveLength(
+      0,
+    );
+    expect(
+      turnOf(bindingsForRole(ROLE_TABLE["mouth"], "mouth", 150, 15)),
+    ).toBeUndefined();
+  });
+
+  it("the generated model's eye slide is the eye depth of the grid's own parallax units", () => {
+    const model = generateIkiFromLayerSet(
+      [...hairFrontLayers(), noseLayer()],
+      canvas,
+    );
+    const grid = model.deformers!.find((d) => d.id === "faceWarp")!.grid;
+    const xs = grid.points.filter((_, i) => i % 2 === 0);
+    const ys = grid.points.filter((_, i) => i % 2 === 1);
+    const halfW = (Math.max(...xs) - Math.min(...xs)) / 2;
+    const faceY = model.parts.find((p) => p.id === "face")!.transform.y;
+    const halfH = Math.max(faceY - Math.min(...ys), Math.max(...ys) - faceY);
+    const eye = model.parts.find((p) => p.id === "eye_L")!.bindings;
+    expect(turnOf(eye)!.to).toBeCloseTo(
+      EYE_DEPTH * headTurnParallaxUnit(halfW),
+      6,
+    );
+    expect(nodOf(eye)!.to).toBeCloseTo(
+      EYE_DEPTH * headNodParallaxUnit(halfH),
+      6,
+    );
+    // The white is a required role, so the slide is on every generated rig.
+    expect(turnOf(eye)!.to).toBeGreaterThan(0);
+  });
+
+  it("headNodParallaxUnit is the bulk the 2D bake pins out at full nod", () => {
+    // Same derivation as the turn's radius test above, on the vertical axis:
+    // recover the radius from the unit and re-derive the top row's pinned dy.
+    const halfH = 300;
+    const grid = {
+      cols: 4,
+      rows: 4,
+      points: generateGridPoints(4, 4, -400, 400, -halfH, halfH),
+    };
+    const w = bakeHeadTurnGridWarp2DCentered(grid, "ax", "ay", 0, 0);
+    const up =
+      w.keyforms2d[
+        w.valuesY.indexOf(30) * w.valuesX.length + w.valuesX.indexOf(0)
+      ];
+    const radius = headNodParallaxUnit(halfH) / Math.sin(NOD_THETA);
+    const alpha = Math.asin(halfH / radius);
+    const expected =
+      radius * Math.sin(alpha + NOD_THETA) -
+      halfH -
+      radius * Math.sin(NOD_THETA);
+    // Row 0 is the top row (y = +halfH); its first point's dy is offsets[1].
+    expect(up.offsets[1]).toBeCloseTo(expected, 6);
+    expect(expected).toBeLessThan(0);
+  });
+
+  it("without a nose layer nothing slides: the painted nose pins the face", () => {
+    // Units present, no nose: no feature binding at all, and a generated rig
+    // without the role has static features and unfollowing bangs — the back
+    // hair keeps its own share either way.
+    const noNose = { parallaxUnit: 250, parallaxUnitY: 120 };
+    expect(
+      bindingsForRole(ROLE_TABLE["eye_L"], "eye_L", 100, 50, noNose),
+    ).toHaveLength(0);
+    expect(
+      turnOf(bindingsForRole(ROLE_TABLE["mouth"], "mouth", 150, 15, noNose)),
+    ).toBeUndefined();
+    expect(
+      bindingsForRole(ROLE_TABLE["hair_front"], "hair_front", 700, 400, noNose),
+    ).toHaveLength(0);
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+    const part = (id: string) => model.parts.find((p) => p.id === id)!;
+    expect(part("eye_L").bindings).toBeUndefined();
+    expect(nodOf(part("hair_front").bindings)).toBeUndefined();
+    expect(turnOf(part("hair_back").bindings)!.to).toBeLessThan(0);
   });
 });

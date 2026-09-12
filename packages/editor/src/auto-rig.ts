@@ -473,15 +473,13 @@ const HEAD_TURN_STOPS = [-30, -15, 0, 15, 30] as const;
  * Sideways slide, at full head turn, of a surface sitting one full cylinder
  * radius in front of the rotation axis — the unit of depth parallax.
  *
- * On the turn axis this is exactly the bulk `axisShift` the cylinder bake
- * subtracts back out of the face warp. Pinning it there was right: applied to
- * the face it shoved the head off the shoulders. But it is also the whole depth
- * cue, so layers that do NOT sit on the face plane have to get their own share
- * of it back, scaled by how far in front of (or behind) the axis they sit.
- *
- * On the nod axis it is only a scale: the nod bakes at NOD_BEND of the angle,
- * so the shift pinned there is RADIUS_Y * sin(15°), not this. The one depth
- * that uses it (HAIR_BACK_NOD_DEPTH) was tuned against renders, not derived.
+ * This is exactly the bulk `axisShift` the cylinder bake subtracts back out of
+ * the face warp. Pinning it there was right: applied to the face it shoved the
+ * head off the shoulders. But it is also the whole depth cue, so layers that
+ * do NOT sit on the cylinder's axis have to get their own share of it back,
+ * scaled by how far in front of (or behind) the axis they sit — the hair
+ * (HAIR_FRONT_DEPTH, HAIR_BACK_DEPTH) and the features on the face
+ * (FEATURE_DEPTH). `headNodParallaxUnit` is the same quantity on the nod axis.
  */
 export function headTurnParallaxUnit(gridHalfWidth: number): number {
   return (
@@ -681,21 +679,129 @@ const NOD_TRAVEL = 30;
  *  hair's crown pops out above it as a second silhouette. At half pitch the
  *  drop stays under the back hair and the nod still foreshortens visibly. */
 const NOD_BEND = 0.5;
-/** Vertical share of the nod for hair_back, as a fraction of the vertical
- *  parallax unit. The bangs already ride the vertical bend, so they get no
- *  extra lead on the nod — with one they lifted clear off the brows. The back
- *  hair gets no vertical bend of its own, so it only needs to follow the bent
- *  crown down to stay tucked beneath it. */
-const HAIR_BACK_NOD_DEPTH = -0.07;
+/** Vertical share of the nod for hair_back, as a fraction of
+ *  `headNodParallaxUnit`. The back hair gets no vertical bend of its own, so
+ *  it only needs to follow the bent crown down to stay tucked beneath it.
+ *  Tuned against renders as −0.07 of a turn-sized unit (sin 30°), before the
+ *  nod had its own; the same pixels in the nod unit (sin 15°). */
+const HAIR_BACK_NOD_DEPTH = -0.135;
+
+/**
+ * The nod's counterpart of `headTurnParallaxUnit`: the bulk vertical slide the
+ * 2D bake pins out of the face warp at full nod. The nod bends at NOD_BEND of
+ * the angle, so this is RADIUS_Y · sin(30° · NOD_BEND), not RADIUS_Y · sin(30°).
+ */
+export function headNodParallaxUnit(gridHalfHeight: number): number {
+  return (
+    gridHalfHeight *
+    HEAD_CYLINDER_RADIUS_FACTOR *
+    Math.sin(HEAD_TURN_MAX_DEG * NOD_BEND * (Math.PI / 180))
+  );
+}
+
+/** Depth of the features in front of the head cylinder's axis, as a fraction
+ *  of its radius — the share of the pinned bulk slide each part gets back on
+ *  the turn (`headTurnParallaxUnit`) and on the nod (`headNodParallaxUnit`).
+ *
+ *  The face contour is a cylinder rotating about its own axis: its silhouette
+ *  stays put and only foreshortens, which is what the pinned bake gives it.
+ *  The features painted on that surface do not stay put — they slide across
+ *  it toward the far side, and a nose that stands off the surface slides
+ *  further. Without their share they sat still while the outline squeezed
+ *  around them, and the head read as a flat sheet bending rather than turning.
+ *
+ *  The nose is the anchor of the whole read, so the parallax exists only when
+ *  it is a layer of its own (the composer cuts it out of the face). With the
+ *  nose painted on the face plate, any lead on the eyes and mouth inverts the
+ *  3/4 view — the nose lands nearer the NEAR eye and the mouth hangs off its
+ *  far side — and a blind review ranked that below no parallax at all.
+ *
+ *  Keyed by role family (`eye_L` → `eye`). The whole eye stack shares one
+ *  depth because iris/pupil/highlight clip to the white, and the lashes fold
+ *  onto it. The magnitudes are small on purpose. Blind reviews that matched a
+ *  3/4 reference asked for a nose lead of 0.34 of the radius, and at that the
+ *  features read as sliding across a face that itself does not turn: the
+ *  contour is pinned, so a 30° parameter cannot carry a true 3/4 view's
+ *  feature layout. Judged by eye across a ladder of rigs, the nose at twice
+ *  the surface's share and the mouth on the surface with the eyes is where
+ *  the turn stopped looking like a plate without looking like a slide. */
+const FEATURE_DEPTH: Readonly<Record<string, number>> = {
+  eye: 0.04,
+  iris: 0.04,
+  pupil: 0.04,
+  highlight: 0.04,
+  lash: 0.04,
+  brow: 0.04,
+  blush: 0.04,
+  mouth: 0.04,
+  mouth_open: 0.04,
+  nose: 0.08,
+};
+
+/** The bangs' share of the nod: the brows'. They hang from the hairline, which
+ *  sits on the same surface as the brows, so they slide with them — held still
+ *  while the brows slid, the fringe closed onto the brows looking up and left
+ *  a bare forehead looking down. (Before the brows slid, a lead here lifted
+ *  the bangs clear off them, which is why they had none.) The turn lead stays
+ *  a root-pinned warp: on the turn the crown sits on the axis and must not
+ *  slide. */
+const HAIR_FRONT_NOD_DEPTH = FEATURE_DEPTH.brow;
+
+/** `eye_L` → `eye`; an unsided role is its own family. */
+function roleFamily(role: string): string {
+  return role.replace(/_[LR]$/, "");
+}
+
+/**
+ * The depth-parallax translate bindings of a facial feature, or [] for any
+ * other role, whenever the units are absent (a unit-less call is a rig without
+ * a face warp to slide across), and whenever the rig has no nose layer to lead
+ * (see FEATURE_DEPTH). Symmetric about zero, so the rest pose — the one every
+ * proportion is judged on — is untouched.
+ */
+function featureParallaxBindings(
+  role: string,
+  options: { parallaxUnit?: number; parallaxUnitY?: number; hasNose?: boolean },
+): IkiBinding[] {
+  if (!options.hasNose) return [];
+  const depth = FEATURE_DEPTH[roleFamily(role)];
+  if (depth === undefined) return [];
+  const bindings: IkiBinding[] = [];
+  const shiftX = depth * (options.parallaxUnit ?? 0);
+  if (shiftX !== 0) {
+    bindings.push({
+      parameter: StandardParameter.AngleX,
+      channel: "translateX",
+      from: -shiftX,
+      to: shiftX,
+    });
+  }
+  const shiftY = depth * (options.parallaxUnitY ?? 0);
+  if (shiftY !== 0) {
+    bindings.push({
+      parameter: StandardParameter.AngleY,
+      channel: "translateY",
+      from: -shiftY,
+      to: shiftY,
+    });
+  }
+  return bindings;
+}
 
 /**
  * Derive the IkiBinding[] for a part from its role spec and crop dimensions.
  *
- * - face, blush, nose → no bindings
- * - hair_front: no bindings. Both its sway AND its AngleX turn lead are
- *     root-pinned warps attached in generateIkiFromLayerSet — a rigid
- *     translate/rotate would carry the whole sheet (crown included) with the
- *     fringe tips, instead of leading from them.
+ * - face → no bindings: the contour is the cylinder itself, pinned by the bake
+ * - every feature on that contour — eye stack, lashes, brows, both mouths,
+ *     nose, blush — carries the AngleX translateX / AngleY translateY depth
+ *     parallax of FEATURE_DEPTH (needs `parallaxUnit` / `parallaxUnitY` and
+ *     `hasNose`), on top of whatever its role adds below
+ * - hair_front: an AngleY translateY nod follow at the brows' depth
+ *     (HAIR_FRONT_NOD_DEPTH), with the same `hasNose` gate as the brows it
+ *     follows, and nothing on the turn. Both its sway AND its
+ *     AngleX turn lead are root-pinned warps attached in
+ *     generateIkiFromLayerSet — a rigid translate/rotate would carry the whole
+ *     sheet (crown included) with the fringe tips, instead of leading from them.
  * - hair_back: the AngleX depth-parallax translateX, and an AngleY translateY
  *     that tucks its crown under the bent front hair (needs `parallaxUnitY`)
  * - brow_L/R: BrowLeftY/RightY translateY (raise/lower) + BrowLeftAngle/RightAngle rotate
@@ -720,7 +826,29 @@ export function bindingsForRole(
     hasMouthOpen?: boolean;
     parallaxUnit?: number;
     parallaxUnitY?: number;
+    /** Whether the layer set has a `nose` role — the feature parallax's gate. */
+    hasNose?: boolean;
   } = {},
+): IkiBinding[] {
+  return [
+    ...roleOwnBindings(spec, role, cropW, cropH, options),
+    ...featureParallaxBindings(role, options),
+  ];
+}
+
+/** The bindings a role has for its own expression or motion — everything in
+ *  `bindingsForRole`'s list except the shared feature parallax. */
+function roleOwnBindings(
+  spec: RoleSpec,
+  role: string,
+  cropW: number,
+  cropH: number,
+  options: {
+    hasMouthOpen?: boolean;
+    parallaxUnit?: number;
+    parallaxUnitY?: number;
+    hasNose?: boolean;
+  },
 ): IkiBinding[] {
   const isEyeStack = EYE_STACK_PREFIXES.some((p) => role.startsWith(p));
 
@@ -857,9 +985,13 @@ export function bindingsForRole(
         });
       }
     }
-    // On the nod only the rigid back hair moves; see HAIR_BACK_NOD_DEPTH.
+    // On the nod the bangs slide with the brows they hang over — only when the
+    // brows slide, i.e. with a nose to lead them — and the back hair follows
+    // the bent crown down; see the two NOD_DEPTH constants.
+    const frontDepth = options.hasNose ? HAIR_FRONT_NOD_DEPTH : 0;
     const shiftY =
-      (isFront ? 0 : HAIR_BACK_NOD_DEPTH) * (options.parallaxUnitY ?? 0);
+      (isFront ? frontDepth : HAIR_BACK_NOD_DEPTH) *
+      (options.parallaxUnitY ?? 0);
     if (shiftY !== 0) {
       parallax.push({
         parameter: StandardParameter.AngleY,
@@ -871,7 +1003,7 @@ export function bindingsForRole(
     return parallax;
   }
 
-  // face, blush_*, nose → no bindings
+  // face, blush_*, nose → nothing of their own
   return [];
 }
 
@@ -1114,6 +1246,8 @@ export function generateIkiFromLayerSet(
   // Hair-sway secondary motion is gated on a front-hair layer being present.
   const hasHair = layers.some((l) => l.role === "hair_front");
   const hasMouthOpen = layers.some((l) => l.role === "mouth_open");
+  // The feature parallax's gate — see FEATURE_DEPTH.
+  const hasNose = layers.some((l) => l.role === "nose");
   const bodyLayer = layers.find((l) => l.role === "body");
 
   // ── Standard parameters — verbatim from sample-model.ts ──────────────────
@@ -1319,13 +1453,13 @@ export function generateIkiFromLayerSet(
     ),
   };
 
-  // Depth-parallax units for the hair layers, from the same extents the
-  // cylinder bake derives its radii from: half-width about the face center for
-  // the turn, the larger vertical reach about it for the nod.
+  // Depth-parallax units for the hair and feature layers, from the same
+  // extents the cylinder bake derives its radii from: half-width about the
+  // face center for the turn, the larger vertical reach about it for the nod.
   const faceCenterY = faceTransform.y;
   const halfH = Math.max(faceCenterY - unionMinY, unionMaxY - faceCenterY);
   const parallaxUnit = headTurnParallaxUnit(halfW);
-  const parallaxUnitY = headTurnParallaxUnit(halfH);
+  const parallaxUnitY = headNodParallaxUnit(halfH);
 
   // ── headDeformer pivot (neck): slightly below the face bottom ─────────────
   // faceBottom is the model-space y of the bottom edge of the face crop.
@@ -1465,6 +1599,7 @@ export function generateIkiFromLayerSet(
       hasMouthOpen,
       parallaxUnit,
       parallaxUnitY,
+      hasNose,
     });
     // `IkiPart.deformer` is optional, so a "none" role states its detachment by
     // leaving the field off rather than naming a deformer that must exist.
