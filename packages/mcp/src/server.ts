@@ -146,7 +146,7 @@ export function createIkiMcpServer(): McpServer {
     "compose_layers_from_parts",
     {
       description:
-        "Composes AI-generated part PNGs into canvas-aligned, role-named PNG layers on disk, ready for auto_rig_from_layers (the eyewhite split, the nose cut out of the face so the rig can lead the turn with it, alpha-trim/white-key, and placement pipeline the character-generation skill needs), with the same geometry report measure_layers returns standalone included inline. face, mouth, eyewhite, iris, brow, hair_front are required; hair_back, body, mouth_open are optional; nose.png is cut from face.png when it has a drawn nose (reported under `skipped` otherwise).",
+        "Composes AI-generated part PNGs into canvas-aligned, role-named PNG layers on disk, ready for auto_rig_from_layers (the eyewhite split, alpha-trim/white-key, and placement pipeline the character-generation skill needs), with the same geometry report measure_layers returns standalone included inline. face, mouth, eyewhite, iris, brow, hair_front are required; hair_back, body, mouth_open, nose are optional — without a nose layer the rig does not slide the features on the head turn.",
       inputSchema: {
         partsDir: z
           .string()
@@ -172,7 +172,7 @@ export function createIkiMcpServer(): McpServer {
           )
           .optional()
           .describe(
-            "Per-role override merged over the built-in defaults, keyed by role — hair_back, body, face, mouth, mouth_open, eye_L, eye_R, iris_L, iris_R, lash_L, lash_R, brow_L, brow_R, hair_front — e.g. `{ eye_L: { cx: 660 } }`. `w` and `h` are integers in 1..1100; omit `h` to keep the part's own aspect, set it to stretch (set it on a sclera and its lash together, or the blink fold tears).",
+            "Per-role override merged over the built-in defaults, keyed by role — hair_back, body, face, nose, mouth, mouth_open, eye_L, eye_R, iris_L, iris_R, lash_L, lash_R, brow_L, brow_R, hair_front — e.g. `{ eye_L: { cx: 660 } }`. `w` and `h` are integers in 1..1100; omit `h` to keep the part's own aspect, set it to stretch (set it on a sclera and its lash together, or the blink fold tears).",
           ),
       },
     },

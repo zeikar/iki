@@ -9,15 +9,15 @@ import {
   composeLayersFromParts,
   type ComposeInput,
   type ComposeResult,
-  type LayerRole,
   type LayoutOverride,
+  type Role,
 } from "../src/compose";
 import { layerStats, measureLayers } from "../src/measure";
 import { decodePng } from "../src/node-images";
 import { writePartsSet } from "./helpers/parts";
 
-/** Draw order the composer walks, back -> front, with the nose it cuts. */
-const ROLES: LayerRole[] = [
+/** Draw order the composer walks, back -> front. */
+const ROLES: Role[] = [
   "hair_back",
   "body",
   "face",
@@ -213,6 +213,18 @@ describe("composeLayersFromParts", () => {
     expect(fs.existsSync(path.join(dir, "body.png"))).toBe(false);
   });
 
+  it("places the nose as a part of its own, under the face and over the mouth", () => {
+    // The rig leads the head turn with the nose, so it is a part like the eyes
+    // and the mouth, not something cut out of the face.
+    const roles = full.layers.map((l) => l.role);
+    expect(roles.indexOf("nose")).toBe(roles.indexOf("face") + 1);
+    expect(roles.indexOf("nose")).toBeLessThan(roles.indexOf("mouth"));
+    expect(full.layers.find((l) => l.role === "nose")).toMatchObject({
+      width: 40,
+      left: 530,
+    });
+  });
+
   // brow.png feeds two roles, so the message has to name the role, not the file.
   it.each([
     ["face.png", "face"],
@@ -299,7 +311,7 @@ describe("composeLayersFromParts", () => {
     });
     expect(error).toBe(
       "layout.eyebrow: unknown role — expected one of hair_back, body, face, " +
-        "mouth, mouth_open, eye_L, eye_R, iris_L, iris_R, lash_L, lash_R, " +
+        "nose, mouth, mouth_open, eye_L, eye_R, iris_L, iris_R, lash_L, lash_R, " +
         "brow_L, brow_R, hair_front",
     );
   });
@@ -479,142 +491,5 @@ describe("composeLayersFromParts", () => {
       expect(r.error).toMatch(
         /layout\.eye_L\.h must be an integer in 1\.\.1100/,
       );
-  });
-});
-
-describe("the nose cut", () => {
-  // The fixture face is a skin ellipse with a dark stroke on its centre line
-  // between the eye row and the mouth; placed at the layout's face width the
-  // stroke lands in the gap between the eyes, below their centre line and
-  // above the mouth — the window the cut searches.
-  let out: string;
-  let full: ComposeOk;
-  beforeAll(async () => {
-    const parts = partsDir();
-    await writePartsSet(parts);
-    out = outDir();
-    full = await composeOk({ partsDir: parts, outDir: out });
-  }, 30_000);
-
-  it("lifts the drawn nose into nose.png, between the eyes and above the mouth", async () => {
-    const nose = full.layers.find((l) => l.role === "nose")!;
-    expect(nose.path).toBe(path.join(full.outDir, "nose.png"));
-    expect(full.skipped).not.toContain("nose");
-    const stats = await statsFor(out, "nose");
-    const eyeL = full.layers.find((l) => l.role === "eye_L")!;
-    const eyeR = full.layers.find((l) => l.role === "eye_R")!;
-    const mouth = full.layers.find((l) => l.role === "mouth")!;
-    // Inside the gap between the eyes' inner edges, under their centre line,
-    // above the mouth — and the reported placement is that alpha bbox.
-    expect(nose.left).toBeGreaterThanOrEqual(eyeR.left + eyeR.width);
-    expect(nose.left + nose.width).toBeLessThanOrEqual(eyeL.left);
-    expect(nose.top).toBeGreaterThanOrEqual(eyeL.top + eyeL.height / 2 - 1);
-    expect(nose.top + nose.height).toBeLessThanOrEqual(mouth.top);
-    expect([stats.w, stats.h]).toEqual([nose.width, nose.height]);
-    // The stroke is 3x13 source px at 5x: the cut is that plus its grown rim,
-    // not the whole window.
-    expect(nose.width).toBeLessThan(40);
-    expect(nose.height).toBeLessThan(90);
-  });
-
-  it("fills skin in behind it, so the face no longer carries the stroke", async () => {
-    const nose = full.layers.find((l) => l.role === "nose")!;
-    const face = await decodePng(path.join(out, "face.png"));
-    const skin = [240, 205, 180];
-    let maxDist = 0;
-    for (let y = nose.top; y < nose.top + nose.height; y++) {
-      for (let x = nose.left; x < nose.left + nose.width; x++) {
-        const i = (y * face.width + x) * 4;
-        if (face.rgba[i + 3] === 0) continue;
-        for (let c = 0; c < 3; c++)
-          maxDist = Math.max(maxDist, Math.abs(face.rgba[i + c] - skin[c]));
-      }
-    }
-    // Nothing darker than shading noise remains where the stroke was.
-    expect(maxDist).toBeLessThan(20);
-    // And the stroke itself is in the nose layer, at full alpha.
-    const nosePng = await decodePng(path.join(out, "nose.png"));
-    let dark = 0;
-    for (let i = 0; i < nosePng.rgba.length; i += 4) {
-      if (nosePng.rgba[i + 3] === 255 && nosePng.rgba[i] < 60) dark++;
-    }
-    expect(dark).toBeGreaterThan(100);
-  });
-
-  it("keeps the original pixels at their original alpha, over unbroken skin", async () => {
-    // No feathered rim: the cut's pixels are the face's own, opaque where the
-    // face was, so at rest nose-over-face is the original drawing — and
-    // wherever the nose is opaque the face beneath is filled, not a hole.
-    const face = await decodePng(path.join(out, "face.png"));
-    const nosePng = await decodePng(path.join(out, "nose.png"));
-    let opaque = 0;
-    for (let i = 0; i < nosePng.rgba.length; i += 4) {
-      const a = nosePng.rgba[i + 3];
-      if (a === 0) continue;
-      expect(a).toBe(255);
-      expect(face.rgba[i + 3]).toBe(255);
-      opaque++;
-    }
-    expect(opaque).toBeGreaterThan(100);
-  });
-
-  it("a face without a drawn nose yields no nose layer, and drops a stale one", async () => {
-    const parts = partsDir();
-    await writePartsSet(parts, { plainFace: true });
-    const dir = outDir();
-    // A nose.png from an earlier compose into the same dir.
-    fs.copyFileSync(path.join(out, "nose.png"), path.join(dir, "nose.png"));
-    const r = await composeOk({ partsDir: parts, outDir: dir });
-    expect(r.skipped).toContain("nose");
-    expect(r.layers.map((l) => l.role)).not.toContain("nose");
-    expect(fs.existsSync(path.join(dir, "nose.png"))).toBe(false);
-    // The face went out untouched: its skin is unbroken across the window.
-    const face = await statsFor(dir, "face");
-    expect(face.w).toBe(400);
-  });
-
-  it("a face shaded top to bottom, with no nose, is left whole", async () => {
-    // 52 levels of vertical shading inside the search window: against one
-    // window-wide skin reference this read as ink over most of the window and
-    // moved bands of skin.
-    const parts = partsDir();
-    await writePartsSet(parts, { plainFace: true, shaded: "vertical" });
-    const dir = outDir();
-    const r = await composeOk({ partsDir: parts, outDir: dir });
-    expect(r.skipped).toContain("nose");
-    expect(fs.existsSync(path.join(dir, "nose.png"))).toBe(false);
-  });
-
-  it("a face shaded side to side, with no nose, is left whole", async () => {
-    // A row's own median cannot absorb a gradient that runs ALONG the row: the
-    // ends seed, and the hysteresis grows them across the whole window. The
-    // size guard on the grown cut is what declines it.
-    const parts = partsDir();
-    await writePartsSet(parts, { plainFace: true, shaded: "horizontal" });
-    const dir = outDir();
-    const r = await composeOk({ partsDir: parts, outDir: dir });
-    expect(r.skipped).toContain("nose");
-    expect(fs.existsSync(path.join(dir, "nose.png"))).toBe(false);
-  });
-
-  it("a face shaded top to bottom still gives up only its nose", async () => {
-    const parts = partsDir();
-    await writePartsSet(parts, { shaded: "vertical" });
-    const dir = outDir();
-    const r = await composeOk({ partsDir: parts, outDir: dir });
-    const nose = r.layers.find((l) => l.role === "nose")!;
-    expect(nose).toBeDefined();
-    // The stroke plus its grown rim, not the shading around it.
-    expect(nose.width).toBeLessThan(40);
-    expect(nose.height).toBeLessThan(90);
-  });
-
-  it("a half-transparent nose is not cut: the two layers would double its coverage", async () => {
-    const parts = partsDir();
-    await writePartsSet(parts, { translucentNose: true });
-    const dir = outDir();
-    const r = await composeOk({ partsDir: parts, outDir: dir });
-    expect(r.skipped).toContain("nose");
-    expect(fs.existsSync(path.join(dir, "nose.png"))).toBe(false);
   });
 });

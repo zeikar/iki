@@ -359,6 +359,10 @@ export async function measureDir(absDir: string): Promise<MeasureReport> {
   for (const [role, why] of [
     ["body", "without it the character reads as a floating head on head-turn"],
     ["hair_back", "without it the silhouette is flat behind the face"],
+    [
+      "nose",
+      "without it nothing on the face slides on the head turn — the features stay on the plate",
+    ],
   ]) {
     if (layers[role] === undefined) warnings.push(`${role}: missing — ${why}.`);
   }

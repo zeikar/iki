@@ -132,6 +132,7 @@ async function writeOptionalRoles(dir: string): Promise<void> {
   await writeLayer(dir, "hair_back.png", (set) =>
     rect(set, 150, 20, 30, 30, DARK),
   );
+  await writeLayer(dir, "nose.png", (set) => rect(set, 95, 110, 10, 12, DARK));
 }
 
 async function measureOk(dir: string) {
@@ -158,6 +159,7 @@ describe("measureLayers", () => {
       "hair_back",
       "iris_L",
       "lash_L",
+      "nose",
     ]);
     expect(result.layers.eye_L.w).toBe(64);
     expect(result.layers.iris_L.w).toBe(36);
