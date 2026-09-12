@@ -114,10 +114,10 @@ export class IkiPlayer {
   constructor(private readonly canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", {
       alpha: true,
-      // The whole pipeline is premultiplied-alpha: the fragment shader
-      // multiplies rgb by alpha, the blend function is ONE /
-      // ONE_MINUS_SRC_ALPHA, and the page compositor reads the framebuffer
-      // as premultiplied. Straight-alpha (`premultipliedAlpha: false`) cannot
+      // The whole pipeline is premultiplied-alpha: textures are uploaded
+      // premultiplied, the fragment shader keeps them so, the blend function
+      // is ONE / ONE_MINUS_SRC_ALPHA, and the page compositor reads the
+      // framebuffer as premultiplied. Straight-alpha (`premultipliedAlpha: false`) cannot
       // be made consistent with SRC_ALPHA-style blending: semi-transparent
       // pixels over a transparent background come out premultiplied anyway
       // and composite too dark.
@@ -259,7 +259,14 @@ export class IkiPlayer {
         return null;
       }
       gl.bindTexture(gl.TEXTURE_2D, texture);
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+      // Upload PREMULTIPLIED so LINEAR filtering happens on premultiplied
+      // texels. Sampled straight, a texel at an alpha edge blends its rgb with
+      // whatever rgb its transparent neighbour happens to carry — black, or
+      // the palette entry a quantized atlas stored there — and a part whose
+      // edge sits on skin (the nose cut out of the face) drew a one-pixel
+      // outline of that colour; hair strands got a speckled fringe the same
+      // way. Premultiplied, a transparent texel contributes nothing.
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
       // Clear again so the check after texImage2D can only reflect texImage2D.
       drainGlErrors(gl);
@@ -831,14 +838,17 @@ uniform float u_alphaCutoff;
 in vec2 v_uv;
 out vec4 outColor;
 void main() {
+  // Texels are premultiplied (see the upload); the untextured fill is opaque
+  // white, premultiplied or not.
   vec4 base = u_useTexture ? texture(u_tex, v_uv) : vec4(1.0);
   vec4 tinted = base * u_color;
   // 0 for normal draws (no-op); raised during the stencil mask-write pass so
   // only opaque mask coverage marks the stencil (the transparent fringe is cut).
   if (tinted.a < u_alphaCutoff) discard;
-  // Premultiply: the blend function and the canvas compositing contract
-  // (premultipliedAlpha: true) both expect rgb already scaled by alpha.
-  outColor = vec4(tinted.rgb * tinted.a, tinted.a);
+  // The blend function and the canvas compositing contract (premultipliedAlpha:
+  // true) both expect rgb already scaled by alpha. base.rgb is; the tint's own
+  // alpha still has to scale it (base.a is already folded into base.rgb).
+  outColor = vec4(tinted.rgb * u_color.a, tinted.a);
 }`;
 
 /**
@@ -854,9 +864,14 @@ async function decodeTexture(source: string): Promise<ImageBitmap | null> {
     return null;
   }
   const blob = await (await fetch(source)).blob();
+  // Premultiplied HERE, not (only) at upload: for an ImageBitmap source the
+  // bitmap's own premultiplication is what texImage2D takes, and the
+  // UNPACK_PREMULTIPLY_ALPHA_WEBGL flag alone left the texels straight — with
+  // the shader no longer premultiplying, every semi-transparent strand then
+  // blended additively and the whole character washed out to white.
   return createImageBitmap(blob, {
     imageOrientation: "none",
-    premultiplyAlpha: "none",
+    premultiplyAlpha: "premultiply",
   });
 }
 

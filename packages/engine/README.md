@@ -86,8 +86,10 @@ delta, so a backgrounded tab or a long hitch cannot snap the rig.
 
 ## Rendering notes
 
-- The whole pipeline is **premultiplied alpha** — the canvas is created with
-  `premultipliedAlpha: true` and the shader premultiplies before blending.
+- The whole pipeline is **premultiplied alpha** — textures are uploaded
+  premultiplied (so LINEAR filtering never blends a transparent texel's rgb
+  into an edge), the shader keeps them so, and the canvas is created with
+  `premultipliedAlpha: true`.
 - Clipping masks use the stencil buffer. If the context grants no stencil, the
   affected parts render unclipped and `load()` logs it.
 - Textures are decoded from `data:` URIs only; external URLs are skipped with a
