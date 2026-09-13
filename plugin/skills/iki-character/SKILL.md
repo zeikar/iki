@@ -237,4 +237,4 @@ a checkout, the panel slider standalone — to see the root-pinned swing shape.
 
 ## What this skill does NOT change
 
-No engine or format changes — this is prompts and procedure. The composer and the geometry checks ship in `@ikijs/mcp` (`compose_layers_from_parts`, `measure_layers`) beside the capability that already shipped in earlier slices (`auto_rig_from_layers`, the role table, blink-fold/gaze/brow rigging); the plugin pins that server at `^0.7.0` in `.mcp.json` (the nose part and the nose-keyed parallax need 0.7) and calls the tools. No changeset — the plugin is not an npm package.
+No engine or format changes — this is prompts and procedure. The composer and the geometry checks ship in `@ikijs/mcp` (`compose_layers_from_parts`, `measure_layers`) beside the capability that already shipped in earlier slices (`auto_rig_from_layers`, the role table, blink-fold/gaze/brow rigging); the plugin pins that server at `^0.8.0` in `.mcp.json` (the nose part and the nose-keyed parallax need 0.7; `measure_turn_reference` and the `turnTargets` input of `auto_rig_from_layers` need 0.8) and calls the tools. No changeset — the plugin is not an npm package.
