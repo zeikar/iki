@@ -94,15 +94,42 @@ The `layout.json` line only seeds the file when it is missing, so re-entering
 or restarting the loop keeps the tuning you already paid for — the workdir is
 gitignored, so an overwrite here has no repository copy to recover it from.
 
-If `<workdir>/reference.png` and `reference-34.png` already exist (a restart),
-reuse them and skip straight to Step 1 — do not regenerate. Otherwise, generate
-2–3 reference candidates with the **codex-image** skill and let the user pick,
-or accept a reference the user supplies. It must be a single front-facing character
-in the target style. Then generate one image of the SAME character at roughly
-3/4 view — a head turn judged against a front-facing drawing has no target. Keep
-them at `<workdir>/reference.png` and `<workdir>/reference-34.png`; both are
-frozen, because everything is judged against them and changing either mid-loop
-or on a restart invalidates every prior score.
+If `<workdir>/reference.png` and `reference-30.png` already exist (a restart),
+reuse them — do not regenerate. Otherwise, generate 2–3 reference candidates
+with the **codex-image** skill and let the user pick, or accept a reference
+the user supplies. It must be a single front-facing character in the target
+style. Then run `gen-turn-reference.sh <workdir>/reference.png <workdir>` once
+to produce `<workdir>/reference-30.png`: the same character turned to the
+rig's own `ParamAngleX` limit (30°) — a head turn judged against a
+front-facing drawing has no target, and a target drawn at 45° over-asks a 30°
+rig by ~1.7x (measured, not derived). Redo the generation if both eyes are not
+fully visible, the torso turned with the head, or any attribute drifted from
+the front reference.
+
+Either way, if `<workdir>/turn-targets.json` does not already exist, call
+`measure_turn_reference` once with `front: <workdir>/reference.png`,
+`turned: <workdir>/reference-30.png`, `debugDir: <workdir>`, and confirm in the
+written overlays (`front-reference.debug.png`, `turned-reference-30.debug.png`)
+that the iris boxes sit on the irises — a mismeasured reference silently
+invalidates every round's `turn` score. Save its `structuredContent`'s
+`eyeShift`, `farEyeRatio` and `silhouetteRatio` to `<workdir>/turn-targets.json`;
+add an `iris` key only when the default violet window did not find this
+character's eyes (e.g. amber eyes need their own hue window). `turn-targets.json`
+is the turn target the artist's rig step passes to `auto_rig_from_layers` and
+the baseline the critic compares the rig's own measured turn against, e.g.:
+
+```json
+{
+  "eyeShift": -0.224,
+  "farEyeRatio": 0.671,
+  "silhouetteRatio": 1.012,
+  "iris": { "hueMin": 20, "hueMax": 50, "satMin": 0.35 }
+}
+```
+
+Then go to Step 1. `reference.png`, `reference-30.png` and `turn-targets.json`
+are all frozen, because everything is judged against them and changing any of
+them mid-loop or on a restart invalidates every prior score.
 
 ### Step 1 — round
 
@@ -158,7 +185,7 @@ or on a restart invalidates every prior score.
    were judged against a head turned nine degrees.
    Rendering stays with you because the Playwright browser is a single shared
    resource; two agents driving it collide.
-3. Dispatch **`iki:iki-character-critic`** with `reference`, `reference-34`, `layers`,
+3. Dispatch **`iki:iki-character-critic`** with `reference`, `reference-30`, `layers`,
    `renders` (the render paths), `round` and `scores` (the previous rounds'
    `SCORES:` lines). It returns scores and typed findings.
 4. Route: `regenerate` and `retune` go back to the artist. Handle `escalate`
@@ -190,7 +217,7 @@ head-turn sideways travel already needed this treatment once. Treat a repeated
 ## Do not
 
 - Let either agent edit `packages/`.
-- Change either reference mid-loop.
+- Change a frozen reference or `turn-targets.json` mid-loop.
 - Use a licensed sample model's art as a reference — see the iki-character
   pitfalls.
 - Regenerate the whole part set because one part is wrong.

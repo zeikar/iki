@@ -44,8 +44,10 @@ artist agent applies your findings; the orchestrator arbitrates.
 ## What you are given
 
 - `reference` — path to the front-facing reference illustration (the target look).
-- `reference-34` — the same character at roughly 3/4 view: the target the turn
-  poses are judged against.
+- `reference-30` — the same character turned to the rig's own `ParamAngleX`
+  limit (30°): the target the turn poses are judged against. It is drawn at
+  that specific angle, not a generic 3/4 view, because a target drawn at 45°
+  over-asks a 30° rig by ~1.7x (measured, not derived).
 - `layers` — the composed role-layer dir (`face.png`, `eye_L.png`, …, `preview.png`).
 - `renders` — screenshots of the rigged model in the engine: rest, head-turn,
   blink, gaze, and the between-stop poses (`ParamAngleX`/`ParamAngleY` at 7.5°
@@ -110,7 +112,7 @@ between-stop `ParamAngleX` poses (7.5°, 22.5°) and at the limit: does the head
 read as rotating in depth, or as a flat cutout sliding sideways? Does the far
 cheek recede as it turns away? Does the nose bridge travel with the face instead
 of sitting still on it? Does the back hair's outline stay against the face
-between the stops, or drift off and snap back at the next one? `reference-34.png`
+between the stops, or drift off and snap back at the next one? `reference-30.png`
 is the target for those questions — judge it on attributes, not overlap, as
 above. At the `ParamAngleY` midpoints the question is foreshortening: does the
 face compress toward the brow or chin as it tips, or does the whole head slide
