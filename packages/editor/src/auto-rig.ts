@@ -448,14 +448,17 @@ export function meshCellsFor(
 /** Cells per axis of the face-warp grid. Bilinear cells render the cylinder
  *  bend as a chord: on the hero (821 px across) 4 cells = 205 px chords with
  *  a 12 px worst-case sag at full turn on the bangs, 6 cells halve it for
- *  ~10 KB of keyforms. The fold guard is radius-from-reach and does not
- *  depend on this. */
+ *  ~10 KB of keyforms. The fold guard is the cylinder's own bound and does
+ *  not depend on this. */
 const FACE_GRID_CELLS = 6;
 
 // ── Head-turn cylinder constants ─────────────────────────────────────────────
 
-/** Cylinder radius as a multiple of the warp grid's half-width. The 0.6/0.5
- *  margin ratio matches the local mesh bake and keeps asin clear of +/-1. */
+/** Margin between a cylinder's radius and the reach it has to cover: at
+ *  |local|/radius <= 1/1.2 the asin stays clear of +/-1 and asin(1/1.2) + 30°
+ *  is still under 90°, so the bend never folds. The nod radius is derived from
+ *  the grid's vertical reach this way; the turn radius is an input, and
+ *  radius/factor is the bound `boundedCylinderBend` clamps `local` to. */
 const HEAD_CYLINDER_RADIUS_FACTOR = 0.6 / 0.5;
 /** Outer keyform stop of the head-turn bake, matching ParamAngleX's range. */
 const HEAD_TURN_MAX_DEG = 30;
@@ -480,13 +483,12 @@ const HEAD_TURN_STOPS = [-30, -15, 0, 15, 30] as const;
  * scaled by how far in front of (or behind) the axis they sit — the hair
  * (HAIR_FRONT_DEPTH, HAIR_BACK_DEPTH) and the features on the face
  * (FEATURE_DEPTH). `headNodParallaxUnit` is the same quantity on the nod axis.
+ *
+ * Takes the cylinder radius the face warp was baked with, so the two cannot
+ * drift apart: the unit IS that bake's pinned-out `axisShift`.
  */
-export function headTurnParallaxUnit(gridHalfWidth: number): number {
-  return (
-    gridHalfWidth *
-    HEAD_CYLINDER_RADIUS_FACTOR *
-    Math.sin(HEAD_TURN_MAX_DEG * (Math.PI / 180))
-  );
+export function headTurnParallaxUnit(radius: number): number {
+  return radius * Math.sin(HEAD_TURN_MAX_DEG * (Math.PI / 180));
 }
 
 // ── bakeHeadTurnGridWarpCentered ──────────────────────────────────────────────
@@ -501,7 +503,7 @@ export function headTurnParallaxUnit(gridHalfWidth: number): number {
  * HOW (center-relative): the cylinder axis sits at `centerX` (the face center
  * in model space). Each grid point at absolute x has local x = x - centerX,
  * which maps onto the cylinder. After rotating by theta, the new absolute x is:
- *   xPrime = centerX + RADIUS * sin(asin(localX/RADIUS) + theta)
+ *   xPrime = centerX + radiusX * sin(asin(localX/radiusX) + theta)
  *   dx = xPrime - x,  dy = 0
  *
  * At theta=0 the center keyform is all-zero (xPrime === x by identity).
@@ -510,9 +512,9 @@ export function headTurnParallaxUnit(gridHalfWidth: number): number {
  * produces is subtracted out, leaving only the foreshortening. See the comment
  * at the subtraction for why.
  *
- * RADIUS is derived from the grid's reach about `centerX` (same 0.6/0.5 margin
- * ratio as bakeHeadTurnGridWarp in the example app) so asin stays clear of ±1
- * whether or not the grid is symmetric about the axis.
+ * `radiusX` is the caller's: how round the head reads is a modelling choice,
+ * not a property of how far the grid happens to reach. Columns beyond what the
+ * radius can carry ride along rigidly — see `boundedCylinderBend`.
  *
  * No production caller since faceWarp moved to the 2D bake; kept as the 1D
  * reference that the 2D bake's tests compare their AngleY = 0 row against,
@@ -522,11 +524,10 @@ export function bakeHeadTurnGridWarpCentered(
   grid: IkiWarpGrid,
   parameter: string,
   centerX: number,
+  radiusX: number,
 ): IkiGridWarp {
   // Keyform stops (degrees), matching ParamAngleX's −30..30 range.
   const ANGLES = HEAD_TURN_STOPS;
-  // Cylinder radius in MODEL units, from the grid's reach about the axis.
-  const RADIUS = gridReach(grid, 0, centerX) * HEAD_CYLINDER_RADIUS_FACTOR;
 
   const pointCount = grid.points.length / 2;
   const DEG_TO_RAD = Math.PI / 180;
@@ -535,9 +536,9 @@ export function bakeHeadTurnGridWarpCentered(
     const theta = angleDeg * DEG_TO_RAD;
     const offsets: number[] = [];
     for (let i = 0; i < pointCount; i++) {
-      const dx = pinnedCylinderBend(
+      const dx = boundedCylinderBend(
         grid.points[i * 2] - centerX,
-        RADIUS,
+        radiusX,
         theta,
       );
       // dy is zero — cylinder bend only deforms horizontal position.
@@ -550,8 +551,9 @@ export function bakeHeadTurnGridWarpCentered(
   return { parameter, keyforms };
 }
 
-/** Farthest grid point from `center` along one axis (0 = x, 1 = y): the
- *  cylinder radius scales from this so no point's |local|/radius exceeds 1/1.2. */
+/** Farthest grid point from `center` along one axis (0 = x, 1 = y): the nod
+ *  radius scales from this so no point's |local|/radius exceeds 1/1.2, the
+ *  no-fold bound. The turn's radius is its caller's. */
 function gridReach(grid: IkiWarpGrid, axis: 0 | 1, center: number): number {
   let reach = 0;
   for (let i = axis; i < grid.points.length; i += 2) {
@@ -584,6 +586,33 @@ function pinnedCylinderBend(
 }
 
 /**
+ * `pinnedCylinderBend` with the surface bounded to the part of the cylinder it
+ * can actually carry: |local| is clamped to radius/HEAD_CYLINDER_RADIUS_FACTOR
+ * and the overshoot rides along unchanged.
+ *
+ * Beyond that bound the surface has wrapped past the cylinder's side and the
+ * bend turns back on itself: once alpha + theta passes 90° a point further out
+ * lands NEARER the axis than the one inside it, and once the asin saturates
+ * every remaining point piles onto the SAME x (the `- local` term cancels).
+ * Either way the grid folds. Holding the bound's displacement and adding the
+ * overshoot back gives those columns slope 1: they follow the silhouette
+ * rigidly, keeping their order and their spacing. Inside the bound nothing
+ * changes — a radius scaled from the grid's own reach puts the bound exactly
+ * on the outer columns, so the generated rig never leaves the surface.
+ */
+function boundedCylinderBend(
+  local: number,
+  radius: number,
+  theta: number,
+): number {
+  const bound = radius / HEAD_CYLINDER_RADIUS_FACTOR;
+  const onSurface = Math.max(-bound, Math.min(bound, local));
+  // The return is a DISPLACEMENT, so `local + dx` already carries the
+  // overshoot: holding the bound's dx is what makes the outside rigid.
+  return pinnedCylinderBend(onSurface, radius, theta);
+}
+
+/**
  * Bake the head turn AND nod as one 2D grid warp over AngleX × AngleY.
  *
  * The same pinned cylinder bend as `bakeHeadTurnGridWarpCentered`, applied per
@@ -593,10 +622,11 @@ function pinnedCylinderBend(
  * convention the playground's 2D bake ships; the row at AngleY=0 is exactly the
  * 1D bake.
  *
- * Each axis takes its radius from the grid's reach about its own centre, with
- * the same margin factor, so the no-fold guarantee holds on both and does not
- * depend on the grid being symmetric about the axis: |local|/radius stays
- * ≤ 1/1.2 and asin(1/1.2) + 30° < 90°. The pitch itself is scaled by
+ * The turn takes the caller's `radiusX`; the nod takes its radius from the
+ * grid's vertical reach about `centerY`, with the margin factor, so its
+ * |local|/radius stays ≤ 1/1.2 and asin(1/1.2) + 30° < 90° whether or not the
+ * grid is symmetric about the axis. The turn holds the same no-fold guarantee
+ * at any radius through `boundedCylinderBend`. The pitch itself is scaled by
  * NOD_BEND — see that constant for why a full nod is not a full 30° bend.
  *
  * Layout is the format's row-major `k(i, j) = j * valuesX.length + i`.
@@ -607,9 +637,9 @@ export function bakeHeadTurnGridWarp2DCentered(
   parameterY: string,
   centerX: number,
   centerY: number,
+  radiusX: number,
 ): IkiGrid2DWarp {
   const STOPS = [...HEAD_TURN_STOPS];
-  const RADIUS_X = gridReach(grid, 0, centerX) * HEAD_CYLINDER_RADIUS_FACTOR;
   const RADIUS_Y = gridReach(grid, 1, centerY) * HEAD_CYLINDER_RADIUS_FACTOR;
   const pointCount = grid.points.length / 2;
 
@@ -622,7 +652,7 @@ export function bakeHeadTurnGridWarp2DCentered(
       const offsets: number[] = [];
       for (let i = 0; i < pointCount; i++) {
         offsets.push(
-          pinnedCylinderBend(grid.points[i * 2] - centerX, RADIUS_X, thetaX),
+          boundedCylinderBend(grid.points[i * 2] - centerX, radiusX, thetaX),
           pinnedCylinderBend(
             grid.points[i * 2 + 1] - centerY,
             RADIUS_Y,
@@ -640,6 +670,102 @@ export function bakeHeadTurnGridWarp2DCentered(
     valuesX: STOPS,
     valuesY: STOPS,
     keyforms2d,
+  };
+}
+
+// ── turnColumnMap ─────────────────────────────────────────────────────────────
+
+/** Where the head turn sends each column of a face-warp grid, and back. */
+export interface TurnColumnMap {
+  /** Rest x of every grid column, ascending — row 0 of `grid.points`. */
+  restX: number[];
+  /** Where the turn puts each of those columns: strictly increasing whenever
+   *  `restX` is, since the bound and the capped angle rule out a fold. */
+  warpedX: number[];
+  /** Rest x → turned x, for anything riding the grid. */
+  mapX(x: number): number;
+  /** The inverse: which rest x lands on `X`. */
+  invertX(X: number): number;
+}
+
+/**
+ * The head turn as a 1D map on x: where the face-warp grid puts a point at
+ * `angleX`, in the WARP'S OWN rest frame — before headDeformer's rigid
+ * ±HEAD_TURN_TRAVEL translate, which the engine applies on top.
+ *
+ * It equals the shipped bake AT the `HEAD_TURN_STOPS`, which is where callers
+ * should key: between stops the engine blends the keyforms parameter-linearly
+ * (the chord the HEAD_TURN_STOPS comment measures), while this is analytic, so
+ * off-stop the two differ by that chord error.
+ *
+ * The bend depends only on a point's x, so a single row of columns describes
+ * the whole grid, and the engine's sampling of it is piecewise-linear:
+ * `bindPointToRestGrid` puts a point in the cell its rest x falls in and
+ * `sampleWarpGrid` lerps between that cell's deformed corners — so between two
+ * columns the map is a straight line, and outside the outer columns the
+ * clamped (s, t) pin it to the edge column's warped x. `mapX` reproduces that
+ * clamp rather than extrapolating, because a caller measuring a silhouette
+ * needs where the geometry lands, not where an extended cylinder would put it.
+ *
+ * `invertX` answers the other direction — "which rest x has to be here for the
+ * turn to land it there" — which is how a target silhouette becomes grid
+ * geometry. It clamps `X` to the warped column range, the only place the
+ * inverse is defined.
+ *
+ * Both directions need the warped columns to stay ordered, which holds while
+ * asin(1/HEAD_CYLINDER_RADIUS_FACTOR) + |theta| < 90°, i.e. |angleX| ≲ 33.6°.
+ * Past that the outer columns fold and `invertX`'s cell scan would silently
+ * pick the wrong cell, so the range is capped at the parameter's own
+ * HEAD_TURN_MAX_DEG rather than left to produce a quiet wrong answer.
+ */
+export function turnColumnMap(
+  grid: IkiWarpGrid,
+  faceCenterX: number,
+  radiusX: number,
+  angleX: number,
+): TurnColumnMap {
+  if (Math.abs(angleX) > HEAD_TURN_MAX_DEG) {
+    throw new Error(
+      `auto-rig: turnColumnMap: angleX ${angleX}° is outside the turn's ±${HEAD_TURN_MAX_DEG}° range`,
+    );
+  }
+  const theta = angleX * (Math.PI / 180);
+  const restX: number[] = [];
+  const warpedX: number[] = [];
+  for (let col = 0; col <= grid.cols; col++) {
+    const x = grid.points[col * 2];
+    restX.push(x);
+    warpedX.push(x + boundedCylinderBend(x - faceCenterX, radiusX, theta));
+  }
+
+  // Same scan as bindPointToRestGrid: the first cell whose right edge is past
+  // x, else the last one, with the within-cell fraction clamped to [0,1].
+  const cellFor = (v: number, edges: number[]) => {
+    for (let c = 0; c < grid.cols; c++) {
+      if (v < edges[c + 1]) return c;
+    }
+    return grid.cols - 1;
+  };
+
+  return {
+    restX,
+    warpedX,
+    mapX(x: number): number {
+      const c = cellFor(x, restX);
+      const s = Math.max(
+        0,
+        Math.min(1, (x - restX[c]) / (restX[c + 1] - restX[c])),
+      );
+      return warpedX[c] + (warpedX[c + 1] - warpedX[c]) * s;
+    },
+    invertX(X: number): number {
+      const c = cellFor(X, warpedX);
+      const s = Math.max(
+        0,
+        Math.min(1, (X - warpedX[c]) / (warpedX[c + 1] - warpedX[c])),
+      );
+      return restX[c] + (restX[c + 1] - restX[c]) * s;
+    },
   };
 }
 
@@ -1453,12 +1579,16 @@ export function generateIkiFromLayerSet(
     ),
   };
 
-  // Depth-parallax units for the hair and feature layers, from the same
-  // extents the cylinder bake derives its radii from: half-width about the
-  // face center for the turn, the larger vertical reach about it for the nod.
+  // The head cylinder's turn radius: the face grid is built symmetric about
+  // faceCenterX, so halfW IS its reach about the axis — take it with the
+  // no-fold margin and the bound lands exactly on the outer columns. Depth-
+  // parallax units for the hair and feature layers come off the same cylinders
+  // the bake bends: this radius for the turn, the larger vertical reach about
+  // the face center for the nod.
   const faceCenterY = faceTransform.y;
   const halfH = Math.max(faceCenterY - unionMinY, unionMaxY - faceCenterY);
-  const parallaxUnit = headTurnParallaxUnit(halfW);
+  const faceRadius = halfW * HEAD_CYLINDER_RADIUS_FACTOR;
+  const parallaxUnit = headTurnParallaxUnit(faceRadius);
   const parallaxUnitY = headNodParallaxUnit(halfH);
 
   // ── headDeformer pivot (neck): slightly below the face bottom ─────────────
@@ -1477,6 +1607,7 @@ export function generateIkiFromLayerSet(
     StandardParameter.AngleY,
     faceCenterX,
     faceCenterY,
+    faceRadius,
   );
 
   // ── Deformers ─────────────────────────────────────────────────────────────
