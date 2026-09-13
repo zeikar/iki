@@ -62,7 +62,11 @@ export {
   createGridMesh,
 } from "./factories";
 export {
+  DEFAULT_TURN_TARGETS,
   generateIkiFromLayerSet,
   parseLayerRoles,
   type LayerInput,
+  type TurnDepths,
+  type TurnSolveReport,
+  type TurnTargets,
 } from "./auto-rig";

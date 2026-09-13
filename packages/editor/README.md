@@ -49,7 +49,7 @@ leaves the document untouched.
 | Grid keyforms      | `computeGridOffsets`, `interpolateGridOffsets`, `upsertGridKeyform`                                                                                               |
 | Factories          | `createDefaultPart`, `createDefaultMatrixDeformer`, `createDefaultWarpDeformer`, `createGridMesh`                                                                 |
 | Pixels             | `detectAlphaBbox`, `ALPHA_BBOX_THRESHOLD`, `AlphaBbox`                                                                                                            |
-| Auto-rig           | `generateIkiFromLayerSet`, `parseLayerRoles`                                                                                                                      |
+| Auto-rig           | `generateIkiFromLayerSet`, `parseLayerRoles`, `TurnTargets`, `DEFAULT_TURN_TARGETS`, `TurnSolveReport`                                                            |
 | Bindings           | `captureBindingEndpoint`                                                                                                                                          |
 
 ## Auto-rig
@@ -59,6 +59,19 @@ leaves the document untouched.
 …) into a rigged model that blinks, gazes, opens its mouth, turns its head on a
 torso that follows and breathes, and emotes with its brows — including a
 hair-sway physics rig when a `hair_front` layer is present.
+
+The head turn is **fitted, not tuned**: on a layer set with a `nose`, the
+cylinder's radius and each feature's depth are solved from
+`options.turnTargets` — the cues a 30° reference measures (how far the eye pair
+slides, how much the far eye foreshortens, whether the silhouette holds),
+defaulting to `DEFAULT_TURN_TARGETS`. The slide is bounded by the art: every
+feature has to stay on the face plate, because past its contour the far eye is
+drawn over the side hair, which bends with the plate and swallows it. A target
+you passed that this layer set cannot reach **throws**, naming the field and the
+range it could have had; a target that came from the defaults is a style prior,
+not a measurement of this character, so it is **clamped** to what the layer set
+can do and the rig is built. Pass `options.onTurnSolved` to see what the turn
+settled on and which targets were clamped.
 
 It takes **already-decoded** layer geometry (`LayerInput`), never pixels, which
 is what keeps this package free of any image dependency: the editor app
