@@ -29,7 +29,7 @@ description: |
   The critic reports rig defects but never designs rig features; engine work is normal code work.
   </commentary>
   </example>
-tools: Read, Bash, Glob, Grep, mcp__plugin_iki_iki__measure_layers
+tools: Read, Bash, Glob, Grep, mcp__plugin_iki_iki__measure_layers, mcp__plugin_iki_iki__measure_turn_reference
 model: sonnet
 color: purple
 ---
@@ -52,6 +52,12 @@ artist agent applies your findings; the orchestrator arbitrates.
 - `renders` — screenshots of the rigged model in the engine: rest, head-turn,
   blink, gaze, and the between-stop poses (`ParamAngleX`/`ParamAngleY` at 7.5°
   and 22.5°, `ParamEyeLOpen` at 0.5) where interpolation defects show.
+- `turn-pair` — the rig's own rest and `ParamAngleX` −30 renders, captured via
+  `canvas.toDataURL` rather than screenshotted (the measurement needs the
+  render's own transparency): the pair you feed `measure_turn_reference`.
+- `turn-targets` — path to `<workdir>/turn-targets.json`, the reference's own
+  `eyeShift`/`farEyeRatio`/`silhouetteRatio` (and an `iris` window override,
+  if the character needed one) — the baseline the rig's turn is compared to.
 - `round` — which iteration this is.
 - `scores` — the previous rounds' `SCORES:` lines, so you can compare each axis
   against its best so far (none on round 1).
@@ -77,6 +83,22 @@ width, target 0.45–0.60" is a fix.
 Never let an impression stand where a measurement is available. The report's
 table carries a per-layer size, bbox centre, mass centre and margins for every
 role — read the number off it and quote it rather than describing what you see.
+
+### Measure the turn
+
+Call `measure_turn_reference` on `turn-pair`, with the same `iris` override
+`turn-targets.json` carries (if any):
+
+```jsonc
+{ "front": "<turn-pair rest.png>", "turned": "<turn-pair turn-m30.png>" }
+```
+
+Read `farEyeRatio`, `eyeShift` and `silhouetteRatio` off `turn-targets.json` as
+the reference's own numbers, and compute Δ = rig − reference for each of the
+three fields the tool reports back for the rig. Compare `eyeShift` as
+magnitudes (`Math.abs` both sides before subtracting) — the rig turns
+whichever way `auto-rig.ts` set it up, and the tool's sign just follows which
+way the image happens to lean, not which way the reference was drawn turning.
 
 ## Step 2 — score the rubric
 
@@ -119,6 +141,20 @@ face compress toward the brow or chin as it tips, or does the whole head slide
 up and down unchanged? A `turn` defect is nearly always `escalate` — redrawing a
 part cannot put depth into it.
 
+The three deltas from Step 1 settle only what they measure — `farEyeRatio` the
+far iris' endpoint compression, `eyeShift` the eye pair's travel,
+`silhouetteRatio` the head's width. A delta beyond ±0.05 is an `escalate`
+naming `auto-rig.ts` and the number, EXCEPT when the artist's report shows the
+rig already clamped that field (`turn.clamped`): that is a documented fitting
+limit this layer set cannot reach, not a new defect — report it in
+MEASUREMENTS and in the deltas, but do not raise a second escalation for it
+(the loop already carries the artist's). A delta within ±0.05 does not by
+itself clear the axis — it only says that one number tracks the reference.
+The visual questions above stay their own findings, judged against
+`reference-30.png` on attributes as above, and the `turn` score combines
+both: a rig can pass all three numbers and still score low on what they
+cannot see.
+
 ## Step 3 — emit typed findings
 
 Every finding carries a `type`, and the type decides who acts:
@@ -139,6 +175,10 @@ Every finding carries a `type`, and the type decides who acts:
 Before writing a `regenerate`, ask whether a `retune` would do. Historically
 most defects that _looked_ like bad art were placement constants.
 
+A numeric turn delta beyond ±0.05 and a visual turn defect are separate
+findings even in the same round — list each on its own line with its own
+evidence, never folded into one.
+
 ## Step 4 — verdict
 
 - `ship` — every axis ≥ 4 and no `regenerate` findings.
@@ -151,14 +191,18 @@ change likely to raise a score.
 
 ## Output format
 
-Report exactly this, nothing else:
+Report exactly this, nothing else. The `TURN:` line abbreviates the three
+deltas from Step 1 — `far` is `farEyeRatio`, `shift` is `|eyeShift|`,
+`silhouette` is `silhouetteRatio`:
 
 ```
 VERDICT: ship | iterate | stop
 SCORES: face=N eyes=N hair=N body=N palette=N line=N rig=N turn=N   (total NN/40)
+TURN: far <rig> (ref <ref>, Δ<d>) shift <rig> (ref <ref>, Δ<d>) silhouette <rig> (ref <ref>, Δ<d>)
 
 MEASUREMENTS
-<the measure_layers check lines, plus any number you quoted from its table>
+<the measure_layers check lines, the measure_turn_reference lines quoted
+verbatim, plus any number you quoted from either table>
 
 FINDINGS
 1. [regenerate] part=<role>

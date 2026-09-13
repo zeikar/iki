@@ -189,11 +189,43 @@ them mid-loop or on a restart invalidates every prior score.
    hero pose saved as `rest.png` silently invalidates the whole round — that
    has already happened once, and two rounds of "it looks like the reference"
    were judged against a head turned nine degrees.
+   Besides the screenshots, also capture the pair `measure_turn_reference`
+   needs: `canvas.toDataURL("image/png")` at `ParamAngleX` 0 (the untouched
+   rest pose) and at −30 (the rig's own limit), via `browser_evaluate` — not a
+   screenshot, because a screenshot carries the page under the canvas and the
+   measurement needs the render's own transparency to tell foreground from
+   background. This needs `window.__iki`, which only a checkout exposes: if
+   this round rendered in a checkout, the model is already loaded — just
+   `reset()` and set the angle; if it rendered standalone, open
+   `pnpm playground` now and load the same `.iki` through the picker (as
+   above) first, then capture the same way:
+   ```js
+   async () => {
+     const api = window.__iki;
+     const canvas = document.getElementById("iki");
+     api.reset();
+     await api.nextFrame();
+     const rest = canvas.toDataURL("image/png");
+     api.setParam("ParamAngleX", -30);
+     await api.nextFrame();
+     const turnM30 = canvas.toDataURL("image/png");
+     return JSON.stringify({ rest, "turn-m30": turnM30 });
+   };
+   ```
+   Pass `filename` to `browser_evaluate` so the JSON lands in a file instead
+   of inline in the response — it lands in the CURRENT WORKING DIRECTORY (the
+   repo root, for a checkout), not `.playwright-mcp/`, so move it into
+   `<workdir>` before decoding. Then
+   `node decode-renders.cjs <the moved file> <workdir>/renders/` (creating
+   `<workdir>/renders/` if needed) writes `<workdir>/renders/rest.png` and
+   `<workdir>/renders/turn-m30.png`.
    Rendering stays with you because the Playwright browser is a single shared
    resource; two agents driving it collide.
 3. Dispatch **`iki:iki-character-critic`** with `reference`, `reference-30`, `layers`,
-   `renders` (the render paths), `round` and `scores` (the previous rounds'
-   `SCORES:` lines). It returns scores and typed findings.
+   `renders` (the render paths), `turn-pair` (`<workdir>/renders/rest.png` and
+   `turn-m30.png`), `turn-targets` (`<workdir>/turn-targets.json`), `round` and
+   `scores` (the previous rounds' `SCORES:` lines). It returns scores and
+   typed findings.
 4. Route: `regenerate` and `retune` go back to the artist. Handle `escalate`
    yourself — decide whether the package change is warranted, and if it is,
    make it as normal code work with a test and a changeset. Never let the loop
