@@ -1260,6 +1260,136 @@ export function bakeHairBackTurnWarp(
   return { parameter, keyforms };
 }
 
+// ── bakeHairFrontSilhouetteWarp ──────────────────────────────────────────────
+
+/**
+ * How far the face plate's edge EVER travels from the face centre over the
+ * turn, either side — the floor under any hold edge.
+ *
+ * It scans both sides at EVERY stop instead of taking the rest half-width or
+ * the full-turn one, because the bend is pinned against the cylinder's bulk
+ * slide and at the MID stops the near edge wins that race: it lands further out
+ * than it sits at rest (207 against 201 on the hero, 315 against 300 on the
+ * assembly fixture). A hold edge inside that reach would make the ramp between
+ * the two run backwards.
+ */
+export function plateReach(
+  faceCenterX: number,
+  faceHalfWidth: number,
+  columnMapAt: (deg: number) => TurnColumnMap,
+): number {
+  let reach = 0;
+  for (const deg of HEAD_TURN_STOPS) {
+    const map = columnMapAt(deg);
+    for (const side of [-1, 1]) {
+      const dest = map.mapX(faceCenterX + side * faceHalfWidth);
+      reach = Math.max(reach, Math.abs(dest - faceCenterX));
+    }
+  }
+  return reach;
+}
+
+/**
+ * The head's OUTLINE, held through the turn by the part that draws it — the
+ * bangs — as a per-vertex AngleX warp on hair_front, keyed on HEAD_TURN_STOPS.
+ *
+ * The face warp bends everything riding its grid, so the side strands, which
+ * are where a viewer reads the head's width, squeeze in with the plate and the
+ * head narrows instead of turning. Ramping the bend out at the GRID level
+ * cannot separate them: at FACE_GRID_CELLS columns the cell that carries a
+ * strand also carries the outer eye, so un-bending one un-bends the other.
+ *
+ * hair_front therefore cancels the bend on itself. Part warps displace the mesh
+ * vertices BEFORE those vertices bind to the rest grid, so this is an INVERSE:
+ * for the position `target` a vertex should end up at, it displaces the vertex
+ * to `invertX(target)`, which the grid's own map then sends back to `target`.
+ * In ABSOLUTE model x (`partX + vx`) throughout, because that map is the
+ * grid's, not the part's.
+ *
+ * `target` is a MONOTONE three-zone function of the vertex's REST distance from
+ * the face centre, so the warp can never fold a hair cell:
+ *   - within `faceHalfWidth`, on the plate: exactly where the grid puts it;
+ *   - out to `holdBase`: a straight ramp from the plate edge's destination onto
+ *     the hold edge's, `holdEdgeAt(deg)`;
+ *   - beyond `holdBase`: the hold edge's own displacement, slope 1, so the
+ *     outer strands carry whatever silhouette change the caller asked for.
+ * The zone boundaries are REST distances and do not move with the stop — only
+ * the destinations do, which is what keeps the ramp and the outer zone
+ * continuous at every stop. A destination that MOVES is the point of
+ * `holdEdgeAt`: a caller that has measured the head's width and wants a
+ * specific silhouette ratio at full turn narrows it per stop, while the
+ * boundary it pivots on stays put. `holdEdgeAt(0)` must therefore be
+ * `holdBase` — enforced, since anything else displaces the bangs in the rest
+ * pose, where every proportion was judged. A vertex exactly on the axis never
+ * leaves the first zone, so its zero `side` is never read.
+ *
+ * The hold only reaches as far as the TURNED grid does: the engine pins a
+ * vertex past the rest grid's edge onto the edge column, so a target beyond the
+ * deformed edge column is unreachable and lands on that column instead. At full
+ * turn that costs the near side its outermost pixels, and the inverse spends
+ * the whole of the bangs' grid margin getting the rest of them there — so the
+ * outer columns' sway is swallowed at the turn's extremes (see the headroom cap
+ * in generateIkiFromLayerSet).
+ */
+export function bakeHairFrontSilhouetteWarp(
+  mesh: IkiMesh,
+  partX: number,
+  faceCenterX: number,
+  faceHalfWidth: number,
+  holdBase: number,
+  holdEdgeAt: (deg: number) => number,
+  columnMapAt: (deg: number) => TurnColumnMap,
+): IkiWarp {
+  if (holdEdgeAt(0) !== holdBase) {
+    throw new Error(
+      `auto-rig: bakeHairFrontSilhouetteWarp: holdEdgeAt(0) is ${holdEdgeAt(0)}, not the hold edge's own rest distance ${holdBase}, so the bangs would move in the rest pose`,
+    );
+  }
+  const SIDES = [-1, 1];
+  const keyforms = HEAD_TURN_STOPS.map((deg) => {
+    const map = columnMapAt(deg);
+    const holdEdge = holdEdgeAt(deg);
+    // Where the plate's own edges land, one per side: the ramp's inner end.
+    const plateDest = SIDES.map((side) =>
+      map.mapX(faceCenterX + side * faceHalfWidth),
+    );
+    plateDest.forEach((dest, i) => {
+      const reached = Math.abs(dest - faceCenterX);
+      // A hold edge inside the plate's mapped edge would run the ramp between
+      // them backwards and fold the strands onto the cheek. The MID stops are
+      // the ones that catch it — see plateReach.
+      if (holdEdge <= reached) {
+        throw new Error(
+          `auto-rig: bakeHairFrontSilhouetteWarp: at ${deg}° on the ${SIDES[i] < 0 ? "-x" : "+x"} side the hold edge sits ${holdEdge} from the face centre but the plate's edge maps to ${reached}, so the ramp between them would fold`,
+        );
+      }
+    });
+    const offsets: number[] = [];
+    for (let i = 0; i < mesh.vertices.length; i += 2) {
+      const x = partX + mesh.vertices[i];
+      const local = x - faceCenterX;
+      const dist = Math.abs(local);
+      const side = Math.sign(local);
+      let target: number;
+      if (dist <= faceHalfWidth) {
+        // The inverse below is a deliberate no-op here for anything inside the
+        // grid; it only bites on a plate vertex that sits outside it.
+        target = map.mapX(x);
+      } else if (dist <= holdBase) {
+        const inner = plateDest[side < 0 ? 0 : 1];
+        const u = (dist - faceHalfWidth) / (holdBase - faceHalfWidth);
+        target = inner + (faceCenterX + side * holdEdge - inner) * u;
+      } else {
+        target = x + side * (holdEdge - holdBase);
+      }
+      // dy is zero — the silhouette hold is horizontal, like the bend it cancels.
+      offsets.push(map.invertX(target) - x, 0);
+    }
+    return { value: deg, offsets };
+  });
+  return { parameter: StandardParameter.AngleX, keyforms };
+}
+
 // ── bakeHairSwayWarp ───────────────────────────────────────────────────────────
 
 /** Tip travel of a swaying hair part at full sway, as a fraction of its own
@@ -1762,15 +1892,21 @@ export function generateIkiFromLayerSet(
       if ((role === "hair_front" || role === "hair_back") && hasHair) {
         let tipShift = HAIR_SWAY_TIP_FRACTION * cropH;
         let leadWarp: IkiWarp | undefined;
+        let silhouetteWarp: IkiWarp | undefined;
         if (role === "hair_front") {
-          // hair_front is a faceWarp child: its vertices are swayed and
-          // parallax-shifted BEFORE they bind to the rest grid, and past the
+          // hair_front is a faceWarp child: its vertices are swayed, shifted
+          // and silhouette-held BEFORE they bind to the rest grid, and past the
           // grid's edge they clamp to the edge column — the tips flatten into
-          // a vertical line. Cap the swing so one spring at its peak stays
-          // inside. Both springs peaking together (a hard turn and tilt at
-          // once) may still clamp the outermost tips a little; widening the
-          // grid instead would flatten the face's own bend, whose radius
-          // scales with the grid.
+          // a vertical line. The cap sizes the swing against the margin the
+          // sway has to itself: the rest pose and small turns. As the turn
+          // grows the silhouette hold spends that whole margin on the outermost
+          // columns — holding their rest x means parking them on the grid's own
+          // edge — so at the extremes their swing is swallowed whatever the cap
+          // says, and reserving the hold's share here would zero the swing
+          // everywhere instead, rest pose included. A wider grid would buy them
+          // both room, but this generator still derives the turn radius from the
+          // grid's own half-width, so widening it without decoupling the two
+          // flattens the face's bend.
           const shift = HAIR_FRONT_DEPTH * parallaxUnit;
           const headroom =
             Math.min(
@@ -1794,6 +1930,29 @@ export function generateIkiFromLayerSet(
             shift,
             HEAD_TURN_MAX_DEG,
           );
+          // The bangs draw the head's outline, so they hold it through the
+          // turn instead of squeezing in with the plate beneath them.
+          const columnMapAt = (deg: number) =>
+            turnColumnMap(faceGrid, faceCenterX, faceRadius, deg);
+          const faceHalfWidth = faceLayer.cropW / 2;
+          // Nothing here has measured where the head's outline actually is, so
+          // the hold edge is the outermost the plate ever reaches, clear of it
+          // by a pixel, and it holds its rest position: the silhouette stops
+          // narrowing without being asked to move. That reach already covers
+          // the rest pose (its 0° stop is the identity map), and anything
+          // inside it would fold the ramp. A caller with measured pixels passes
+          // the head's own half-width and a destination that moves with the turn.
+          const holdBase =
+            plateReach(faceCenterX, faceHalfWidth, columnMapAt) + 1;
+          silhouetteWarp = bakeHairFrontSilhouetteWarp(
+            mesh,
+            t.x,
+            faceCenterX,
+            faceHalfWidth,
+            holdBase,
+            () => holdBase,
+            columnMapAt,
+          );
         }
         part.warps = [
           bakeHairSwayWarp(
@@ -1809,6 +1968,7 @@ export function generateIkiFromLayerSet(
             HAIR_SWAY_RANGE,
           ),
           ...(leadWarp ? [leadWarp] : []),
+          ...(silhouetteWarp ? [silhouetteWarp] : []),
         ];
       }
       // The back hair's turn: it gets no cylinder bend from a deformer, so it

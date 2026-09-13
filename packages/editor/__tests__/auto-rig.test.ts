@@ -4,6 +4,7 @@ import {
   ROLE_TABLE,
   bakeEyelidFoldWarp,
   bakeHairBackTurnWarp,
+  bakeHairFrontSilhouetteWarp,
   bakeHairSwayWarp,
   bakeHeadTurnGridWarp2DCentered,
   bakeHeadTurnGridWarpCentered,
@@ -16,6 +17,7 @@ import {
   headTurnParallaxUnit,
   meshCellsFor,
   parseLayerRoles,
+  plateReach,
   turnColumnMap,
   validateLayerInputs,
   type LayerInput,
@@ -1410,6 +1412,250 @@ describe("bakeHairBackTurnWarp", () => {
   });
 });
 
+describe("hair_front silhouette hold", () => {
+  const canvas = { width: 1000, height: 1000 };
+
+  /** Every layer's bbox pushed `dx` across the canvas, so the face centre — and
+   *  with it the whole hold — sits off the model origin. */
+  const shiftedBy = (layers: LayerInput[], dx: number): LayerInput[] =>
+    layers.map((l) => ({ ...l, bbox: { ...l.bbox, x: l.bbox.x + dx } }));
+
+  /** A generated rig, plus the pieces a silhouette assertion needs: the face
+   *  grid's own turn map, the hold zone the generator picks from it, and the
+   *  hair_front warp that does the holding. */
+  const rigOf = (layers: LayerInput[]) => {
+    const model = generateIkiFromLayerSet(layers, canvas);
+    const grid = model.deformers!.find((d) => d.id === "faceWarp")!.grid;
+    // The grid is built symmetric about the face centre, so its own mid-x IS
+    // the cylinder axis and its half-width the radius the generator scaled.
+    const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
+    const radius = (grid.points[grid.cols * 2] - faceCenterX) * RADIUS_FACTOR;
+    const columnMapAt = (deg: number) =>
+      turnColumnMap(grid, faceCenterX, radius, deg);
+    const faceHalfWidth = layers.find((l) => l.role === "face")!.cropW / 2;
+    const holdBase = plateReach(faceCenterX, faceHalfWidth, columnMapAt) + 1;
+    const hair = model.parts.find((p) => p.id === "hair_front")!;
+    // Two AngleX warps ride the bangs; the hold is the one keyed on all five
+    // turn stops (the root-pinned lead has only its two ends).
+    const warp = hair.warps!.find(
+      (w) =>
+        w.parameter === StandardParameter.AngleX && w.keyforms.length === 5,
+    )!;
+    const partX = hair.transform!.x;
+    /** Absolute rest x of mesh vertex `v`. */
+    const restX = (v: number) => partX + hair.mesh!.vertices[v * 2];
+    return {
+      model,
+      grid,
+      faceCenterX,
+      faceHalfWidth,
+      holdBase,
+      columnMapAt,
+      hair,
+      warp,
+      partX,
+      restX,
+      vertexCount: hair.mesh!.vertices.length / 2,
+    };
+  };
+
+  const fixtures: [string, LayerInput[]][] = [
+    ["face centred on the canvas", [...hairFrontLayers(), noseLayer()]],
+    ["face off-centre", shiftedBy([...hairFrontLayers(), noseLayer()], 60)],
+  ];
+
+  for (const [label, layers] of fixtures) {
+    it(`holds the strands past the hold edge at their rest x, at every stop (${label})`, () => {
+      const r = rigOf(layers);
+      // The fixture's bangs put one mesh column past the hold edge each side,
+      // seven rows deep.
+      const outer: number[] = [];
+      for (let v = 0; v < r.vertexCount; v++) {
+        if (Math.abs(r.restX(v) - r.faceCenterX) > r.holdBase) outer.push(v);
+      }
+      expect(outer).toHaveLength(14);
+      for (const k of r.warp.keyforms) {
+        const map = r.columnMapAt(k.value);
+        let held = 0;
+        for (const v of outer) {
+          const x = r.restX(v);
+          // Nothing can land outside the DEFORMED edge columns: the engine
+          // pins a vertex past the rest grid's edge onto the edge column, so
+          // at full turn the near side's outermost column is unreachable.
+          if (x < map.warpedX[0] || x > map.warpedX[r.grid.cols]) continue;
+          // Offset first (part warps apply before the bind), then the grid.
+          expect(map.mapX(x + k.offsets[v * 2])).toBeCloseTo(x, 6);
+          held++;
+        }
+        // Every one of them out to half turn; at full turn the near side's
+        // column is out of the grid's reach and only the far side's is held.
+        expect(held).toBe(
+          Math.abs(k.value) === 30 ? outer.length / 2 : outer.length,
+        );
+      }
+    });
+
+    it(`leaves the vertices on the face plate to the grid's own bend (${label})`, () => {
+      const r = rigOf(layers);
+      let onPlate = 0;
+      for (const k of r.warp.keyforms) {
+        for (let v = 0; v < r.vertexCount; v++) {
+          if (Math.abs(r.restX(v) - r.faceCenterX) > r.faceHalfWidth) continue;
+          expect(k.offsets[v * 2]).toBeCloseTo(0, 6);
+          expect(k.offsets[v * 2 + 1]).toBe(0);
+          onPlate++;
+        }
+      }
+      expect(onPlate).toBeGreaterThan(0);
+    });
+
+    it(`keeps every row's landing order at every stop — no folded cell (${label})`, () => {
+      const r = rigOf(layers);
+      const hairLayer = layers.find((l) => l.role === "hair_front")!;
+      const stride = meshCellsFor(hairLayer.cropW, hairLayer.cropH).cols + 1;
+      for (const k of r.warp.keyforms) {
+        const map = r.columnMapAt(k.value);
+        const landing = (v: number) => map.mapX(r.restX(v) + k.offsets[v * 2]);
+        for (let v = 1; v < r.vertexCount; v++) {
+          if (v % stride === 0) continue; // first vertex of a row
+          const prev = landing(v - 1);
+          const cur = landing(v);
+          expect(cur).toBeGreaterThanOrEqual(prev);
+          // Strictly, wherever neither sits on a clamped edge column — there
+          // the engine stacks vertices on the same x, which is the clamp, not
+          // a fold.
+          const EPS = 1e-9;
+          if (
+            prev > map.warpedX[0] + EPS &&
+            cur < map.warpedX[r.grid.cols] - EPS
+          ) {
+            expect(cur).toBeGreaterThan(prev);
+          }
+        }
+      }
+    });
+
+    it(`is inert at rest: the 0 keyform is all zeros (${label})`, () => {
+      const rest = rigOf(layers).warp.keyforms.find((k) => k.value === 0)!;
+      for (const o of rest.offsets) expect(o).toBeCloseTo(0, 9);
+    });
+  }
+
+  it("takes its hold edge from the plate's reach over ALL the stops, mid ones included", () => {
+    const r = rigOf([...hairFrontLayers(), noseLayer()]);
+    const edgeAt = (deg: number) =>
+      Math.abs(
+        r.columnMapAt(deg).mapX(r.faceCenterX - r.faceHalfWidth) -
+          r.faceCenterX,
+      );
+    const reach = plateReach(r.faceCenterX, r.faceHalfWidth, r.columnMapAt);
+    // The cylinder pushes the near edge PAST its rest half-width, and furthest
+    // at the mid stop — not at rest (300) and not at full turn (309).
+    expect(reach).toBeGreaterThan(r.faceHalfWidth);
+    expect(reach).toBeGreaterThan(edgeAt(30));
+    expect(reach).toBeCloseTo(edgeAt(15), 9);
+    expect(r.holdBase).toBeCloseTo(reach + 1, 9);
+  });
+
+  it("refuses a hold edge inside the plate's mapped edge, naming the stop and both numbers", () => {
+    const r = rigOf([...hairFrontLayers(), noseLayer()]);
+    // The bare plate half-width, which the fixture's plate edge overshoots at
+    // every turned stop: the ramp between them would run backwards.
+    expect(() =>
+      bakeHairFrontSilhouetteWarp(
+        r.hair.mesh!,
+        r.partX,
+        r.faceCenterX,
+        r.faceHalfWidth,
+        r.faceHalfWidth,
+        () => r.faceHalfWidth,
+        r.columnMapAt,
+      ),
+    ).toThrow(
+      /auto-rig: bakeHairFrontSilhouetteWarp: at -30° on the \+x side the hold edge sits 300 .* maps to 309\.0/,
+    );
+  });
+
+  it("refuses a hold edge only the MID stops overshoot", () => {
+    const r = rigOf([...hairFrontLayers(), noseLayer()]);
+    // Between the fixture's full-turn reach (309) and its mid-stop one (315):
+    // a guard that checked ±30 only would pass this and fold the strands at
+    // half turn.
+    const holdBase = 312;
+    expect(() =>
+      bakeHairFrontSilhouetteWarp(
+        r.hair.mesh!,
+        r.partX,
+        r.faceCenterX,
+        r.faceHalfWidth,
+        holdBase,
+        () => holdBase,
+        r.columnMapAt,
+      ),
+    ).toThrow(/at -15°/);
+  });
+
+  it("refuses a hold edge that does not start on its own boundary", () => {
+    const r = rigOf([...hairFrontLayers(), noseLayer()]);
+    // A rest destination off the boundary is a nonzero rest keyform: the bangs
+    // would sit somewhere else in the pose every proportion was judged on.
+    expect(() =>
+      bakeHairFrontSilhouetteWarp(
+        r.hair.mesh!,
+        r.partX,
+        r.faceCenterX,
+        r.faceHalfWidth,
+        r.holdBase,
+        () => r.holdBase - 1,
+        r.columnMapAt,
+      ),
+    ).toThrow(/auto-rig: bakeHairFrontSilhouetteWarp: holdEdgeAt\(0\)/);
+  });
+
+  it("moves the outer strands by the hold edge's own displacement", () => {
+    // A hold edge that NARROWS as the head turns — 400 at rest, 360 at full
+    // turn — which is what a caller with a measured head width and a target
+    // silhouette ratio passes. Its boundary stays at 400 throughout.
+    const grid = {
+      cols: 4,
+      rows: 4,
+      points: generateGridPoints(4, 4, -800, 800, -400, 400),
+    };
+    const columnMapAt = (deg: number) =>
+      turnColumnMap(grid, 0, 800 * RADIUS_FACTOR, deg);
+    // Vertex xs every 50 from -500 to 500: the plate (0, 200), the ramp (300),
+    // the boundary (400) and two strands beyond it (450, 500).
+    const mesh = createPixelGridMesh(20, 2, 1000, 100);
+    const col = (x: number) => (x + 500) / 50;
+    const warp = bakeHairFrontSilhouetteWarp(
+      mesh,
+      0,
+      0,
+      200,
+      400,
+      (deg) => 400 - (40 * Math.abs(deg)) / 30,
+      columnMapAt,
+    );
+    const k = warp.keyforms.find((x) => x.value === 30)!;
+    const map = columnMapAt(30);
+    const landing = (x: number) => map.mapX(x + k.offsets[col(x) * 2]);
+    // Continuity: the boundary lands ON the hold edge's destination, where the
+    // ramp ends and the outer zone begins.
+    expect(landing(400)).toBeCloseTo(360, 6);
+    // Beyond it, the boundary's own 40px displacement — slope 1, so the rest
+    // spacing survives.
+    expect(landing(450)).toBeCloseTo(410, 6);
+    expect(landing(500)).toBeCloseTo(460, 6);
+    expect(landing(500) - landing(450)).toBeCloseTo(50, 6);
+    expect(landing(-450)).toBeCloseTo(-410, 6);
+    // The ramp, at the midpoint of the band: half way from the plate edge's
+    // destination to the hold edge's.
+    expect(landing(300)).toBeCloseTo((map.mapX(200) + 360) / 2, 6);
+    // On the plate: the grid's own bend, nothing added.
+    expect(k.offsets[col(0) * 2]).toBeCloseTo(0, 9);
+  });
+});
+
 describe("bakeHairSwayWarp", () => {
   const mesh = createPixelGridMesh(4, 4, 200, 400);
 
@@ -1523,14 +1769,20 @@ describe("hair-sway physics", () => {
     }
   });
 
-  it("both hair parts carry their own AngleX part warp: the back's bend, the bangs' lead", () => {
+  it("both hair parts carry their own AngleX part warps: the back's bend, the bangs' lead and silhouette hold", () => {
     const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
     const turnWarps = (id: string) =>
       (model.parts.find((p) => p.id === id)!.warps ?? []).filter(
         (w) => w.parameter === StandardParameter.AngleX,
       );
     expect(turnWarps("hair_back")).toHaveLength(1);
-    expect(turnWarps("hair_front")).toHaveLength(1);
+    // Two on the bangs, summed: the root-pinned lead across its two ends, and
+    // the silhouette hold keyed on all five turn stops.
+    expect(
+      turnWarps("hair_front")
+        .map((w) => w.keyforms.length)
+        .sort((a, b) => a - b),
+    ).toEqual([2, 5]);
     // Present even without front hair (it is the turn, not the sway).
     const bare = generateIkiFromLayerSet(assemblyLayers(), canvas);
     expect(
@@ -2205,7 +2457,31 @@ describe("per-vertex bakes generalize to any grid (not just 4×4/stride-5)", () 
     const fold = bakeEyelidFoldWarp(mesh, "p", -12, 0);
     const sway = bakeHairSwayWarp(mesh, "p", tipShift, 20);
     const turn = bakeHairBackTurnWarp(mesh, "p");
-    for (const k of [...fold.keyforms, ...sway.keyforms, ...turn.keyforms]) {
+    // Odd face-grid columns too: the silhouette hold reads the grid's own
+    // column map, so it must not assume a column on the cylinder's axis.
+    const grid = {
+      cols: 5,
+      rows: 5,
+      points: generateGridPoints(5, 5, -260, 260, -300, 300),
+    };
+    const columnMapAt = (deg: number) =>
+      turnColumnMap(grid, 0, 260 * RADIUS_FACTOR, deg);
+    const holdBase = plateReach(0, 100, columnMapAt) + 1;
+    const hold = bakeHairFrontSilhouetteWarp(
+      mesh,
+      0,
+      0,
+      100,
+      holdBase,
+      () => holdBase,
+      columnMapAt,
+    );
+    for (const k of [
+      ...fold.keyforms,
+      ...sway.keyforms,
+      ...turn.keyforms,
+      ...hold.keyforms,
+    ]) {
       expect(k.offsets).toHaveLength(mesh.vertices.length);
     }
 
@@ -2239,6 +2515,22 @@ describe("per-vertex bakes generalize to any grid (not just 4×4/stride-5)", () 
         for (let col = 0; col < stride; col++) {
           const p = row * stride + col;
           const x = mesh.vertices[p * 2] + k.offsets[p * 2];
+          expect(x).toBeGreaterThan(prev);
+          prev = x;
+        }
+      }
+    }
+
+    // Hold: rest keyform all-zero, and every row still lands in x-order.
+    const holdRest = hold.keyforms.find((k) => k.value === 0)!;
+    for (const o of holdRest.offsets) expect(o).toBeCloseTo(0, 9);
+    for (const k of hold.keyforms) {
+      const map = columnMapAt(k.value);
+      for (let row = 0; row * stride < mesh.vertices.length / 2; row++) {
+        let prev = -Infinity;
+        for (let col = 0; col < stride; col++) {
+          const v = row * stride + col;
+          const x = map.mapX(mesh.vertices[v * 2] + k.offsets[v * 2]);
           expect(x).toBeGreaterThan(prev);
           prev = x;
         }
