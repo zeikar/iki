@@ -24,4 +24,14 @@ export {
   type MeasureInput,
   type MeasureResult,
 } from "./measure";
+export {
+  measureTurnReference,
+  formatTurnReport,
+  type MeasureTurnInput,
+  type MeasureTurnResult,
+  type TurnMeasurement,
+  type TurnImageMeasure,
+  type IrisBlob,
+  type IrisColor,
+} from "./measure-turn";
 export { createIkiMcpServer } from "./server";

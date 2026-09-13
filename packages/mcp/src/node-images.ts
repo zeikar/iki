@@ -98,6 +98,23 @@ export function cropToBuffer(
     .toBuffer();
 }
 
+/**
+ * Draw `svg` over the image at `filePath` and return the composited PNG bytes.
+ * The debug half of ./measure-turn: the measurement is only believable once the
+ * boxes are seen sitting on the irises. The caller has already decoded the file
+ * through {@link decodePng}, so a failure here is an encode/environment fault,
+ * not caller input, and propagates as itself.
+ */
+export function encodeOverlayPng(
+  filePath: string,
+  svg: string,
+): Promise<Buffer> {
+  return sharp(filePath, { limitInputPixels: MAX_INPUT_PIXELS })
+    .composite([{ input: Buffer.from(svg) }])
+    .png()
+    .toBuffer();
+}
+
 export interface AtlasCrop {
   id: string;
   buffer: Buffer;

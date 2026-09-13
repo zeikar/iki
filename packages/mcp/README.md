@@ -12,6 +12,7 @@ A stdio [MCP](https://modelcontextprotocol.io/) server that exposes `.iki` model
 | `auto_rig_from_layers`      | Auto-rig role-named PNG layers into a renderable `.iki` written to disk; returns the output path.      |
 | `compose_layers_from_parts` | Compose generated part PNGs into canvas-aligned, role-named layers, with the geometry report inline.   |
 | `measure_layers`            | Re-run that same geometry report over an already-composed layers directory.                            |
+| `measure_turn_reference`    | Measure how far a head turns between a front and a turned image, as three scale-free ratios.           |
 
 The `model` input for `validate_iki` and `describe_iki` accepts either a plain JSON object or a JSON string — the server normalises both.
 
@@ -41,6 +42,32 @@ Reports the same read-only geometry checks `compose_layers_from_parts` returns i
 - **`layersDir`** — directory of role-named layer PNGs (resolved against the working directory).
 - **Result** — the text is the report: a per-layer size/bbox-centre/mass-centre/margins table, then the checks that fired. `structuredContent` is `{ ok: true, layersDir, layers, empty, warnings, passed }`. A missing or non-directory `layersDir` returns `{ ok: false, error }` with `INVALID: …` text.
 
+### `measure_turn_reference`
+
+Measures how far a head turns between two images of the same character — one facing front, one turned — and reports it as three scale-free ratios, so a rigged turn can be compared against a reference turn (or against an earlier rig) without registering the two images. Every number is a front→turned _change_ divided by something measured in the same image, so size, crop and framing cancel.
+
+- **`front`**, **`turned`** — PNG file paths (resolved against the server's working directory). Engine renders (transparent backdrop) and opaque reference art both work; see the two foreground modes below.
+- **`iris`** — optional colour-window override merged over the violet default (`hueMin` 230, `hueMax` 300 degrees, `satMin` 0.22). The iris is found as a saturated blob inside that hue window, closed and paired on one row, so a character whose eyes are another colour needs its own window — otherwise the tool returns `no iris pair found …` naming the file and how many candidate blobs it had.
+- **`debugDir`** — optional existing directory (confined to the working directory, like every other write) to drop a `front-<name>.debug.png` and a `turned-<name>.debug.png` into (role-prefixed, so two inputs that share a basename do not overwrite each other), with the iris boxes, the head edges, the head centre and the eye-pair centre drawn on them. The measurement is only believable once those boxes are seen sitting on the irises.
+- **Result** — `structuredContent` is `{ ok: true, front, turned, farEyeRatio, eyeShift, silhouetteRatio, turnSign, debug? }`, with `front`/`turned` carrying the raw per-image numbers (iris widths and centres, eye row, head span, which foreground mode was used). A missing file, a missing `debugDir`, or an image with no iris pair returns `{ ok: false, error }` with `INVALID: …` text.
+
+The three ratios:
+
+| Ratio             | What it is                                                                                                                             |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `farEyeRatio`     | Turned far/near iris width, divided by that same far/near ratio at rest — so a resting asymmetry in the art divides out.               |
+| `eyeShift`        | How far the eye pair slides across the head, in units of the **front** head half-width (`hh`). **Negative = toward the image's left.** |
+| `silhouetteRatio` | Head half-width, turned over front.                                                                                                    |
+
+`turnSign` is `-1` when the pair moved toward the image's left and `+1` when it moved right; the "far" eye is the one on the side it moved toward.
+
+The head span is the silhouette at the eye row, over a ±10-row band — fixed rather than scaled to the image, so compare renders at like resolutions. The foreground it spans is found two ways, chosen per image:
+
+- **alpha** — the file has an alpha channel with transparent pixels (an engine render): foreground is `alpha >= 128` and nothing else, so the character's near-black hair ink and pale highlights all count.
+- **keyed** — a fully opaque image (a reference): the flat lavender-grey backdrop (hue 220–260, low saturation, bright) and near-black frame borders are keyed out by colour instead.
+
+The two rules do not agree on the same picture — a near-black outline is silhouette under `alpha` and background under `keyed` — so compare renders with renders and references with references.
+
 ## Usage
 
 Run directly with npx (no install needed):
@@ -68,7 +95,7 @@ For Claude Desktop this goes in `claude_desktop_config.json`; for Claude Code it
 
 ## Scope note
 
-Current tools cover read/validate, auto-rigging a model from PNG layers (`auto_rig_from_layers`), and composing/measuring the role layers a generated character needs (`compose_layers_from_parts`, `measure_layers`). PSD input and granular model-mutation primitives (add part, bind parameter, export) are deferred to future slices.
+Current tools cover read/validate, auto-rigging a model from PNG layers (`auto_rig_from_layers`), composing/measuring the role layers a generated character needs (`compose_layers_from_parts`, `measure_layers`), and measuring a rendered head turn against a reference one (`measure_turn_reference`). PSD input and granular model-mutation primitives (add part, bind parameter, export) are deferred to future slices.
 
 ## License
 

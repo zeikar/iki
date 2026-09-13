@@ -8,6 +8,7 @@ import {
 } from "./tools";
 import { composeLayersFromParts } from "./compose";
 import { measureLayers, formatMeasureReport } from "./measure";
+import { measureTurnReference, formatTurnReport } from "./measure-turn";
 
 /** Injected by tsup (and vitest) from this package's package.json version. */
 declare const __MCP_VERSION__: string;
@@ -218,6 +219,59 @@ export function createIkiMcpServer(): McpServer {
         // intersection with the MeasureReport interface, which TS won't accept
         // directly against the SDK's `Record<string, unknown>` structuredContent
         // — spreading drops that nominal interface identity, same value.
+        return {
+          content: [{ type: "text", text }],
+          structuredContent: { ...r },
+        };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: "text", text: `Unexpected error: ${error}` }],
+          structuredContent: { ok: false, error },
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "measure_turn_reference",
+    {
+      description:
+        "Measures how far a head turns between two images of the same character — a front view and a turned one — as three scale-free ratios, so a rigged turn can be compared to a reference turn (or to an earlier rig) without registering the images: farEyeRatio (turned far/near iris width over the same ratio at rest), eyeShift (how far the eye pair slides across the head, in units of the FRONT head half-width; NEGATIVE = toward the image's left), silhouetteRatio (head half-width, turned over front). Compare images at like sizes — the ratios divide out framing, but the iris close radius and the eye-row band are pixel-fixed. Reads engine renders (transparent backdrop) and opaque reference art alike.",
+      inputSchema: {
+        front: z
+          .string()
+          .describe("Front-facing PNG file path (resolved against cwd)."),
+        turned: z
+          .string()
+          .describe("The same character turned, as a PNG file path."),
+        iris: z
+          .object({
+            hueMin: z.number().min(0).max(360),
+            hueMax: z.number().min(0).max(360),
+            satMin: z.number().min(0).max(1),
+          })
+          .partial()
+          .optional()
+          .describe(
+            "Iris colour window override merged over the violet default (hue 230..300, sat > 0.22) — set it for a character whose eyes are another colour.",
+          ),
+        debugDir: z
+          .string()
+          .optional()
+          .describe(
+            "Existing directory (resolved against cwd; confined to the working directory) to write `front-<name>.debug.png` / `turned-<name>.debug.png` overlays into, with the iris boxes and head edges drawn.",
+          ),
+      },
+    },
+    async (args) => {
+      try {
+        const r = await measureTurnReference(args);
+        const text = r.ok ? formatTurnReport(r) : `INVALID: ${r.error}`;
+        // Spread into a fresh object: the ok:true arm is an intersection with
+        // the TurnMeasurement interface, which TS won't accept directly against
+        // the SDK's Record<string, unknown> structuredContent.
         return {
           content: [{ type: "text", text }],
           structuredContent: { ...r },

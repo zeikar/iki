@@ -7,6 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { IKI_FORMAT_VERSION } from "@ikijs/format";
 import { createIkiMcpServer } from "../src/server";
 import { writePartsSet } from "./helpers/parts";
+import { FAR_IRIS_W, IRIS_W, writeTurnPair } from "./helpers/turn-pair";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 // Write a 100x100 transparent PNG with one opaque rect (so the layer has a bbox).
@@ -249,12 +250,13 @@ describe("MCP server integration", () => {
     expect(texts[0].text).toMatch(/^INVALID:/);
   });
 
-  it("registers compose_layers_from_parts and measure_layers among the server's tools", async () => {
+  it("registers compose_layers_from_parts, measure_layers and measure_turn_reference among the server's tools", async () => {
     pair = await createPair();
     const { tools } = await pair.client.listTools();
     const names = tools.map((t) => t.name);
     expect(names).toContain("compose_layers_from_parts");
     expect(names).toContain("measure_layers");
+    expect(names).toContain("measure_turn_reference");
   });
 
   it("compose_layers_from_parts composes the parts fixture and returns layers + measure", async () => {
@@ -335,6 +337,32 @@ describe("MCP server integration", () => {
       (c) => c.type === "text",
     );
     expect(texts[0].text).toMatch(/^# layers/);
+  });
+
+  it("measure_turn_reference reports the turn ratios of an image pair", async () => {
+    pair = await createPair();
+    const { front, turned } = await writeTurnPair(tmpDir());
+
+    const result = await pair.client.callTool({
+      name: "measure_turn_reference",
+      arguments: { front, turned },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const sc = result.structuredContent as {
+      ok: boolean;
+      farEyeRatio: number;
+      turnSign: number;
+    };
+    expect(sc.ok).toBe(true);
+    // The fixture's turned far iris is FAR_IRIS_W wide against a near one of
+    // IRIS_W, on a front pair that is symmetric.
+    expect(sc.farEyeRatio).toBeCloseTo(FAR_IRIS_W / IRIS_W, 2);
+    expect(sc.turnSign).toBe(-1);
+    const texts = (result.content as { type: string; text: string }[]).filter(
+      (c) => c.type === "text",
+    );
+    expect(texts[0].text).toMatch(/^farEyeRatio/);
   });
 
   it("measure_layers returns ok:false + INVALID: (not isError) for a missing dir", async () => {
