@@ -83,8 +83,9 @@ const MAX_CANDIDATES = 12;
 /** Half-height of the row band the head span is taken over, in px. Fixed at
  *  ±10 rows rather than scaled to the image, and that is the convention: any
  *  other measurement of head width meant to be compared with these — one taken
- *  off layer alpha, a hand script — has to span the same band. */
-const HEAD_BAND = 10;
+ *  off layer alpha, a hand script — has to span the same band. Exported so the
+ *  auto-rig's own head measurement spans it too. */
+export const HEAD_BAND = 10;
 
 // --- Foreground (silhouette) rule -----------------------------------------
 // Two modes, chosen per image, because the two kinds of image this compares
@@ -99,7 +100,9 @@ const HEAD_BAND = 10;
 //   "keyed"  a fully opaque REFERENCE: no alpha to read, so the flat
 //            lavender-grey backdrop is keyed out by colour instead, along with
 //            a near-black frame/letterbox border.
-const ALPHA_OPAQUE = 128;
+/** Exported for the layer-alpha silhouette the auto-rig measures its head on,
+ *  which has to follow the "alpha" rule above to be comparable with a render. */
+export const ALPHA_OPAQUE = 128;
 const BG_HUE_MIN = 220;
 const BG_HUE_MAX = 260;
 const BG_SAT_MAX = 0.2;
@@ -341,6 +344,16 @@ export function foregroundSpan(
   return { left, right };
 }
 
+/**
+ * Half of a silhouette span, in px. The span is INCLUSIVE — `left` and `right`
+ * are both foreground columns — so the head is `right - left + 1` px wide.
+ * Shared with the auto-rig's own layer measurement: the two head half-widths
+ * are compared against each other, so they cannot be halved differently.
+ */
+export function headHalfOf(span: { left: number; right: number }): number {
+  return (span.right - span.left + 1) / 2;
+}
+
 /** Merge a caller's partial iris window over the default, rejecting nonsense. */
 function resolveIris(override: Partial<IrisColor> | undefined): IrisColor {
   const iris = { ...DEFAULT_IRIS, ...override };
@@ -500,7 +513,7 @@ async function measureTurnImage(
       left,
       right,
       cx: (left + right) / 2,
-      half: (right - left) / 2,
+      half: headHalfOf({ left, right }),
     },
     pairCx: (irisL.cx + irisR.cx) / 2,
     eyeGap: irisR.cx - irisL.cx,

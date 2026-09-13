@@ -59,6 +59,10 @@ You own the character assets. You do not own the packages.
   there), created by the orchestrator with `parts/`, `layers/` and
   `layout.json` (`{}` on round 1) already there. The rigged `.iki` goes in it
   too.
+- `turnTargets` — the head-turn cues the loop froze in
+  `<workdir>/turn-targets.json` (`eyeShift`, `farEyeRatio`,
+  `silhouetteRatio`), measured off the reference pair. Absent when the loop has
+  none. You pass them to the rig; you never measure or edit them.
 - `findings` — the critic's typed findings (absent on round 1).
 - `round` — which iteration this is.
 
@@ -106,6 +110,20 @@ the prompt patterns and the hard-won pitfalls. Then:
    the model the orchestrator loads in the playground is the compact one (a
    lossless atlas is ~4× larger).
 
+   Pass `turnTargets` as well when you were given them — the three fields
+   verbatim. The result's `turn` block reports what the turn reaches
+   (`turn.achieved`) and which _defaulted_ targets this layer set could not
+   reach (`turn.clamped`); quote both in your report.
+
+   A rig refused as `INVALID: … turnTargets.<field> … unreachable …` (the reply
+   carries the range that field could have had) means the reference asks for
+   more turn than this art can give. Re-rig ONCE without `turnTargets` — same
+   layers, same output path — and record the refusal verbatim as an `escalate`:
+   it is a fitting limit for the orchestrator to arbitrate, not something to
+   tune around. Never edit `turn-targets.json`, and never soften a target to
+   make it fit. If the default rig is refused too, record both errors, state
+   that the round produced no model, and return.
+
 ## Applying findings
 
 - **`retune`** — change the value in `layout.json`, recompose, re-read the
@@ -144,8 +162,9 @@ ROUND: N
 GENERATED: <parts re-drawn this round, or "none">
 RETUNED: <layout.json keys changed, old -> new>
 MEASURE: <"all geometry checks passed", or the remaining warnings and why>
-MODEL: <path to the rigged .iki>
-ESCALATED: <critic findings you did not act on, verbatim, or "none">
-BLOCKED: <"none", or what stopped the round — for a usage limit, the reset time>
+MODEL: <path to the rigged .iki, or "none" — see BLOCKED>
+TURN: <the result's turn.achieved and turn.clamped, or "none" when no turn was solved>
+ESCALATED: <critic findings you did not act on, and any refusal you escalated, verbatim, or "none">
+BLOCKED: <"none", or what stopped the round — for a usage limit, the reset time; for a refused rig, that no model came out>
 NOTES: <anything the orchestrator should know>
 ```

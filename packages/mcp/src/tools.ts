@@ -13,8 +13,11 @@ import {
   uvRectFor,
   generateIkiFromLayerSet,
   parseLayerRoles,
+  TurnTargetError,
   type LayerInput,
   type AtlasAssignment,
+  type TurnTargets,
+  type TurnSolveReport,
 } from "@ikijs/editor";
 import {
   decodePng,
@@ -23,6 +26,12 @@ import {
   renderAtlasToDataUri,
   type AtlasCrop,
 } from "./node-images";
+import {
+  ALPHA_OPAQUE,
+  HEAD_BAND,
+  foregroundSpan,
+  headHalfOf,
+} from "./measure-turn";
 import {
   AutoRigInputError,
   MAX_LAYERS,
@@ -241,7 +250,15 @@ export interface AutoRigInput {
   /** Palette-quantize the atlas PNG to this many colours (integer, 2..256).
    *  Omitted = lossless. See renderAtlasToDataUri for the size/quality trade. */
   quantizeColors?: number;
+  /** Head-turn cues to fit the rig to, as `measure_turn_reference` reports
+   *  them. */
+  turnTargets?: AutoRigTurnTargets;
 }
+
+/** The turn cues a caller may pass, which is every one but `headHalfWidth`:
+ *  the pixels the shift fractions are fractions of are measured off the layers
+ *  themselves, not accepted from the caller. */
+export type AutoRigTurnTargets = Omit<TurnTargets, "headHalfWidth">;
 
 export type AutoRigResult =
   | {
@@ -250,8 +267,20 @@ export type AutoRigResult =
       canvas: { width: number; height: number };
       partCount: number;
       atlasBytes: number;
+      /** The head's half-width at the eye row, measured off the layers. */
+      headHalfWidth: number;
+      /** Whether the measured value was handed to the generator; the
+       *  face-half fallback applies otherwise, which is what happens when it is
+       *  no wider than the face plate. */
+      headHalfWidthApplied: boolean;
+      /** What the turn solve settled on — the cues the rig reaches and the
+       *  defaulted targets it had to cut down. Absent for a layer set with no
+       *  nose, which solves no turn at all. */
+      turn?: TurnSolveReport;
     }
   | { ok: false; error: string };
+
+export type { TurnSolveReport };
 
 /**
  * Run a fallible input/environment-boundary call, re-tagging any throw as an
@@ -270,9 +299,50 @@ function expectInput<T>(label: string, fn: () => T): T {
 }
 
 /**
+ * The row the head's width is measured at: the mean of the iris centres, or of
+ * the eye centres when the layer set has no irises. `measure_turn_reference`
+ * picks the same row off a render — it finds the irises themselves — so the
+ * head it spans there is the head spanned here.
+ */
+function eyeRowOf(layers: LayerInput[]): number {
+  const centreY = (role: string): number | undefined => {
+    const layer = layers.find((l) => l.role === role);
+    return layer && layer.bbox.y + layer.bbox.h / 2;
+  };
+  const pairRow = (left: string, right: string): number | undefined => {
+    const a = centreY(left);
+    const b = centreY(right);
+    return a === undefined || b === undefined ? undefined : (a + b) / 2;
+  };
+  const row = pairRow("iris_L", "iris_R") ?? pairRow("eye_L", "eye_R");
+  if (row === undefined) {
+    // eye_L/eye_R are required roles, so parseLayerRoles refused this set long
+    // before here — a miss is an invariant break, not caller input.
+    throw new Error("auto-rig: no eye pair to measure the head width at");
+  }
+  return Math.round(row);
+}
+
+/** The face plate's half-width, derived the way generateIkiFromLayerSet derives
+ *  it — off the `face` layer's cropped width — so the two agree on which head
+ *  is the wider one. */
+function facePlateHalfOf(layers: LayerInput[]): number {
+  const face = layers.find((l) => l.role === "face");
+  if (face === undefined) {
+    // `face` is a required role; parseLayerRoles refused this set long before.
+    throw new Error("auto-rig: no face layer to measure the plate against");
+  }
+  return face.cropW / 2;
+}
+
+/**
  * Decode role-named PNG file paths, auto-rig a model from them, atlas + embed
  * the textures (Node sharp), validate, and write the renderable `.iki` to disk.
  * Returns the output path + summary stats (the multi-MB model is never inlined).
+ *
+ * The head turn is fitted to `input.turnTargets`, on the head half-width this
+ * measures off the layers themselves; what the solve settled on comes back in
+ * `turn`.
  *
  * Re-host of examples/editor/src/store.ts `importLayerSet` with the three DOM
  * pixel functions swapped for the sharp-backed ./node-images helpers; the pure
@@ -333,6 +403,12 @@ export async function autoRigFromLayers(
     let canvasW = 0;
     let canvasH = 0;
     let totalPixels = 0;
+    // Union of EVERY layer's opaque pixels — the silhouette the head half-width
+    // is measured off below. Every layer folds in, so a body or an accessory
+    // crossing the eye band widens the span; that is deliberate, because a rest
+    // render of the finished rig shows the same union and measures the same.
+    // Sized once the first layer gives the canvas.
+    let opaque = new Uint8Array(0);
     const layerInputs: LayerInput[] = [];
     const crops: AtlasCrop[] = [];
     for (let i = 0; i < resolvedLayers.length; i++) {
@@ -357,6 +433,7 @@ export async function autoRigFromLayers(
             `canvas ${canvasW}x${canvasH} exceeds ${MAX_CANVAS_DIM}`,
           );
         }
+        opaque = new Uint8Array(canvasW * canvasH);
       } else if (png.width !== canvasW || png.height !== canvasH) {
         throw new AutoRigInputError(
           `layer "${fileName}" size ${png.width}x${png.height} differs from canvas ${canvasW}x${canvasH}`,
@@ -378,6 +455,10 @@ export async function autoRigFromLayers(
         );
       }
       const buffer = await cropToBuffer(png.rgba, png.width, png.height, bbox);
+      // Fold this layer into the silhouette while its pixels are still here.
+      for (let p = 0; p < opaque.length; p++) {
+        if (png.rgba[p * 4 + 3] >= ALPHA_OPAQUE) opaque[p] = 1;
+      }
       // png.rgba (full-canvas) is dropped at the next iteration — GC reclaims it
       // before the next decode, so peak memory stays ~one canvas + the crops.
       layerInputs.push({
@@ -392,12 +473,58 @@ export async function autoRigFromLayers(
       crops.push({ id: role, buffer, width: bbox.w, height: bbox.h });
     }
 
+    // The head's own half-width at the eye row, in canvas px, taken off the
+    // layers' opaque union the way measure_turn_reference takes it off a render
+    // (alpha rule, same row band, same halving) — so a rest render of this rig
+    // measures the same span back. It is what the turn's shift targets are
+    // fractions of; the generator's own fallback is the face plate, which is
+    // narrower than the head the hair draws, and every shift then lands short.
+    const eyeRow = eyeRowOf(layerInputs);
+    const span = foregroundSpan(
+      opaque,
+      canvasW,
+      canvasH,
+      eyeRow - HEAD_BAND,
+      eyeRow + HEAD_BAND,
+    );
+    if (span.right <= span.left) {
+      throw new AutoRigInputError(
+        `no head span at the eye row (y=${eyeRow}): the layers' opaque union is empty there`,
+      );
+    }
+    const headHalfWidth = headHalfOf(span);
+    // ...but only when it IS the wider one. A hairless set, or one whose face
+    // plate is what the eye row is widest at, measures a head the generator
+    // refuses (the silhouette hold's zone would sit inside the plate) — and the
+    // right answer there is the plate it falls back to, not no rig at all.
+    const headHalfWidthApplied = headHalfWidth > facePlateHalfOf(layerInputs);
+
     // Internal pipeline — direct calls. By here roles + bboxes are validated, so
-    // a throw is an invariant break / bug and must propagate to `isError`.
-    const model = generateIkiFromLayerSet(layerInputs, {
-      width: canvasW,
-      height: canvasH,
-    });
+    // a throw is an invariant break / bug and must propagate to `isError` —
+    // except from the turn solve, the one part of the generator that reads
+    // CALLER input. It marks those with TurnTargetError (a field that is not a
+    // number, a target this layer set cannot reach), which is a fact about the
+    // request, not a bug.
+    let turn: TurnSolveReport | undefined;
+    let model: IkiModel;
+    try {
+      model = generateIkiFromLayerSet(
+        layerInputs,
+        { width: canvasW, height: canvasH },
+        {
+          turnTargets: {
+            ...input.turnTargets,
+            ...(headHalfWidthApplied ? { headHalfWidth } : {}),
+          },
+          onTurnSolved: (report) => {
+            turn = report;
+          },
+        },
+      );
+    } catch (e) {
+      if (!(e instanceof TurnTargetError)) throw e;
+      throw new AutoRigInputError(e.message);
+    }
     const doc = new EditorDocument(model);
 
     const layout = packAtlas(
@@ -445,6 +572,9 @@ export async function autoRigFromLayers(
       canvas: { width: canvasW, height: canvasH },
       partCount: finalModel.parts.length,
       atlasBytes: dataUri.length,
+      headHalfWidth,
+      headHalfWidthApplied,
+      ...(turn === undefined ? {} : { turn }),
     };
   } catch (err) {
     if (err instanceof AutoRigInputError)

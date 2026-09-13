@@ -134,10 +134,11 @@ them mid-loop or on a restart invalidates every prior score.
 ### Step 1 — round
 
 1. Dispatch **`iki:iki-character-artist`** with `reference` (the front view
-   only — `gen-parts.sh` attaches it to every job), `workdir`, `round`, and the
-   critic's findings (none on round 1). Both agents ship inside this plugin, so
-   the dispatch name carries its namespace; a bare `iki-character-artist` does
-   not resolve.
+   only — `gen-parts.sh` attaches it to every job), `workdir`, `round`,
+   `turnTargets` (the three turn fields of `<workdir>/turn-targets.json`, which
+   its rig step passes to `auto_rig_from_layers`), and the critic's findings
+   (none on round 1). Both agents ship inside this plugin, so the dispatch name carries
+   its namespace; a bare `iki-character-artist` does not resolve.
 
    **Expect several dispatches per round.** Generation runs as backgrounded
    jobs and a subagent cannot wait on them, so the artist returns while the
@@ -145,6 +146,11 @@ them mid-loop or on a restart invalidates every prior score.
    land, then resume the SAME agent — it holds the round's context — rather
    than dispatching a fresh one. If it returns reporting a usage limit instead,
    the round is over: take the reset time and go to Step 2.
+
+   **An artist that returns no model ends the round the same way** — a rig
+   refused even without `turnTargets` leaves nothing to render. Skip the render
+   and the critic (there is nothing to score), keep its escalation, and go to
+   Step 2.
 
 2. **Render it yourself.** Load the artist's `.iki` through the Model picker's
    "Load a .iki file…" entry — the same on both paths; only the load order and
@@ -191,7 +197,10 @@ them mid-loop or on a restart invalidates every prior score.
 4. Route: `regenerate` and `retune` go back to the artist. Handle `escalate`
    yourself — decide whether the package change is warranted, and if it is,
    make it as normal code work with a test and a changeset. Never let the loop
-   edit `packages/`.
+   edit `packages/`. A turn target the artist's rig refused as unreachable
+   arrives as an escalation like any other: it says this art cannot reach the
+   reference's turn, so the call is yours — accept the defaulted rig, or change
+   the art.
 
 ### Step 2 — stop
 

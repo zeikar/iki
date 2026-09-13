@@ -125,6 +125,18 @@ export function createIkiMcpServer(): McpServer {
           .describe(
             "Palette-quantize the atlas PNG to this many colours (2..256). Flat-shaded art keeps its look at 256 and the model shrinks to about a quarter; omit for lossless.",
           ),
+        turnTargets: z
+          .object({
+            eyeShift: z.number().optional(),
+            farEyeRatio: z.number().optional(),
+            silhouetteRatio: z.number().optional(),
+            noseShift: z.number().optional(),
+            mouthShift: z.number().optional(),
+          })
+          .optional()
+          .describe(
+            "What the head turn is fitted to, as `measure_turn_reference` reports it off a front/turned reference pair. `eyeShift` (and the optional `noseShift`/`mouthShift`, derived from it when absent) is how far that feature slides across the head at full turn, as a fraction of the head's half-width — a MAGNITUDE: the rig turns both ways, so the sign is ignored. `farEyeRatio` is the far/near eye width at full turn over that same ratio at rest, `silhouetteRatio` the head's half-width turned over at rest. The half-width the shifts are fractions of is measured off the layers themselves, so it is not an input. An omitted field falls back to a default, which is clamped to what this layer set can do (the result's `turn.clamped` lists the ones that were, `turn.achieved` what the rig reaches); a target you DO pass that this layer set cannot reach comes back as `INVALID: …` naming the field and the attainable range, since it is a measurement rather than a preference.",
+          ),
       },
     },
     async (args) => {

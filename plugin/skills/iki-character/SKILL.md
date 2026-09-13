@@ -155,12 +155,21 @@ Call `auto_rig_from_layers` with the layer paths `compose_layers_from_parts` ret
   ],
   "outputPath": "iki-char/iki-character.iki",
   "quantizeColors": 256,
+  "turnTargets": {
+    "eyeShift": 0.224,
+    "farEyeRatio": 0.671,
+    "silhouetteRatio": 1.012,
+  },
 }
 ```
 
 Role is derived from the file basename (override per layer with `fileName` if needed). The tool decodes/crops/atlases itself (sharp, internal) and writes a renderable `.iki`, returning its path. A missing required role or a layer whose size ≠ the canvas comes back as `{ ok: false, error }` — fix the layers and retry.
 
 `quantizeColors` palette-quantizes the atlas PNG. Flat-shaded art keeps its look at 256 colours and the model drops to about a quarter of its lossless size (the hero demo: 3.5MB → 0.9MB), which is what makes it loadable on a page. Leave it out while iterating on the art; put it in for the model you ship.
+
+`turnTargets` is what the head turn is fitted to: the cues `measure_turn_reference` reads off a front view and the same character turned — magnitudes, the sign is the turn's own business. The **iki-character-loop** skill measures them once and freezes them in `<workdir>/turn-targets.json`; pass that file's `eyeShift`, `farEyeRatio` and `silhouetteRatio`. Leave the key out and the rig uses built-in defaults instead. Either way the head half-width the shifts are fractions of is measured off the layers themselves, and the result reports it as `headHalfWidth` alongside a `turn` report: `turn.achieved` is what the turn reaches, `turn.clamped` names the _defaulted_ targets this layer set could not reach and had cut down.
+
+A target **you** passed that it cannot reach is refused instead — `INVALID: … turnTargets.eyeShift … is unreachable for this layer set (attainable a…b)`. That is a fact about this character's geometry (how much room the far eye has before it leaves the face plate), not a number to tune: re-rig once without `turnTargets` and report the message verbatim, rather than loosening the measurement to make it fit.
 
 Driving the **bin** over stdio when the server isn't registered — run it from the project dir, the same cwd the plugin's server has, so the `iki-char/…` paths resolve:
 

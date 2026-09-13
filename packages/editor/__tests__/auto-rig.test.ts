@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_TURN_TARGETS,
   ROLE_TABLE,
+  TurnTargetError,
   bakeEyelidFoldWarp,
   bakeHairBackTurnWarp,
   bakeHairFrontSilhouetteWarp,
@@ -3611,6 +3612,21 @@ describe("turn targets", () => {
     ).toThrow(
       /auto-rig: turnTargets\.headHalfWidth \(250\) must be wider than the face plate's own half-width \(300\)/,
     );
+  });
+
+  it("every refused target throws TurnTargetError, not a bare Error", () => {
+    // The class is the seam a host reports on: it tells a caller's bad number
+    // from the invariant breaks the rest of the generator throws.
+    const refused: TurnTargets[] = [
+      { eyeShift: 2 },
+      { farEyeRatio: 0.2 },
+      { headHalfWidth: 250 },
+    ];
+    for (const turnTargets of refused) {
+      expect(() =>
+        generateIkiFromLayerSet(withNose(), canvas, { turnTargets }),
+      ).toThrow(TurnTargetError);
+    }
   });
 
   it("the solve reports itself to onTurnSolved, once, and only when there is a turn", () => {

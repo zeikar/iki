@@ -230,7 +230,13 @@ describe("autoRigFromLayers", () => {
   async function writeLayerPng(
     dir: string,
     name: string,
-    rect: { x: number; y: number; w: number; h: number } | null,
+    rect: {
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      rgb?: { r: number; g: number; b: number };
+    } | null,
     dims: { w: number; h: number } = { w: CANVAS, h: CANVAS },
   ): Promise<string> {
     const filePath = path.join(dir, name);
@@ -248,7 +254,7 @@ describe("autoRigFromLayers", () => {
           width: rect.w,
           height: rect.h,
           channels: 4,
-          background: { r: 200, g: 120, b: 60, alpha: 1 },
+          background: { ...(rect.rgb ?? { r: 200, g: 120, b: 60 }), alpha: 1 },
         },
       })
         .png()
@@ -596,5 +602,177 @@ describe("autoRigFromLayers", () => {
     expect(model.textures[0].source.startsWith("data:image/png;base64,")).toBe(
       true,
     );
+  });
+  // ── the head turn ────────────────────────────────────────────────────────
+
+  // The required roles plus the `nose` that gates the turn solve. At the eye row
+  // the widest thing here is the face plate itself — the hairless case.
+  async function writeNoseLayers(dir: string): Promise<string[]> {
+    return [
+      ...(await writeRequiredLayers(dir)),
+      await writeLayerPng(dir, "nose.png", { x: 46, y: 44, w: 8, h: 8 }),
+    ];
+  }
+
+  // The same set under near-black bangs wider than that plate: the head the
+  // turn's shifts are fractions of is the one the hair draws, and its ink only
+  // counts as silhouette under the alpha rule.
+  async function writeTurnLayers(dir: string): Promise<string[]> {
+    return [
+      ...(await writeNoseLayers(dir)),
+      await writeLayerPng(dir, "hair_front.png", {
+        x: 10,
+        y: 25,
+        w: 80,
+        h: 31,
+        rgb: { r: 8, g: 6, b: 10 },
+      }),
+    ];
+  }
+
+  /** The eye's turn slide in a written model: the `from` end of its AngleX
+   *  translateX binding, i.e. where it sits at the turn's own limit. */
+  function eyeSlide(filePath: string): number {
+    const model = parseIkiModel(JSON.parse(fs.readFileSync(filePath, "utf8")));
+    const binding = (
+      model.parts.find((p) => p.id === "eye_L")!.bindings ?? []
+    ).find(
+      (b) =>
+        b.parameter === StandardParameter.AngleX && b.channel === "translateX",
+    );
+    return binding!.from;
+  }
+
+  it("measures the head half-width off the layers' alpha, ink included", async () => {
+    const dir = tmpDir();
+    const paths = await writeTurnLayers(dir);
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The bangs span 10..89 at the eye row; the face plate alone reads 30, so
+    // this is also the proof that near-black pixels count as silhouette.
+    expect(result.headHalfWidth).toBe(40);
+    expect(result.headHalfWidthApplied).toBe(true);
+    // And it is the head the solve ran on: the silhouette hold pivots on that
+    // very distance, which the face plate would have made 31.
+    expect(result.turn!.holdBase).toBe(40);
+  });
+
+  it("a head no wider than the face plate falls back to the plate, and still rigs", async () => {
+    const dir = tmpDir();
+    const paths = await writeNoseLayers(dir);
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+
+    // A hairless set measures a head no wider than the plate it is drawn on,
+    // which the generator refuses as a head — so the tool keeps the number for
+    // the caller and lets the plate stand in, rather than refusing the rig.
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.headHalfWidth).toBe(30);
+    expect(result.headHalfWidthApplied).toBe(false);
+    expect(result.turn).toBeDefined();
+    expect(result.turn!.holdBase).not.toBe(30);
+  });
+
+  it("reports what the turn solve settled on — and nothing when there is no nose", async () => {
+    const dir = tmpDir();
+    const turnPaths = await writeTurnLayers(dir);
+
+    const rigged = await autoRigFromLayers({
+      layers: turnPaths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "turn.iki"),
+    });
+    expect(rigged.ok).toBe(true);
+    if (!rigged.ok) return;
+    expect(rigged.turn).toBeDefined();
+    expect(Array.isArray(rigged.turn!.clamped)).toBe(true);
+    expect(rigged.turn!.achieved.eyeShift).toBeTypeOf("number");
+    expect(rigged.turn!.achieved.farEyeRatio).toBeTypeOf("number");
+    expect(rigged.turn!.radius).toBeGreaterThan(0);
+
+    const noseless = await autoRigFromLayers({
+      layers: turnPaths
+        .filter((p) => !p.endsWith("nose.png"))
+        .map((p) => ({ path: p })),
+      outputPath: path.join(dir, "noseless.iki"),
+    });
+    expect(noseless.ok).toBe(true);
+    if (!noseless.ok) return;
+    expect(noseless.turn).toBeUndefined();
+  });
+
+  it("a bigger eyeShift target slides the eyes further", async () => {
+    const dir = tmpDir();
+    const layers = (await writeTurnLayers(dir)).map((p) => ({ path: p }));
+    const smallPath = path.join(dir, "small.iki");
+    const bigPath = path.join(dir, "big.iki");
+
+    const small = await autoRigFromLayers({
+      layers,
+      outputPath: smallPath,
+      turnTargets: { eyeShift: 0.05 },
+    });
+    const big = await autoRigFromLayers({
+      layers,
+      outputPath: bigPath,
+      turnTargets: { eyeShift: 0.15 },
+    });
+    expect(small.ok && big.ok).toBe(true);
+    if (!small.ok || !big.ok) return;
+    // Both targets are inside what this layer set can do, so neither was cut
+    // down and the slide is the target's alone.
+    expect(small.turn!.clamped).not.toContain("eyeShift");
+    expect(big.turn!.clamped).not.toContain("eyeShift");
+    expect(small.turn!.achieved.eyeShift).toBeCloseTo(0.05, 2);
+    expect(big.turn!.achieved.eyeShift).toBeCloseTo(0.15, 2);
+    // Both were fractions of the head measured off the layers (40), not of the
+    // face plate (31) — the hold pivots on the one the solve used.
+    expect(small.turn!.holdBase).toBe(small.headHalfWidth);
+    expect(big.turn!.holdBase).toBe(big.headHalfWidth);
+    expect(Math.abs(eyeSlide(bigPath))).toBeGreaterThan(
+      Math.abs(eyeSlide(smallPath)),
+    );
+  });
+
+  it("returns { ok:false } for a turn target this layer set cannot reach", async () => {
+    const dir = tmpDir();
+    const paths = await writeTurnLayers(dir);
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+      // Half the head half-width would slide the far eye off the face plate.
+      turnTargets: { eyeShift: 0.5 },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/turnTargets\.eyeShift/);
+    expect(result.error).toMatch(/unreachable/);
+    expect(result.error).toMatch(/attainable/);
+  });
+
+  it("returns { ok:false } for a non-finite turn target, naming the field", async () => {
+    const dir = tmpDir();
+    const paths = await writeTurnLayers(dir);
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+      turnTargets: { farEyeRatio: Number.NaN },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/turnTargets\.farEyeRatio/);
   });
 });

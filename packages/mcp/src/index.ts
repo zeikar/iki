@@ -11,6 +11,8 @@ export {
   type AutoRigInput,
   type AutoRigLayerInput,
   type AutoRigResult,
+  type AutoRigTurnTargets,
+  type TurnSolveReport,
 } from "./tools";
 export {
   composeLayersFromParts,

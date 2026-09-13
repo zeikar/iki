@@ -813,6 +813,20 @@ export interface TurnTargets {
 }
 
 /**
+ * A `turnTargets` field this generator will not build a rig from: not a number,
+ * outside its range, unreachable on this layer set, or a measured head narrower
+ * than the face plate it is drawn around. Every one of them carries a number
+ * the CALLER passed, so a host can tell them apart from the invariant breaks the
+ * rest of the generator throws and report them as bad input instead of failing.
+ */
+export class TurnTargetError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TurnTargetError";
+  }
+}
+
+/**
  * The reference the turn is fitted to when the caller measured none of its own:
  * a 3/4 portrait, which `measure_turn_reference` reads as 0.671 / −0.224 /
  * 1.012 (its raw turned far/near iris ratio is 0.71 — 0.67 is that ratio
@@ -894,7 +908,7 @@ export function resolveTurnTargets(
       const from = derived
         ? `, derived from turnTargets.eyeShift (${eyeShift}),`
         : "";
-      throw new Error(
+      throw new TurnTargetError(
         `auto-rig: turnTargets.${field} (${value})${from} must be ${expected}`,
       );
     }
@@ -1465,7 +1479,7 @@ export function solveTurnModel(
     targets.headHalfWidth !== undefined &&
     targets.headHalfWidth <= faceHalfWidth
   ) {
-    throw new Error(
+    throw new TurnTargetError(
       `auto-rig: turnTargets.headHalfWidth (${targets.headHalfWidth}) must be wider than the face plate's own half-width (${faceHalfWidth})`,
     );
   }
@@ -2581,7 +2595,7 @@ export function generateIkiFromLayerSet(
       )
     : undefined;
   if (turn?.unreachable) {
-    throw new Error(
+    throw new TurnTargetError(
       `auto-rig: turnTargets.${turn.field} ${turn.value} is unreachable for this layer set (attainable ${turn.attainable[0]}…${turn.attainable[1]})`,
     );
   }

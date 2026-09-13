@@ -63,6 +63,7 @@ export {
 } from "./factories";
 export {
   DEFAULT_TURN_TARGETS,
+  TurnTargetError,
   generateIkiFromLayerSet,
   parseLayerRoles,
   type LayerInput,

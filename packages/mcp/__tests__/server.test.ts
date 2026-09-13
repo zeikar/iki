@@ -50,6 +50,16 @@ async function writeRequiredLayers(dir: string): Promise<string[]> {
   ];
 }
 
+// The same set plus the `nose` that gates the turn solve and bangs wider than
+// the face plate — the head the turn's shift targets are fractions of.
+async function writeTurnLayers(dir: string): Promise<string[]> {
+  return [
+    ...(await writeRequiredLayers(dir)),
+    await writeLayer(dir, "nose.png", { x: 46, y: 44, w: 8, h: 8 }),
+    await writeLayer(dir, "hair_front.png", { x: 10, y: 25, w: 80, h: 31 }),
+  ];
+}
+
 // Minimal valid model matching the shape used in tools.test.ts.
 function validModel() {
   return {
@@ -225,6 +235,31 @@ describe("MCP server integration", () => {
     expect((result.structuredContent as { ok: boolean }).ok).toBe(true);
     expect(result.isError).toBeFalsy();
     expect(fs.existsSync(outPath)).toBe(true);
+  });
+
+  it("auto_rig_from_layers accepts turnTargets through the tool schema", async () => {
+    pair = await createPair();
+    const dir = tmpDir();
+    const paths = await writeTurnLayers(dir);
+    const outPath = path.join(dir, "model.iki");
+
+    const result = await pair.client.callTool({
+      name: "auto_rig_from_layers",
+      arguments: {
+        layers: paths.map((p) => ({ path: p })),
+        outputPath: outPath,
+        turnTargets: { eyeShift: 0.1 },
+      },
+    });
+
+    const sc = result.structuredContent as {
+      ok: boolean;
+      turn?: { achieved: { eyeShift: number } };
+    };
+    expect(sc.ok).toBe(true);
+    expect(result.isError).toBeFalsy();
+    // The target reached the solver, not just the schema.
+    expect(sc.turn!.achieved.eyeShift).toBeCloseTo(0.1, 2);
   });
 
   it("auto_rig_from_layers returns ok:false + INVALID: (not isError) for a bad path", async () => {

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
+import { headHalfOf } from "../../src/measure-turn";
 
 /**
  * Synthetic front/turned image pairs for the head-turn measurement: real
@@ -119,7 +120,9 @@ export function headSpanFor(spec: ViewSpec): {
   // A pixel is painted when its centre is inside the ellipse.
   const left = Math.ceil(cx - halfWidth - 0.5);
   const right = Math.floor(cx + halfWidth - 0.5);
-  return { left, right, half: (right - left) / 2 };
+  // Halved through the measurement's own helper, so the expectation follows the
+  // span convention rather than restating it.
+  return { left, right, half: headHalfOf({ left, right }) };
 }
 
 export interface TurnPairOptions {
