@@ -13,6 +13,7 @@ import {
   SKEWED_FRONT,
   SKEWED_TURNED,
   headSpanFor,
+  writeScaledTurnPair,
   writeSkewedTurnPair,
   writeTurnPair,
 } from "./helpers/turn-pair";
@@ -146,6 +147,20 @@ describe("measureTurnReference", () => {
     expect(result.front.head.right).toBe(PLAIN_HEAD.right);
   });
 
+  it("refuses a keyed image whose backdrop is not lavender, rather than reading the whole frame as head", async () => {
+    const { front, turned } = await writeTurnPair(tmpDir(), {
+      wrongBackdrop: true,
+    });
+
+    const result = await measureTurnReference({ front, turned });
+
+    // White fails the lavender hue window, so every pixel reads as
+    // foreground: the eye-row span would otherwise be the whole image width.
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/background not keyed|not an engine render/);
+  });
+
   it("finds an off-default iris colour only through its own window", async () => {
     const { front, turned } = await writeTurnPair(tmpDir(), {
       amberIrises: true,
@@ -194,6 +209,22 @@ describe("measureTurnReference", () => {
     expect(result.ok ? "" : result.error).toMatch(
       /no iris pair found .* among 0 candidate blobs/,
     );
+  });
+
+  it("returns ok:false for a pair at different scales, naming both iris heights", async () => {
+    const dir = tmpDir();
+    // Same unturned character, but the "turned" image is a 20% bigger redraw
+    // — a yaw never changes iris height, so this is a scale/framing mismatch,
+    // not a turn. (20%, not the tolerance's own 10%, so the rasterised iris
+    // clears the pixel-rounding noise a borderline case would sit in.)
+    const { front, turned } = await writeScaledTurnPair(dir, 1.2);
+
+    const result = await measureTurnReference({ front, turned });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/not at the same scale/);
+    expect(result.error).toMatch(/mean iris height/);
   });
 
   it("returns ok:false for a missing file and for a missing debugDir", async () => {

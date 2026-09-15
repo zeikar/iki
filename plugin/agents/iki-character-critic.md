@@ -61,6 +61,10 @@ artist agent applies your findings; the orchestrator arbitrates.
 - `round` — which iteration this is.
 - `scores` — the previous rounds' `SCORES:` lines, so you can compare each axis
   against its best so far (none on round 1).
+- `turn-clamped` — this round's artist's own `TURN:` line, verbatim: its
+  `turn.achieved` and `turn.clamped`, or "none" when no turn was solved. The
+  only way to tell a target the rig already clamped to what this layer set
+  can reach from a new turn defect — see the ±0.05 delta rule below.
 
 Read both references, `preview.png` and every render before writing anything.
 
@@ -144,12 +148,12 @@ part cannot put depth into it.
 The three deltas from Step 1 settle only what they measure — `farEyeRatio` the
 far iris' endpoint compression, `eyeShift` the eye pair's travel,
 `silhouetteRatio` the head's width. A delta beyond ±0.05 is an `escalate`
-naming `auto-rig.ts` and the number, EXCEPT when the artist's report shows the
-rig already clamped that field (`turn.clamped`): that is a documented fitting
-limit this layer set cannot reach, not a new defect — report it in
-MEASUREMENTS and in the deltas, but do not raise a second escalation for it
-(the loop already carries the artist's). A delta within ±0.05 does not by
-itself clear the axis — it only says that one number tracks the reference.
+naming `auto-rig.ts` and the number, EXCEPT when `turn-clamped` shows the rig
+already clamped that field: that is a documented fitting limit this layer set
+cannot reach, not a new defect — report it in MEASUREMENTS and in the deltas,
+but do not raise a second escalation for it (the loop already carries the
+artist's). A delta within ±0.05 does not by itself clear the axis — it only
+says that one number tracks the reference.
 The visual questions above stay their own findings, judged against
 `reference-30.png` on attributes as above, and the `turn` score combines
 both: a rig can pass all three numbers and still score low on what they

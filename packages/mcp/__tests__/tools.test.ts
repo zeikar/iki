@@ -13,6 +13,7 @@ import {
   describeIki,
   listStandardParameters,
   autoRigFromLayers,
+  type AutoRigTurnTargets,
 } from "../src/tools";
 
 // Minimal valid model used across several tests.
@@ -236,6 +237,8 @@ describe("autoRigFromLayers", () => {
       w: number;
       h: number;
       rgb?: { r: number; g: number; b: number };
+      /** Fraction 0..1; defaults to fully opaque. */
+      alpha?: number;
     } | null,
     dims: { w: number; h: number } = { w: CANVAS, h: CANVAS },
   ): Promise<string> {
@@ -254,7 +257,10 @@ describe("autoRigFromLayers", () => {
           width: rect.w,
           height: rect.h,
           channels: 4,
-          background: { ...(rect.rgb ?? { r: 200, g: 120, b: 60 }), alpha: 1 },
+          background: {
+            ...(rect.rgb ?? { r: 200, g: 120, b: 60 }),
+            alpha: rect.alpha ?? 1,
+          },
         },
       })
         .png()
@@ -272,6 +278,58 @@ describe("autoRigFromLayers", () => {
       await writeLayerPng(dir, "eye_L.png", { x: 30, y: 35, w: 12, h: 8 }),
       await writeLayerPng(dir, "eye_R.png", { x: 58, y: 35, w: 12, h: 8 }),
       await writeLayerPng(dir, "mouth.png", { x: 42, y: 60, w: 16, h: 8 }),
+    ];
+  }
+
+  // The same, but painted at alpha 100/255 — above detectAlphaBbox's own
+  // ALPHA_BBOX_THRESHOLD (8), but below the opaque-union rule (128) the head
+  // half-width measurement uses. `withNose` also adds the role that gates the
+  // turn solve, to check the fallback holds even when a turn is being fitted.
+  async function writeTranslucentLayers(
+    dir: string,
+    withNose = false,
+  ): Promise<string[]> {
+    const alpha = 100 / 255;
+    return [
+      await writeLayerPng(dir, "face.png", {
+        x: 20,
+        y: 20,
+        w: 60,
+        h: 60,
+        alpha,
+      }),
+      await writeLayerPng(dir, "eye_L.png", {
+        x: 30,
+        y: 35,
+        w: 12,
+        h: 8,
+        alpha,
+      }),
+      await writeLayerPng(dir, "eye_R.png", {
+        x: 58,
+        y: 35,
+        w: 12,
+        h: 8,
+        alpha,
+      }),
+      await writeLayerPng(dir, "mouth.png", {
+        x: 42,
+        y: 60,
+        w: 16,
+        h: 8,
+        alpha,
+      }),
+      ...(withNose
+        ? [
+            await writeLayerPng(dir, "nose.png", {
+              x: 46,
+              y: 44,
+              w: 8,
+              h: 8,
+              alpha,
+            }),
+          ]
+        : []),
     ];
   }
 
@@ -643,6 +701,40 @@ describe("autoRigFromLayers", () => {
     return binding!.from;
   }
 
+  it("falls back to the face plate, and still rigs, when the layers are translucent (alpha below the opaque-union threshold)", async () => {
+    const dir = tmpDir();
+    const paths = await writeTranslucentLayers(dir);
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Alpha 100 clears detectAlphaBbox's own floor (8), so every layer still
+    // has a real bbox — it is only the opaque-union span (alpha >= 128) that
+    // reads empty at the eye row, and the tool falls back instead of refusing.
+    expect(result.headHalfWidth).toBeUndefined();
+    expect(result.headHalfWidthApplied).toBe(false);
+  });
+
+  it("falls back to the face plate on translucent layers with a nose too, and still solves the turn", async () => {
+    const dir = tmpDir();
+    const paths = await writeTranslucentLayers(dir, true);
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.headHalfWidth).toBeUndefined();
+    expect(result.headHalfWidthApplied).toBe(false);
+    expect(result.turn).toBeDefined();
+  });
+
   it("measures the head half-width off the layers' alpha, ink included", async () => {
     const dir = tmpDir();
     const paths = await writeTurnLayers(dir);
@@ -663,6 +755,50 @@ describe("autoRigFromLayers", () => {
     expect(result.turn!.holdBase).toBe(40);
   });
 
+  // writeTurnLayers()'s bangs (10..89) plus a back-hair layer that reaches
+  // further out on the LEFT (0) but not as far on the RIGHT (69): each side's
+  // outermost opaque pixel in the eye-row band belongs to a different layer.
+  async function writeMixedHairLayers(dir: string): Promise<string[]> {
+    return [
+      ...(await writeTurnLayers(dir)),
+      await writeLayerPng(dir, "hair_back.png", {
+        x: 0,
+        y: 20,
+        w: 69,
+        h: 40,
+        rgb: { r: 8, g: 6, b: 10 },
+      }),
+    ];
+  }
+
+  it("reports which layer owns each side's outermost opaque pixel, when they differ", async () => {
+    const dir = tmpDir();
+    const paths = await writeMixedHairLayers(dir);
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // hair_back spans 0..69, hair_front 10..89 (canvas px; model x is canvas x
+    // minus half the CANVAS=100 canvas): hair_back's own left edge (0 -> -50)
+    // is further out than hair_front's (10 -> -40), hair_front's own right
+    // edge (89 -> 39) further out than hair_back's (69 -> 19). Every role with
+    // SOME opaque pixel in the band is listed (face, the eyes, the nose too),
+    // so this checks the two that matter rather than the whole array.
+    expect(result.headHalfWidthApplied).toBe(true);
+    expect(result.headEdges?.left).toContainEqual({
+      role: "hair_back",
+      x: -50,
+    });
+    expect(result.headEdges?.right).toContainEqual({
+      role: "hair_front",
+      x: 39,
+    });
+  });
+
   it("a head no wider than the face plate falls back to the plate, and still rigs", async () => {
     const dir = tmpDir();
     const paths = await writeNoseLayers(dir);
@@ -681,6 +817,28 @@ describe("autoRigFromLayers", () => {
     expect(result.headHalfWidthApplied).toBe(false);
     expect(result.turn).toBeDefined();
     expect(result.turn!.holdBase).not.toBe(30);
+  });
+
+  it("ignores a caller-supplied headHalfWidth smuggled into turnTargets (a JS caller, unchecked by the TS type)", async () => {
+    const dir = tmpDir();
+    const paths = await writeNoseLayers(dir);
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+      // headHalfWidth is excluded from AutoRigTurnTargets' own type, so this
+      // is only reachable from plain JS / a cast — exactly what a spread
+      // instead of a destructure would let through untouched.
+      turnTargets: { headHalfWidth: 99999 } as AutoRigTurnTargets,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // headHalfWidthApplied is false here (same fixture as the test above), so
+    // the smuggled value must NOT reach the generator: holdBase falls back to
+    // the plate, not the caller's 99999.
+    expect(result.headHalfWidthApplied).toBe(false);
+    expect(result.turn!.holdBase).not.toBe(99999);
   });
 
   it("reports what the turn solve settled on — and nothing when there is no nose", async () => {
@@ -716,10 +874,14 @@ describe("autoRigFromLayers", () => {
     const smallPath = path.join(dir, "small.iki");
     const bigPath = path.join(dir, "big.iki");
 
+    // Both above this 40px head's own drift-only minimum (~0.074: the eye
+    // pair's at-rest drift from the bend alone, in the silhouette-centre's
+    // corrected units — see auto-rig.ts's evaluateTurnCandidate), so both are
+    // reached exactly rather than floored to that minimum.
     const small = await autoRigFromLayers({
       layers,
       outputPath: smallPath,
-      turnTargets: { eyeShift: 0.05 },
+      turnTargets: { eyeShift: 0.09 },
     });
     const big = await autoRigFromLayers({
       layers,
@@ -732,7 +894,7 @@ describe("autoRigFromLayers", () => {
     // down and the slide is the target's alone.
     expect(small.turn!.clamped).not.toContain("eyeShift");
     expect(big.turn!.clamped).not.toContain("eyeShift");
-    expect(small.turn!.achieved.eyeShift).toBeCloseTo(0.05, 2);
+    expect(small.turn!.achieved.eyeShift).toBeCloseTo(0.09, 2);
     expect(big.turn!.achieved.eyeShift).toBeCloseTo(0.15, 2);
     // Both were fractions of the head measured off the layers (40), not of the
     // face plate (31) — the hold pivots on the one the solve used.

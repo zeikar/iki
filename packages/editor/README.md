@@ -73,6 +73,16 @@ not a measurement of this character, so it is **clamped** to what the layer set
 can do and the rig is built. Pass `options.onTurnSolved` to see what the turn
 settled on and which targets were clamped.
 
+`turnTargets.headHalfWidth` is what the shift targets are fractions of, when a
+caller has measured the actual head (the face plate stands in otherwise).
+Alongside it, `options.headEdges` names, per side, every layer with an opaque
+pixel at the eye row and its own rest x there — a companion to a measured
+`headHalfWidth`, absent otherwise — so the solver can land each candidate
+through its OWN part's deformation (the bangs, the back hair, a face-plate or
+body edge move very differently on the turn) rather than assume the head is
+centred on the face plate or that whichever part drew furthest out at rest is
+still the furthest out after it turns.
+
 It takes **already-decoded** layer geometry (`LayerInput`), never pixels, which
 is what keeps this package free of any image dependency: the editor app
 decodes with canvas, `@ikijs/mcp` decodes with `sharp`, and both feed the same

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // decode-renders.cjs — decode a `{ pose: dataUrl }` capture into PNG files.
 //
-// The turn pair is captured via `canvas.toDataURL("image/png")` from
-// `window.__iki`, not a screenshot: a screenshot carries the page under the
+// The turn pair is captured via `canvas.toDataURL("image/png")` — from
+// `window.__iki` in a checkout, or via the standalone page's own pose slider
+// otherwise — not a screenshot: a screenshot carries the page under the
 // canvas, and `measure_turn_reference` needs the render's OWN transparency
 // to tell foreground from background. The `browser_evaluate` call that
 // produces this JSON writes its result file to the CURRENT WORKING

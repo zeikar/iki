@@ -5,8 +5,10 @@
 New `measure_turn_reference` tool: measures how far a head turns between two
 images of the same character — one facing front, one turned — and reports it as
 three ratios, so a rigged turn can be compared against a reference turn (or an
-earlier rig) without registering the images (framing divides out; compare at
-like sizes, since the iris close radius and the eye-row band are pixel-fixed). `farEyeRatio` is the
+earlier rig) without registering the images. The pair must already share the
+same scale and framing: crop and position cancel, but scale does not, and a
+yaw never changes iris height, so a pair whose mean iris heights differ by more
+than 10% is refused rather than measured as if it were a turn. `farEyeRatio` is the
 turned far/near iris width over that same ratio at rest, `eyeShift` is how far
 the eye pair slides across the head in units of the FRONT head half-width
 (negative = toward the image's left), and `silhouetteRatio` is the head
@@ -26,9 +28,17 @@ row band `measure_turn_reference` spans a render with, so the rig's own rest
 render measures that span back. The result carries that `headHalfWidth` and a
 `turn` report (`radius`, `holdBase`, `depths`, `achieved`, `clamped`) of what
 the solve settled on, plus a `headHalfWidthApplied` flag: a layer set whose head
-is not wider than its own face plate (a hairless one, say) measures a head the
-generator will not take, so the plate stands in for it and a rig still comes
-out — the defaults always produce a model. An omitted target falls back to a
+is not wider than its own face plate (a hairless one, say), or whose art is
+translucent below the opaque-union threshold (so `headHalfWidth` itself comes
+back absent), measures a head the generator will not take, so the plate stands
+in for it and a rig still comes out — the defaults always produce a model. When
+`headHalfWidth` is applied, the result also carries `headEdges`: every layer
+with an opaque pixel in that same eye-row band, per side, each with its own
+rest x there, passed to the generator's own `options.headEdges` so it can land
+each candidate through its OWN part's deformation (the bangs, the back hair, a
+face-plate or body edge move very differently on the turn) and take the
+outermost result, not just whichever one drew furthest out at rest. An omitted
+target falls back to a
 default that is clamped to what the layer set can do — `turn.clamped` names the
 ones that were — while a target the caller passed and the layer set cannot reach
 comes back as `INVALID: …` naming the field and the attainable range.

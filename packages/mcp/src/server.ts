@@ -250,7 +250,7 @@ export function createIkiMcpServer(): McpServer {
     "measure_turn_reference",
     {
       description:
-        "Measures how far a head turns between two images of the same character — a front view and a turned one — as three scale-free ratios, so a rigged turn can be compared to a reference turn (or to an earlier rig) without registering the images: farEyeRatio (turned far/near iris width over the same ratio at rest), eyeShift (how far the eye pair slides across the head, in units of the FRONT head half-width; NEGATIVE = toward the image's left), silhouetteRatio (head half-width, turned over front). Compare images at like sizes — the ratios divide out framing, but the iris close radius and the eye-row band are pixel-fixed. Reads engine renders (transparent backdrop) and opaque reference art alike.",
+        "Measures how far a head turns between two images of the same character — a front view and a turned one, at the SAME scale — as three ratios, so a rigged turn can be compared to a reference turn (or to an earlier rig) without registering the images: farEyeRatio (turned far/near iris width over the same ratio at rest), eyeShift (how far the eye pair slides across the head, in units of the FRONT head half-width; NEGATIVE = toward the image's left), silhouetteRatio (head half-width, turned over front). The ratios divide out crop and position, not scale, so the pair must already share framing and head size; since a yaw never changes iris height, a pair whose mean iris height differs by more than 10% is refused instead of measured as a turn. Reads engine renders (transparent backdrop) and opaque reference art alike.",
       inputSchema: {
         front: z
           .string()

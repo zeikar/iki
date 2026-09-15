@@ -194,11 +194,35 @@ them mid-loop or on a restart invalidates every prior score.
    rest pose) and at −30 (the rig's own limit), via `browser_evaluate` — not a
    screenshot, because a screenshot carries the page under the canvas and the
    measurement needs the render's own transparency to tell foreground from
-   background. This needs `window.__iki`, which only a checkout exposes: if
-   this round rendered in a checkout, the model is already loaded — just
-   `reset()` and set the angle; if it rendered standalone, open
-   `pnpm playground` now and load the same `.iki` through the picker (as
-   above) first, then capture the same way:
+   background.
+   **Standalone:** the prior screenshots already moved sliders, so load the
+   `.iki` file through the picker once more (same flow as above, Idle already
+   off) to get back to the untouched rest pose, then drive `ParamAngleX`
+   through the same "Head Angle" `.control` block used above — set its
+   `input[type=range]` value and dispatch an `input` event — waiting two
+   animation frames before each capture so the engine has actually rendered
+   the pose:
+   ```js
+   async () => {
+     const canvas = document.getElementById("iki");
+     const nextFrame = () =>
+       new Promise((r) =>
+         requestAnimationFrame(() => requestAnimationFrame(r)),
+       );
+     await nextFrame();
+     const rest = canvas.toDataURL("image/png");
+     const input = [...document.querySelectorAll(".control")]
+       .find((c) => c.querySelector("label span")?.textContent === "Head Angle")
+       .querySelector("input[type=range]");
+     input.value = "-30";
+     input.dispatchEvent(new Event("input", { bubbles: true }));
+     await nextFrame();
+     const turnM30 = canvas.toDataURL("image/png");
+     return JSON.stringify({ rest, "turn-m30": turnM30 });
+   };
+   ```
+   **Inside an `iki` checkout:** the model is already loaded, and
+   `window.__iki` gives the same pair by id, no reload needed:
    ```js
    async () => {
      const api = window.__iki;
@@ -223,8 +247,11 @@ them mid-loop or on a restart invalidates every prior score.
    resource; two agents driving it collide.
 3. Dispatch **`iki:iki-character-critic`** with `reference`, `reference-30`, `layers`,
    `renders` (the render paths), `turn-pair` (`<workdir>/renders/rest.png` and
-   `turn-m30.png`), `turn-targets` (`<workdir>/turn-targets.json`), `round` and
-   `scores` (the previous rounds' `SCORES:` lines). It returns scores and
+   `turn-m30.png`), `turn-targets` (`<workdir>/turn-targets.json`), `round`,
+   `scores` (the previous rounds' `SCORES:` lines), and `turn-clamped` (this
+   round's artist's own `TURN:` line, verbatim — its `turn.clamped`, or "none"
+   when no turn was solved) so the critic can tell a clamped fitting limit
+   from a new turn defect. It returns scores and
    typed findings.
 4. Route: `regenerate` and `retune` go back to the artist. Handle `escalate`
    yourself — decide whether the package change is warranted, and if it is,

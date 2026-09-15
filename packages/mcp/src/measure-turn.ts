@@ -2,11 +2,15 @@
  * Measure the head-turn cues in a PAIR of images of the same character — one
  * facing front, one turned — and report them as three ratios. It is how a
  * rigged turn gets compared to a reference turn without either image being
- * registered to the other: every number below is a front→turned CHANGE, divided
- * by something measured in the same image, so the character's size, crop and
- * framing cancel. Not fully scale-free, though: the head span is sampled over a
- * FIXED ±HEAD_BAND row band, so two images of very different resolution sample
- * different fractions of the head — compare renders at like sizes.
+ * registered to the other: every number below is a front→turned CHANGE,
+ * divided by something measured in the same image. That cancels crop and
+ * position, not SCALE: the head span is sampled over a FIXED ±HEAD_BAND row
+ * band, so a pair at different resolutions — or a character redrawn larger or
+ * smaller between the two shots — would read as a turn that never happened.
+ * The pair MUST already share framing and head size; this only checks it, it
+ * does not correct for it. The check is a yaw does not change iris HEIGHT, so
+ * a front/turned pair whose mean iris height differs is refused rather than
+ * measured (see `measureTurnReference`).
  *
  *   farEyeRatio     how much the far eye narrows, over what it already was at
  *                   rest (a resting asymmetry in the art is divided out)
@@ -69,6 +73,11 @@ const CLOSE_RADIUS_REFERENCE_PX = 1254;
 // An iris is small. Anything wider or taller than this fraction of the image is
 // hair, a collar, or the face itself leaking through the hue window.
 const BLOB_MAX_FRAC = 0.12;
+// A KEYED head span this wide is not a head: the hue/sat/value backdrop rule
+// found no background at all, so the whole frame reads as foreground — a
+// backdrop that is not the lavender-grey it keys on (a plain screenshot, a
+// different key colour), not a character that fills the canvas edge to edge.
+const KEYED_SPAN_MAX_FRAC = 0.95;
 // Area floor, scaled from the 300 px it was tuned at on a 1254² reference so
 // the same physical blob survives on a smaller render.
 const MIN_AREA_REFERENCE_PIXELS = 1254 * 1254;
@@ -500,6 +509,11 @@ async function measureTurnImage(
       `no head span at the eye row (y=${eyeRow}) in ${filePath}: the ${maskMode} foreground mask is empty there`,
     );
   }
+  if (maskMode === "keyed" && right - left + 1 > width * KEYED_SPAN_MAX_FRAC) {
+    throw new AutoRigInputError(
+      `head span at the eye row (y=${eyeRow}) in ${filePath} covers ${right - left + 1}/${width} px: background not keyed / not an engine render`,
+    );
+  }
 
   return {
     file: filePath,
@@ -568,6 +582,14 @@ async function writeOverlay(
   return outPath;
 }
 
+/** How far the front/turned mean iris heights may differ before the pair is
+ *  refused as not being at the same scale. A yaw foreshortens iris WIDTH, never
+ *  its height, so any difference here is framing/scale, not turn — 10% is
+ *  comfortably above the paint/detection noise a same-scale pair shows (the
+ *  fixtures in measure-turn.test.ts read within a percent) and comfortably
+ *  below a deliberate rescale. */
+const IRIS_HEIGHT_SCALE_TOLERANCE = 0.1;
+
 /**
  * Measure a front/turned image pair and report the three turn ratios plus both
  * raw per-image measurements.
@@ -589,6 +611,21 @@ export async function measureTurnReference(
 
     const front = await measureTurnImage(frontPath, iris);
     const turned = await measureTurnImage(turnedPath, iris);
+
+    // A yaw does not change iris HEIGHT — only width, via foreshortening — so
+    // a front/turned pair whose mean iris height differs is not at the same
+    // scale/framing, and every ratio below would be measuring that instead of
+    // the turn. Refuse it rather than silently reporting a scale change as one.
+    const frontIrisH = (front.irisL.h + front.irisR.h) / 2;
+    const turnedIrisH = (turned.irisL.h + turned.irisR.h) / 2;
+    if (
+      Math.abs(turnedIrisH - frontIrisH) / frontIrisH >
+      IRIS_HEIGHT_SCALE_TOLERANCE
+    ) {
+      throw new AutoRigInputError(
+        `front and turned images are not at the same scale: mean iris height ${frontIrisH.toFixed(1)}px front vs ${turnedIrisH.toFixed(1)}px turned, more than ${(IRIS_HEIGHT_SCALE_TOLERANCE * 100).toFixed(0)}% apart — a yaw does not change iris height, so the pair must share the same framing and head size`,
+      );
+    }
 
     // Where the eye pair sits on the head, per image; the CHANGE is the turn.
     const frontShift = front.pairCx - front.head.cx;

@@ -141,6 +141,7 @@ Call `auto_rig_from_layers` with the layer paths `compose_layers_from_parts` ret
     { "path": "iki-char/layers/body.png" },
     { "path": "iki-char/layers/hair_back.png" },
     { "path": "iki-char/layers/face.png" },
+    { "path": "iki-char/layers/nose.png" },
     { "path": "iki-char/layers/eye_L.png" },
     { "path": "iki-char/layers/eye_R.png" },
     { "path": "iki-char/layers/iris_L.png" },
@@ -167,7 +168,7 @@ Role is derived from the file basename (override per layer with `fileName` if ne
 
 `quantizeColors` palette-quantizes the atlas PNG. Flat-shaded art keeps its look at 256 colours and the model drops to about a quarter of its lossless size (the hero demo: 3.5MB → 0.9MB), which is what makes it loadable on a page. Leave it out while iterating on the art; put it in for the model you ship.
 
-`turnTargets` is what the head turn is fitted to: the cues `measure_turn_reference` reads off a front view and the same character turned — magnitudes, the sign is the turn's own business. The **iki-character-loop** skill measures them once and freezes them in `<workdir>/turn-targets.json`; pass that file's `eyeShift`, `farEyeRatio` and `silhouetteRatio`. Leave the key out and the rig uses built-in defaults instead. Either way the head half-width the shifts are fractions of is measured off the layers themselves, and the result reports it as `headHalfWidth` alongside a `turn` report: `turn.achieved` is what the turn reaches, `turn.clamped` names the _defaulted_ targets this layer set could not reach and had cut down.
+`turnTargets` is what the head turn is fitted to: the cues `measure_turn_reference` reads off a front view and the same character turned — magnitudes, the sign is the turn's own business. The **iki-character-loop** skill measures them once and freezes them in `<workdir>/turn-targets.json`; pass that file's `eyeShift`, `farEyeRatio` and `silhouetteRatio`. Leave the key out and the rig uses built-in defaults instead. Either way the head half-width the shifts are fractions of is measured off the layers themselves, and the result reports it as `headHalfWidth` alongside a `turn` report: `turn.achieved` is what the turn reaches, `turn.clamped` names the _defaulted_ targets this layer set could not reach and had cut down. A layer set with no `nose` (see Step 1) solves no turn at all: `turnTargets` is silently inert and the result carries no `turn` report, whether or not the field is passed.
 
 A target **you** passed that it cannot reach is refused instead — `INVALID: … turnTargets.eyeShift … is unreachable for this layer set (attainable a…b)`. That is a fact about this character's geometry (how much room the far eye has before it leaves the face plate), not a number to tune: re-rig once without `turnTargets` and report the message verbatim, rather than loosening the measurement to make it fit.
 

@@ -66,6 +66,9 @@ export interface ViewSpec {
   irisLW: number;
   irisRW: number;
   pairOffset: number;
+  /** Iris height, both eyes. Defaults to `IRIS_H` — set it to paint a view at
+   *  a different scale than its pair, since a yaw never changes this. */
+  irisH?: number;
 }
 
 export const PLAIN_FRONT: ViewSpec = {
@@ -136,6 +139,9 @@ export interface TurnPairOptions {
   noIrises?: boolean;
   /** Paint the irises amber, which only a custom `iris` window finds. */
   amberIrises?: boolean;
+  /** Plain white backdrop instead of the flat lavender the keyed rule looks
+   *  for — an un-keyed (or wrongly keyed) reference, not an engine render. */
+  wrongBackdrop?: boolean;
 }
 
 function ellipse(
@@ -178,10 +184,11 @@ async function writeView(
   const channels = opts.transparent ? 4 : 3;
   const buf = Buffer.alloc(SIZE * SIZE * channels);
   if (!opts.transparent) {
+    const bg: RGB = opts.wrongBackdrop === true ? [255, 255, 255] : LAVENDER;
     for (let i = 0; i < SIZE * SIZE; i++) {
-      buf[i * 3] = LAVENDER[0];
-      buf[i * 3 + 1] = LAVENDER[1];
-      buf[i * 3 + 2] = LAVENDER[2];
+      buf[i * 3] = bg[0];
+      buf[i * 3 + 1] = bg[1];
+      buf[i * 3 + 2] = bg[2];
     }
   }
   const set: SetPixel = (x, y, rgb) => {
@@ -201,8 +208,9 @@ async function writeView(
   if (opts.noIrises !== true) {
     const colour = opts.amberIrises === true ? AMBER : VIOLET;
     const cx = headCx + spec.pairOffset;
-    ellipse(set, cx - EYE_DX, EYE_ROW, spec.irisLW, IRIS_H, colour);
-    ellipse(set, cx + EYE_DX, EYE_ROW, spec.irisRW, IRIS_H, colour);
+    const irisH = spec.irisH ?? IRIS_H;
+    ellipse(set, cx - EYE_DX, EYE_ROW, spec.irisLW, irisH, colour);
+    ellipse(set, cx + EYE_DX, EYE_ROW, spec.irisRW, irisH, colour);
   }
   if (opts.border === true) {
     rect(set, 0, 0, SIZE, 8, INK);
@@ -244,4 +252,23 @@ export function writeSkewedTurnPair(
   dir: string,
 ): Promise<{ front: string; turned: string }> {
   return writePair(dir, SKEWED_FRONT, SKEWED_TURNED, {});
+}
+
+/** An UNTURNED pair — same head, same pair offset, nothing moved — but the
+ *  "turned" view's head and irises (width AND height) redrawn at `scale`
+ *  times the front's, as a differently-scaled character would come out rather
+ *  than a turned one. Exercises the same-scale precondition: a real yaw would
+ *  leave iris height where it was. */
+export function writeScaledTurnPair(
+  dir: string,
+  scale: number,
+): Promise<{ front: string; turned: string }> {
+  const scaled: ViewSpec = {
+    ...PLAIN_FRONT,
+    headW: PLAIN_FRONT.headW * scale,
+    irisLW: PLAIN_FRONT.irisLW * scale,
+    irisRW: PLAIN_FRONT.irisRW * scale,
+    irisH: IRIS_H * scale,
+  };
+  return writePair(dir, PLAIN_FRONT, scaled, {});
 }

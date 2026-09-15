@@ -267,12 +267,28 @@ export type AutoRigResult =
       canvas: { width: number; height: number };
       partCount: number;
       atlasBytes: number;
-      /** The head's half-width at the eye row, measured off the layers. */
-      headHalfWidth: number;
+      /** The head's half-width at the eye row, measured off the layers.
+       *  Absent when the opaque (alpha >= 128) union has no span there — a
+       *  layer set painted translucent below that threshold — in which case
+       *  the face plate stands in for it, same as a span that measures
+       *  narrower than the plate. */
+      headHalfWidth?: number;
       /** Whether the measured value was handed to the generator; the
-       *  face-half fallback applies otherwise, which is what happens when it is
-       *  no wider than the face plate. */
+       *  face-half fallback applies otherwise, which is what happens when it
+       *  is no wider than the face plate, or absent entirely. */
       headHalfWidthApplied: boolean;
+      /** Every role with an opaque pixel in the same eye-row band as
+       *  `headHalfWidth`, per side, each with its own rest x there (canvas px)
+       *  — present only when `headHalfWidthApplied` is true, since the
+       *  fallback path has no measured edge to report at all. Passed to the
+       *  generator so it can land each candidate through its OWN deformation
+       *  (hair_front's, the back hair's, a faceWarp/body role's, or — for
+       *  anything else — rigid with the head) and take the outermost
+       *  LANDING, not just the outermost REST pixel. */
+      headEdges?: {
+        left: { role: string; x: number }[];
+        right: { role: string; x: number }[];
+      };
       /** What the turn solve settled on — the cues the rig reaches and the
        *  defaulted targets it had to cut down. Absent for a layer set with no
        *  nose, which solves no turn at all. */
@@ -321,6 +337,30 @@ function eyeRowOf(layers: LayerInput[]): number {
     throw new Error("auto-rig: no eye pair to measure the head width at");
   }
   return Math.round(row);
+}
+
+/**
+ * `foregroundSpan`, but over one layer's own already-reduced per-row
+ * left/right (see `rowSpansByRole` in `autoRigFromLayers`) instead of a
+ * pixel mask — the same row-band reduction, without re-scanning pixels.
+ */
+function foregroundSpanOfRows(
+  rowLeft: Int32Array,
+  rowRight: Int32Array,
+  rowLo: number,
+  rowHi: number,
+): { left: number; right: number } {
+  let left = Infinity;
+  let right = -Infinity;
+  for (
+    let y = Math.max(0, rowLo);
+    y <= Math.min(rowLeft.length - 1, rowHi);
+    y++
+  ) {
+    if (rowLeft[y] < left) left = rowLeft[y];
+    if (rowRight[y] > right) right = rowRight[y];
+  }
+  return { left, right };
 }
 
 /** The face plate's half-width, derived the way generateIkiFromLayerSet derives
@@ -411,6 +451,17 @@ export async function autoRigFromLayers(
     let opaque = new Uint8Array(0);
     const layerInputs: LayerInput[] = [];
     const crops: AtlasCrop[] = [];
+    // Per layer, per row: its OWN leftmost/rightmost opaque column (canvasW /
+    // -1 where it has none that row) — recorded in the SAME pass as the union
+    // fold, while the layer's decoded pixels are still live, rather than a
+    // second decode pass. Reduced to a single left/right owner per side once
+    // the eye row is known, below: which layer's own deformation actually
+    // carries the union's outermost pixel through the turn.
+    const rowSpansByRole: {
+      role: string;
+      rowLeft: Int32Array;
+      rowRight: Int32Array;
+    }[] = [];
     for (let i = 0; i < resolvedLayers.length; i++) {
       const { resolved, fileName } = resolvedLayers[i];
       const png = await decodePng(resolved);
@@ -455,10 +506,20 @@ export async function autoRigFromLayers(
         );
       }
       const buffer = await cropToBuffer(png.rgba, png.width, png.height, bbox);
-      // Fold this layer into the silhouette while its pixels are still here.
-      for (let p = 0; p < opaque.length; p++) {
-        if (png.rgba[p * 4 + 3] >= ALPHA_OPAQUE) opaque[p] = 1;
+      // Fold this layer into the silhouette AND record its own per-row extent
+      // while its pixels are still here — one pass over the same pixels.
+      const rowLeft = new Int32Array(canvasH).fill(canvasW);
+      const rowRight = new Int32Array(canvasH).fill(-1);
+      for (let y = 0; y < canvasH; y++) {
+        for (let x = 0; x < canvasW; x++) {
+          const p = y * canvasW + x;
+          if (png.rgba[p * 4 + 3] < ALPHA_OPAQUE) continue;
+          opaque[p] = 1;
+          if (x < rowLeft[y]) rowLeft[y] = x;
+          if (x > rowRight[y]) rowRight[y] = x;
+        }
       }
+      rowSpansByRole.push({ role, rowLeft, rowRight });
       // png.rgba (full-canvas) is dropped at the next iteration — GC reclaims it
       // before the next decode, so peak memory stays ~one canvas + the crops.
       layerInputs.push({
@@ -487,17 +548,48 @@ export async function autoRigFromLayers(
       eyeRow - HEAD_BAND,
       eyeRow + HEAD_BAND,
     );
-    if (span.right <= span.left) {
-      throw new AutoRigInputError(
-        `no head span at the eye row (y=${eyeRow}): the layers' opaque union is empty there`,
-      );
+    // A layer set painted below the ALPHA_OPAQUE threshold (translucent art —
+    // still above detectAlphaBbox's own, much lower, floor) has no confident
+    // span here. That is not the same as having no head: fall back to the face
+    // plate, same as a span that measures narrower than it below, rather than
+    // refuse the whole rig over a union that is merely non-opaque.
+    const headHalfWidth = span.right > span.left ? headHalfOf(span) : undefined;
+    // ...but only when it IS wider than the plate. A hairless set, one whose
+    // face plate is what the eye row is widest at, or one with no confident
+    // span at all, measures a head the generator refuses (the silhouette
+    // hold's zone would sit inside the plate) — and the right answer there is
+    // the plate it falls back to, not no rig at all.
+    const headHalfWidthApplied =
+      headHalfWidth !== undefined &&
+      headHalfWidth > facePlateHalfOf(layerInputs);
+
+    // Every layer's own opaque extent in the same band — a companion to
+    // headHalfWidth, only meaningful once it is actually applied (the
+    // fallback path has no measured edge to report at all). The generator
+    // lands each candidate through its OWN deformation and takes the
+    // outermost LANDING, not just the outermost REST pixel, since which part
+    // ends up furthest out after the turn can differ from which one drew
+    // furthest out at rest. Model x (canvas x minus half the canvas width),
+    // matching bboxToTransform's own convention.
+    let headEdges:
+      | {
+          left: { role: string; x: number }[];
+          right: { role: string; x: number }[];
+        }
+      | undefined;
+    if (headHalfWidthApplied) {
+      const bandLo = eyeRow - HEAD_BAND;
+      const bandHi = eyeRow + HEAD_BAND;
+      const left: { role: string; x: number }[] = [];
+      const right: { role: string; x: number }[] = [];
+      for (const { role, rowLeft, rowRight } of rowSpansByRole) {
+        const own = foregroundSpanOfRows(rowLeft, rowRight, bandLo, bandHi);
+        if (own.right <= own.left) continue; // no opaque pixel here at all
+        left.push({ role, x: own.left - canvasW / 2 });
+        right.push({ role, x: own.right - canvasW / 2 });
+      }
+      headEdges = { left, right };
     }
-    const headHalfWidth = headHalfOf(span);
-    // ...but only when it IS the wider one. A hairless set, or one whose face
-    // plate is what the eye row is widest at, measures a head the generator
-    // refuses (the silhouette hold's zone would sit inside the plate) — and the
-    // right answer there is the plate it falls back to, not no rig at all.
-    const headHalfWidthApplied = headHalfWidth > facePlateHalfOf(layerInputs);
 
     // Internal pipeline — direct calls. By here roles + bboxes are validated, so
     // a throw is an invariant break / bug and must propagate to `isError` —
@@ -508,17 +600,29 @@ export async function autoRigFromLayers(
     let turn: TurnSolveReport | undefined;
     let model: IkiModel;
     try {
+      // Destructured, not spread: a JS caller (unchecked by AutoRigTurnTargets'
+      // own `Omit<TurnTargets, "headHalfWidth">`) could otherwise smuggle its
+      // OWN headHalfWidth through untouched whenever headHalfWidthApplied is
+      // false — headHalfWidth is measured off the layers, never accepted from
+      // the caller, so only these five fields cross the boundary.
+      const { eyeShift, farEyeRatio, silhouetteRatio, noseShift, mouthShift } =
+        input.turnTargets ?? {};
       model = generateIkiFromLayerSet(
         layerInputs,
         { width: canvasW, height: canvasH },
         {
           turnTargets: {
-            ...input.turnTargets,
+            eyeShift,
+            farEyeRatio,
+            silhouetteRatio,
+            noseShift,
+            mouthShift,
             ...(headHalfWidthApplied ? { headHalfWidth } : {}),
           },
           onTurnSolved: (report) => {
             turn = report;
           },
+          ...(headEdges === undefined ? {} : { headEdges }),
         },
       );
     } catch (e) {
@@ -572,8 +676,9 @@ export async function autoRigFromLayers(
       canvas: { width: canvasW, height: canvasH },
       partCount: finalModel.parts.length,
       atlasBytes: dataUri.length,
-      headHalfWidth,
+      ...(headHalfWidth === undefined ? {} : { headHalfWidth }),
       headHalfWidthApplied,
+      ...(headEdges === undefined ? {} : { headEdges }),
       ...(turn === undefined ? {} : { turn }),
     };
   } catch (err) {
