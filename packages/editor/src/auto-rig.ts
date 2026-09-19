@@ -11,6 +11,7 @@ import {
   StandardParameter,
   parseIkiModel,
   type IkiBinding,
+  type IkiDeformer,
   type IkiGrid2DWarp,
   type IkiGridWarp,
   type IkiMesh,
@@ -516,9 +517,11 @@ export function headTurnParallaxUnit(radius: number): number {
  * not a property of how far the grid happens to reach. Columns beyond what the
  * radius can carry ride along rigidly — see `boundedCylinderBend`.
  *
- * No production caller since faceWarp moved to the 2D bake; kept as the 1D
- * reference that the 2D bake's tests compare their AngleY = 0 row against,
- * keyed on the same `HEAD_TURN_STOPS`.
+ * No production caller since faceWarp moved to the 2D bake; kept as the PURE
+ * BEND reference the 2D bake's tests compare their AngleY = 0 row against,
+ * keyed on the same `HEAD_TURN_STOPS`. That row equals this bake only at
+ * `travel = 0`: the bend is all the shipped row has once its uniform sideways
+ * slide is taken back out.
  */
 export function bakeHeadTurnGridWarpCentered(
   grid: IkiWarpGrid,
@@ -571,8 +574,9 @@ function gridReach(grid: IkiWarpGrid, axis: 0 | 1, center: number): number {
  * foreshortening. That bulk slide is what shoves the head off the shoulders and
  * detaches the back hair; the foreshortening alone is what reads as a turn.
  * Subtracting it leaves the differential and keeps the offsets monotonic, so no
- * cell folds. Deliberate bulk head motion stays on headDeformer's own translate
- * bindings, where it can be tuned independently, and the hair layers get their
+ * cell folds. Deliberate bulk head motion is added back on its own, where it can
+ * be tuned independently — the turn's as the 2D bake's uniform `travel` slide,
+ * the nod's as a headDeformer translate — and the hair layers get their
  * depth-scaled share of it back through `headTurnParallaxUnit`.
  */
 function pinnedCylinderBend(
@@ -612,6 +616,14 @@ function boundedCylinderBend(
   return pinnedCylinderBend(onSurface, radius, theta);
 }
 
+/** The head's uniform sideways slide at one turn stop: the whole `travel` at
+ *  ±HEAD_TURN_MAX_DEG, linear in between, none at rest. The bake and
+ *  `turnColumnMap` share it so the map cannot describe a slide the grid does
+ *  not carry. */
+function turnSlide(travel: number, angleX: number): number {
+  return (travel * angleX) / HEAD_TURN_MAX_DEG;
+}
+
 /**
  * Bake the head turn AND nod as one 2D grid warp over AngleX × AngleY.
  *
@@ -629,6 +641,16 @@ function boundedCylinderBend(
  * at any radius through `boundedCylinderBend`. The pitch itself is scaled by
  * NOD_BEND — see that constant for why a full nod is not a full 30° bend.
  *
+ * `travel` is the head's own sideways travel at full turn (px at
+ * ±HEAD_TURN_MAX_DEG), added to every point's dx as `turnSlide`'s uniform
+ * per-stop offset. It belongs in the grid rather than on a headDeformer
+ * translate because a rigid head translate carries the hair shell along with
+ * it: in the grid only what rides the grid slides, so the face plate and its
+ * features travel inside a silhouette the bangs hold still
+ * (`bakeHairFrontSilhouetteWarp`), which is what a turned head actually does.
+ * Being uniform it bends nothing — the AngleX = 0 cells stay all-zero and dy
+ * never sees it.
+ *
  * Layout is the format's row-major `k(i, j) = j * valuesX.length + i`.
  */
 export function bakeHeadTurnGridWarp2DCentered(
@@ -638,6 +660,7 @@ export function bakeHeadTurnGridWarp2DCentered(
   centerX: number,
   centerY: number,
   radiusX: number,
+  travel: number,
 ): IkiGrid2DWarp {
   const STOPS = [...HEAD_TURN_STOPS];
   const RADIUS_Y = gridReach(grid, 1, centerY) * HEAD_CYLINDER_RADIUS_FACTOR;
@@ -649,10 +672,12 @@ export function bakeHeadTurnGridWarp2DCentered(
     const thetaY = angleY * NOD_BEND * DEG_TO_RAD;
     for (const angleX of STOPS) {
       const thetaX = angleX * DEG_TO_RAD;
+      const slide = turnSlide(travel, angleX);
       const offsets: number[] = [];
       for (let i = 0; i < pointCount; i++) {
         offsets.push(
-          boundedCylinderBend(grid.points[i * 2] - centerX, radiusX, thetaX),
+          boundedCylinderBend(grid.points[i * 2] - centerX, radiusX, thetaX) +
+            slide,
           pinnedCylinderBend(
             grid.points[i * 2 + 1] - centerY,
             RADIUS_Y,
@@ -690,8 +715,10 @@ export interface TurnColumnMap {
 
 /**
  * The head turn as a 1D map on x: where the face-warp grid puts a point at
- * `angleX`, in the WARP'S OWN rest frame — before headDeformer's rigid
- * ±HEAD_TURN_TRAVEL translate, which the engine applies on top.
+ * `angleX` — the bend AND the same uniform `turnSlide(travel, angleX)` the
+ * bake ships, so a caller passes the travel the rig was baked with or it
+ * measures a head the rig never renders. headDeformer adds no turn translate
+ * on top of it.
  *
  * It equals the shipped bake AT the `HEAD_TURN_STOPS`, which is where callers
  * should key: between stops the engine blends the keyforms parameter-linearly
@@ -723,6 +750,7 @@ export function turnColumnMap(
   faceCenterX: number,
   radiusX: number,
   angleX: number,
+  travel: number,
 ): TurnColumnMap {
   if (Math.abs(angleX) > HEAD_TURN_MAX_DEG) {
     throw new Error(
@@ -730,12 +758,15 @@ export function turnColumnMap(
     );
   }
   const theta = angleX * (Math.PI / 180);
+  const slide = turnSlide(travel, angleX);
   const restX: number[] = [];
   const warpedX: number[] = [];
   for (let col = 0; col <= grid.cols; col++) {
     const x = grid.points[col * 2];
     restX.push(x);
-    warpedX.push(x + boundedCylinderBend(x - faceCenterX, radiusX, theta));
+    warpedX.push(
+      x + boundedCylinderBend(x - faceCenterX, radiusX, theta) + slide,
+    );
   }
 
   // Same scan as bindPointToRestGrid: the first cell whose right edge is past
@@ -1431,8 +1462,9 @@ function evaluateTurnCandidate(
   ctx: TurnSolveContext,
   radius: number,
 ): TurnCandidate | TurnCandidateMiss {
+  const travel = headTurnTravel(ctx.faceHalfWidth);
   const columnMapAt = (deg: number) =>
-    turnColumnMap(ctx.faceGrid, ctx.faceCenterX, radius, deg);
+    turnColumnMap(ctx.faceGrid, ctx.faceCenterX, radius, deg, travel);
   // A measured head IS the hold's boundary; without one it is the outermost the
   // plate ever reaches, clear of it by HOLD_CLEARANCE.
   const holdBase =
@@ -1582,10 +1614,11 @@ function evaluateTurnCandidate(
       );
     }
     if (role === "body") {
-      // bodyDeformer is a SIBLING of headDeformer, not its child, so body's
-      // landing in the HEAD's own frame is its own AngleX travel minus the
-      // head's: (-BODY_TURN_FOLLOW·HEAD_TURN_TRAVEL) − (-HEAD_TURN_TRAVEL).
-      return x + HEAD_TURN_TRAVEL * (1 - BODY_TURN_FOLLOW);
+      // The head no longer translates on the turn — its travel is in the face
+      // grid, where only what rides the grid carries it — so the head's frame
+      // is the rest frame and the body lands at its own AngleX travel alone:
+      // the "from" value of its own translateX binding at this stop.
+      return x - BODY_TURN_FOLLOW * travel;
     }
     if (role === "face" || FEATURE_NOD_DEPTH[roleFamily(role)] !== undefined) {
       return map.mapX(x);
@@ -1604,8 +1637,10 @@ function evaluateTurnCandidate(
   };
   // How far the silhouette's own centre drifts off the face centre at full
   // turn, against how far it already sat off centre at rest (zero unless
-  // hair_front's crop is itself off-centre) — the head's own rigid travel
-  // cancels between the eyes and the silhouette, leaving just this drift.
+  // hair_front's crop is itself off-centre) — the held shell keeps its own
+  // place while the face slides inside it, so this is the drift the hold and
+  // the bangs' lead leave behind, and the slide itself shows up in the eye cue
+  // below instead of cancelling out of it.
   // `measure_turn_reference` reads the eye pair against THIS moved centre,
   // not the face centre, so it is what the eye cue below is corrected by.
   const silhouetteCenterShift =
@@ -2076,11 +2111,13 @@ const EYE_STACK_PREFIXES = ["eye_", "iris_", "pupil_", "highlight_"] as const;
  *  0.06 the layering all but vanishes. 0.1 is settled with the lead
  *  root-pinned: the fringe tips get it, the crown gets none.
  *
- *  hair_back follows the head at about 60% of its travel (its counter-shift
- *  takes ~20px off headDeformer's +50px). A deeper value that held the back of
- *  the head still in world space read as the face sliding over a backdrop; the
- *  turn cue for the back hair comes from its bend (bakeHairBackTurnWarp), not
- *  from lagging the head. */
+ *  hair_back rides headDeformer, which no longer translates on the turn, so
+ *  this shift is the only sideways motion it gets: it slides against a head
+ *  that stays put. −0.08 was tuned against the whole head's old rigid travel,
+ *  not against the face's slide inside the grid. A deeper value that held the
+ *  back of the head still in world space read as the face sliding over a
+ *  backdrop; the turn cue for the back hair comes from its bend
+ *  (bakeHairBackTurnWarp), not from lagging the head. */
 const HAIR_FRONT_DEPTH = 0.1;
 const HAIR_BACK_DEPTH = -0.08;
 
@@ -2825,10 +2862,28 @@ export function bakeHairSwayWarp(
   };
 }
 
-// ── Rigid head travel + body follow ─────────────────────────────────────────
+// ── Head turn travel + body follow ──────────────────────────────────────────
 
-/** Rigid sideways travel of the head at full turn (px at AngleX = ±30). */
-const HEAD_TURN_TRAVEL = 50;
+/**
+ * The head's sideways travel at full turn (AngleX = ±30), as a fraction of the
+ * face plate's own half-width.
+ *
+ * A fraction, not px, because the travel no longer cancels out of what the turn
+ * is fitted to. It used to ride headDeformer, moving the eyes and the silhouette
+ * together, so the measured `eyeShift` cue never saw it; baked into the face
+ * grid (`bakeHeadTurnGridWarp2DCentered`'s `travel`) it moves the face inside a
+ * held silhouette and IS the floor under that cue — an absolute px value would
+ * be a quarter of one plate's half-width and the whole of a smaller one's.
+ * 0.25 was judged in the playground on a 400 px-wide plate, where it is the
+ * 50 px that shipped.
+ */
+const HEAD_TURN_TRAVEL_RATIO = 0.25;
+
+/** That travel in px, for a plate of this half-width. */
+function headTurnTravel(faceHalfWidth: number): number {
+  return HEAD_TURN_TRAVEL_RATIO * faceHalfWidth;
+}
+
 /** The torso's share of that travel. Below ~0.2 the shoulders still read as
  *  bolted down; at 1 the neck stops articulating. 0.3 keeps 70 % of the turn
  *  in the neck while the shoulders visibly come along. Judged in the
@@ -2854,7 +2909,8 @@ const BODY_BREATH_FOLLOW = 0.5;
  *   - Emit the standard parameters (same ids/ranges as sample-model.ts), plus a
  *     conditional HairSwayX descriptor + hair-sway physics rig when a hair_front
  *     layer is present.
- *   - Build headDeformer (matrix, neck pivot, AngleX+Breath bindings),
+ *   - Build headDeformer (matrix, neck pivot, nod/tilt/breath bindings — the
+ *     turn translates nothing rigidly; its travel is in the face warp),
  *     bodyDeformer when a body layer is present (matrix, torso-base pivot,
  *     AngleX follow + Breath follow), and faceWarp (warp, FACE_GRID_CELLS²,
  *     baked cylinder warp center-relative on faceCenterX).
@@ -3116,6 +3172,11 @@ export function generateIkiFromLayerSet(
   const faceCenterY = faceTransform.y;
   const halfH = Math.max(faceCenterY - unionMinY, unionMaxY - faceCenterY);
   const faceHalfWidth = faceLayer.cropW / 2;
+  // The turn's sideways travel for THIS plate, in px. The face bake, the
+  // bangs' hold and the body's follow all key off this one number: the hold
+  // inverts the very map the face renders, so a second value here would have
+  // it hold against a turn nothing ships.
+  const headTravel = headTurnTravel(faceHalfWidth);
   const hairFrontLayer = layers.find((l) => l.role === "hair_front");
   const hairBackLayer = layers.find((l) => l.role === "hair_back");
   const turn = hasNose
@@ -3187,27 +3248,28 @@ export function generateIkiFromLayerSet(
     faceCenterX,
     faceCenterY,
     faceRadius,
+    headTravel,
   );
 
   // ── Deformers ─────────────────────────────────────────────────────────────
-  const deformers = [
+  const deformers: IkiDeformer[] = [
     // headDeformer: rigid matrix rotating/translating the whole head about the
-    // neck pivot; bindings mirror sample-model.ts exactly.
+    // neck pivot. Same bindings as sample-model.ts apart from the turn, which
+    // moves the face inside the head rather than the head itself (see below).
     {
       id: "headDeformer",
       pivot: neckPivot,
       bindings: [
-        // The turn is a pure yaw: no roll rides on AngleX. The sample model's
-        // ±6° "lean into the turn" was tried here and dropped — rotating about
-        // the neck pivot swings the crown (~500px above it) far more than the
-        // chin, so the top of the head appeared to lunge ahead of the face on
-        // every turn. Roll is AngleZ's job, below.
-        {
-          parameter: StandardParameter.AngleX,
-          channel: "translateX" as const,
-          from: -HEAD_TURN_TRAVEL,
-          to: HEAD_TURN_TRAVEL,
-        },
+        // No AngleX binding: the turn moves NOTHING rigidly. Its sideways
+        // travel is baked into faceWarp's own grid (see
+        // bakeHeadTurnGridWarp2DCentered's `travel`) so the face slides inside
+        // a silhouette the bangs hold; a translate here would take the hair
+        // shell with it. Nor is the turn a roll — the sample model's ±6° "lean
+        // into the turn" was tried here and dropped, since rotating about the
+        // neck pivot swings the crown (~500px above it) far more than the chin,
+        // so the top of the head appeared to lunge ahead of the face on every
+        // turn. Roll is AngleZ's job, below.
+
         // Nod: a vertical translate only. No rotate — a pitch expressed as a
         // rigid rotation would sum with the AngleZ roll below at diagonal
         // poses, collapsing pitch into roll.
@@ -3265,12 +3327,13 @@ export function generateIkiFromLayerSet(
       id: "bodyDeformer",
       pivot: { x: bt.x, y: bt.y - bodyLayer.cropH / 2 },
       bindings: [
-        // Low-weight follow of the turn, same direction as the head.
+        // Low-weight follow of the turn, same direction as the face's own
+        // slide — the only rigid part of the travel left.
         {
           parameter: StandardParameter.AngleX,
           channel: "translateX" as const,
-          from: -BODY_TURN_FOLLOW * HEAD_TURN_TRAVEL,
-          to: BODY_TURN_FOLLOW * HEAD_TURN_TRAVEL,
+          from: -BODY_TURN_FOLLOW * headTravel,
+          to: BODY_TURN_FOLLOW * headTravel,
         },
         // Breath: follow the head's bob, same direction, half amplitude.
         {
@@ -3383,7 +3446,7 @@ export function generateIkiFromLayerSet(
           // The bangs draw the head's outline, so they hold it through the
           // turn instead of squeezing in with the plate beneath them.
           const columnMapAt = (deg: number) =>
-            turnColumnMap(faceGrid, faceCenterX, faceRadius, deg);
+            turnColumnMap(faceGrid, faceCenterX, faceRadius, deg, headTravel);
           // The solve already picked this zone for the radius it picked: the
           // head's measured half-width when it had one, and a destination that
           // carries the silhouette ratio through the turn. Without a solve

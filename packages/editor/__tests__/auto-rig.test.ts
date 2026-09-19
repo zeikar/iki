@@ -42,6 +42,39 @@ const RADIUS_FACTOR = 0.6 / 0.5;
  *  generator SOLVED instead of scaling off the grid. */
 const HAIR_BACK_DEPTH = -0.08;
 
+/** The 1000×1000 canvas every layer fixture in this file is painted on. */
+const canvas1000 = { width: 1000, height: 1000 };
+
+/** The 4×4 grid the turn and nod bakes are exercised on: its middle row sits
+ *  exactly on centerY = 0 and its middle column on centerX = 0, so both pinned
+ *  axes are real control points and the slide shows on the axis column neat. */
+const axisGrid = {
+  cols: 4,
+  rows: 4,
+  points: generateGridPoints(4, 4, -400, 400, -300, 300),
+};
+
+/** The turn radius the rig would pick for `axisGrid`: its own x-reach about
+ *  centerX = 0 with the no-fold margin. */
+const axisGridRadiusX = 400 * RADIUS_FACTOR;
+
+/** One cell of a 2D bake, by angle VALUES (degrees), not lattice indices. */
+const cell = (
+  w: {
+    valuesX: number[];
+    valuesY: number[];
+    keyforms2d: { offsets: number[] }[];
+  },
+  angleX: number,
+  angleY: number,
+) => {
+  const ix = w.valuesX.indexOf(angleX);
+  const iy = w.valuesY.indexOf(angleY);
+  if (ix < 0) throw new Error(`cell: angleX stop ${angleX} not found`);
+  if (iy < 0) throw new Error(`cell: angleY stop ${angleY} not found`);
+  return w.keyforms2d[iy * w.valuesX.length + ix];
+};
+
 /** The turn radius behind a generated model's parallax unit. */
 const solvedRadiusOf = (model: ReturnType<typeof generateIkiFromLayerSet>) => {
   const back = (
@@ -570,47 +603,38 @@ function noseLayer(): LayerInput {
 // ── describe("head nod (AngleY)") ────────────────────────────────────────────
 
 describe("head nod (AngleY)", () => {
-  const canvas = { width: 1000, height: 1000 };
-  // A grid whose middle row sits exactly on centerY = 0, so the pinned axis
-  // row is a real row of control points.
-  const grid = {
-    cols: 4,
-    rows: 4,
-    points: generateGridPoints(4, 4, -400, 400, -300, 300),
-  };
-  // The turn radius is the bake's caller's now: this is the grid's own x-reach
-  // about centerX = 0 with the no-fold margin, i.e. what the rig picks.
-  const radiusX = 400 * RADIUS_FACTOR;
-  // Takes angle VALUES (degrees), not lattice indices.
-  const cell = (
-    w: {
-      valuesX: number[];
-      valuesY: number[];
-      keyforms2d: { offsets: number[] }[];
-    },
-    angleX: number,
-    angleY: number,
-  ) => {
-    const ix = w.valuesX.indexOf(angleX);
-    const iy = w.valuesY.indexOf(angleY);
-    if (ix < 0) throw new Error(`cell: angleX stop ${angleX} not found`);
-    if (iy < 0) throw new Error(`cell: angleY stop ${angleY} not found`);
-    return w.keyforms2d[iy * w.valuesX.length + ix];
-  };
-
   it("bakes a 5×5 lattice at 15° stops in the format's row-major layout", () => {
-    const w = bakeHeadTurnGridWarp2DCentered(grid, "ax", "ay", 0, 0, radiusX);
+    const w = bakeHeadTurnGridWarp2DCentered(
+      axisGrid,
+      "ax",
+      "ay",
+      0,
+      0,
+      axisGridRadiusX,
+    );
     expect(w.valuesX).toEqual([-30, -15, 0, 15, 30]);
     expect(w.valuesY).toEqual([-30, -15, 0, 15, 30]);
     expect(w.keyforms2d).toHaveLength(25);
     for (const k of w.keyforms2d) {
-      expect(k.offsets).toHaveLength(grid.points.length);
+      expect(k.offsets).toHaveLength(axisGrid.points.length);
     }
   });
 
   it("the AngleY=0 row IS the 1D turn bake, so the turn did not change", () => {
-    const w = bakeHeadTurnGridWarp2DCentered(grid, "ax", "ay", 0, 0, radiusX);
-    const turn = bakeHeadTurnGridWarpCentered(grid, "ax", 0, radiusX);
+    const w = bakeHeadTurnGridWarp2DCentered(
+      axisGrid,
+      "ax",
+      "ay",
+      0,
+      0,
+      axisGridRadiusX,
+    );
+    const turn = bakeHeadTurnGridWarpCentered(
+      axisGrid,
+      "ax",
+      0,
+      axisGridRadiusX,
+    );
     for (const angle of w.valuesX) {
       const k1d = turn.keyforms.find((k) => k.value === angle)!;
       const k2d = cell(w, angle, 0);
@@ -621,12 +645,19 @@ describe("head nod (AngleY)", () => {
   });
 
   it("mid stops are the analytic bend, not the chord between ±30 and 0", () => {
-    const w = bakeHeadTurnGridWarp2DCentered(grid, "ax", "ay", 0, 0, radiusX);
-    const R = radiusX;
+    const w = bakeHeadTurnGridWarp2DCentered(
+      axisGrid,
+      "ax",
+      "ay",
+      0,
+      0,
+      axisGridRadiusX,
+    );
+    const R = axisGridRadiusX;
     const theta15 = 15 * (Math.PI / 180);
     const mid = cell(w, 15, 0);
-    for (let i = 0; i < grid.points.length / 2; i++) {
-      const x = grid.points[i * 2];
+    for (let i = 0; i < axisGrid.points.length / 2; i++) {
+      const x = axisGrid.points[i * 2];
       const alpha = Math.asin(Math.max(-1, Math.min(1, x / R)));
       const expectedDx =
         R * Math.sin(alpha + theta15) - x - R * Math.sin(theta15);
@@ -636,7 +667,7 @@ describe("head nod (AngleY)", () => {
     // the analytic bend at the outer column differs from the chord's midpoint.
     const full = cell(w, 30, 0);
     let maxDiff = 0;
-    for (let i = 0; i < grid.points.length / 2; i++) {
+    for (let i = 0; i < axisGrid.points.length / 2; i++) {
       maxDiff = Math.max(
         maxDiff,
         Math.abs(mid.offsets[i * 2] - 0.5 * full.offsets[i * 2]),
@@ -733,10 +764,17 @@ describe("head nod (AngleY)", () => {
   });
 
   it("pins the axis row: points on centerY never move vertically", () => {
-    const w = bakeHeadTurnGridWarp2DCentered(grid, "ax", "ay", 0, 0, radiusX);
+    const w = bakeHeadTurnGridWarp2DCentered(
+      axisGrid,
+      "ax",
+      "ay",
+      0,
+      0,
+      axisGridRadiusX,
+    );
     for (const k of w.keyforms2d) {
-      for (let p = 0; p < grid.points.length / 2; p++) {
-        if (grid.points[p * 2 + 1] === 0) {
+      for (let p = 0; p < axisGrid.points.length / 2; p++) {
+        if (axisGrid.points[p * 2 + 1] === 0) {
           expect(k.offsets[p * 2 + 1]).toBeCloseTo(0, 10);
         }
       }
@@ -744,14 +782,21 @@ describe("head nod (AngleY)", () => {
   });
 
   it("a full nod foreshortens without folding, the far side most", () => {
-    const w = bakeHeadTurnGridWarp2DCentered(grid, "ax", "ay", 0, 0, radiusX);
+    const w = bakeHeadTurnGridWarp2DCentered(
+      axisGrid,
+      "ax",
+      "ay",
+      0,
+      0,
+      axisGridRadiusX,
+    );
     const up = cell(w, 0, 30); // AngleX=0, AngleY=+30
-    const stride = grid.cols + 1;
-    for (let col = 0; col <= grid.cols; col++) {
+    const stride = axisGrid.cols + 1;
+    for (let col = 0; col <= axisGrid.cols; col++) {
       const column = [];
-      for (let row = 0; row <= grid.rows; row++) {
+      for (let row = 0; row <= axisGrid.rows; row++) {
         const p = row * stride + col;
-        const restY = grid.points[p * 2 + 1];
+        const restY = axisGrid.points[p * 2 + 1];
         column.push({ restY, y: restY + up.offsets[p * 2 + 1] });
       }
       column.sort((a, b) => a.restY - b.restY);
@@ -772,7 +817,7 @@ describe("head nod (AngleY)", () => {
   });
 
   it("the generated model declares AngleY and drives faceWarp with a 2D warp", () => {
-    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas1000);
     expect(
       model.parameters.find((p) => p.id === StandardParameter.AngleY),
     ).toMatchObject({ min: -30, max: 30, default: 0 });
@@ -790,7 +835,7 @@ describe("head nod (AngleY)", () => {
   });
 
   it("the head nods with a symmetric vertical translate and no second rotate", () => {
-    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas1000);
     const head = model.deformers!.find((d) => d.id === "headDeformer") as {
       bindings: {
         parameter: string;
@@ -822,7 +867,7 @@ describe("head nod (AngleY)", () => {
         cropH: 30,
       },
     ];
-    const model = generateIkiFromLayerSet(layers, canvas);
+    const model = generateIkiFromLayerSet(layers, canvas1000);
     const nodOf = (id: string) =>
       (model.parts.find((p) => p.id === id)!.bindings ?? []).find(
         (b) =>
@@ -856,7 +901,7 @@ describe("head nod (AngleY)", () => {
       "ay",
       0,
       0,
-      radiusX, // 400 reach × the margin — the same radius the nod axis derives
+      axisGridRadiusX, // 400 reach × the margin — the same radius the nod axis derives
     );
     const stride = 5;
     const turn = cell(w, 30, 0); // AngleX=+30, AngleY=0
@@ -883,30 +928,31 @@ describe("turnColumnMap", () => {
   // every column and nothing under test rides the rigid outside.
   const radiusX = 358 * RADIUS_FACTOR;
 
-  it("its warped columns are the bake's own, at every stop", () => {
+  it("its warped columns are the bake's own, at every stop and either travel", () => {
     // The map has to describe the SAME turn the model ships, or anything
-    // measured through it is measuring a different head.
-    const w = bakeHeadTurnGridWarp2DCentered(
-      grid,
-      "ax",
-      "ay",
-      faceCenterX,
-      200,
-      radiusX,
-    );
-    for (const angleX of w.valuesX) {
-      const k =
-        w.keyforms2d[
-          w.valuesY.indexOf(0) * w.valuesX.length + w.valuesX.indexOf(angleX)
-        ];
-      const map = turnColumnMap(grid, faceCenterX, radiusX, angleX);
-      for (let col = 0; col <= grid.cols; col++) {
-        expect(map.restX[col]).toBe(grid.points[col * 2]);
-        // Row 0 of the grid: point index === column index.
-        expect(map.warpedX[col]).toBeCloseTo(
-          grid.points[col * 2] + k.offsets[col * 2],
-          9,
-        );
+    // measured through it is measuring a different head — the bend on its own,
+    // and the bend with the head's sideways travel summed into it.
+    for (const travel of [0, 60]) {
+      const w = bakeHeadTurnGridWarp2DCentered(
+        grid,
+        "ax",
+        "ay",
+        faceCenterX,
+        200,
+        radiusX,
+        travel,
+      );
+      for (const angleX of w.valuesX) {
+        const k = cell(w, angleX, 0);
+        const map = turnColumnMap(grid, faceCenterX, radiusX, angleX, travel);
+        for (let col = 0; col <= grid.cols; col++) {
+          expect(map.restX[col]).toBe(grid.points[col * 2]);
+          // Row 0 of the grid: point index === column index.
+          expect(map.warpedX[col]).toBeCloseTo(
+            grid.points[col * 2] + k.offsets[col * 2],
+            9,
+          );
+        }
       }
     }
   });
@@ -941,6 +987,198 @@ describe("turnColumnMap", () => {
     // scan would answer confidently and wrongly.
     expect(() => turnColumnMap(grid, faceCenterX, radiusX, 45)).toThrow(
       /auto-rig: turnColumnMap/,
+    );
+  });
+});
+
+// ── describe("head turn slide") ──────────────────────────────────────────────
+
+describe("head turn slide", () => {
+  /** `axisGrid`'s middle column, the one sitting on the cylinder axis, where
+   *  the bend is zero and the slide is all that is left. */
+  const AXIS_COL = 2;
+  /** A travel no bend on this grid produces on its own. */
+  const TRAVEL = 60;
+
+  /** Mirror of auto-rig's private HEAD_TURN_TRAVEL_RATIO: the head's sideways
+   *  travel at full turn as a fraction of the face plate's own half-width.
+   *  A generated model spells it out nowhere — the travel is summed into the
+   *  grid's own offsets — so the checks on a generated rig below mirror it,
+   *  the way this file already mirrors HAIR_FRONT_DEPTH. */
+  const HEAD_TURN_TRAVEL_RATIO = 0.25;
+  /** Mirror of auto-rig's private BODY_TURN_FOLLOW: the torso's share. */
+  const BODY_TURN_FOLLOW = 0.3;
+
+  /** The face grid's middle-column dx at one AngleX stop, AngleY = 0: the
+   *  uniform slide on its own, the bend being zero on the cylinder's axis. */
+  const centreSlideOf = (
+    model: ReturnType<typeof generateIkiFromLayerSet>,
+    angleX: number,
+  ): number => {
+    const faceWarpDef = model.deformers!.find((d) => d.id === "faceWarp") as {
+      grid: { cols: number; points: number[] };
+      warp2d: {
+        valuesX: number[];
+        valuesY: number[];
+        keyforms2d: { offsets: number[] }[];
+      };
+    };
+    const faceCenterX = model.parts.find((p) => p.id === "face")!.transform!.x;
+    const col = faceWarpDef.grid.cols / 2;
+    // The generated grid is symmetric about the face centre, so its middle
+    // column IS the axis — assert that before reading the slide off it.
+    expect(faceWarpDef.grid.points[col * 2]).toBeCloseTo(faceCenterX, 10);
+    return cell(faceWarpDef.warp2d, angleX, 0).offsets[col * 2];
+  };
+
+  it("the 2D bake slides the centre column by the whole travel at full turn", () => {
+    const w = bakeHeadTurnGridWarp2DCentered(
+      axisGrid,
+      "ax",
+      "ay",
+      0,
+      0,
+      axisGridRadiusX,
+      TRAVEL,
+    );
+    // On the axis the bend is zero, so the centre column shows the slide neat:
+    // the whole travel at ±30, half of it at ±15, none at rest — and the same
+    // at every nod stop, the slide being horizontal only.
+    for (const angleY of w.valuesY) {
+      expect(cell(w, -30, angleY).offsets[AXIS_COL * 2]).toBe(-TRAVEL);
+      expect(cell(w, -15, angleY).offsets[AXIS_COL * 2]).toBe(-TRAVEL / 2);
+      expect(cell(w, 0, angleY).offsets[AXIS_COL * 2]).toBe(0);
+      expect(cell(w, 15, angleY).offsets[AXIS_COL * 2]).toBe(TRAVEL / 2);
+      expect(cell(w, 30, angleY).offsets[AXIS_COL * 2]).toBe(TRAVEL);
+    }
+  });
+
+  it("every other column is its own bend plus that same slide", () => {
+    const slid = bakeHeadTurnGridWarp2DCentered(
+      axisGrid,
+      "ax",
+      "ay",
+      0,
+      0,
+      axisGridRadiusX,
+      TRAVEL,
+    );
+    // bakeHeadTurnGridWarpCentered is the pure-bend reference: the shipped row
+    // is it plus a slide uniform across the whole grid, so the turn still
+    // foreshortens exactly as it did — it just travels while doing it.
+    const bend = bakeHeadTurnGridWarpCentered(
+      axisGrid,
+      "ax",
+      0,
+      axisGridRadiusX,
+    );
+    for (const angleX of slid.valuesX) {
+      const slide = (TRAVEL * angleX) / 30;
+      const k1d = bend.keyforms.find((k) => k.value === angleX)!;
+      const k2d = cell(slid, angleX, 0);
+      for (let i = 0; i < axisGrid.points.length / 2; i++) {
+        expect(k2d.offsets[i * 2]).toBeCloseTo(k1d.offsets[i * 2] + slide, 9);
+        // dy is the nod's alone — untouched at this row.
+        expect(k2d.offsets[i * 2 + 1]).toBeCloseTo(0, 10);
+      }
+    }
+  });
+
+  it("the AngleX = 0 cells carry no slide at all", () => {
+    const w = bakeHeadTurnGridWarp2DCentered(
+      axisGrid,
+      "ax",
+      "ay",
+      0,
+      0,
+      axisGridRadiusX,
+      TRAVEL,
+    );
+    for (const angleY of w.valuesY) {
+      for (const dx of cell(w, 0, angleY).offsets.filter((_, n) => n % 2 === 0))
+        expect(dx).toBe(0);
+    }
+    // And the rest cell stays the identity, nod included.
+    for (const offset of cell(w, 0, 0).offsets) expect(offset).toBe(0);
+  });
+
+  it("turnColumnMap lands the axis column on the slide itself", () => {
+    // The map has to describe the turn the rig actually ships, or everything
+    // measured through it — the bangs' hold, the turn solve — is measured
+    // against a turn nothing renders. Column for column that is the shared
+    // check in describe("turnColumnMap"); on the axis, where the bend is zero,
+    // what is left is the slide alone.
+    const faceCenterX = 0;
+    for (const angleX of [-30, -15, 0, 15, 30]) {
+      const map = turnColumnMap(
+        axisGrid,
+        faceCenterX,
+        axisGridRadiusX,
+        angleX,
+        TRAVEL,
+      );
+      expect(map.mapX(faceCenterX)).toBeCloseTo((TRAVEL * angleX) / 30, 9);
+    }
+  });
+
+  it("a generated model slides the face grid by a quarter of the plate half-width", () => {
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas1000);
+    // The fixture's face plate is 600 px wide.
+    const faceHalfWidth =
+      hairFrontLayers().find((l) => l.role === "face")!.cropW / 2;
+    const travel = HEAD_TURN_TRAVEL_RATIO * faceHalfWidth;
+    expect(centreSlideOf(model, -30)).toBeCloseTo(-travel, 9);
+    expect(centreSlideOf(model, 30)).toBeCloseTo(travel, 9);
+    expect(centreSlideOf(model, 0)).toBe(0);
+    // Scale-relative, not px: a plate twice as wide travels twice as far.
+    const wideFace = hairFrontLayers().map((l) =>
+      l.role === "face"
+        ? { ...l, bbox: { x: 0, y: 200, w: 1000, h: 600 }, cropW: 1000 }
+        : l,
+    );
+    expect(
+      centreSlideOf(generateIkiFromLayerSet(wideFace, canvas1000), -30),
+    ).toBeCloseTo(-HEAD_TURN_TRAVEL_RATIO * 500, 9);
+  });
+
+  it("headDeformer carries no AngleX binding at all", () => {
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas1000);
+    const head = model.deformers!.find((d) => d.id === "headDeformer") as {
+      bindings: { parameter: string; channel: string }[];
+    };
+    expect(
+      head.bindings.filter((b) => b.parameter === StandardParameter.AngleX),
+    ).toHaveLength(0);
+    // The rest of the head's rig is untouched: nod, tilt, breath.
+    expect(head.bindings.map((b) => b.parameter)).toEqual([
+      StandardParameter.AngleY,
+      StandardParameter.AngleZ,
+      StandardParameter.Breath,
+    ]);
+  });
+
+  it("bodyDeformer follows that same slide at its own share of it", () => {
+    const model = generateIkiFromLayerSet(bodyLayers(), canvas1000);
+    const body = model.deformers!.find((d) => d.id === "bodyDeformer") as {
+      bindings: {
+        parameter: string;
+        channel: string;
+        from: number;
+        to: number;
+      }[];
+    };
+    const turn = body.bindings.filter(
+      (b) => b.parameter === StandardParameter.AngleX,
+    );
+    expect(turn).toHaveLength(1);
+    expect(turn[0].channel).toBe("translateX");
+    expect(turn[0].to).toBeCloseTo(
+      BODY_TURN_FOLLOW * centreSlideOf(model, 30),
+      9,
+    );
+    expect(turn[0].from).toBeCloseTo(
+      BODY_TURN_FOLLOW * centreSlideOf(model, -30),
+      9,
     );
   });
 });
