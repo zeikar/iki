@@ -137,9 +137,9 @@ blink, brows hidden under hair.
 between-stop `ParamAngleX` poses (7.5°, 22.5°) and at the limit: does the head
 read as rotating in depth, or as a flat cutout sliding sideways? Does the far
 cheek recede as it turns away? Does the nose bridge travel with the face instead
-of sitting still on it? Does the back hair's outline stay against the face
-between the stops, or drift off and snap back at the next one? `reference-30.png`
-is the target for those questions — judge it on attributes, not overlap, as
+of sitting still on it? Does the hair silhouette stay put while the face slides
+inside it, or does the whole head slide as one cutout? `reference-30.png` is
+the target for those questions — judge it on attributes, not overlap, as
 above. At the `ParamAngleY` midpoints the question is foreshortening: does the
 face compress toward the brow or chin as it tips, or does the whole head slide
 up and down unchanged? A `turn` defect is nearly always `escalate` — redrawing a

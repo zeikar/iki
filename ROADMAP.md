@@ -26,7 +26,7 @@ deliberately deferred.
    - `generateIkiFromLayerSet` (`@ikijs/editor`) rigs role-named layers (`face`, `eye_L/R`, `mouth`, plus optional iris / brow / lash / hair) into a model that blinks, gazes, talks, turns, and emotes
    - PSD import in the editor; the `auto_rig_from_layers` tool in [`@ikijs/mcp`](./packages/mcp) so an agent can go from PNGs to a renderable `.iki` on disk
    - A Claude skill chains image generation → layer compose → rig in one gesture
-   - Head-turn depth parallax: the bangs lead the face, the back hair follows at a distance and bends so its near side tucks behind the face — a turn reads as a head rotating rather than a flat cutout sliding
+   - Head-turn depth parallax: the hair silhouette holds still while the face plate slides and foreshortens inside it, the bangs leading that slide — a turn reads as a head rotating rather than a flat cutout sliding
    - Head nod: `AngleY` drives the face warp as one 2D grid warp (`warp2d`) over turn × nod, with a gentler vertical bend so the hair crown stays whole
    - Head tilt: `AngleZ` rolls the head about the neck pivot, clockwise-positive to match Live2D
    - Torso: `body` rides a `bodyDeformer` that follows the turn at a light share and the breath bob at half amplitude, so the shoulders come along instead of staying bolted to the canvas

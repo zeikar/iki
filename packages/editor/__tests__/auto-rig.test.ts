@@ -5,7 +5,6 @@ import {
   ROLE_TABLE,
   TurnTargetError,
   bakeEyelidFoldWarp,
-  bakeHairBackTurnWarp,
   bakeHairFrontSilhouetteWarp,
   bakeHairSwayWarp,
   bakeHeadTurnGridWarp2DCentered,
@@ -1675,171 +1674,83 @@ describe("head-turn depth parallax", () => {
   });
 });
 
-describe("bakeHairBackTurnWarp", () => {
-  const mesh = createPixelGridMesh(4, 4, 800, 700);
-  const w = bakeHairBackTurnWarp(mesh, "ax");
-  const stride = 5;
-  // The mesh's half-width is 400, so the bake derives these from it.
-  const RADIUS = 400 * 2.5; // HAIR_BACK_BEND_RADIUS_FACTOR
-  const BULGE = 0.22 * 400; // HAIR_BACK_FAR_BULGE
-  /** Keyform at a turn stop, by value: the stops are not fixed by position. */
-  const kf = (deg: number) => {
-    const found = w.keyforms.find((k) => k.value === deg);
-    if (!found) throw new Error(`kf: turn stop ${deg} not found`);
-    return found;
+// ── describe("hair_back holds the turn's outline") ───────────────────────────
+
+describe("hair_back holds the turn's outline", () => {
+  /** Every x displacement a part's OWN rig gives one of its vertices at one
+   *  turn stop: each AngleX translateX binding, read across the parameter's
+   *  own limits, plus each AngleX part warp's own offset for that vertex
+   *  there. hair_back rides headDeformer, which carries no AngleX binding
+   *  either (see "headDeformer carries no AngleX binding at all"), so this is
+   *  the whole of what the turn can move it by. */
+  const turnDisplacementAt = (
+    model: ReturnType<typeof generateIkiFromLayerSet>,
+    id: string,
+    vertex: number,
+    deg: number,
+  ) => {
+    const part = model.parts.find((p) => p.id === id)!;
+    const angleX = model.parameters.find(
+      (p) => p.id === StandardParameter.AngleX,
+    )!;
+    const t = (deg - angleX.min) / (angleX.max - angleX.min);
+    const fromBindings = (part.bindings ?? [])
+      .filter(
+        (b) =>
+          b.parameter === StandardParameter.AngleX &&
+          b.channel === "translateX",
+      )
+      .reduce((sum, b) => sum + b.from + (b.to - b.from) * t, 0);
+    const fromWarps = (part.warps ?? [])
+      .filter((w) => w.parameter === StandardParameter.AngleX)
+      .reduce((sum, w) => {
+        const k = w.keyforms.find((x) => x.value === deg);
+        if (!k) throw new Error(`no ${w.parameter} keyform at ${deg}`);
+        return sum + k.offsets[vertex * 2];
+      }, 0);
+    return fromBindings + fromWarps;
   };
-  const bendAt = (x: number, deg: number) => {
-    const theta = deg * (Math.PI / 180);
-    const alpha = Math.asin(x / RADIUS);
-    return RADIUS * Math.sin(alpha + theta) - x - RADIUS * Math.sin(theta);
-  };
-  /** How far this column counts as the far side at this stop: 0 on the near
-   *  side and at the centre column, 1 at the far edge. */
-  const farOf = (x: number, deg: number) =>
-    Math.max(0, (-Math.sign(deg) * x) / 400);
-  /** The bend the bake applies: the analytic bend on the near side, the chord
-   *  of the column's own ±30 keyform on the far side. */
-  const turnBendAt = (x: number, deg: number) =>
-    farOf(x, deg) > 0
-      ? (Math.abs(deg) / 30) * bendAt(x, Math.sign(deg) * 30)
-      : bendAt(x, deg);
 
-  it("keys the turn at -30/-15/0/15/30 with a zero rest keyform", () => {
-    expect(w.keyforms.map((k) => k.value)).toEqual([-30, -15, 0, 15, 30]);
-    for (const o of kf(0).offsets) expect(o).toBeCloseTo(0, 10);
-  });
-
-  it("mid stops: the near side is the analytic bend, the far side the chord of its ±30 keyform", () => {
-    for (const deg of [15, -15]) {
-      const mid = kf(deg);
-      for (let v = 0; v < mesh.vertices.length / 2; v++) {
-        const x = mesh.vertices[v * 2];
-        // The bulge ramps with the angle, on the far side only.
-        expect(mid.offsets[v * 2]).toBeCloseTo(
-          turnBendAt(x, deg) - ((BULGE * deg) / 30) * farOf(x, deg),
-          8,
-        );
-      }
-    }
-    const mid = kf(15);
-    const full = kf(30);
-    // The NEAR side is a lattice the engine could not have interpolated from
-    // ±30 and 0: the sin-based bend there is nowhere near the chord.
-    const nearCol = 2 * stride + 4; // middle row, x = +400
-    expect(
-      Math.abs(mid.offsets[nearCol * 2] - 0.5 * full.offsets[nearCol * 2]),
-    ).toBeGreaterThan(5);
-    // The FAR side IS that chord, exactly — it is keyed as one.
-    const farCol = 2 * stride; // middle row, x = -400
-    expect(
-      Math.abs(mid.offsets[farCol * 2] - 0.5 * full.offsets[farCol * 2]),
-    ).toBeLessThan(1e-8);
-  });
-
-  it("the bulge is exactly half strength at half turn, so the extra stops did not step it", () => {
-    const mid = kf(15);
-    const full = kf(30);
-    for (let v = 0; v < mesh.vertices.length / 2; v++) {
-      const x = mesh.vertices[v * 2];
-      // Isolate the bulge: it is whatever the offset is on top of the bend the
-      // bake applies at that stop — on the far side the chord, not the analytic
-      // bend, or the gap between the two would count as bulge.
-      const midBulge = turnBendAt(x, 15) - mid.offsets[v * 2];
-      const fullBulge = turnBendAt(x, 30) - full.offsets[v * 2];
-      expect(midBulge).toBeCloseTo(0.5 * fullBulge, 8);
-    }
-  });
-
-  it("pins the centre column and moves nothing vertically", () => {
-    for (const k of w.keyforms) {
-      for (let v = 0; v < mesh.vertices.length / 2; v++) {
-        if (mesh.vertices[v * 2] === 0)
-          expect(k.offsets[v * 2]).toBeCloseTo(0, 10);
-        expect(k.offsets[v * 2 + 1]).toBe(0);
+  it("carries no turn binding and no turn warp, so its outline holds at every stop", () => {
+    const model = generateIkiFromLayerSet(
+      [...hairFrontLayers(), noseLayer()],
+      canvas1000,
+    );
+    const back = model.parts.find((p) => p.id === "hair_back")!;
+    // It still follows the nod (its crown tucks under the bent bangs), so an
+    // empty binding list would not be the same statement.
+    expect((back.bindings ?? []).map((b) => b.parameter)).toContain(
+      StandardParameter.AngleY,
+    );
+    expect((back.bindings ?? []).map((b) => b.parameter)).not.toContain(
+      StandardParameter.AngleX,
+    );
+    // The sway springs are all its warps read: nothing on AngleX beside them.
+    expect((back.warps ?? []).map((w) => w.parameter)).toEqual([
+      StandardParameter.HairSwayX,
+      StandardParameter.HairSwayZ,
+    ]);
+    // So the vertices that draw the head's outline — the outermost on each
+    // side — hold their rest x through the whole turn, mid stops included.
+    const xs = Array.from(
+      { length: back.mesh!.vertices.length / 2 },
+      (_, v) => back.mesh!.vertices[v * 2],
+    );
+    for (const vertex of [
+      xs.indexOf(Math.min(...xs)),
+      xs.indexOf(Math.max(...xs)),
+    ]) {
+      for (const deg of [-30, -15, 0, 15, 30]) {
+        expect(turnDisplacementAt(model, "hair_back", vertex, deg)).toBe(0);
       }
     }
   });
 
-  it("turning right tucks the near edge in and bulges the far edge out, without folding", () => {
-    const right = kf(30).offsets;
-    const row = 2 * stride; // middle row
-    const nearEdge = right[(row + 4) * 2]; // x = +400, toward the turn
-    const farEdge = right[row * 2]; // x = -400, away from it
-    // Both move left: the near edge toward the centre (tucks behind the face),
-    // the far edge away from it (the hidden volume swings into view).
-    expect(nearEdge).toBeLessThan(0);
-    expect(farEdge).toBeLessThan(0);
-    // The bulge is the far edge's motion; a bare cylinder bend would leave it
-    // slightly INSIDE its rest position (+12px on this mesh).
-    expect(Math.abs(farEdge)).toBeGreaterThan(0.12 * 400);
-    // Order preserved along the row: no cell folds.
-    let prev = -Infinity;
-    for (let col = 0; col <= 4; col++) {
-      const x = mesh.vertices[(row + col) * 2] + right[(row + col) * 2];
-      expect(x).toBeGreaterThan(prev);
-      prev = x;
-    }
-  });
-
-  it("the bulge is one-sided: a column is pushed out only when it is the far side", () => {
-    // Column x = +200. On a right turn it is the near side and only the bend
-    // acts on it, tucking it toward the centre. On a left turn it is the far
-    // side: a bare bend would still leave it slightly inside its rest
-    // position (-17px on this mesh), so an OUTWARD move can only be the bulge.
-    const col = 2 * stride + 3; // middle row, x = +200
-    expect(kf(30).offsets[col * 2]).toBeLessThan(0); // right turn
-    expect(kf(-30).offsets[col * 2]).toBeGreaterThan(0); // left turn
-  });
-
-  it("bends far flatter than the face: the near edge folds in by well under its half-width", () => {
-    const right = kf(30).offsets;
-    const nearEdge = Math.abs(right[(2 * stride + 4) * 2]);
-    expect(nearEdge).toBeLessThan(0.3 * 400);
-  });
-
-  it("the far side swings out at one speed: every 7.5° step outward and within 25% of the widest", () => {
-    for (const deg of [15, -15]) {
-      const s = Math.sign(deg);
-      const mid = kf(deg);
-      const full = kf(30 * s);
-      for (let v = 0; v < mesh.vertices.length / 2; v++) {
-        const x = mesh.vertices[v * 2];
-        if (farOf(x, deg) <= 0) continue;
-        const o15 = mid.offsets[v * 2];
-        const o30 = full.offsets[v * 2];
-        // What the viewer actually sees: the engine blends parameter-linearly
-        // between stops, so 7.5° and 22.5° are the midpoints of their cells.
-        const shown = [0, o15 / 2, o15, (o15 + o30) / 2, o30];
-        const steps = shown.slice(1).map((o, i) => o - shown[i]);
-        const widest = Math.max(...steps.map(Math.abs));
-        for (const step of steps) {
-          // Outward first, as a floor — even the stalling bake never reversed at
-          // these stops, so it is the envelope below that does the work.
-          expect(step * s).toBeLessThan(0);
-          // And at the same speed. The chord makes them exactly equal; 25% is
-          // the envelope the cue tolerates before it reads as a stall. At
-          // 11879aa the far edge (x = -400) moved 52.0 units through the first
-          // 15° and 24.2 through the second — two steps each — a ratio of 0.46
-          // this bound rejects.
-          expect(Math.abs(step)).toBeGreaterThan(0.75 * widest);
-        }
-      }
-    }
-  });
-
-  it("the ±30 keyforms are the bare bend minus the full bulge, untouched by the far-side chord", () => {
-    for (const deg of [30, -30]) {
-      for (let v = 0; v < mesh.vertices.length / 2; v++) {
-        const x = mesh.vertices[v * 2];
-        // Stated in bendAt alone — no chord in it — so it holds independently of
-        // how the mid stops are derived. At full turn the two branches coincide,
-        // which is why the hero's full-turn silhouette is the one already shipped.
-        expect(kf(deg).offsets[v * 2]).toBeCloseTo(
-          bendAt(x, deg) - ((BULGE * deg) / 30) * farOf(x, deg),
-          8,
-        );
-      }
-    }
+  it("without bangs it ships no warps at all, not an empty list", () => {
+    // The sway rig exists only with front hair, and the turn no longer adds a
+    // warp of its own, so there is nothing left to put on the key.
+    const bare = generateIkiFromLayerSet(assemblyLayers(), canvas1000);
+    expect(bare.parts.find((p) => p.id === "hair_back")!.warps).toBeUndefined();
   });
 });
 
@@ -2889,14 +2800,13 @@ describe("meshCellsFor", () => {
 });
 
 describe("per-vertex bakes generalize to any grid (not just 4×4/stride-5)", () => {
-  it("bakeEyelidFoldWarp / bakeHairSwayWarp / bakeHairBackTurnWarp all work on an odd-cols mesh", () => {
+  it("bakeEyelidFoldWarp / bakeHairSwayWarp / bakeHairFrontSilhouetteWarp all work on an odd-cols mesh", () => {
     // Odd cols/rows deliberately: none of these bakes may assume a stride.
     const mesh = createPixelGridMesh(7, 9, 300, 500);
     const tipShift = 36;
 
     const fold = bakeEyelidFoldWarp(mesh, "p", -12, 0);
     const sway = bakeHairSwayWarp(mesh, "p", tipShift, 20);
-    const turn = bakeHairBackTurnWarp(mesh, "p");
     // Odd face-grid columns too: the silhouette hold reads the grid's own
     // column map, so it must not assume a column on the cylinder's axis.
     const grid = {
@@ -2916,12 +2826,7 @@ describe("per-vertex bakes generalize to any grid (not just 4×4/stride-5)", () 
       () => holdBase,
       columnMapAt,
     );
-    for (const k of [
-      ...fold.keyforms,
-      ...sway.keyforms,
-      ...turn.keyforms,
-      ...hold.keyforms,
-    ]) {
+    for (const k of [...fold.keyforms, ...sway.keyforms, ...hold.keyforms]) {
       expect(k.offsets).toHaveLength(mesh.vertices.length);
     }
 
@@ -2943,23 +2848,7 @@ describe("per-vertex bakes generalize to any grid (not just 4×4/stride-5)", () 
       expect(swayPlus.offsets[i + 1]).toBe(0);
     }
 
-    // Turn: rest keyform is all-zero, and no row folds (x-order preserved). A
-    // 7-column mesh has no x=0 column to pin directly, so this is the
-    // equivalent invariant to bakeHairBackTurnWarp's "pins the centre column" check.
-    const turnRest = turn.keyforms.find((k) => k.value === 0)!;
-    for (const o of turnRest.offsets) expect(o).toBeCloseTo(0, 10);
     const stride = 8; // 7 cols → 8 vertex columns
-    for (const k of turn.keyforms) {
-      for (let row = 0; row * stride < mesh.vertices.length / 2; row++) {
-        let prev = -Infinity;
-        for (let col = 0; col < stride; col++) {
-          const p = row * stride + col;
-          const x = mesh.vertices[p * 2] + k.offsets[p * 2];
-          expect(x).toBeGreaterThan(prev);
-          prev = x;
-        }
-      }
-    }
 
     // Hold: rest keyform all-zero, and every row still lands in x-order.
     const holdRest = hold.keyforms.find((k) => k.value === 0)!;
@@ -3042,8 +2931,8 @@ describe("assembly", () => {
 
   it("hair_back is a mesh part on the head deformer, sized like the other meshes", () => {
     // It used to be a static quad; it became a mesh so the sway warps can swing
-    // its ends. It still hangs from headDeformer, not faceWarp: it bends on the
-    // turn through its own part warp rather than the face's grid.
+    // its ends. It still hangs from headDeformer, not faceWarp: it holds the
+    // head's outline while the face slides inside that grid.
     const model = generateIkiFromLayerSet(assemblyLayers(), {
       width: 1000,
       height: 1000,
@@ -4688,6 +4577,34 @@ describe("turn targets", () => {
     expect(
       Math.abs(rederivedCue / withFace.achieved.eyeShift - 1),
     ).toBeLessThan(0.02);
+  });
+
+  it("solveTurnModel: a headEdges candidate naming hair_back lands at its own rest x", () => {
+    const layers = withNose();
+    const targets = { headHalfWidth: 400, eyeShift: 0.3 };
+    const grid = generateIkiFromLayerSet(layers, canvas).deformers!.find(
+      (d) => d.id === "faceWarp",
+    )!.grid;
+    // Called directly rather than through `solveFor`: the point is that the
+    // solve is handed the bangs' geometry and nothing of hair_back's, and
+    // still places a hair_back edge.
+    const solved = solveTurnModel(
+      resolveTurnTargets(targets),
+      turnLandmarks(layers),
+      grid,
+      (grid.points[0] + grid.points[grid.cols * 2]) / 2,
+      HH,
+      hairFrontOf(layers),
+      {
+        left: [{ role: "hair_back", x: -400 }],
+        right: [{ role: "hair_back", x: 400 }],
+      },
+    );
+    if (solved.unreachable) throw new Error("expected a reachable turn");
+    // Both silhouette edges belong to the held shell, so the span a render
+    // measures at full turn IS the rest span — exactly, not within a
+    // tolerance: the solve sends each edge back to the x it already sits at.
+    expect(solved.achieved.silhouetteRatio).toBe(1);
   });
 
   it("solveTurnModel: a headEdges candidate on the body follows bodyDeformer, not the face grid", () => {

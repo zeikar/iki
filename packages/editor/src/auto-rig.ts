@@ -73,9 +73,10 @@ export interface LayerInput {
  */
 export const ROLE_TABLE: Record<string, RoleSpec> = {
   // The silhouette behind the face. It rides the rigid head (not faceWarp,
-  // whose grid it would stretch across the shoulders) as a MESH: it bends on
-  // the turn through its own part warp (bakeHairBackTurnWarp) and swings its
-  // ends on the hair-sway warps.
+  // whose grid it would stretch across the shoulders) as a MESH, so its ends
+  // can swing on the hair-sway warps. It holds the head's outline STILL
+  // through the turn — the head it hangs off no longer travels and it has no
+  // turn warp of its own — while the face slides inside it.
   hair_back: { deformer: "headDeformer", order: 0, mesh: true },
   // The torso. It rides its own rigid deformer, not the head's: the head turns
   // about the neck pivot while the shoulders follow at BODY_TURN_FOLLOW and
@@ -481,9 +482,9 @@ const HEAD_TURN_STOPS = [-30, -15, 0, 15, 30] as const;
  * the face warp. Pinning it there was right: applied to the face it shoved the
  * head off the shoulders. But it is also the whole depth cue, so layers that
  * do NOT sit on the cylinder's axis have to get their own share of it back,
- * scaled by how far in front of (or behind) the axis they sit — the hair
- * (HAIR_FRONT_DEPTH, HAIR_BACK_DEPTH) and the features on the face (the solved
- * TurnDepths). `headNodParallaxUnit` is the same quantity on the nod axis.
+ * scaled by how far in front of (or behind) the axis they sit — the bangs
+ * (HAIR_FRONT_DEPTH) and the features on the face (the solved TurnDepths).
+ * `headNodParallaxUnit` is the same quantity on the nod axis.
  *
  * Takes the cylinder radius the face warp was baked with, so the two cannot
  * drift apart: the unit IS that bake's pinned-out `axisShift`.
@@ -576,7 +577,7 @@ function gridReach(grid: IkiWarpGrid, axis: 0 | 1, center: number): number {
  * Subtracting it leaves the differential and keeps the offsets monotonic, so no
  * cell folds. Deliberate bulk head motion is added back on its own, where it can
  * be tuned independently — the turn's as the 2D bake's uniform `travel` slide,
- * the nod's as a headDeformer translate — and the hair layers get their
+ * the nod's as a headDeformer translate — and the bangs get their
  * depth-scaled share of it back through `headTurnParallaxUnit`.
  */
 function pinnedCylinderBend(
@@ -1280,8 +1281,8 @@ interface TurnCandidate {
    *  span over its rest span (`landingAt`/`restAt`, the same pair
    *  `silhouetteCenterShift` reads) — as `measure_turn_reference` would
    *  measure it off the two images, unlike `achievedSilhouetteRatio`, which
-   *  is the hold's own capped-destination ratio and does not see hair_back's
-   *  bulge or a face-plate edge's own foreshortening. */
+   *  is the hold's own capped-destination ratio and does not see a
+   *  face-plate edge's own foreshortening. */
   renderedSilhouetteRatio: number;
 }
 
@@ -1350,21 +1351,16 @@ interface TurnSolveContext {
    *  layer, in which case that correction falls back to the ideal hold
    *  destinations, symmetric about the face centre. */
   hairFrontSilhouette?: { x: number; cropW: number; cropH: number };
-  /** hair_back's own rest x and crop width, for `evaluateTurnCandidate`'s
-   *  silhouette-centre correction on a side `headEdges` names "hair_back" for
-   *  — its own mesh half-width (`cropW / 2`) and centre, `hairBackOffsetAt`
-   *  needs to place a vertex at an arbitrary rest x in hair_back's own local
-   *  frame. Undefined when there is no hair_back layer. */
-  hairBack?: { x: number; cropW: number };
   /** Every role with an opaque pixel in the eye-row band, per side, each
    *  with its OWN rest x there — as the mcp layer measures it (`rowSpansByRole`),
    *  a companion to a MEASURED `headHalfWidth`, not a caller-facing target.
    *  `evaluateTurnCandidate` takes the OUTERMOST *landing* across a side's own
    *  list, not the outermost REST x: which part ends up furthest out after
-   *  the turn can differ from which one drew furthest out at rest (a bulging
-   *  back-hair overtaking the bangs, say). Absent on the fallback path (no
-   *  measured head to report edges for), which keeps hair_front's own crop
-   *  edge as the silhouette point on both sides, as if it always owned them. */
+   *  the turn can differ from which one drew furthest out at rest (the bangs'
+   *  own lead carrying them past a held back-hair edge, say). Absent on the
+   *  fallback path (no measured head to report edges for), which keeps
+   *  hair_front's own crop edge as the silhouette point on both sides, as if
+   *  it always owned them. */
   headEdges?: {
     left: { role: string; x: number }[];
     right: { role: string; x: number }[];
@@ -1708,22 +1704,10 @@ function evaluateTurnCandidate(
   // `ROLE_TABLE` is a bug, not a role to render as unmoved.
   const landingOfRole = (role: string, x: number): number => {
     if (role === "hair_front") return hairFrontAt(x);
-    if (role === "hair_back" && ctx.hairBack !== undefined) {
-      const halfWidth = ctx.hairBack.cropW / 2;
-      const relX = x - ctx.hairBack.x;
-      // The "from" value of its own 2-point AngleX translateX binding (see
-      // bindingsForRole) — the stop every cue here is measured at is exactly
-      // its lower end, -HEAD_TURN_MAX_DEG.
-      const translateX = -HAIR_BACK_DEPTH * unit;
-      return (
-        x + translateX + hairBackOffsetAt(relX, halfWidth, -HEAD_TURN_MAX_DEG)
-      );
-    }
     if (role === "hair_back") {
-      throw new Error(
-        "auto-rig: evaluateTurnCandidate: a headEdges candidate names " +
-          "hair_back, but this layer set has no hair_back layer",
-      );
+      // It holds the head's outline: it rides a head that no longer travels
+      // and has no turn binding or warp of its own, so it lands where it sits.
+      return x;
     }
     if (role === "body") {
       // The head no longer translates on the turn — its travel is in the face
@@ -2040,10 +2024,6 @@ export function solveTurnModel(
    *  which is also correct for a layer set with no hair_front: there is then
    *  no bangs edge for either to read. */
   hairFront?: { x: number; centerY: number; cropW: number; cropH: number },
-  /** hair_back's own transform x and crop width, when the layer set has one —
-   *  see `TurnSolveContext.hairBack`. Only read for a `headEdges` candidate
-   *  naming "hair_back". */
-  hairBack?: { x: number; cropW: number },
   /** Every role with an opaque pixel in the eye-row band, per side, each with
    *  its own rest x there — see `TurnSolveContext.headEdges`. Absent (the
    *  usual case for a caller with no measured head, or one built by hand)
@@ -2112,7 +2092,6 @@ export function solveTurnModel(
       hairFront === undefined
         ? undefined
         : { x: hairFront.x, cropW: hairFront.cropW, cropH: hairFront.cropH },
-    hairBack,
     // A companion to a MEASURED headHalfWidth only — see its own doc.
     headEdges: targets.headHalfWidth === undefined ? undefined : headEdges,
   };
@@ -2219,28 +2198,21 @@ export function solveTurnModel(
 // Hoisted to module scope so it is not reallocated on every bindingsForRole call.
 const EYE_STACK_PREFIXES = ["eye_", "iris_", "pupil_", "highlight_"] as const;
 
-/** Signed depth of each hair layer from the head cylinder's axis, as a fraction
- *  of the cylinder radius; positive is toward the viewer. Tuned by eye against
- *  the rendered turn, not derived.
+/** Signed depth of the bangs from the head cylinder's axis, as a fraction of
+ *  the cylinder radius; positive is toward the viewer. Tuned by eye against
+ *  the rendered turn, not derived. The back hair takes no share of it: it
+ *  holds the head's outline while the face slides inside it.
  *
- *  The bangs lead the face by a little — HAIR_FRONT_DEPTH is the FRINGE TIPS'
+ *  The bangs lead that sliding face by a little — this is the FRINGE TIPS'
  *  lead specifically, not the whole sheet's: the crown is root-pinned by the
  *  warp that applies it, not a binding (see bindingsForRole's doc for why).
- *  0.16 was right while the shift was rigid and the back hair stood still, the
- *  lead the only depth cue; once the back hair bent and bulged on the turn the
- *  same lead read as the bangs running ahead of the head, so it came down. At
- *  0.06 the layering all but vanishes. 0.1 is settled with the lead
- *  root-pinned: the fringe tips get it, the crown gets none.
- *
- *  hair_back rides headDeformer, which no longer translates on the turn, so
- *  this shift is the only sideways motion it gets: it slides against a head
- *  that stays put. −0.08 was tuned against the whole head's old rigid travel,
- *  not against the face's slide inside the grid. A deeper value that held the
- *  back of the head still in world space read as the face sliding over a
- *  backdrop; the turn cue for the back hair comes from its bend
- *  (bakeHairBackTurnWarp), not from lagging the head. */
+ *  0.16 was right while the shift was rigid and the whole head travelled
+ *  with it, the lead the only depth cue; with the head no longer travelling,
+ *  the lead is the bangs' only motion against a held shell, and that much of
+ *  it reads as them running ahead, so it came down. At 0.06 the layering all
+ *  but vanishes. 0.1 is settled with the lead root-pinned: the fringe tips get
+ *  it, the crown gets none. */
 const HAIR_FRONT_DEPTH = 0.1;
-const HAIR_BACK_DEPTH = -0.08;
 
 /** Rigid vertical travel of the head at full nod (px at AngleY = ±30). */
 const NOD_TRAVEL = 30;
@@ -2396,8 +2368,10 @@ function featureParallaxBindings(
  *     AngleX turn lead are root-pinned warps attached in
  *     generateIkiFromLayerSet — a rigid translate/rotate would carry the whole
  *     sheet (crown included) with the fringe tips, instead of leading from them.
- * - hair_back: the AngleX depth-parallax translateX, and an AngleY translateY
- *     that tucks its crown under the bent front hair (needs `parallaxUnitY`)
+ * - hair_back: nothing on the turn — it rides a head that no longer travels,
+ *     so it holds the head's outline while the face slides inside it — and an
+ *     AngleY translateY that tucks its crown under the bent front hair (needs
+ *     `parallaxUnitY`)
  * - brow_L/R: BrowLeftY/RightY translateY (raise/lower) + BrowLeftAngle/RightAngle rotate
  *     (each brow rotates its own, CCW-positive)
  * - eye-stack:
@@ -2442,7 +2416,6 @@ function roleOwnBindings(
   cropH: number,
   options: {
     hasMouthOpen?: boolean;
-    parallaxUnit?: number;
     parallaxUnitY?: number;
     hasNose?: boolean;
   },
@@ -2565,23 +2538,11 @@ function roleOwnBindings(
 
   if (role === "hair_front" || role === "hair_back") {
     const isFront = role === "hair_front";
-    // Depth parallax on the head turn, for hair_back only: it hangs rigid off
-    // headDeformer, so without a shift on top of the face turn it stayed flat
-    // while the face beneath it foreshortened, reading as a cutout sliding.
-    // hair_front leads the same way but as a root-pinned warp attached in
+    // Neither hair part takes a binding on the TURN. hair_back holds the
+    // head's outline still while the face slides inside it, and hair_front
+    // leads that slide through a root-pinned warp attached in
     // generateIkiFromLayerSet, not a binding here — see the doc above for why.
     const parallax: IkiBinding[] = [];
-    if (!isFront) {
-      const shiftX = HAIR_BACK_DEPTH * (options.parallaxUnit ?? 0);
-      if (shiftX !== 0) {
-        parallax.push({
-          parameter: StandardParameter.AngleX,
-          channel: "translateX",
-          from: -shiftX,
-          to: shiftX,
-        });
-      }
-    }
     // On the nod the bangs slide with the brows they hang over — only when the
     // brows slide, i.e. with a nose to lead them — and the back hair follows
     // the bent crown down; see the two NOD_DEPTH constants.
@@ -2646,103 +2607,6 @@ export function bakeEyelidFoldWarp(
       { value: 1, offsets: zeros },
     ],
   };
-}
-
-// ── bakeHairBackTurnWarp ──────────────────────────────────────────────────────
-
-/** Cylinder radius for the back hair's turn bend, as a multiple of the part's
- *  own half-width. Much flatter than the face's 1.2: the back hair spans the
- *  whole head, and at the face's curvature its near edge would fold in by
- *  ~180px. At 2.5 the near side tucks behind the face and the far side fills
- *  out, which is the whole cue. */
-const HAIR_BACK_BEND_RADIUS_FACTOR = 2.5;
-/** How far the back hair's far edge bulges OUT at full turn, as a fraction of
- *  the part's half-width. A cylinder bend barely moves the far edge (it just
- *  stops compressing), but on a real head the hair volume hidden behind the
- *  far side swings into view and the silhouette fills out. Grows linearly
- *  from the centre column to the far edge. Judged from renders: at ~0.32 the
- *  far strands look pulled thin. */
-const HAIR_BACK_FAR_BULGE = 0.22;
-
-/**
- * The back hair's share of the head turn, as a per-vertex warp on AngleX.
- *
- * hair_back hangs from the rigid headDeformer, not faceWarp, so without this it
- * turned as a flat sheet: the face foreshortened and slid while the silhouette
- * behind it kept its rest outline. Over the part's own columns, at a flatter
- * radius than the face: the NEAR side takes the same pinned cylinder bend the
- * face uses, so it compresses behind the face; the FAR side takes the chord of
- * its own ±30 keyform, linear in the angle, plus a bulge (HAIR_BACK_FAR_BULGE),
- * so it swings out and fills.
- *
- * Keyed on `HEAD_TURN_STOPS` — see there for why the stops sit 15° apart. The
- * near side needs that density as much as the face does: on the hero the
- * three-stop chord diverged from the analytic bend by 12.5 model units at the
- * near outer column at half turn (chord −47.8 against −35.3), enough that its
- * silhouette disagreed with the face's.
- *
- * The far side is deliberately not analytic. A cylinder's far column reverses
- * once the turn passes |asin(x/radius)|/2 (≈12° at the hero's far edge), so
- * net of the linear bulge that edge moved 52 model units through the first
- * 15° and only 24 through the second — it swung out and then stalled, where a
- * sheet revealed from behind the head should swing out at one speed. Linear in
- * the angle it is 38 and 38. The ±30 keyforms and the rest keyform are
- * unchanged by construction: at |deg| = 30 the two branches coincide, at 0
- * nothing is far, and the centre column is pinned on both.
- */
-/**
- * The per-vertex piece of `bakeHairBackTurnWarp`, factored out so
- * `evaluateTurnCandidate`'s own reading of a hair_back-owned silhouette edge
- * cannot drift from what the bake actually ships: both call this with the
- * SAME `halfWidth` (hair_back's own mesh half-width, i.e. its `cropW / 2`)
- * and `x` (a vertex's position relative to hair_back's own centre — LOCAL,
- * not `partX + x`, because hair_back's bend is about its own centre column,
- * not the face's). `deg` is one of `HEAD_TURN_STOPS`; see the bake's own doc
- * for the near/far split this computes.
- */
-function hairBackOffsetAt(x: number, halfWidth: number, deg: number): number {
-  const radius = halfWidth * HAIR_BACK_BEND_RADIUS_FACTOR;
-  const bulge = HAIR_BACK_FAR_BULGE * halfWidth;
-  const DEG_TO_RAD = Math.PI / 180;
-  const theta = deg * DEG_TO_RAD;
-  // Turning right (s = +1) the far side is x < 0; the bulge pushes it further
-  // left, i.e. outward. It grows LINEARLY with the turn — unlike the near
-  // side's analytic bend — so each stop takes its own share of it: at full
-  // bulge on every stop the mid stops would step it to full at 15° instead
-  // of ramping it. Zero at rest.
-  const s = Math.sign(deg);
-  const turnFraction = Math.abs(deg) / HEAD_TURN_MAX_DEG;
-  const fullTheta = s * HEAD_TURN_MAX_DEG * DEG_TO_RAD;
-  const bulgeAtStop = (bulge * deg) / HEAD_TURN_MAX_DEG;
-  const far = Math.max(0, (-s * x) / halfWidth);
-  // The far side is the chord of its own ±30 keyform — see the doc comment.
-  const bend =
-    far > 0
-      ? turnFraction * pinnedCylinderBend(x, radius, fullTheta)
-      : pinnedCylinderBend(x, radius, theta);
-  return bend - bulgeAtStop * far;
-}
-
-export function bakeHairBackTurnWarp(
-  mesh: IkiMesh,
-  parameter: string,
-): IkiWarp {
-  let left = Infinity;
-  let right = -Infinity;
-  for (let i = 0; i < mesh.vertices.length; i += 2) {
-    left = Math.min(left, mesh.vertices[i]);
-    right = Math.max(right, mesh.vertices[i]);
-  }
-  const halfWidth = (right - left) / 2;
-  const keyforms = HEAD_TURN_STOPS.map((deg) => {
-    const offsets: number[] = [];
-    for (let i = 0; i < mesh.vertices.length; i += 2) {
-      const x = mesh.vertices[i];
-      offsets.push(hairBackOffsetAt(x, halfWidth, deg), 0);
-    }
-    return { value: deg, offsets };
-  });
-  return { parameter, keyforms };
 }
 
 // ── bakeHairFrontSilhouetteWarp ──────────────────────────────────────────────
@@ -3296,7 +3160,6 @@ export function generateIkiFromLayerSet(
   const halfH = Math.max(faceCenterY - unionMinY, unionMaxY - faceCenterY);
   const faceHalfWidth = faceLayer.cropW / 2;
   const hairFrontLayer = layers.find((l) => l.role === "hair_front");
-  const hairBackLayer = layers.find((l) => l.role === "hair_back");
   const turn = hasNose
     ? solveTurnModel(
         resolveTurnTargets(options.turnTargets),
@@ -3319,15 +3182,6 @@ export function generateIkiFromLayerSet(
               cropH: hairFrontLayer.cropH,
             };
           })(),
-        hairBackLayer && {
-          x: bboxToTransform(
-            hairBackLayer.bbox,
-            hairBackLayer.canvasW,
-            hairBackLayer.canvasH,
-            "hair_back",
-          ).x,
-          cropW: hairBackLayer.cropW,
-        },
         options.headEdges,
       )
     : undefined;
@@ -3610,14 +3464,6 @@ export function generateIkiFromLayerSet(
           ),
           ...(leadWarp ? [leadWarp] : []),
           ...(silhouetteWarp ? [silhouetteWarp] : []),
-        ];
-      }
-      // The back hair's turn: it gets no cylinder bend from a deformer, so it
-      // bends on its own. Part warps sum, so this sits beside the sway.
-      if (role === "hair_back") {
-        part.warps = [
-          ...(part.warps ?? []),
-          bakeHairBackTurnWarp(mesh, StandardParameter.AngleX),
         ];
       }
       // Eye blink = fold: the white (eye_) and the lash (lash_) fold shut via a
