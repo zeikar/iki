@@ -874,28 +874,45 @@ describe("autoRigFromLayers", () => {
     const smallPath = path.join(dir, "small.iki");
     const bigPath = path.join(dir, "big.iki");
 
-    // Both above this 40px head's own drift-only minimum (~0.074: the eye
-    // pair's at-rest drift from the bend alone, in the silhouette-centre's
-    // corrected units — see auto-rig.ts's evaluateTurnCandidate), so both are
-    // reached exactly rather than floored to that minimum.
+    // This fixture's own shift FLOOR is 0.066 of the 40px head — measured off
+    // the refusal a deliberately low ask gets here (eyeShift 0.01 comes back
+    // "attainable 0.06609…0.36505"), not guessed. It is the face's OWN slide,
+    // which rides the face-warp map now: the face plate already slides 7.75px
+    // toward the far side, and the eyes ride it — the whole 0.25 × 31px plate
+    // half-width, read off the shipped faceWarp's centre column at −30°, so
+    // shellTravelCap does not bind on a head this size. The bend pulls the
+    // pair ~1.35px back the near way, leaving 6.4px of zero-depth drift, and
+    // it is only the silhouette centre's own drift, which the cue is measured
+    // against, that brings the floor down to 0.066 from there. No bend-only
+    // minimum bounds anything here any more.
+    //
+    // 0.15/0.25 rather than a pair nearer that floor, because a target just
+    // above it only rigs degenerately: 0.145 is the first ask this fixture
+    // reaches with nothing else cut down, and anything nearer the floor
+    // clamps farEyeRatio and silhouetteRatio at a near-flat 140–210px radius
+    // (0.09 does rig, at ~206px — near the sweep's near-flat ceiling, 248px,
+    // which is where the floor itself is reached). These two sit in the clean
+    // band (radii ~45.7 and ~51.4, both `clamped: []`), so what changes
+    // between them is the eye's own depth and not the solve's character.
     const small = await autoRigFromLayers({
       layers,
       outputPath: smallPath,
-      turnTargets: { eyeShift: 0.09 },
+      turnTargets: { eyeShift: 0.15 },
     });
     const big = await autoRigFromLayers({
       layers,
       outputPath: bigPath,
-      turnTargets: { eyeShift: 0.15 },
+      turnTargets: { eyeShift: 0.25 },
     });
     expect(small.ok && big.ok).toBe(true);
     if (!small.ok || !big.ok) return;
     // Both targets are inside what this layer set can do, so neither was cut
-    // down and the slide is the target's alone.
+    // down: what eyeSlide compares below is the depth each target asked for
+    // on top of that shared plate slide, not a clamp.
     expect(small.turn!.clamped).not.toContain("eyeShift");
     expect(big.turn!.clamped).not.toContain("eyeShift");
-    expect(small.turn!.achieved.eyeShift).toBeCloseTo(0.09, 2);
-    expect(big.turn!.achieved.eyeShift).toBeCloseTo(0.15, 2);
+    expect(small.turn!.achieved.eyeShift).toBeCloseTo(0.15, 2);
+    expect(big.turn!.achieved.eyeShift).toBeCloseTo(0.25, 2);
     // Both were fractions of the head measured off the layers (40), not of the
     // face plate (31) — the hold pivots on the one the solve used.
     expect(small.turn!.holdBase).toBe(small.headHalfWidth);
