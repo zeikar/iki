@@ -35,11 +35,9 @@ import {
  *  radius the generator picks by scaling a half-width by it. */
 const RADIUS_FACTOR = 0.6 / 0.5;
 
-/** Mirror of auto-rig's private HAIR_BACK_DEPTH: the back hair's signed share
- *  of the parallax unit. That share is the only binding a generated model
- *  carries the turn radius in, so it is how these tests read back a radius the
- *  generator SOLVED instead of scaling off the grid. */
-const HAIR_BACK_DEPTH = -0.08;
+/** Mirror of auto-rig's private HOLD_CLEARANCE: how far past the plate's own
+ *  landing the held silhouette edge has to sit. */
+const HOLD_CLEARANCE = 1;
 
 /** The 1000×1000 canvas every layer fixture in this file is painted on. */
 const canvas1000 = { width: 1000, height: 1000 };
@@ -74,15 +72,66 @@ const cell = (
   return w.keyforms2d[iy * w.valuesX.length + ix];
 };
 
-/** The turn radius behind a generated model's parallax unit. */
-const solvedRadiusOf = (model: ReturnType<typeof generateIkiFromLayerSet>) => {
-  const back = (
-    model.parts.find((p) => p.id === "hair_back")!.bindings ?? []
-  ).find(
-    (b) =>
-      b.parameter === StandardParameter.AngleX && b.channel === "translateX",
-  ) as { to: number };
-  return back.to / (HAIR_BACK_DEPTH * Math.sin((30 * Math.PI) / 180));
+/** A generated rig's face-warp deformer, with the grid and 2D bake it ships. */
+const faceWarpOf = (model: ReturnType<typeof generateIkiFromLayerSet>) =>
+  model.deformers!.find((d) => d.id === "faceWarp") as {
+    grid: { cols: number; rows: number; points: number[] };
+    warp2d: {
+      valuesX: number[];
+      valuesY: number[];
+      keyforms2d: { offsets: number[] }[];
+    };
+  };
+
+/** The face grid's middle-column dx at one AngleX stop, AngleY = 0: the head's
+ *  uniform sideways slide on its own, the bend being zero on the cylinder's
+ *  own axis column. */
+const centreSlideOf = (
+  model: ReturnType<typeof generateIkiFromLayerSet>,
+  angleX: number,
+): number => {
+  const faceWarpDef = faceWarpOf(model);
+  const faceCenterX = model.parts.find((p) => p.id === "face")!.transform!.x;
+  const col = faceWarpDef.grid.cols / 2;
+  // The generated grid is symmetric about the face centre, so its middle
+  // column IS the axis — assert that before reading the slide off it.
+  expect(faceWarpDef.grid.points[col * 2]).toBeCloseTo(faceCenterX, 10);
+  return cell(faceWarpDef.warp2d, angleX, 0).offsets[col * 2];
+};
+
+/** The sideways travel a generated rig's face warp ACTUALLY carries at full
+ *  turn, px: the slide its axis column shows at the −30° stop, negated. Read
+ *  off the bake rather than recomputed from the plate's half-width, because
+ *  the solve caps that ask to what the held shell can swallow — a mirrored
+ *  ratio would reconstruct a turn the rig does not have. Anything measuring a
+ *  generated rig through `turnColumnMap` has to be given this. */
+const travelOf = (model: ReturnType<typeof generateIkiFromLayerSet>) =>
+  -centreSlideOf(model, -30);
+
+/** A generated rig and the turn radius it was built on.
+ *
+ *  Nothing in the shipped model spells that radius out any more (hair_back's
+ *  own turn binding carried it until the back hair went static on the turn),
+ *  so it is captured from the solve's own report. A layer set that solves no
+ *  turn at all — no nose layer — falls back to what generateIkiFromLayerSet
+ *  falls back to: the FACE GRID's own half-width (the union's reach about the
+ *  face centre, not the plate's) with the no-fold margin. */
+const solvedRig = (
+  layers: LayerInput[],
+  canvas: { width: number; height: number },
+  options: Parameters<typeof generateIkiFromLayerSet>[2] = {},
+) => {
+  let solved: number | undefined;
+  const model = generateIkiFromLayerSet(layers, canvas, {
+    ...options,
+    onTurnSolved: (report) => {
+      solved = report.radius;
+      options.onTurnSolved?.(report);
+    },
+  });
+  const grid = faceWarpOf(model).grid;
+  const gridHalfWidth = (grid.points[grid.cols * 2] - grid.points[0]) / 2;
+  return { model, radius: solved ?? gridHalfWidth * RADIUS_FACTOR };
 };
 
 // ── Minimal valid filenames (all required roles present) ─────────────────────
@@ -602,6 +651,10 @@ function noseLayer(): LayerInput {
 // ── describe("head nod (AngleY)") ────────────────────────────────────────────
 
 describe("head nod (AngleY)", () => {
+  // Every bake in this block passes travel 0: they exercise the primitive on a
+  // grid built by hand, with no rig behind it to size a head's slide, so what
+  // is under test is the pure bend. The slide has its own describe below.
+
   it("bakes a 5×5 lattice at 15° stops in the format's row-major layout", () => {
     const w = bakeHeadTurnGridWarp2DCentered(
       axisGrid,
@@ -610,6 +663,7 @@ describe("head nod (AngleY)", () => {
       0,
       0,
       axisGridRadiusX,
+      0,
     );
     expect(w.valuesX).toEqual([-30, -15, 0, 15, 30]);
     expect(w.valuesY).toEqual([-30, -15, 0, 15, 30]);
@@ -619,7 +673,10 @@ describe("head nod (AngleY)", () => {
     }
   });
 
-  it("the AngleY=0 row IS the 1D turn bake, so the turn did not change", () => {
+  it("the AngleY=0 row IS the 1D turn bake once the slide is out of it", () => {
+    // The 1D bake is the pure-bend reference, so the row matches it at travel
+    // 0 and only there — what a shipped row adds on top is the uniform slide,
+    // checked column by column in describe("head turn slide").
     const w = bakeHeadTurnGridWarp2DCentered(
       axisGrid,
       "ax",
@@ -627,6 +684,7 @@ describe("head nod (AngleY)", () => {
       0,
       0,
       axisGridRadiusX,
+      0,
     );
     const turn = bakeHeadTurnGridWarpCentered(
       axisGrid,
@@ -651,6 +709,7 @@ describe("head nod (AngleY)", () => {
       0,
       0,
       axisGridRadiusX,
+      0,
     );
     const R = axisGridRadiusX;
     const theta15 = 15 * (Math.PI / 180);
@@ -691,6 +750,7 @@ describe("head nod (AngleY)", () => {
       0,
       0,
       lopsidedRadius,
+      0,
     );
     const stride = 5;
     for (const k of w2.keyforms2d) {
@@ -753,6 +813,7 @@ describe("head nod (AngleY)", () => {
       0,
       0,
       tight,
+      0,
     ).keyforms2d) {
       ordered(k.offsets);
     }
@@ -770,6 +831,7 @@ describe("head nod (AngleY)", () => {
       0,
       0,
       axisGridRadiusX,
+      0,
     );
     for (const k of w.keyforms2d) {
       for (let p = 0; p < axisGrid.points.length / 2; p++) {
@@ -788,6 +850,7 @@ describe("head nod (AngleY)", () => {
       0,
       0,
       axisGridRadiusX,
+      0,
     );
     const up = cell(w, 0, 30); // AngleX=0, AngleY=+30
     const stride = axisGrid.cols + 1;
@@ -901,6 +964,7 @@ describe("head nod (AngleY)", () => {
       0,
       0,
       axisGridRadiusX, // 400 reach × the margin — the same radius the nod axis derives
+      0,
     );
     const stride = 5;
     const turn = cell(w, 30, 0); // AngleX=+30, AngleY=0
@@ -926,6 +990,9 @@ describe("turnColumnMap", () => {
   // Reach about the axis is the long side, 358, so the bound still covers
   // every column and nothing under test rides the rigid outside.
   const radiusX = 358 * RADIUS_FACTOR;
+  // Travel: the first test sweeps 0 and 60 on purpose; every other test in
+  // this block passes 0 — a grid built by hand, with no rig behind it to size
+  // a slide, so what they read is the bend's own map.
 
   it("its warped columns are the bake's own, at every stop and either travel", () => {
     // The map has to describe the SAME turn the model ships, or anything
@@ -957,7 +1024,7 @@ describe("turnColumnMap", () => {
   });
 
   it("mapX matches how the engine samples the grid, edge clamp included", () => {
-    const map = turnColumnMap(grid, faceCenterX, radiusX, 30);
+    const map = turnColumnMap(grid, faceCenterX, radiusX, 30, 0);
     // On a column: exactly that column's warped x.
     for (let col = 0; col <= grid.cols; col++) {
       expect(map.mapX(map.restX[col])).toBeCloseTo(map.warpedX[col], 9);
@@ -972,7 +1039,7 @@ describe("turnColumnMap", () => {
   });
 
   it("invertX round-trips mapX inside the grid and clamps outside", () => {
-    const map = turnColumnMap(grid, faceCenterX, radiusX, -30);
+    const map = turnColumnMap(grid, faceCenterX, radiusX, -30, 0);
     for (const x of [-398, -350, -249, -100, 0, 123.5, 198]) {
       expect(map.invertX(map.mapX(x))).toBeCloseTo(x, 9);
     }
@@ -984,7 +1051,7 @@ describe("turnColumnMap", () => {
   it("refuses an angle past the turn's range, where the columns fold", () => {
     // Beyond ~33.6° the warped columns stop being ordered and invertX's cell
     // scan would answer confidently and wrongly.
-    expect(() => turnColumnMap(grid, faceCenterX, radiusX, 45)).toThrow(
+    expect(() => turnColumnMap(grid, faceCenterX, radiusX, 45, 0)).toThrow(
       /auto-rig: turnColumnMap/,
     );
   });
@@ -1007,28 +1074,6 @@ describe("head turn slide", () => {
   const HEAD_TURN_TRAVEL_RATIO = 0.25;
   /** Mirror of auto-rig's private BODY_TURN_FOLLOW: the torso's share. */
   const BODY_TURN_FOLLOW = 0.3;
-
-  /** The face grid's middle-column dx at one AngleX stop, AngleY = 0: the
-   *  uniform slide on its own, the bend being zero on the cylinder's axis. */
-  const centreSlideOf = (
-    model: ReturnType<typeof generateIkiFromLayerSet>,
-    angleX: number,
-  ): number => {
-    const faceWarpDef = model.deformers!.find((d) => d.id === "faceWarp") as {
-      grid: { cols: number; points: number[] };
-      warp2d: {
-        valuesX: number[];
-        valuesY: number[];
-        keyforms2d: { offsets: number[] }[];
-      };
-    };
-    const faceCenterX = model.parts.find((p) => p.id === "face")!.transform!.x;
-    const col = faceWarpDef.grid.cols / 2;
-    // The generated grid is symmetric about the face centre, so its middle
-    // column IS the axis — assert that before reading the slide off it.
-    expect(faceWarpDef.grid.points[col * 2]).toBeCloseTo(faceCenterX, 10);
-    return cell(faceWarpDef.warp2d, angleX, 0).offsets[col * 2];
-  };
 
   it("the 2D bake slides the centre column by the whole travel at full turn", () => {
     const w = bakeHeadTurnGridWarp2DCentered(
@@ -1181,10 +1226,6 @@ describe("head turn slide", () => {
     );
   });
 
-  /** Mirror of auto-rig's private HOLD_CLEARANCE: how far past the plate's own
-   *  landing the held silhouette edge has to sit. */
-  const HOLD_CLEARANCE = 1;
-
   /** The travel-free landings of the face plate's two edges at one turn stop,
    *  as distances from the face centre — signed, the way the cap reads them:
    *  the same two numbers `plateReach` reduces to one absolute maximum. */
@@ -1275,10 +1316,10 @@ describe("head turn slide", () => {
   const SHELL_TARGETS = { headHalfWidth: 310, farEyeRatio: 0.9 };
 
   /** That rig and the geometry a render reads it through: the grid the face
-   *  bake rides, the turn radius behind its own parallax unit, and the slide
-   *  its centre column carries at full turn. */
+   *  bake rides, the turn radius the solve settled on, and the slide its
+   *  centre column carries at full turn. */
   const shellRig = () => {
-    const model = generateIkiFromLayerSet(
+    const { model, radius } = solvedRig(
       [...hairFrontLayers(), noseLayer()],
       canvas1000,
       { turnTargets: SHELL_TARGETS },
@@ -1288,13 +1329,9 @@ describe("head turn slide", () => {
       faceCenterX: model.parts.find((p) => p.id === "face")!.transform!.x,
       faceHalfWidth:
         hairFrontLayers().find((l) => l.role === "face")!.cropW / 2,
-      grid: (
-        model.deformers!.find((d) => d.id === "faceWarp") as {
-          grid: { cols: number; rows: number; points: number[] };
-        }
-      ).grid,
-      radius: solvedRadiusOf(model),
-      travel: centreSlideOf(model, 30),
+      grid: faceWarpOf(model).grid,
+      radius,
+      travel: travelOf(model),
     };
   };
 
@@ -1418,7 +1455,7 @@ describe("head-turn depth parallax", () => {
   // grid.
   const HAIR_FRONT_DEPTH = 0.1;
 
-  it("bindingsForRole: a parallaxUnit adds one AngleX translateX to hair_back, none to hair_front", () => {
+  it("bindingsForRole: a parallaxUnit adds no AngleX translateX to either hair part", () => {
     const unit = 250;
     const front = bindingsForRole(
       ROLE_TABLE["hair_front"],
@@ -1437,18 +1474,30 @@ describe("head-turn depth parallax", () => {
     // The bangs' lead is a warp (attached in generateIkiFromLayerSet), not a
     // binding — hair_front carries none here.
     expect(front).toHaveLength(0);
-    expect(back).toHaveLength(1);
-    expect(parallaxOf(back)).toBeDefined();
+    // And the back hair holds the head's outline: it rides a head that no
+    // longer travels on the turn, so a turn unit buys it nothing at all. Its
+    // own depth binding is the NOD's, which needs parallaxUnitY.
+    expect(back).toHaveLength(0);
+    expect(
+      bindingsForRole(ROLE_TABLE["hair_back"], "hair_back", 800, 700, {
+        parallaxUnit: unit,
+        parallaxUnitY: 120,
+      }).map((b) => [b.parameter, b.channel]),
+    ).toEqual([[StandardParameter.AngleY, "translateY"]]);
   });
 
-  it("the bangs lead the head and the back hair swings against it", () => {
-    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
-    const back = parallaxOf(
-      model.parts.find((p) => p.id === "hair_back")!.bindings ?? [],
-    )!;
-    // headDeformer's own AngleX translateX runs -50 -> 50, so a negative `to`
-    // means hair_back travels AGAINST the head.
-    expect(back.to).toBeLessThan(0);
+  it("the bangs lead the sliding face and the back hair stays put", () => {
+    // No nose in this fixture, so no turn is solved and the radius is the
+    // grid's own half-width with the margin — `solvedRig`'s own fallback.
+    const { model, radius } = solvedRig(hairFrontLayers(), canvas);
+    // The head's travel lives in the face grid now, so the back hair needs no
+    // counter-slide to hold the head's outline — it carries nothing on the
+    // turn at all (see describe("hair_back holds the turn's outline")).
+    expect(
+      parallaxOf(model.parts.find((p) => p.id === "hair_back")!.bindings ?? []),
+    ).toBeUndefined();
+    // The face underneath it does travel: that is what the bangs lead.
+    expect(centreSlideOf(model, 30)).toBeGreaterThan(0);
 
     // The bangs' lead is a root-pinned warp on hair_front, not a binding.
     const front = model.parts.find((p) => p.id === "hair_front")!;
@@ -1463,12 +1512,9 @@ describe("head-turn depth parallax", () => {
     const bottomY = Math.min(
       ...front.mesh!.vertices.filter((_, i) => i % 2 === 1),
     );
-    // The shared parallaxUnit, recovered from the cylinder radius the faceWarp
-    // grid's own half-width gives (hairHeadroomAt below reads the same edges).
-    const grid = model.deformers!.find((d) => d.id === "faceWarp")!.grid;
-    const parallaxUnit = headTurnParallaxUnit(
-      ((grid.points[grid.cols * 2] - grid.points[0]) / 2) * RADIUS_FACTOR,
-    );
+    // The shared parallaxUnit, off that same cylinder radius (hairHeadroomAt
+    // below reads the grid edges it is scaled from).
+    const parallaxUnit = headTurnParallaxUnit(radius);
     for (let v = 0; v < front.mesh!.vertices.length / 2; v++) {
       const vy = front.mesh!.vertices[v * 2 + 1];
       if (vy === topY) {
@@ -1493,15 +1539,17 @@ describe("head-turn depth parallax", () => {
     }
   });
 
-  it("rest is untouched: the back-hair parallax binding is symmetric about zero", () => {
-    // ParamAngleX defaults to 0, mid-range, so an asymmetric binding would
-    // shift the hair in the rest pose — the pose every proportion is judged on.
-    // (hair_front carries no binding; its rest is its warp's mid-point between
-    // symmetric keyforms, asserted above.)
-    const b = parallaxOf(
-      bindingsForRole(ROLE_TABLE["hair_back"], "hair_back", 800, 700, {
-        parallaxUnit: 250,
-      }),
+  it("rest is untouched: the back-hair nod binding is symmetric about zero", () => {
+    // ParamAngleY defaults to 0, mid-range, so an asymmetric binding would
+    // shift the hair in the rest pose — the pose every proportion is judged
+    // on. The nod is the back hair's only depth binding now (it has nothing
+    // on the turn); hair_front carries no binding at all, its rest being its
+    // warp's mid-point between symmetric keyforms, asserted above.
+    const b = bindingsForRole(ROLE_TABLE["hair_back"], "hair_back", 800, 700, {
+      parallaxUnitY: 120,
+    }).find(
+      (x) =>
+        x.parameter === StandardParameter.AngleY && x.channel === "translateY",
     )!;
     expect(b.from).toBeCloseTo(-b.to, 10);
   });
@@ -1534,7 +1582,7 @@ describe("head-turn depth parallax", () => {
     expect(at30.offsets[4 * 2]).toBeCloseTo(expected, 6);
   });
 
-  it("the generated model shifts hair_back via a binding and hair_front via a warp", () => {
+  it("the generated model leads hair_front with a warp and hair_back with nothing", () => {
     const layers = hairFrontLayers();
     const model = generateIkiFromLayerSet(layers, canvas);
     const front = model.parts.find((p) => p.id === "hair_front")!;
@@ -1544,9 +1592,11 @@ describe("head-turn depth parallax", () => {
     expect(
       front.warps!.some((w) => w.parameter === StandardParameter.AngleX),
     ).toBe(true);
-    const backParallax = parallaxOf(back.bindings ?? []);
-    expect(backParallax).toBeDefined();
-    expect(backParallax!.to).toBeLessThan(0);
+    // The back hair gets neither: no turn binding, and no AngleX warp either.
+    expect(parallaxOf(back.bindings ?? [])).toBeUndefined();
+    expect(
+      (back.warps ?? []).some((w) => w.parameter === StandardParameter.AngleX),
+    ).toBe(false);
   });
 
   // One hair spring peaks near 11.2 of its ±20 range (ζ ≈ 0.56 on a ±10
@@ -1766,18 +1816,20 @@ describe("hair_front silhouette hold", () => {
    *  grid's own turn map, the hold zone the generator picks from it, and the
    *  hair_front warp that does the holding. */
   const rigOf = (layers: LayerInput[]) => {
-    const model = generateIkiFromLayerSet(layers, canvas);
-    const grid = model.deformers!.find((d) => d.id === "faceWarp")!.grid;
+    const { model, radius } = solvedRig(layers, canvas);
+    const grid = faceWarpOf(model).grid;
     // The grid is built symmetric about the face centre, so its own mid-x IS
-    // the cylinder axis and its half-width the radius the generator scaled.
+    // the cylinder axis.
     const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
-    // These fixtures carry a nose, so the generator solved the radius from the
-    // turn targets — take it from the model, not from the grid's half-width.
-    const radius = solvedRadiusOf(model);
+    // The map a RENDER reads this rig through: the solved radius and the slide
+    // the shipped grid actually carries, not the plate's own uncapped ask.
+    // Read once — every hold assertion below calls columnMapAt per stop.
+    const travel = travelOf(model);
     const columnMapAt = (deg: number) =>
-      turnColumnMap(grid, faceCenterX, radius, deg);
+      turnColumnMap(grid, faceCenterX, radius, deg, travel);
     const faceHalfWidth = layers.find((l) => l.role === "face")!.cropW / 2;
-    const holdBase = plateReach(faceCenterX, faceHalfWidth, columnMapAt) + 1;
+    const holdBase =
+      plateReach(faceCenterX, faceHalfWidth, columnMapAt) + HOLD_CLEARANCE;
     const hair = model.parts.find((p) => p.id === "hair_front")!;
     // Two AngleX warps ride the bangs; the hold is the one keyed on all five
     // turn stops (the root-pinned lead has only its two ends).
@@ -1820,22 +1872,19 @@ describe("hair_front silhouette hold", () => {
       expect(outer).toHaveLength(14);
       for (const k of r.warp.keyforms) {
         const map = r.columnMapAt(k.value);
-        let held = 0;
         for (const v of outer) {
           const x = r.restX(v);
-          // Nothing can land outside the DEFORMED edge columns: the engine
-          // pins a vertex past the rest grid's edge onto the edge column, so
-          // at full turn the near side's outermost column is unreachable.
-          if (x < map.warpedX[0] || x > map.warpedX[r.grid.cols]) continue;
+          // Every one of them, at every stop — full turn included. The grid's
+          // own deformed edges travel WITH the head now (the slide is in the
+          // bake), so they stay ahead of the outermost strands instead of
+          // leaving the near side's column outside the grid's reach, where
+          // the engine would pin it onto the edge column and the hold could
+          // not place it at all.
+          expect(x).toBeGreaterThan(map.warpedX[0]);
+          expect(x).toBeLessThan(map.warpedX[r.grid.cols]);
           // Offset first (part warps apply before the bind), then the grid.
           expect(map.mapX(x + k.offsets[v * 2])).toBeCloseTo(x, 6);
-          held++;
         }
-        // Every one of them out to half turn; at full turn the near side's
-        // column is out of the grid's reach and only the far side's is held.
-        expect(held).toBe(
-          Math.abs(k.value) === 30 ? outer.length / 2 : outer.length,
-        );
       }
     });
 
@@ -1885,45 +1934,76 @@ describe("hair_front silhouette hold", () => {
     });
   }
 
+  /** How far the plate's edge lands from the face centre at `deg` through a
+   *  given map, whichever side lands further out — `plateReachAt`'s own
+   *  quantity, the reach a hold edge has to clear at that stop. The two sides
+   *  race each other now: the bend pulls the far one in while the slide
+   *  pushes it out, and the near one the other way round. */
+  const plateEdgeThrough = (
+    columnMapAt: (deg: number) => ReturnType<typeof turnColumnMap>,
+    faceCenterX: number,
+    faceHalfWidth: number,
+    deg: number,
+  ) =>
+    Math.max(
+      ...[-1, 1].map((side) =>
+        Math.abs(
+          columnMapAt(deg).mapX(faceCenterX + side * faceHalfWidth) -
+            faceCenterX,
+        ),
+      ),
+    );
+
+  /** That reach on a generated rig's own map. */
+  const plateEdgeAt = (r: ReturnType<typeof rigOf>, deg: number) =>
+    plateEdgeThrough(r.columnMapAt, r.faceCenterX, r.faceHalfWidth, deg);
+
   it("takes its hold edge from the plate's reach over ALL the stops, mid ones included", () => {
     const r = rigOf([...hairFrontLayers(), noseLayer()]);
-    const edgeAt = (deg: number) =>
-      Math.abs(
-        r.columnMapAt(deg).mapX(r.faceCenterX - r.faceHalfWidth) -
-          r.faceCenterX,
-      );
     const reach = plateReach(r.faceCenterX, r.faceHalfWidth, r.columnMapAt);
-    // The cylinder pushes the near edge PAST its rest half-width, and furthest
-    // at the mid stop — not at rest (300) and not at full turn.
-    expect(reach).toBeGreaterThan(r.faceHalfWidth);
-    expect(reach).toBeGreaterThan(edgeAt(30));
-    expect(reach).toBeCloseTo(edgeAt(15), 9);
-    expect(r.holdBase).toBeCloseTo(reach + 1, 9);
-  });
+    // On THIS rig the slide pulls the near edge back inside its own rest
+    // half-width faster than the bend throws it out, so every turned stop
+    // lands short of the rest pose and the reach is the plate's own 300.
+    expect(reach).toBeCloseTo(r.faceHalfWidth, 9);
+    expect(plateEdgeAt(r, -15)).toBeLessThan(reach);
+    expect(plateEdgeAt(r, -30)).toBeLessThan(plateEdgeAt(r, -15));
+    expect(r.holdBase).toBeCloseTo(reach + HOLD_CLEARANCE, 9);
 
-  /** How far the plate's +x edge lands from the face centre at `deg` — the
-   *  reach a hold edge has to clear. */
-  const plateEdgeAt = (r: ReturnType<typeof rigOf>, deg: number) =>
-    Math.abs(
-      r.columnMapAt(deg).mapX(r.faceCenterX + r.faceHalfWidth) - r.faceCenterX,
-    );
+    // Which stop reaches furthest moves with the radius (see `plateReach`),
+    // so the all-stops scan is what makes the hold edge safe: flatten the
+    // same plate's cylinder to 4 half-widths, keep its own 75 px of travel,
+    // and a MID stop wins — 317.24 px against the rest pose's 300 and full
+    // turn's 315.42, the worked case `plateReach`'s own doc quotes.
+    const flat = (deg: number) =>
+      turnColumnMap(r.grid, r.faceCenterX, 4 * r.faceHalfWidth, deg, 75);
+    const flatAt = (deg: number) =>
+      plateEdgeThrough(flat, r.faceCenterX, r.faceHalfWidth, deg);
+    const flatReach = plateReach(r.faceCenterX, r.faceHalfWidth, flat);
+    expect(flatReach).toBeCloseTo(flatAt(15), 9);
+    expect(flatReach).toBeCloseTo(317.24, 2);
+    expect(flatAt(0)).toBeCloseTo(r.faceHalfWidth, 9);
+    expect(flatAt(30)).toBeCloseTo(315.42, 2);
+    expect(flatReach).toBeGreaterThan(flatAt(30));
+  });
 
   it("refuses a hold edge inside the plate's mapped edge, naming the stop and both numbers", () => {
     const r = rigOf([...hairFrontLayers(), noseLayer()]);
-    // The bare plate half-width, which the fixture's plate edge overshoots at
-    // every turned stop: the ramp between them would run backwards.
+    // Well inside the plate's own landing at every stop: the ramp between
+    // them would run backwards. The scan starts at −30, so that is the stop
+    // the message names, and there the FAR (−x) edge is the one that lands
+    // furthest out — the slide pushes it while the bend pulls it in.
     expect(() =>
       bakeHairFrontSilhouetteWarp(
         r.hair.mesh!,
         r.partX,
         r.faceCenterX,
         r.faceHalfWidth,
-        r.faceHalfWidth,
-        () => r.faceHalfWidth,
+        200,
+        () => 200,
         r.columnMapAt,
       ),
     ).toThrow(
-      `auto-rig: bakeHairFrontSilhouetteWarp: at -30° on the +x side the hold edge sits 300 from the face centre but the plate's edge maps to ${plateEdgeAt(r, -30)}`,
+      `auto-rig: bakeHairFrontSilhouetteWarp: at -30° on the -x side the hold edge sits 200 from the face centre but the plate's edge maps to ${plateEdgeAt(r, -30)}`,
     );
   });
 
@@ -1972,8 +2052,10 @@ describe("hair_front silhouette hold", () => {
       rows: 4,
       points: generateGridPoints(4, 4, -800, 800, -400, 400),
     };
+    // Travel 0: a grid built by hand to exercise the hold itself, with no
+    // rig behind it to size a slide — the bend alone.
     const columnMapAt = (deg: number) =>
-      turnColumnMap(grid, 0, 800 * RADIUS_FACTOR, deg);
+      turnColumnMap(grid, 0, 800 * RADIUS_FACTOR, deg, 0);
     // Vertex xs every 50 from -500 to 500: the plate (0, 200), the ramp (300),
     // the boundary (400) and two strands beyond it (450, 500).
     const mesh = createPixelGridMesh(20, 2, 1000, 100);
@@ -2120,13 +2202,15 @@ describe("hair-sway physics", () => {
     }
   });
 
-  it("both hair parts carry their own AngleX part warps: the back's bend, the bangs' lead and silhouette hold", () => {
+  it("the bangs carry both AngleX part warps — lead and silhouette hold — and the back hair none", () => {
     const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
     const turnWarps = (id: string) =>
       (model.parts.find((p) => p.id === id)!.warps ?? []).filter(
         (w) => w.parameter === StandardParameter.AngleX,
       );
-    expect(turnWarps("hair_back")).toHaveLength(1);
+    // The back hair holds the head's outline through the turn, so it is the
+    // one part with nothing on AngleX at all.
+    expect(turnWarps("hair_back")).toHaveLength(0);
     // Two on the bangs, summed: the root-pinned lead across its two ends, and
     // the silhouette hold keyed on all five turn stops.
     expect(
@@ -2134,13 +2218,14 @@ describe("hair-sway physics", () => {
         .map((w) => w.keyforms.length)
         .sort((a, b) => a - b),
     ).toEqual([2, 5]);
-    // Present even without front hair (it is the turn, not the sway).
+    // Without front hair nothing carries a turn warp: the bangs are the only
+    // part that ever had one.
     const bare = generateIkiFromLayerSet(assemblyLayers(), canvas);
     expect(
       (bare.parts.find((p) => p.id === "hair_back")!.warps ?? []).filter(
         (w) => w.parameter === StandardParameter.AngleX,
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
 
   it("the longer back hair swings further than the bangs, in pixels", () => {
@@ -2814,8 +2899,9 @@ describe("per-vertex bakes generalize to any grid (not just 4×4/stride-5)", () 
       rows: 5,
       points: generateGridPoints(5, 5, -260, 260, -300, 300),
     };
+    // Travel 0: hand-built grid, no rig behind it — the bend alone.
     const columnMapAt = (deg: number) =>
-      turnColumnMap(grid, 0, 260 * RADIUS_FACTOR, deg);
+      turnColumnMap(grid, 0, 260 * RADIUS_FACTOR, deg, 0);
     const holdBase = plateReach(0, 100, columnMapAt) + 1;
     const hold = bakeHairFrontSilhouetteWarp(
       mesh,
@@ -2997,14 +3083,18 @@ describe("assembly", () => {
     expect(bodyDeformer.parent).toBeUndefined();
     expect(bodyDeformer.bindings).toHaveLength(2);
 
-    const headTurn = head.bindings.find(
-      (b) => b.parameter === StandardParameter.AngleX,
-    )!;
+    // The head's own turn travel is no longer a headDeformer binding — it is
+    // the uniform slide baked into the face grid, read off its axis column —
+    // so the torso's share is measured against THAT.
+    expect(
+      head.bindings.filter((b) => b.parameter === StandardParameter.AngleX),
+    ).toHaveLength(0);
+    const headTravel = centreSlideOf(model, 30);
     const bodyTurn = bodyDeformer.bindings.find(
       (b) => b.parameter === StandardParameter.AngleX,
     )!;
     expect(bodyTurn.channel).toBe("translateX");
-    expect(bodyTurn.to).toBeCloseTo(0.3 * headTurn.to, 10);
+    expect(bodyTurn.to).toBeCloseTo(0.3 * headTravel, 10);
     expect(bodyTurn.from).toBeCloseTo(-bodyTurn.to, 10);
 
     const headBreath = head.bindings.find(
@@ -3265,8 +3355,9 @@ describe("feature depth parallax", () => {
       });
       const turn = turnOf(b)!;
       const nod = nodOf(b)!;
-      // headDeformer's own AngleX translateX runs -50 -> 50 and its AngleY
-      // translateY -30 -> 30, so a positive `to` is WITH the head on both.
+      // The face grid's own turn slide runs with +AngleX (see describe("head
+      // turn slide")) and headDeformer's AngleY translateY runs -30 -> 30, so
+      // a positive `to` is WITH the head on both.
       expect(turn.to, role).toBeGreaterThan(0);
       expect(turn.from, role).toBeCloseTo(-turn.to, 10);
       expect(nod.to, role).toBeGreaterThan(0);
@@ -3274,7 +3365,7 @@ describe("feature depth parallax", () => {
     }
   });
 
-  it("the contour, the hair and the body keep their own: face none, bangs nod-only, back hair against", () => {
+  it("the contour, the hair and the body keep their own: face none, both hair parts nod-only", () => {
     const face = bindingsForRole(ROLE_TABLE["face"], "face", 300, 400, units);
     expect(face).toHaveLength(0);
     // The bangs' turn lead is a warp; on the nod they slide with the brows.
@@ -3290,11 +3381,19 @@ describe("feature depth parallax", () => {
       nodOf(bindingsForRole(ROLE_TABLE["brow_L"], "brow_L", 120, 40, units))!
         .to,
     );
-    expect(
-      turnOf(
-        bindingsForRole(ROLE_TABLE["hair_back"], "hair_back", 800, 700, units),
-      )!.to,
-    ).toBeLessThan(0);
+    // The back hair holds the head's outline, so it has nothing on the turn
+    // either; its only depth binding tucks its crown under the bent bangs on
+    // the nod, which is DOWN (a negative `to` against headDeformer's own
+    // -30 -> 30 nod translate).
+    const backHair = bindingsForRole(
+      ROLE_TABLE["hair_back"],
+      "hair_back",
+      800,
+      700,
+      units,
+    );
+    expect(turnOf(backHair)).toBeUndefined();
+    expect(nodOf(backHair)!.to).toBeLessThan(0);
     expect(
       bindingsForRole(ROLE_TABLE["body"], "body", 900, 400, units),
     ).toHaveLength(0);
@@ -3361,6 +3460,7 @@ describe("feature depth parallax", () => {
       0,
       0,
       400 * RADIUS_FACTOR, // turn radius: irrelevant here, the nod is on y
+      0, // no rig behind this bake: the bend alone, no head travel
     );
     const up =
       w.keyforms2d[
@@ -3380,7 +3480,7 @@ describe("feature depth parallax", () => {
   it("without a nose layer nothing slides: the painted nose pins the face", () => {
     // Units present, no nose: no feature binding at all, and a generated rig
     // without the role has static features and unfollowing bangs — the back
-    // hair keeps its own share either way.
+    // hair keeps its own nod tuck either way.
     const noNose = { parallaxUnit: 250, parallaxUnitY: 120 };
     expect(
       bindingsForRole(ROLE_TABLE["eye_L"], "eye_L", 100, 50, noNose),
@@ -3395,7 +3495,8 @@ describe("feature depth parallax", () => {
     const part = (id: string) => model.parts.find((p) => p.id === id)!;
     expect(part("eye_L").bindings).toBeUndefined();
     expect(nodOf(part("hair_front").bindings)).toBeUndefined();
-    expect(turnOf(part("hair_back").bindings)!.to).toBeLessThan(0);
+    expect(turnOf(part("hair_back").bindings)).toBeUndefined();
+    expect(nodOf(part("hair_back").bindings)!.to).toBeLessThan(0);
   });
 });
 
@@ -3413,14 +3514,18 @@ describe("turn targets", () => {
         ? { ...l, bbox: { ...l.bbox, x: 0, w: 1000 }, cropW: 1000 }
         : l,
     );
-  /** The same character with its eyes painted out near the plate's edge, where
-   *  the far one has almost no room to slide before it leaves the face. */
+  /** The same character with its eyes painted out AT the plate's edge, where
+   *  the far one has almost no room to slide before it leaves the face. The
+   *  plate spans 200…800 on the canvas and each eye is 150 wide, so 630/220
+   *  leaves each one 20px of margin. (It was 600/250 before the face's own
+   *  75px slide joined the eye cue: half the default shift now arrives free
+   *  with the plate, and eyes 50px off the edge reach it without clamping.) */
   const edgeEyes = (): LayerInput[] =>
     withNose().map((l) =>
       l.role === "eye_L" || l.role === "eye_R"
         ? {
             ...l,
-            bbox: { ...l.bbox, x: l.role === "eye_L" ? 600 : 250 },
+            bbox: { ...l.bbox, x: l.role === "eye_L" ? 630 : 220 },
           }
         : l,
     );
@@ -3549,11 +3654,15 @@ describe("turn targets", () => {
     model: ReturnType<typeof generateIkiFromLayerSet>,
     layers: LayerInput[],
     hh: number,
+    /** The radius the solve settled on for THIS rig — `solvedRig`'s own, the
+     *  model no longer carrying it anywhere. */
+    radius: number,
   ) => {
-    const grid = model.deformers!.find((d) => d.id === "faceWarp")!.grid;
+    const grid = faceWarpOf(model).grid;
     const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
-    const radius = solvedRadiusOf(model);
-    const map = turnColumnMap(grid, faceCenterX, radius, -30);
+    // The map a render reads this rig through: its own bend AND its own
+    // sideways slide, read back off the bake (travelOf).
+    const map = turnColumnMap(grid, faceCenterX, radius, -30, travelOf(model));
     const eyeOf = (role: string) => {
       const x = model.parts.find((p) => p.id === role)!.transform.x;
       const w = layers.find((l) => l.role === role)!.cropW;
@@ -3597,8 +3706,10 @@ describe("turn targets", () => {
   };
   const DEPTH_RADIUS = 400 * RADIUS_FACTOR;
   const DEPTH_UNIT = headTurnParallaxUnit(DEPTH_RADIUS);
-  const restMap = turnColumnMap(depthGrid, 0, DEPTH_RADIUS, 0);
-  const turnedMap = turnColumnMap(depthGrid, 0, DEPTH_RADIUS, -30);
+  // Travel 0 on both: `depthGrid` is built by hand to exercise the depth
+  // solver against a known bend, with no rig behind it to size a slide.
+  const restMap = turnColumnMap(depthGrid, 0, DEPTH_RADIUS, 0, 0);
+  const turnedMap = turnColumnMap(depthGrid, 0, DEPTH_RADIUS, -30, 0);
   /** A plate edge far enough out that only the silhouette bound can bite. */
   const FAR_PLATE = -400;
 
@@ -3722,8 +3833,10 @@ describe("turn targets", () => {
     return { x: t.x, centerY: t.y, cropW: layer.cropW, cropH: layer.cropH };
   };
 
-  /** The `hairBack` param `solveTurnModel` needs for a hair_back-owned
-   *  silhouette edge, derived the same way `generateIkiFromLayerSet` does. */
+  /** hair_back's own REST geometry, for building a `headEdges` list that
+   *  names it. The solve is never handed the back hair itself — it holds the
+   *  head's outline and lands where it sits — so this is only where its own
+   *  crop edges are. */
   const hairBackOf = (layers: LayerInput[]) => {
     const layer = layers.find((l) => l.role === "hair_back");
     if (!layer) return undefined;
@@ -3736,8 +3849,8 @@ describe("turn targets", () => {
     return { x, cropW: layer.cropW };
   };
 
-  /** `solveTurnModel` on a layer set, with the grid AND the hair_front/
-   *  hair_back geometry the generator would build/pass for THAT layer set. */
+  /** `solveTurnModel` on a layer set, with the grid AND the hair_front
+   *  geometry the generator would build/pass for THAT layer set. */
   const solveFor = (
     layers: LayerInput[],
     targets: TurnTargets = {},
@@ -3746,9 +3859,7 @@ describe("turn targets", () => {
       right: { role: string; x: number }[];
     },
   ) => {
-    const grid = generateIkiFromLayerSet(layers, canvas).deformers!.find(
-      (d) => d.id === "faceWarp",
-    )!.grid;
+    const grid = faceWarpOf(generateIkiFromLayerSet(layers, canvas)).grid;
     return solveTurnModel(
       resolveTurnTargets(targets),
       turnLandmarks(layers),
@@ -3756,7 +3867,6 @@ describe("turn targets", () => {
       (grid.points[0] + grid.points[grid.cols * 2]) / 2,
       HH,
       hairFrontOf(layers),
-      hairBackOf(layers),
       headEdges,
     );
   };
@@ -3788,24 +3898,24 @@ describe("turn targets", () => {
     expect(again.unreachable).toBe(false);
   });
 
-  it("solveTurnModel: it reports the eye cues it reached, and clamps only the silhouette it could not fully hold", () => {
+  it("solveTurnModel: it reports the cues it reached, and this layer set needs no clamp at all", () => {
     const s = solveFor(withNose());
     if (s.unreachable) throw new Error("expected a reachable turn");
     // Magnitudes, the units the targets are written in.
     within1Percent(s.achieved.eyeShift, DEFAULT_TURN_TARGETS.eyeShift);
     within1Percent(s.achieved.farEyeRatio, DEFAULT_TURN_TARGETS.farEyeRatio);
     // This fixture's eyes stop 100px short of the plate's edge and the default
-    // slide needs less than that, so those two are not cut down. The default
-    // silhouette IS, though: at the radius this foreshortening needs, the
-    // deformed grid's far-side reach falls short of the full-hold destination
-    // (see the grid-reach cap in evaluateTurnCandidate), and the fixture's own
-    // achieved ratio is the fact of that, not a target. It is the RENDERED
-    // ratio (each side's real landing over its real rest span), so it also
-    // carries the bangs' own turn lead pulling the centre — narrower than the
-    // capped-destination ratio alone would read.
-    expect(s.clamped).toEqual(["silhouetteRatio"]);
+    // slide needs less than that, so those two are not cut down — and with the
+    // head's travel in the grid, the whole deformed grid travels with the
+    // turn, so its far-side reach now clears the default hold too: nothing is
+    // clamped. (It was the silhouette, back when the plate bent inside a grid
+    // that stayed put.)
+    expect(s.clamped).toEqual([]);
+    // The RENDERED ratio still reads a hair under 1: it is each side's real
+    // landing over its real rest span, so it carries the bangs' own turn lead
+    // pulling the centre, which the held destinations alone do not show.
     expect(s.achieved.silhouetteRatio).toBeLessThan(1);
-    expect(s.achieved.silhouetteRatio).toBeGreaterThan(0.85);
+    expect(s.achieved.silhouetteRatio).toBeGreaterThan(0.98);
   });
 
   it("solveTurnModel: eyes painted out at the plate's edge clamp the DEFAULT shift instead of failing", () => {
@@ -3913,7 +4023,8 @@ describe("turn targets", () => {
 
   it("the default targets solve, and the rig reaches the cues they name", () => {
     const layers = withNose();
-    const cues = cuesOf(generateIkiFromLayerSet(layers, canvas), layers, HH);
+    const rig = solvedRig(layers, canvas);
+    const cues = cuesOf(rig.model, layers, HH, rig.radius);
     // Negative = toward the far side, the sign measure_turn_reference reports.
     within1Percent(-cues.eyeShift, DEFAULT_TURN_TARGETS.eyeShift);
     within1Percent(cues.farEyeRatio, DEFAULT_TURN_TARGETS.farEyeRatio);
@@ -3921,10 +4032,10 @@ describe("turn targets", () => {
 
   it("the far eye stays on the face plate, which is what the slide is bounded by", () => {
     const layers = withNose();
-    const model = generateIkiFromLayerSet(layers, canvas);
-    const grid = model.deformers!.find((d) => d.id === "faceWarp")!.grid;
+    const { model, radius } = solvedRig(layers, canvas);
+    const grid = faceWarpOf(model).grid;
     const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
-    const map = turnColumnMap(grid, faceCenterX, solvedRadiusOf(model), -30);
+    const map = turnColumnMap(grid, faceCenterX, radius, -30, travelOf(model));
     // The far eye white's outer edge, translated then mapped, against the
     // plate's own edge through the same map: past it the white is drawn over
     // the side hair, which bends with the plate and swallows it.
@@ -3938,20 +4049,27 @@ describe("turn targets", () => {
   it("a bigger eye shift slides the eyes further, and takes the nose and mouth with it", () => {
     const layers = withNose();
     const base = generateIkiFromLayerSet(layers, canvas);
-    const more = generateIkiFromLayerSet(layers, canvas, {
+    const more = solvedRig(layers, canvas, {
       turnTargets: { eyeShift: 0.26 },
     });
     for (const role of ["eye_L", "nose", "mouth"]) {
-      expect(slideAt30(more, role), role).toBeLessThan(slideAt30(base, role));
+      expect(slideAt30(more.model, role), role).toBeLessThan(
+        slideAt30(base, role),
+      );
     }
-    within1Percent(-cuesOf(more, layers, HH).eyeShift, 0.26);
+    within1Percent(-cuesOf(more.model, layers, HH, more.radius).eyeShift, 0.26);
   });
 
   it("an explicit nose shift wins over the one derived from the eyes", () => {
     const layers = withNose();
     const derived = generateIkiFromLayerSet(layers, canvas);
+    // 0.25 against the 0.2992 this fixture derives (NOSE_SHIFT_SHARE 1.36 ×
+    // the 0.22 eye cue it reaches): a shallower nose than the eyes imply, and
+    // inside what the layer set can carry — the plate's own 75px slide is the
+    // floor under every shift cue now, so the 0.1 this asked for before is
+    // refused outright (attainable 0.209…0.839 on this fixture).
     const explicit = generateIkiFromLayerSet(layers, canvas, {
-      turnTargets: { noseShift: 0.1 },
+      turnTargets: { noseShift: 0.25 },
     });
     // Same eye target, so the eyes are untouched and only the nose moves.
     expect(slideAt30(explicit, "eye_L")).toBeCloseTo(
@@ -3965,15 +4083,21 @@ describe("turn targets", () => {
 
   it("a flatter far eye is a rounder head: the radius follows the ratio", () => {
     const layers = withNose();
-    const flat = generateIkiFromLayerSet(layers, canvas, {
+    const flat = solvedRig(layers, canvas, {
       turnTargets: { farEyeRatio: 0.8 },
     });
-    const round = generateIkiFromLayerSet(layers, canvas, {
+    const round = solvedRig(layers, canvas, {
       turnTargets: { farEyeRatio: 0.62 },
     });
-    expect(solvedRadiusOf(round)).toBeLessThan(solvedRadiusOf(flat));
-    within1Percent(cuesOf(round, layers, HH).farEyeRatio, 0.62);
-    within1Percent(cuesOf(flat, layers, HH).farEyeRatio, 0.8);
+    expect(round.radius).toBeLessThan(flat.radius);
+    within1Percent(
+      cuesOf(round.model, layers, HH, round.radius).farEyeRatio,
+      0.62,
+    );
+    within1Percent(
+      cuesOf(flat.model, layers, HH, flat.radius).farEyeRatio,
+      0.8,
+    );
   });
 
   it("the same character at two hair widths reaches the same cues on its own grid", () => {
@@ -3981,17 +4105,19 @@ describe("turn targets", () => {
     const narrow = withNose();
     let wideTurn: TurnSolveReport | undefined;
     let narrowTurn: TurnSolveReport | undefined;
-    const wideModel = generateIkiFromLayerSet(wide, canvas, {
+    const wideRig = solvedRig(wide, canvas, {
       onTurnSolved: (r) => (wideTurn = r),
     });
-    const narrowModel = generateIkiFromLayerSet(narrow, canvas, {
+    const narrowRig = solvedRig(narrow, canvas, {
       onTurnSolved: (r) => (narrowTurn = r),
     });
-    for (const [model, layers, turn] of [
-      [wideModel, wide, wideTurn!],
-      [narrowModel, narrow, narrowTurn!],
+    const wideModel = wideRig.model;
+    const narrowModel = narrowRig.model;
+    for (const [model, layers, turn, radius] of [
+      [wideModel, wide, wideTurn!, wideRig.radius],
+      [narrowModel, narrow, narrowTurn!, narrowRig.radius],
     ] as const) {
-      const cues = cuesOf(model, layers, HH);
+      const cues = cuesOf(model, layers, HH, radius);
       // Independently re-derived agrees with what the solver reports it
       // reached — not necessarily the DEFAULT cue itself: a wider grid's own
       // bangs lead the turn by more (the lead scales with the radius the
@@ -4017,10 +4143,10 @@ describe("turn targets", () => {
     // the hold has nothing left to say.
     const layers = wideBangs();
     const targets = { headHalfWidth: 400, silhouetteRatio: 0.9 };
-    const model = generateIkiFromLayerSet(layers, canvas, {
+    const { model, radius } = solvedRig(layers, canvas, {
       turnTargets: targets,
     });
-    const grid = model.deformers!.find((d) => d.id === "faceWarp")!.grid;
+    const grid = faceWarpOf(model).grid;
     const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
     const turn = solveTurnModel(
       resolveTurnTargets(targets),
@@ -4031,7 +4157,11 @@ describe("turn targets", () => {
       hairFrontOf(layers),
     );
     if (turn.unreachable) throw new Error("expected a reachable turn");
-    expect(turn.radius).toBeCloseTo(solvedRadiusOf(model), 6);
+    // The direct solve IS the rig's: same radius, and the same sideways
+    // travel the generated grid carries (the solve caps that travel, so the
+    // two agreeing is what says the rig was built with what was solved).
+    expect(turn.radius).toBeCloseTo(radius, 6);
+    expect(turn.travel).toBeCloseTo(travelOf(model), 6);
     // The measured head IS the boundary, and it holds its rest place; only its
     // DESTINATION narrows, and only by |deg|/30 of the ratio.
     expect(turn.holdBase).toBe(400);
@@ -4046,7 +4176,7 @@ describe("turn targets", () => {
     const mesh = createPixelGridMesh(20, 2, 1000, 100);
     const col = (x: number) => (x - faceCenterX + 500) / 50;
     const columnMapAt = (deg: number) =>
-      turnColumnMap(grid, faceCenterX, turn.radius, deg);
+      turnColumnMap(grid, faceCenterX, turn.radius, deg, turn.travel);
     const warp = bakeHairFrontSilhouetteWarp(
       mesh,
       faceCenterX,
@@ -4094,18 +4224,19 @@ describe("turn targets", () => {
     }
   });
 
-  it("a grid too narrow for the measured head caps the far side and clamps the DEFAULT ratio, holding the near side at its own rest distance", () => {
-    // withNose()'s 700px front-hair grid, solved for the default eye cues,
-    // does not reach as far as a full 340px hold on its compressed (far) side
-    // at full turn — the promise this generator used to keep silently short,
-    // landing hair_front's outer strand at the grid's own deformed reach
-    // instead of where the DEFAULT silhouetteRatio (1, held) asked for.
+  it("a grid too narrow for the measured head caps the far side and clamps the DEFAULT ratio, while the near side ramps onto its own unmoved hold", () => {
+    // withNose()'s grid, solved for the default eye cues, does not reach as
+    // far as a full 400px hold on its compressed (far) side at full turn —
+    // the promise this generator used to keep silently short, landing the
+    // bangs short of where the DEFAULT silhouetteRatio (1, held) asked for.
+    // 400 is hair_back's own half-width here: the widest part of the head,
+    // and so the head a measurement of this character returns.
     const layers = withNose();
-    const targets = { headHalfWidth: 340 };
-    const model = generateIkiFromLayerSet(layers, canvas, {
+    const targets = { headHalfWidth: 400 };
+    const { model, radius } = solvedRig(layers, canvas, {
       turnTargets: targets,
     });
-    const grid = model.deformers!.find((d) => d.id === "faceWarp")!.grid;
+    const grid = faceWarpOf(model).grid;
     const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
     const turn = solveTurnModel(
       resolveTurnTargets(targets),
@@ -4116,24 +4247,28 @@ describe("turn targets", () => {
       hairFrontOf(layers),
     );
     if (turn.unreachable) throw new Error("expected a reachable turn");
-    expect(turn.holdBase).toBe(340);
+    expect(turn.radius).toBeCloseTo(radius, 6);
+    expect(turn.holdBase).toBe(400);
     // A default is clamped, never refused.
     expect(turn.clamped).toContain("silhouetteRatio");
     expect(turn.achieved.silhouetteRatio).toBeLessThan(1);
 
-    const map = turnColumnMap(grid, faceCenterX, turn.radius, -30);
+    const map = turnColumnMap(grid, faceCenterX, turn.radius, -30, turn.travel);
     const farReach = Math.abs(map.warpedX[0] - faceCenterX);
     const nearReach = Math.abs(
       map.warpedX[map.warpedX.length - 1] - faceCenterX,
     );
     // The far side's own deformed reach is what falls short of the hold; the
-    // near side's comfortably clears it — the near side keeps holding.
-    expect(farReach).toBeLessThan(340);
-    expect(nearReach).toBeGreaterThan(340);
+    // near side's clears it — the slide carries the grid's near edge out
+    // while the bend pulls the far one in, so only one side is ever capped.
+    expect(farReach).toBeLessThan(400);
+    expect(nearReach).toBeGreaterThan(400);
 
     // Verified through the full pipeline: hair_front's own baked warp, at
-    // -30°, applied to its outermost mesh vertex on each side — both sit
-    // beyond holdBase, in the outer zone.
+    // -30°, applied to its outermost mesh vertex on each side. Both sit
+    // INSIDE the boundary — the measured head (400) is wider than the bangs
+    // that draw it (350) — so both are in the hold's RAMP, and the cap shows
+    // up in where that ramp ends.
     const hair = model.parts.find((p) => p.id === "hair_front")!;
     const warp = hair.warps!.find(
       (w) =>
@@ -4146,18 +4281,36 @@ describe("turn targets", () => {
     );
     const farV = vertexXs.indexOf(Math.min(...vertexXs));
     const nearV = vertexXs.indexOf(Math.max(...vertexXs));
-    expect(Math.abs(vertexXs[farV] - faceCenterX)).toBeGreaterThan(340);
-    expect(Math.abs(vertexXs[nearV] - faceCenterX)).toBeGreaterThan(340);
+    expect(Math.abs(vertexXs[farV] - faceCenterX)).toBeLessThan(400);
+    expect(Math.abs(vertexXs[nearV] - faceCenterX)).toBeLessThan(400);
     const k = warp.keyforms.find((x) => x.value === -30)!;
     const landing = (v: number) =>
       map.mapX(vertexXs[v] + k.offsets[v * 2]) - faceCenterX;
-    // The far edge lands at the grid's own deformed reach — the cap this fix
-    // adds is what keeps that an honest, reported shortfall instead of a
-    // silent one (see achieved.silhouetteRatio above).
-    expect(Math.abs(landing(farV))).toBeCloseTo(farReach, 6);
-    // The near edge is not capped at all: it holds at its own rest distance,
-    // unmoved by the turn.
-    expect(landing(nearV)).toBeCloseTo(vertexXs[nearV] - faceCenterX, 6);
+    /** The hold's own ramp, from the plate edge's destination at HH out to
+     *  `dest` at the boundary — bakeHairFrontSilhouetteWarp's middle zone. */
+    const rampLanding = (restX: number, dest: number, side: -1 | 1) => {
+      const inner = map.mapX(faceCenterX + side * HH) - faceCenterX;
+      const u = (Math.abs(restX - faceCenterX) - HH) / (turn.holdBase - HH);
+      return inner + (side * dest - inner) * u;
+    };
+    // The far strand ramps onto the grid's own reach less the clearance — the
+    // capped destination — which is what keeps the shortfall an honest,
+    // reported one instead of a silent clamp (see achieved.silhouetteRatio).
+    expect(landing(farV)).toBeCloseTo(
+      rampLanding(vertexXs[farV], farReach - HOLD_CLEARANCE, -1),
+      6,
+    );
+    // Uncapped it would have gone further out: the cap is what moved it.
+    expect(Math.abs(landing(farV))).toBeLessThan(
+      Math.abs(rampLanding(vertexXs[farV], turn.holdEdgeAt(-30), -1)),
+    );
+    // The near side is not capped at all: its ramp ends on the full requested
+    // hold, which at the default ratio is the boundary's own rest distance.
+    expect(turn.holdEdgeAt(-30)).toBe(400);
+    expect(landing(nearV)).toBeCloseTo(
+      rampLanding(vertexXs[nearV], turn.holdEdgeAt(-30), 1),
+      6,
+    );
   });
 
   it("a CALLER-measured silhouette the grid cannot reach at any radius is refused, naming the attainable ratio", () => {
@@ -4185,19 +4338,37 @@ describe("turn targets", () => {
     // The UPPER bound is the widest ratio ANY swept radius could have carried
     // on both sides without capping (min over sides of reach / holdBase); the
     // LOWER is the narrowest any radius could have held from its own
-    // plate-fold geometry — BOTH computed for every radius regardless of
-    // which one actually blocked it, so a request this far above the upper
-    // bound advertises the identical interval a request far below the lower
-    // bound would.
-    expect(Number(upper)).toBeGreaterThan(0.85);
-    expect(Number(upper)).toBeLessThan(0.95);
+    // plate-fold geometry — both computed for every radius regardless of
+    // which of the two gates actually blocked it, so a refusal never
+    // advertises a range the other gate would have narrowed.
+    // Re-derived off this refusal on withNose() + headHalfWidth 400: the
+    // slide carries the grid's reach along, so the upper bound sits higher
+    // than it did before (≈0.968, against ≈0.9 when the grid stayed put);
+    // the floor this one names is ≈0.659 (the 0.5 refusal below names its
+    // own, ≈0.676 — see there for why they differ at all).
+    expect(Number(upper)).toBeGreaterThan(0.95);
+    expect(Number(upper)).toBeLessThan(0.98);
     expect(Number(lower)).toBeGreaterThan(0.6);
     expect(Number(lower)).toBeLessThan(0.7);
     const narrowMessage = messageAt(0.5);
     expect(narrowMessage).toMatch(
       /turnTargets\.silhouetteRatio 0\.5 is unreachable/,
     );
-    expect(narrowMessage).toContain(`attainable ${lower}…${upper}`);
+    const [, narrowLower, narrowUpper] = /attainable ([\d.]+)…([\d.]+)/.exec(
+      narrowMessage,
+    )!;
+    // The two refusals no longer name the IDENTICAL interval, as they did
+    // when the grid stayed put: the ratio sizes the head's own slide now
+    // (`shellTravelCap` reads the hold edge), so a request far below the
+    // floor reaches each radius with a smaller slide and different geometry.
+    // The floor barely moves (0.659 → 0.676) under a markedly lower ceiling
+    // (≈0.888 against ≈0.968) — a narrower ask buys a smaller slide, which
+    // costs the deformed grid the reach the wide ceiling was read off. What
+    // both still promise is that what they advertise rigs.
+    expect(Number(narrowLower)).toBeGreaterThan(Number(lower));
+    expect(Number(narrowUpper)).toBeLessThan(Number(upper));
+    expect(messageAt(Number(narrowLower))).toBe("");
+    expect(messageAt(Number(upper))).toBe("");
   });
 
   it("a measured head wider than the grid's own REST reach still holds the rest pose exactly", () => {
@@ -4219,7 +4390,7 @@ describe("turn targets", () => {
 
     // The turned stops ARE capped, as designed — the fixture's grid genuinely
     // cannot carry a 500px hold at full turn.
-    const grid = model.deformers!.find((d) => d.id === "faceWarp")!.grid;
+    const grid = faceWarpOf(model).grid;
     const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
     const turn = solveTurnModel(
       resolveTurnTargets(targets),
@@ -4242,10 +4413,10 @@ describe("turn targets", () => {
     // overshoot once the silhouette centre moves.
     const layers = withNose();
     const targets = { headHalfWidth: 350, eyeShift: 0.18 };
-    const model = generateIkiFromLayerSet(layers, canvas, {
+    const { model, radius } = solvedRig(layers, canvas, {
       turnTargets: targets,
     });
-    const grid = model.deformers!.find((d) => d.id === "faceWarp")!.grid;
+    const grid = faceWarpOf(model).grid;
     const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
     const turn = solveTurnModel(
       resolveTurnTargets(targets),
@@ -4265,7 +4436,8 @@ describe("turn targets", () => {
     // by reproducing evaluateTurnCandidate's own formula: `cuesOf`'s eyeShift
     // is the negation of `achieved.eyeShift`'s own sign convention (see its
     // own doc), so flipping it back is the re-derivation.
-    const rederivedCue = -cuesOf(model, layers, targets.headHalfWidth).eyeShift;
+    const rederivedCue = -cuesOf(model, layers, targets.headHalfWidth, radius)
+      .eyeShift;
 
     within1Percent(rederivedCue, targets.eyeShift);
     within1Percent(turn.achieved.eyeShift, targets.eyeShift);
@@ -4280,7 +4452,7 @@ describe("turn targets", () => {
     const model = generateIkiFromLayerSet(layers, canvas, {
       turnTargets: targets,
     });
-    const grid = model.deformers!.find((d) => d.id === "faceWarp")!.grid;
+    const grid = faceWarpOf(model).grid;
     const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
     const turn = solveTurnModel(
       resolveTurnTargets(targets),
@@ -4292,7 +4464,7 @@ describe("turn targets", () => {
     );
     if (turn.unreachable) throw new Error("expected a reachable turn");
     expect(turn.clamped).not.toContain("noseShift");
-    const map = turnColumnMap(grid, faceCenterX, turn.radius, -30);
+    const map = turnColumnMap(grid, faceCenterX, turn.radius, -30, turn.travel);
     const silhouetteCenterShift = silhouetteCenterShiftOf(
       model,
       layers,
@@ -4325,8 +4497,8 @@ describe("turn targets", () => {
     // evaluateTurnCandidate's `restAt`), which this fixture's bangs do NOT
     // coincide with the way the measured-head fixture above does.
     const layers = withNose();
-    const model = generateIkiFromLayerSet(layers, canvas);
-    const grid = model.deformers!.find((d) => d.id === "faceWarp")!.grid;
+    const { model, radius } = solvedRig(layers, canvas);
+    const grid = faceWarpOf(model).grid;
     const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
     const turn = solveTurnModel(
       resolveTurnTargets({}),
@@ -4337,7 +4509,7 @@ describe("turn targets", () => {
       hairFrontOf(layers),
     );
     if (turn.unreachable) throw new Error("expected a reachable turn");
-    const rederivedCue = -cuesOf(model, layers, HH).eyeShift;
+    const rederivedCue = -cuesOf(model, layers, HH, radius).eyeShift;
     within1Percent(rederivedCue, turn.achieved.eyeShift);
   });
 
@@ -4358,35 +4530,24 @@ describe("turn targets", () => {
       turnTargets: targets,
       headEdges,
     });
-    const grid = model.deformers!.find((d) => d.id === "faceWarp")!.grid;
+    const grid = faceWarpOf(model).grid;
     const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
     const turn = solveFor(layers, targets, headEdges);
     if (turn.unreachable) throw new Error("expected a reachable turn");
     expect(turn.clamped).not.toContain("eyeShift");
-    const map = turnColumnMap(grid, faceCenterX, turn.radius, -30);
+    const map = turnColumnMap(grid, faceCenterX, turn.radius, -30, turn.travel);
 
-    // hair_back's own eye-row silhouette vertex, through ITS real shipped
-    // AngleX translateX binding + bakeHairBackTurnWarp's per-vertex warp — no
-    // grid map at all, since it rides headDeformer, not faceWarp.
+    // hair_back's own eye-row silhouette vertices land where they sit: it
+    // rides headDeformer, which no longer translates on the turn, and carries
+    // neither an AngleX binding nor an AngleX warp of its own. So the
+    // silhouette centre this fixture is measured against does not move at
+    // all, however far the face slides inside it.
     const back = model.parts.find((p) => p.id === "hair_back")!;
-    const partX = back.transform!.x;
-    const localXs = Array.from(
-      { length: back.mesh!.vertices.length / 2 },
-      (_, v) => back.mesh!.vertices[v * 2],
-    );
-    const angleXWarp = (back.warps ?? []).find(
-      (w) => w.parameter === StandardParameter.AngleX,
-    )!;
-    const warpOffsetAt = (v: number) =>
-      angleXWarp.keyforms.find((k) => k.value === -30)!.offsets[v * 2];
-    const translateX = slideAt30(model, "hair_back");
-    const farV = localXs.indexOf(Math.min(...localXs));
-    const nearV = localXs.indexOf(Math.max(...localXs));
-    const restOf = (v: number) => partX + localXs[v];
-    const landingOf = (v: number) => restOf(v) + translateX + warpOffsetAt(v);
-    const centreDelta =
-      (landingOf(farV) + landingOf(nearV)) / 2 -
-      (restOf(farV) + restOf(nearV)) / 2;
+    expect(slideAt30(model, "hair_back")).toBe(0);
+    expect(
+      (back.warps ?? []).some((w) => w.parameter === StandardParameter.AngleX),
+    ).toBe(false);
+    const centreDelta = 0;
 
     // The eye landmarks' rest x + shipped translateX at −30, mapped through
     // turnColumnMap — they DO ride the face grid.
@@ -4421,34 +4582,28 @@ describe("turn targets", () => {
       turnTargets: targets,
       headEdges,
     });
-    const grid = model.deformers!.find((d) => d.id === "faceWarp")!.grid;
+    const grid = faceWarpOf(model).grid;
     const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
     const turn = solveFor(layers, targets, headEdges);
     if (turn.unreachable) throw new Error("expected a reachable turn");
-    const map = turnColumnMap(grid, faceCenterX, turn.radius, -30);
+    const map = turnColumnMap(grid, faceCenterX, turn.radius, -30, turn.travel);
 
-    // hair_back's own real landing at both its own crop edges.
+    // hair_back holds the head's outline, so both its crop edges land where
+    // they sit and the UNION's own centre — which is what
+    // measure_turn_reference reads the eye pair against, and which sits 40px
+    // off the face centre here — does not move.
     const backPart = model.parts.find((p) => p.id === "hair_back")!;
-    const partX = backPart.transform!.x;
-    const localXs = Array.from(
-      { length: backPart.mesh!.vertices.length / 2 },
-      (_, v) => backPart.mesh!.vertices[v * 2],
-    );
-    const angleXWarp = (backPart.warps ?? []).find(
-      (w) => w.parameter === StandardParameter.AngleX,
-    )!;
-    const warpOffsetAt = (v: number) =>
-      angleXWarp.keyforms.find((k) => k.value === -30)!.offsets[v * 2];
-    const translateX = slideAt30(model, "hair_back");
-    const farV = localXs.indexOf(Math.min(...localXs));
-    const nearV = localXs.indexOf(Math.max(...localXs));
-    const restOf = (v: number) => partX + localXs[v];
-    const landingOf = (v: number) => restOf(v) + translateX + warpOffsetAt(v);
-    // The UNION's own centre, at rest and turned — not the face centre — is
-    // what measure_turn_reference reads the eye pair against.
-    const centreDelta =
-      (landingOf(farV) + landingOf(nearV)) / 2 -
-      (restOf(farV) + restOf(nearV)) / 2;
+    expect(slideAt30(model, "hair_back")).toBe(0);
+    expect(
+      (backPart.warps ?? []).some(
+        (w) => w.parameter === StandardParameter.AngleX,
+      ),
+    ).toBe(false);
+    const centreDelta = 0;
+    // A solve that read `restAt` off an assumed faceCenterX-centred head
+    // instead of these edges would drift the centre by the crop's own 40px
+    // offset, and the cue below would miss by 0.1 of the head half-width.
+    expect(backPart.transform!.x).toBeCloseTo(faceCenterX - 40, 9);
 
     const pairOf = (role: string) => {
       const x = model.parts.find((p) => p.id === role)!.transform.x;
@@ -4533,34 +4688,28 @@ describe("turn targets", () => {
       right,
     });
     if (withFace.unreachable) throw new Error("expected a reachable turn");
-    const map = turnColumnMap(grid, faceCenterX, withFace.radius, -30);
+    const map = turnColumnMap(
+      grid,
+      faceCenterX,
+      withFace.radius,
+      -30,
+      withFace.travel,
+    );
     // face has no depth parallax of its own (see roleOwnBindings): its
     // landing is exactly map.mapX(x), no translate on top — and mapX actually
     // moves this point, or the check below would pass for "rigid" too.
     const landingFace = map.mapX(faceX);
     expect(landingFace).not.toBe(faceX);
 
-    // hair_back's own real landing on the right, read off the shipped model —
-    // same recipe as "a back-hair fixture..." above.
+    // The right-hand edge is hair_back's, which holds: it lands on its own
+    // rest x — same recipe as "a back-hair fixture..." above.
     const model = generateIkiFromLayerSet(layers, canvas, {
       turnTargets: targets,
       headEdges: { left: [{ role: "face", x: faceX }], right },
     });
-    const back = model.parts.find((p) => p.id === "hair_back")!;
-    const partX = back.transform!.x;
-    const localXs = Array.from(
-      { length: back.mesh!.vertices.length / 2 },
-      (_, v) => back.mesh!.vertices[v * 2],
-    );
-    const angleXWarp = (back.warps ?? []).find(
-      (w) => w.parameter === StandardParameter.AngleX,
-    )!;
-    const nearV = localXs.indexOf(Math.max(...localXs));
-    const restNear = partX + localXs[nearV];
-    const landingNear =
-      restNear +
-      slideAt30(model, "hair_back") +
-      angleXWarp.keyforms.find((k) => k.value === -30)!.offsets[nearV * 2];
+    const restNear = right[0].x;
+    expect(slideAt30(model, "hair_back")).toBe(0);
+    const landingNear = restNear;
 
     const centreDelta =
       (landingFace + landingNear) / 2 - (faceX + restNear) / 2;
@@ -4625,8 +4774,9 @@ describe("turn targets", () => {
     // Both reach the SAME requested eyeShift exactly (that is what "reached"
     // means), so it cannot tell the two paths apart — the depth the eyes
     // needed to GET there can, since it is solved against a silhouette-centre
-    // correction that differs: body's own constant head-frame offset against
-    // hair_back's per-vertex bend/bulge, at the same candidate rest x.
+    // correction that differs: the body carries its own share of the head's
+    // travel (BODY_TURN_FOLLOW), while a hair_back edge at the same rest x
+    // does not move at all.
     expect(withBody.depths.eye).not.toBeCloseTo(withHairBack.depths.eye, 6);
   });
 
@@ -4641,18 +4791,7 @@ describe("turn targets", () => {
     ).toThrow(/auto-rig:.*unrecognised role "accessory_hat"/);
   });
 
-  it("solveTurnModel: a headEdges candidate naming hair_back on a layer set without one throws a specific error", () => {
-    const layers = withNose().filter((l) => l.role !== "hair_back");
-    const targets = { headHalfWidth: 400, eyeShift: 0.3 };
-    expect(() =>
-      solveFor(layers, targets, {
-        left: [{ role: "hair_back", x: -450 }],
-        right: [{ role: "face", x: 400 }],
-      }),
-    ).toThrow(/auto-rig:.*hair_back.*no hair_back layer/);
-  });
-
-  it("a silhouette this layer set cannot hold names the narrowest one it can", () => {
+  it("a silhouette this layer set cannot hold names ratios it CAN hold — a safe floor, not the narrowest", () => {
     const complaintAt = (silhouetteRatio: number) => {
       try {
         generateIkiFromLayerSet(withNose(), canvas, {
@@ -4669,13 +4808,22 @@ describe("turn targets", () => {
     );
     // A silhouette narrower than the plate's own reach through the turn would
     // run the ramp onto the strands backwards, whatever the radius.
-    const min = Number(/attainable ([\d.]+)/.exec(tooNarrow)![1]);
+    const [, lower, upper] = /attainable ([\d.]+)…([\d.]+)/.exec(tooNarrow)!;
+    const [min, max] = [Number(lower), Number(upper)];
     expect(min).toBeGreaterThan(0.6);
-    expect(min).toBeLessThan(1);
-    // It is the threshold of THIS gate: below it the hold is the complaint,
-    // above it the hold is no longer what the layer set cannot do.
-    expect(complaintAt(min * 0.99)).toMatch(/silhouetteRatio/);
-    expect(complaintAt(min * 1.01)).not.toMatch(/silhouetteRatio/);
+    expect(max).toBeLessThan(1);
+    // The bound this names is SAFE, not TIGHT — the ratio sizes the head's
+    // slide as well now (`shellTravelCap`), so a narrower request arrives
+    // with a smaller slide that pulls the plate's own reach in with it, and
+    // some ratios below the advertised floor still hold (on this fixture the
+    // true edge sits between 0.65 and 0.66, under the ≈0.676 it names). What
+    // the refusal promises is that everything it offers rigs...
+    expect(complaintAt(min)).toBe("");
+    expect(complaintAt((min + max) / 2)).toBe("");
+    expect(complaintAt(max)).toBe("");
+    // ...and that what it refused stays refused: the floor never over-states
+    // what the layer set can do, only under-states it.
+    expect(complaintAt(0.6)).toMatch(/silhouetteRatio/);
   });
 
   // ── bad targets ───────────────────────────────────────────────────────────
@@ -4740,26 +4888,41 @@ describe("turn targets", () => {
     const reports: TurnSolveReport[] = [];
     const onTurnSolved = (r: TurnSolveReport) => reports.push(r);
 
-    generateIkiFromLayerSet(withNose(), canvas, { onTurnSolved });
+    const rig = generateIkiFromLayerSet(withNose(), canvas, { onTurnSolved });
     expect(reports).toHaveLength(1);
-    // The eye cues are not cut down; the default silhouette is — see
-    // "clamps only the silhouette it could not fully hold" above.
-    expect(reports[0].clamped).toEqual(["silhouetteRatio"]);
+    // This layer set reaches every default — see "this layer set needs no
+    // clamp at all" above.
+    expect(reports[0].clamped).toEqual([]);
     within1Percent(
       reports[0].achieved.farEyeRatio,
       DEFAULT_TURN_TARGETS.farEyeRatio,
     );
-    expect(reports[0].radius).toBeCloseTo(
-      solvedRadiusOf(generateIkiFromLayerSet(withNose(), canvas)),
-      6,
+    // The report is about the rig that was built: its radius, fed back
+    // through the map with the travel the shipped grid carries, reproduces
+    // that grid's own −30° columns.
+    const grid = faceWarpOf(rig).grid;
+    const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
+    const map = turnColumnMap(
+      grid,
+      faceCenterX,
+      reports[0].radius,
+      -30,
+      travelOf(rig),
     );
+    const baked = cell(faceWarpOf(rig).warp2d, -30, 0);
+    for (let col = 0; col <= grid.cols; col++) {
+      expect(map.warpedX[col]).toBeCloseTo(
+        grid.points[col * 2] + baked.offsets[col * 2],
+        9,
+      );
+    }
     expect(reports[0].depths.eye).toBeGreaterThan(0);
     expect(reports[0].holdBase).toBeGreaterThan(HH);
 
     // A layer set the defaults have to be cut down for says which field.
     generateIkiFromLayerSet(edgeEyes(), canvas, { onTurnSolved });
     expect(reports).toHaveLength(2);
-    expect(reports[1].clamped).toEqual(["eyeShift", "silhouetteRatio"]);
+    expect(reports[1].clamped).toEqual(["eyeShift"]);
     expect(reports[1].achieved.eyeShift).toBeLessThan(
       DEFAULT_TURN_TARGETS.eyeShift,
     );
