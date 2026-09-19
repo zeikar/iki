@@ -479,11 +479,14 @@ const HEAD_TURN_STOPS = [-30, -15, 0, 15, 30] as const;
  * radius in front of the rotation axis — the unit of depth parallax.
  *
  * This is exactly the bulk `axisShift` the cylinder bake subtracts back out of
- * the face warp. Pinning it there was right: applied to the face it shoved the
- * head off the shoulders. But it is also the whole depth cue, so layers that
- * do NOT sit on the cylinder's axis have to get their own share of it back,
- * scaled by how far in front of (or behind) the axis they sit — the bangs
- * (HAIR_FRONT_DEPTH) and the features on the face (the solved TurnDepths).
+ * the face warp. Pinning it there was right: applied to the face IN FULL it
+ * shoved the head off the shoulders. But it is also the whole depth cue, so
+ * layers that do NOT sit on the cylinder's axis have to get their own share of
+ * it back, scaled by how far in front of (or behind) the axis they sit — the
+ * bangs (HAIR_FRONT_DEPTH) and the features on the face (the solved
+ * TurnDepths). The head's own travel is not one of those shares: it rides the
+ * same bake as a separate uniform slide over every column (`turnSlide`), sized
+ * by what the held shell has room for rather than by a depth.
  * `headNodParallaxUnit` is the same quantity on the nod axis.
  *
  * Takes the cylinder radius the face warp was baked with, so the two cannot
@@ -650,7 +653,9 @@ function turnSlide(travel: number, angleX: number): number {
  * features travel inside a silhouette the bangs hold still
  * (`bakeHairFrontSilhouetteWarp`), which is what a turned head actually does.
  * Being uniform it bends nothing — the AngleX = 0 cells stay all-zero and dy
- * never sees it.
+ * never sees it — and being linear in AngleX it is the one part of this bake
+ * the engine's parameter-linear blend reproduces EXACTLY between the stops:
+ * the chord error the HEAD_TURN_STOPS spacing bounds is all the bend's.
  *
  * Layout is the format's row-major `k(i, j) = j * valuesX.length + i`.
  */
@@ -1134,9 +1139,13 @@ export function solveTurnDepth(
  *     engine would clamp it onto the edge column.
  *
  * Both ends of the interval matter, not just the far one: at `d = 0` a landmark
- * already drifts, because the turn's bend moves the near side out further than
- * it moves the far side in, so a target SMALLER than that drift has no
- * non-negative depth either. Neither end is an error here — the solution is
+ * already drifts, because the map carries the face's own sideways slide as well
+ * as the bend, and the slide is much the larger of the two — on the assembly
+ * fixture at −30° the two together drift the eye pair ≈64 px toward the far
+ * side, whereas the bend alone would have moved it ≈11 px toward the near one.
+ * That drift therefore runs toward the FAR side, and IS the floor under every
+ * shift cue: a target asking for LESS far-side shift than that drift does has
+ * no non-negative depth either. Neither end is an error here — the solution is
  * reported with `reached: false` and the bound it stopped at, and whether that
  * is a clamp or a failure is the caller's call (see solveTurnModel).
  *
@@ -1691,8 +1700,7 @@ function evaluateTurnCandidate(
   // role, not just the bangs. `face` and the FEATURE_NOD_DEPTH family (the
   // eye stack, lashes, brows, blush, the nose, both mouths) ride `faceWarp`,
   // so their own path is `map.mapX` — WITHOUT that family's own depth
-  // parallax (29/32/26 px on the hero for eye/nose/mouth, not negligible on
-  // its own), which is not solved yet at this point in the sweep (the eye's
+  // parallax, which is not solved yet at this point in the sweep (the eye's
   // own signed solve just below needs `silhouetteCenterShift`, computed from
   // this, and nose/mouth's are not solved until `solveFeatureDepths`, after a
   // radius is even chosen). The omission is harmless not because the
@@ -2103,11 +2111,12 @@ export function solveTurnModel(
   if (pass.candidates.length === 0) {
     // Either gate can empty the sweep, and only a MEASURED target can: the
     // shift, because a defaulted one is clamped per radius rather than gated,
-    // and the silhouette, because a defaulted ratio of 1 always holds — the
-    // flattest radius in the sweep bends the plate's edge inward at every
-    // turned stop, leaving the rest stop's reach (the plate's own half-width)
-    // as the largest, and every hold base clears that. So both values below
-    // are the caller's own, never a clamped stand-in.
+    // and the silhouette, because a defaulted ratio of 1 leaves the hold edge
+    // at its own rest distance — without a measured head that distance is the
+    // plate's own scanned reach plus a pixel (`plateReach`), which clears every
+    // stop by construction, and with one it is the head the slide is capped to
+    // stay inside (`shellTravelCap`). So both values below are the caller's
+    // own, never a clamped stand-in.
     return pass.offeredShift
       ? {
           unreachable: true,
@@ -2616,11 +2625,18 @@ export function bakeEyelidFoldWarp(
  * turn, either side — the floor under any hold edge.
  *
  * It scans both sides at EVERY stop instead of taking the rest half-width or
- * the full-turn one, because the bend is pinned against the cylinder's bulk
- * slide and at the MID stops the near edge wins that race: it lands further out
- * than it sits at rest (207 against 201 on the hero, 315 against 300 on the
- * assembly fixture). A hold edge inside that reach would make the ramp between
- * the two run backwards.
+ * the full-turn one, because the plate slides as well as bends, and the two
+ * pull against each other on the edge the slide pushes out while the bend
+ * foreshortens it in — the FAR one, whichever physical side that is at this
+ * turn's sign, which is why the scan takes both. The slide's push is linear in
+ * the angle and the same at any radius; the bend's pull is the cylinder's own,
+ * so it shrinks as the radius flattens and gains on the slide as the angle
+ * grows. Which stop reaches furthest therefore moves with the radius: on the
+ * assembly fixture, whose plate is 300 px half-wide, the bend leads from the
+ * first stop at a radius of 1.2 half-widths (REST wins, 300 px), the slide
+ * leads until the bend catches it at 4 (a MID stop, 317 px), and is never
+ * caught at 8 (FULL turn, 325 px). A hold edge inside that reach would make
+ * the ramp between the two run backwards.
  */
 export function plateReach(
   faceCenterX: number,
@@ -2663,18 +2679,19 @@ export function plateReachAt(
  * The head's OUTLINE, held through the turn by the part that draws it — the
  * bangs — as a per-vertex AngleX warp on hair_front, keyed on HEAD_TURN_STOPS.
  *
- * The face warp bends everything riding its grid, so the side strands, which
- * are where a viewer reads the head's width, squeeze in with the plate and the
- * head narrows instead of turning. Ramping the bend out at the GRID level
- * cannot separate them: at FACE_GRID_CELLS columns the cell that carries a
- * strand also carries the outer eye, so un-bending one un-bends the other.
+ * The face warp bends AND slides everything riding its grid, so the side
+ * strands, which are where a viewer reads the head's width, squeeze in with the
+ * plate and travel off with it: the head narrows and shifts instead of turning.
+ * Ramping that out at the GRID level cannot separate them: at FACE_GRID_CELLS
+ * columns the cell that carries a strand also carries the outer eye, so
+ * un-bending one un-bends the other.
  *
- * hair_front therefore cancels the bend on itself. Part warps displace the mesh
- * vertices BEFORE those vertices bind to the rest grid, so this is an INVERSE:
- * for the position `target` a vertex should end up at, it displaces the vertex
- * to `invertX(target)`, which the grid's own map then sends back to `target`.
- * In ABSOLUTE model x (`partX + vx`) throughout, because that map is the
- * grid's, not the part's.
+ * hair_front therefore cancels the map — bend and slide both — on itself. Part
+ * warps displace the mesh vertices BEFORE those vertices bind to the rest grid,
+ * so this is an INVERSE: for the position `target` a vertex should end up at,
+ * it displaces the vertex to `invertX(target)`, which the grid's own map then
+ * sends back to `target`. In ABSOLUTE model x (`partX + vx`) throughout,
+ * because that map is the grid's, not the part's.
  *
  * `target` is a MONOTONE three-zone function of the vertex's REST distance from
  * the face centre, so the warp can never fold a hair cell:
@@ -2728,8 +2745,8 @@ export function bakeHairFrontSilhouetteWarp(
       map.mapX(faceCenterX + side * faceHalfWidth),
     );
     // A hold edge inside the plate's mapped edge would run the ramp between
-    // them backwards and fold the strands onto the cheek. The MID stops are the
-    // ones that catch it — see plateReach.
+    // them backwards and fold the strands onto the cheek. Which stop catches it
+    // moves with the radius — see plateReach.
     const reached = plateReachAt(map, faceCenterX, faceHalfWidth);
     if (requestedHoldEdge <= reached) {
       const side =
@@ -2777,7 +2794,8 @@ export function bakeHairFrontSilhouetteWarp(
         holdEdge,
         map,
       );
-      // dy is zero — the silhouette hold is horizontal, like the bend it cancels.
+      // dy is zero — the hold is horizontal, like the map (bend and slide) it
+      // cancels.
       offsets.push(map.invertX(target) - x, 0);
     }
     return { value: deg, offsets };

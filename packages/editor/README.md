@@ -60,18 +60,24 @@ leaves the document untouched.
 torso that follows and breathes, and emotes with its brows — including a
 hair-sway physics rig when a `hair_front` layer is present.
 
-The head turn is **fitted, not tuned**: on a layer set with a `nose`, the
-cylinder's radius and each feature's depth are solved from
+On the turn the head's outline holds still — the bangs that draw it pin their
+own silhouette — while everything inside it slides: the face plate, its
+features, and the bangs' own inner strands. That slide is the plate's own ask, a
+quarter of its half-width, capped to what the held outline has room for when
+`turnTargets.headHalfWidth` was measured and uncut when it was not. That turn is
+**fitted, not tuned**: on a layer set with a `nose`, the cylinder's radius and
+each feature's own depth on top of that slide are solved from
 `options.turnTargets` — the cues a 30° reference measures (how far the eye pair
 slides, how much the far eye foreshortens, whether the silhouette holds),
-defaulting to `DEFAULT_TURN_TARGETS`. The slide is bounded by the art: every
-feature has to stay on the face plate, because past its contour the far eye is
-drawn over the side hair, which bends with the plate and swallows it. A target
-you passed that this layer set cannot reach **throws**, naming the field and the
-range it could have had; a target that came from the defaults is a style prior,
-not a measurement of this character, so it is **clamped** to what the layer set
-can do and the rig is built. Pass `options.onTurnSolved` to see what the turn
-settled on and which targets were clamped.
+defaulting to `DEFAULT_TURN_TARGETS`. The features' slide is bounded by the art:
+every feature has to stay on the face plate, because past its contour the far
+eye is drawn over the side hair, which still bends with the plate inside that
+held outline and swallows it. A target you passed that this layer set cannot
+reach **throws**, naming the field and the range it could have had; a target
+that came from the defaults is a style prior, not a measurement of this
+character, so it is **clamped** to what the layer set can do and the rig is
+built. Pass `options.onTurnSolved` to see what the turn settled on and which
+targets were clamped.
 
 `turnTargets.headHalfWidth` is what the shift targets are fractions of, when a
 caller has measured the actual head (the face plate stands in otherwise).
