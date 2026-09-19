@@ -1181,6 +1181,174 @@ describe("head turn slide", () => {
       9,
     );
   });
+
+  /** Mirror of auto-rig's private HOLD_CLEARANCE: how far past the plate's own
+   *  landing the held silhouette edge has to sit. */
+  const HOLD_CLEARANCE = 1;
+
+  /** The travel-free landings of the face plate's two edges at one turn stop,
+   *  as distances from the face centre — signed, the way the cap reads them:
+   *  the same two numbers `plateReach` reduces to one absolute maximum. */
+  const plateLandings = (
+    grid: { cols: number; rows: number; points: number[] },
+    faceCenterX: number,
+    faceHalfWidth: number,
+    radius: number,
+    deg: number,
+  ): [number, number] => {
+    const map = turnColumnMap(grid, faceCenterX, radius, deg, 0);
+    return [-1, 1].map(
+      (side) => map.mapX(faceCenterX + side * faceHalfWidth) - faceCenterX,
+    ) as [number, number];
+  };
+
+  /** The travel a shell `holdEdge` px from the face centre can swallow at one
+   *  stop, expressed at FULL turn — auto-rig's own private `shellTravelCap`,
+   *  re-derived here. The slide runs with the turn's own sign, so the edge it
+   *  pushes further out is the one whose landing shares that sign. */
+  const shellCapAt = (
+    grid: { cols: number; rows: number; points: number[] },
+    faceCenterX: number,
+    faceHalfWidth: number,
+    radius: number,
+    holdEdge: number,
+    deg: number,
+  ): number => {
+    const toward = Math.max(
+      ...plateLandings(grid, faceCenterX, faceHalfWidth, radius, deg).map(
+        (l) => Math.sign(deg) * l,
+      ),
+    );
+    return (
+      (Math.max(0, holdEdge - HOLD_CLEARANCE - toward) * 30) / Math.abs(deg)
+    );
+  };
+
+  it("the worked case behind the held shell's cap: signed edge landings, not their max absolute", () => {
+    // A 300 px half-plate on a 6-cell grid reaching ±434, bent on a 360 px
+    // radius inside a shell 305 px out — a bend tight enough that the NEAR
+    // edge is thrown well past that shell before any slide happens.
+    const grid = {
+      cols: 6,
+      rows: 6,
+      points: generateGridPoints(6, 6, -434, 434, -300, 300),
+    };
+    const faceHalfWidth = 300;
+    const radius = 360;
+    const shell = 305;
+    const cap = (deg: number) =>
+      shellCapAt(grid, 0, faceHalfWidth, radius, shell, deg);
+
+    // Far edge pulled in, near edge thrown out, at both turned stops.
+    const [far30, near30] = plateLandings(grid, 0, faceHalfWidth, radius, -30);
+    const [far15, near15] = plateLandings(grid, 0, faceHalfWidth, radius, -15);
+    expect(far30).toBeCloseTo(-187.7, 1);
+    expect(near30).toBeCloseTo(334.6, 1);
+    expect(far15).toBeCloseTo(-252.1, 1);
+    expect(near15).toBeCloseTo(328.1, 1);
+
+    // A −30° slide pushes the FAR edge out and pulls the near one in, so the
+    // far edge's own 187.7 px is what the shell has to swallow on top of.
+    expect(cap(-30)).toBeCloseTo(116.3, 1);
+    expect(cap(30)).toBeCloseTo(cap(-30), 9);
+    // The mid stop gets half the travel, so its own 51.9 px of room buys twice
+    // that at full turn — and it is the tighter of the two.
+    expect(cap(-15)).toBeCloseTo(103.8, 1);
+    expect(cap(15)).toBeCloseTo(cap(-15), 9);
+
+    // So this plate's own ask — a quarter of its half-width — stands whole.
+    const ask = HEAD_TURN_TRAVEL_RATIO * faceHalfWidth;
+    expect(ask).toBe(75);
+    expect(Math.min(cap(-30), cap(-15))).toBeGreaterThan(ask);
+    // Read as a max-ABSOLUTE reach instead, the near edge the bend throws wide
+    // — already outside the shell, and exactly what the slide pulls back in —
+    // would floor the cap at 0 and refuse the radius the slide was rescuing.
+    expect(
+      shell - HOLD_CLEARANCE - Math.max(Math.abs(far30), near30),
+    ).toBeLessThan(0);
+  });
+
+  /** The bangs of `hairFrontLayers()` draw a head 350 px half-wide; measured
+   *  at 310 instead, the plate has 10 px of shell to slide inside. The flatter
+   *  turn (0.9 against the default 0.67) is what makes the cap bite: it bends
+   *  the plate's own edge in less, leaving less of the shell over for the
+   *  slide. */
+  const SHELL_TARGETS = { headHalfWidth: 310, farEyeRatio: 0.9 };
+
+  /** That rig and the geometry a render reads it through: the grid the face
+   *  bake rides, the turn radius behind its own parallax unit, and the slide
+   *  its centre column carries at full turn. */
+  const shellRig = () => {
+    const model = generateIkiFromLayerSet(
+      [...hairFrontLayers(), noseLayer()],
+      canvas1000,
+      { turnTargets: SHELL_TARGETS },
+    );
+    return {
+      model,
+      faceCenterX: model.parts.find((p) => p.id === "face")!.transform!.x,
+      faceHalfWidth:
+        hairFrontLayers().find((l) => l.role === "face")!.cropW / 2,
+      grid: (
+        model.deformers!.find((d) => d.id === "faceWarp") as {
+          grid: { cols: number; rows: number; points: number[] };
+        }
+      ).grid,
+      radius: solvedRadiusOf(model),
+      travel: centreSlideOf(model, 30),
+    };
+  };
+
+  it("a head barely wider than its plate still rigs, and slides only as far as that shell swallows", () => {
+    const { model, faceCenterX, faceHalfWidth, grid, radius } = shellRig();
+    const ask = HEAD_TURN_TRAVEL_RATIO * faceHalfWidth;
+    const slide = centreSlideOf(model, -30);
+    // It still slides: a shell only 10 px wider than the plate is not a head
+    // with no turn travel at all.
+    expect(slide).toBeLessThan(0);
+    expect(Math.abs(slide)).toBeLessThan(ask);
+    // And what is left is exactly what the shell had room for: the ask, cut at
+    // the tightest stop by the plate's own travel-free landing on the side the
+    // slide pushes out.
+    const cap = Math.min(
+      ...[-30, -15, 15, 30].map((deg) =>
+        shellCapAt(
+          grid,
+          faceCenterX,
+          faceHalfWidth,
+          radius,
+          SHELL_TARGETS.headHalfWidth,
+          deg,
+        ),
+      ),
+    );
+    expect(cap).toBeLessThan(ask);
+    expect(Math.abs(slide)).toBeCloseTo(cap, 6);
+  });
+
+  it("that rig's plate edges stay inside the held shell at every stop", () => {
+    // `travel` is the rig's OWN slide, read back off the grid it ships.
+    const { faceCenterX, faceHalfWidth, grid, radius, travel } = shellRig();
+    // silhouetteRatio defaults to 1, so the hold's boundary is that measured
+    // head at every stop — the plate has to land inside it, clearance and all,
+    // or the ramp from the plate's edge onto the strands runs backwards.
+    const shellLine = SHELL_TARGETS.headHalfWidth - HOLD_CLEARANCE;
+    let furthest = 0;
+    for (const deg of [-30, -15, 0, 15, 30]) {
+      const map = turnColumnMap(grid, faceCenterX, radius, deg, travel);
+      for (const side of [-1, 1]) {
+        const landing =
+          map.mapX(faceCenterX + side * faceHalfWidth) - faceCenterX;
+        expect(Math.abs(landing)).toBeLessThanOrEqual(shellLine + 1e-9);
+        furthest = Math.max(furthest, Math.abs(landing));
+      }
+    }
+    // And it lands ON that line at the stop that set the cap (the ±15 pair,
+    // where the bend leaves the least room), which is what says the slide was
+    // cut to the shell's own size and not to something smaller: a travel short
+    // of the cap would leave slack at every stop.
+    expect(furthest).toBeCloseTo(shellLine, 6);
+  });
 });
 
 // ── describe("head tilt (AngleZ)") ───────────────────────────────────────────

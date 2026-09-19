@@ -1215,6 +1215,10 @@ export type TurnModelSolution =
       unreachable: false;
       /** Where the hold's boundary is sent at each stop. */
       holdEdgeAt: (deg: number) => number;
+      /** How far the face slides sideways inside that held boundary at full
+       *  turn, px — what the face bake and the hold's own column map have to
+       *  be built with, rather than the plate's own uncapped ask. */
+      travel: number;
     })
   | {
       unreachable: true;
@@ -1247,6 +1251,11 @@ interface TurnCandidate {
   /** The far/near eye width ratio it produces, at the eye depth below. */
   ratio: number;
   unit: number;
+  /** The sideways travel it carries at full turn, px: `ctx.travel` capped to
+   *  what this radius' own held shell can swallow (`shellTravelCap`). The face
+   *  bake and the bangs' hold have to be built with THIS number — `map`
+   *  already is. */
+  travel: number;
   /** Its column map at the −30° stop, where every cue is measured. */
   map: TurnColumnMap;
   holdBase: number;
@@ -1280,12 +1289,15 @@ interface TurnCandidate {
 type TurnCandidateMiss =
   | {
       blocked: "silhouetteRatio";
-      /** The narrowest ratio the plate-fold geometry could have held here —
-       *  a LOWER bound — and the widest the deformed grid's own reach could
-       *  have carried without capping — an UPPER bound. Computed the same way
-       *  regardless of which of the two actually blocked this radius, so
-       *  every refusal names the same pair a caller could have asked for
-       *  instead. */
+      /** A ratio the plate-fold geometry can hold here — a safe LOWER bound,
+       *  not the narrowest one: with a measured head the ratio sizes the slide
+       *  too (`shellTravelCap`), and a narrower ratio comes with a smaller
+       *  slide that pulls the plate's own reach in with it, so ratios below
+       *  this can still hold. Everything at or above it does. The widest the
+       *  deformed grid's own reach could have carried without capping — an
+       *  UPPER bound — beside it. Both are computed the same way regardless of
+       *  which of the two actually blocked this radius, so every refusal names
+       *  the same pair a caller could have asked for instead. */
       lower: number;
       upper: number;
     }
@@ -1304,6 +1316,11 @@ interface TurnSolveContext {
   faceHalfWidth: number;
   /** Rest x of the plate's far edge — the slide's hard stop. */
   plateEdgeX: number;
+  /** The sideways travel this layer set ASKS the turn for, px at full turn:
+   *  `headTurnTravel` on its own plate. What a candidate actually carries is
+   *  this capped to what its own held shell can swallow — see
+   *  `TurnCandidate.travel`. */
+  travel: number;
   /** The caller's measured head half-width, when it has one. */
   headHalfWidth?: number;
   /** What the shift fractions are fractions of, px. */
@@ -1443,10 +1460,74 @@ function hairFrontLandingAt(
 }
 
 /**
+ * The most sideways travel a MEASURED shell can swallow at this radius: how far
+ * the face may slide before the plate's own edge reaches the hold's boundary.
+ *
+ * Read off the BEND ALONE (`bendOnlyMapAt` — the map at a stop with no travel
+ * in it), the slide being what is solved for here: at each turned stop the
+ * plate's two edges land either side of the face centre — `plateReachAt`'s own
+ * two numbers, kept SIGNED — and the slide then pushes the edge on the side it
+ * moves toward further out while pulling the other one in. So only the TOWARD
+ * edge binds. A max-absolute reach would bind on the near edge instead, which
+ * a tight bend throws wide precisely BEFORE the slide pulls it back inside the
+ * shell, and would refuse the radius the slide was about to rescue.
+ *
+ * Each stop carries |deg|/30 of the travel, so the room one stop has left is
+ * scaled back up by 30/|deg| to say what it allows at FULL turn, and the
+ * tightest stop wins. Floored at 0: a plate already reaching past the shell
+ * cannot be slid any further out.
+ *
+ * `askedTravel` is only read for the slide's SIGN at each stop, which is the
+ * turn's own; the cap it returns is the whole ceiling, for the caller to take
+ * a minimum with.
+ */
+function shellTravelCap(
+  faceCenterX: number,
+  faceHalfWidth: number,
+  askedTravel: number,
+  bendOnlyMapAt: (deg: number) => TurnColumnMap,
+  holdEdgeAt: (deg: number) => number,
+): number {
+  let cap = Infinity;
+  for (const deg of HEAD_TURN_STOPS) {
+    if (deg === 0) continue; // nothing slides at rest, so nothing to cap
+    const map = bendOnlyMapAt(deg);
+    const slideSign = Math.sign(turnSlide(askedTravel, deg));
+    // The further-out of the two edge landings ALONG the slide's own direction:
+    // the toward edge's own distance from the centre, the away edge's negated.
+    // The bend is monotone and pinned on the face centre, so exactly one edge
+    // ever lands on the slide's own side and this max always resolves to it —
+    // it is two-sided to mirror `plateReachAt`'s own shape, not to guard a
+    // case the geometry allows.
+    const towardReach = Math.max(
+      ...[-1, 1].map(
+        (side) =>
+          slideSign *
+          (map.mapX(faceCenterX + side * faceHalfWidth) - faceCenterX),
+      ),
+    );
+    cap = Math.min(
+      cap,
+      (Math.max(0, holdEdgeAt(deg) - HOLD_CLEARANCE - towardReach) *
+        HEAD_TURN_MAX_DEG) /
+        Math.abs(deg),
+    );
+  }
+  return cap;
+}
+
+/**
  * One radius, evaluated against the cues: the candidate it yields, or which
  * target blocked it and what it could have done instead.
  *
- * Two hold gates run here first, mirroring what `bakeHairFrontSilhouetteWarp`
+ * The face's own sideways travel is settled first, this radius' bend deciding
+ * how much of it the held shell has room for (`shellTravelCap`). Both gates
+ * below then read the map that CARRIES that slide, which is the map the rig
+ * ships: a slide that pulls an over-bent near edge back inside the shell
+ * rescues a radius the bend alone would have folded, and a bend that folds on
+ * its own still loses one.
+ *
+ * Two hold gates run here, mirroring what `bakeHairFrontSilhouetteWarp`
  * does with the same numbers: the per-stop plate-fold check (through
  * `plateReachAt`), and, at full turn, each side's own reach on the DEFORMED
  * grid (`TurnColumnMap.warpedX`'s edges — the same bound `invertX` clamps to).
@@ -1462,26 +1543,57 @@ function evaluateTurnCandidate(
   ctx: TurnSolveContext,
   radius: number,
 ): TurnCandidate | TurnCandidateMiss {
-  const travel = headTurnTravel(ctx.faceHalfWidth);
+  // The travel is settled BEFORE the map that carries it, the map being built
+  // from it: the face slides INSIDE a shell the bangs hold, so what it may
+  // slide is what that shell has room for — measured on the bend alone.
+  const bendOnlyMapAt = (deg: number) =>
+    turnColumnMap(ctx.faceGrid, ctx.faceCenterX, radius, deg, 0);
+  // The boundary stays put and its DESTINATION moves: the full ratio at the
+  // outer stops, none of it at rest, linear in between.
+  const holdEdgeFrom = (base: number) => (deg: number) =>
+    base *
+    (1 + ((ctx.silhouetteRatio - 1) * Math.abs(deg)) / HEAD_TURN_MAX_DEG);
+  // A measured head IS the hold's boundary, so the plate has to stay inside it
+  // once slid — `shellTravelCap` is what keeps it there. A hold base derived
+  // from the plate instead (below) is measured on the SLID maps and clears the
+  // slid plate by construction, so there the whole ask stands.
+  const travel =
+    ctx.headHalfWidth === undefined
+      ? ctx.travel
+      : Math.min(
+          ctx.travel,
+          shellTravelCap(
+            ctx.faceCenterX,
+            ctx.faceHalfWidth,
+            ctx.travel,
+            bendOnlyMapAt,
+            holdEdgeFrom(ctx.headHalfWidth),
+          ),
+        );
   const columnMapAt = (deg: number) =>
     turnColumnMap(ctx.faceGrid, ctx.faceCenterX, radius, deg, travel);
-  // A measured head IS the hold's boundary; without one it is the outermost the
-  // plate ever reaches, clear of it by HOLD_CLEARANCE.
+  // Without a measured head the boundary is the outermost the slid plate ever
+  // reaches, clear of it by HOLD_CLEARANCE.
   const holdBase =
     ctx.headHalfWidth ??
     plateReach(ctx.faceCenterX, ctx.faceHalfWidth, columnMapAt) +
       HOLD_CLEARANCE;
-  // The boundary stays put and its DESTINATION moves: the full ratio at the
-  // outer stops, none of it at rest, linear in between.
-  const holdEdgeAt = (deg: number) =>
-    holdBase *
-    (1 + ((ctx.silhouetteRatio - 1) * Math.abs(deg)) / HEAD_TURN_MAX_DEG);
+  const holdEdgeAt = holdEdgeFrom(holdBase);
 
-  // The lower bound this radius could ever hold (the plate-fold geometry) and
-  // the upper bound it could ever carry (the deformed grid's own reach),
-  // computed UNCONDITIONALLY — every refusal below names both, regardless of
-  // which one actually blocked this radius, so a caller cannot cut one target
-  // down only to have the other's refusal advertise a stale range.
+  // A lower bound this radius can hold (the plate-fold geometry) and the upper
+  // bound it could ever carry (the deformed grid's own reach), computed
+  // UNCONDITIONALLY — every refusal below names both, regardless of which one
+  // actually blocked this radius, so a caller cannot cut one target down only
+  // to have the other's refusal advertise a stale range.
+  //
+  // The lower one is SAFE but no longer TIGHT: `reach` is read off
+  // `columnMapAt`, the slid map, and with a measured head the ratio sizes that
+  // slide as well (`shellTravelCap` reads `holdEdgeAt`). At the binding stop
+  // the cap moves with the ratio at `holdBase` per unit, i.e. the reach moves
+  // at `holdBase·|deg|/30` — exactly the rate the hold edge itself moves — so
+  // a ratio narrower than this bound arrives with a smaller slide and can
+  // still clear the plate. Everything at or above the bound holds; some below
+  // it do too.
   let foldLowerBound = -Infinity;
   let folds = false;
   for (const deg of HEAD_TURN_STOPS) {
@@ -1717,6 +1829,7 @@ function evaluateTurnCandidate(
     radius,
     ratio: scaleOf(far) / scaleOf(near),
     unit,
+    travel,
     map,
     holdBase,
     holdEdgeAt,
@@ -1732,10 +1845,12 @@ function evaluateTurnCandidate(
 /** The radii that can carry the turn, and what blocked the ones that cannot. */
 interface TurnSweep {
   candidates: TurnCandidate[];
-  /** The narrowest silhouette ratio any radius blocked for the silhouette
-   *  could have held, from its own plate-fold geometry — a LOWER bound,
-   *  computed the same way whichever gate is what actually blocked it;
-   *  Infinity when no radius was blocked for the silhouette at all. */
+  /** A silhouette ratio the radii blocked for the silhouette could have held,
+   *  from their own plate-fold geometry — a safe LOWER bound rather than the
+   *  narrowest one, the ratio sizing the slide that sets that geometry too
+   *  (see `TurnCandidateMiss.lower`); computed the same way whichever gate is
+   *  what actually blocked it; Infinity when no radius was blocked for the
+   *  silhouette at all. */
   heldRatioLower: number;
   /** The widest silhouette ratio any radius blocked for the silhouette could
    *  have carried without capping, from its own deformed-grid reach — an
@@ -1979,6 +2094,9 @@ export function solveTurnModel(
     faceCenterX,
     faceHalfWidth,
     plateEdgeX: faceCenterX - faceHalfWidth,
+    // What this plate asks the turn for; each candidate caps it to its own
+    // shell — see TurnSolveContext.travel.
+    travel: headTurnTravel(faceHalfWidth),
     headHalfWidth: targets.headHalfWidth,
     // The pixels the shift fractions are fractions of. Without a measured head
     // the face plate stands in for it — see TurnTargets.headHalfWidth.
@@ -2023,11 +2141,13 @@ export function solveTurnModel(
           field: "silhouetteRatio",
           value: targets.silhouetteRatio,
           // Two different bounds, not one number twice, and computed the same
-          // way regardless of which ratio was actually rejected: the
-          // narrowest any radius could still hold from its own plate-fold
-          // geometry, and the widest any radius could carry from its own
-          // deformed-grid reach — see evaluateTurnCandidate. Neither gate
-          // firing on any radius leaves that side's own general range bound.
+          // way regardless of which ratio was actually rejected: a ratio the
+          // radii could still hold from their own plate-fold geometry — safe,
+          // not the narrowest, the ratio sizing the slide that geometry is
+          // read off (see TurnCandidateMiss.lower) — and the widest any radius
+          // could carry from its own deformed-grid reach; see
+          // evaluateTurnCandidate. Neither gate firing on any radius leaves
+          // that side's own general range bound.
           attainable: [
             pass.heldRatioLower === Infinity
               ? SILHOUETTE_RATIO_MIN
@@ -2082,6 +2202,7 @@ export function solveTurnModel(
     radius: best.radius,
     holdBase: best.holdBase,
     holdEdgeAt: best.holdEdgeAt,
+    travel: best.travel,
     depths: { eye: best.eye.depth, nose: features.nose, mouth: features.mouth },
     achieved: {
       eyeShift,
@@ -2879,7 +3000,9 @@ export function bakeHairSwayWarp(
  */
 const HEAD_TURN_TRAVEL_RATIO = 0.25;
 
-/** That travel in px, for a plate of this half-width. */
+/** That travel in px, for a plate of this half-width: what a layer set ASKS
+ *  the turn for. A solve with a measured head cuts it down to what the held
+ *  silhouette has room for — see `shellTravelCap`. */
 function headTurnTravel(faceHalfWidth: number): number {
   return HEAD_TURN_TRAVEL_RATIO * faceHalfWidth;
 }
@@ -3172,11 +3295,6 @@ export function generateIkiFromLayerSet(
   const faceCenterY = faceTransform.y;
   const halfH = Math.max(faceCenterY - unionMinY, unionMaxY - faceCenterY);
   const faceHalfWidth = faceLayer.cropW / 2;
-  // The turn's sideways travel for THIS plate, in px. The face bake, the
-  // bangs' hold and the body's follow all key off this one number: the hold
-  // inverts the very map the face renders, so a second value here would have
-  // it hold against a turn nothing ships.
-  const headTravel = headTurnTravel(faceHalfWidth);
   const hairFrontLayer = layers.find((l) => l.role === "hair_front");
   const hairBackLayer = layers.find((l) => l.role === "hair_back");
   const turn = hasNose
@@ -3228,6 +3346,13 @@ export function generateIkiFromLayerSet(
     });
   }
   const faceRadius = turn?.radius ?? halfW * HEAD_CYLINDER_RADIUS_FACTOR;
+  // The turn's sideways travel for THIS plate, in px: what the solve settled
+  // on — this plate's own ask, cut down to what the held silhouette has room
+  // for — or that ask uncut when there was no solve to size it against. The
+  // face bake, the bangs' hold and the body's follow all key off this one
+  // number: the hold inverts the very map the face renders, so a second value
+  // here would have it hold against a turn nothing ships.
+  const headTravel = turn?.travel ?? headTurnTravel(faceHalfWidth);
   const parallaxUnit = headTurnParallaxUnit(faceRadius);
   const parallaxUnitY = headNodParallaxUnit(halfH);
 
