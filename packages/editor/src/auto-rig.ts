@@ -834,8 +834,11 @@ export interface TurnTargets {
   /** The far eye's width over the near eye's at full turn, divided by the same
    *  ratio at rest. 1 is no foreshortening; 0 is an edge-on far eye. */
   farEyeRatio?: number;
-  /** The head's half-width at full turn over its half-width at rest. 1 holds
-   *  the silhouette; below 1 narrows it. */
+  /** The head's half-width at full turn over its half-width at rest, as a
+   *  RENDER measures it — the outermost opaque edge on each side, whichever
+   *  part owns it. 1 holds the silhouette; below 1 narrows it. The hold that
+   *  produces it is fitted to it, so a measured one is met or refused, never
+   *  quietly rendered as something else. */
   silhouetteRatio?: number;
   /** `eyeShift` for the nose. Derived from `eyeShift` when absent. */
   noseShift?: number;
@@ -1235,7 +1238,10 @@ export type TurnModelSolution =
       field: keyof TurnTargets;
       /** The caller's own number — never a clamped stand-in. */
       value: number;
-      attainable: [number, number];
+      /** What the caller could have asked for instead, inside the field's own
+       *  accepted domain. Absent only for `silhouetteRatio`, and only when
+       *  nothing that domain accepts renders on this layer set at all. */
+      attainable?: [number, number];
     };
 
 /** Radius sweep, as multiples of the face plate's half-width. The floor is the
@@ -1255,6 +1261,17 @@ const TURN_SWEEP_SAMPLES = 32;
  *  one pixel of clearance is what makes it a ramp. */
 const HOLD_CLEARANCE = 1;
 
+/** Sampling of the hold's own usable range, per radius (see `holdRange`). What
+ *  a render shows moves smoothly with the hold but not monotonically, so the
+ *  range is sampled densely enough to bracket the turn-back where the travel's
+ *  own feedback reverses it, not to resolve the ask — the bisection inside the
+ *  bracketing interval does that. */
+const TURN_HOLD_SAMPLES = 16;
+/** How many times `holdRange`'s ceiling may chase its own reach. Each pass
+ *  starts from the previous pass's grid reach and the travel that reach moves
+ *  with is bounded by the plate's own ask, so it settles in two or three. */
+const TURN_HOLD_SATURATION_PASSES = 4;
+
 /** A radius that can carry the turn, with everything the fit reads off it. */
 interface TurnCandidate {
   radius: number;
@@ -1273,12 +1290,10 @@ interface TurnCandidate {
   /** Model x of the held silhouette's far edge at full turn. */
   holdEdgeX: number;
   eye: TurnDepthSolution;
-  /** The silhouette ratio this radius can actually carry at full turn, each
-   *  side capped to the deformed grid's own reach (`TurnColumnMap.warpedX`'s
-   *  edges) — equal to the requested ratio when neither side needed it. */
-  achievedSilhouetteRatio: number;
-  /** Whether either side needed that cap. */
-  silhouetteCapped: boolean;
+  /** Whether the ratio this radius ships had to be cut to the nearest one a
+   *  render of it can show. Only a DEFAULTED target ever gets here cut down —
+   *  a caller-measured one the range cannot render is refused instead. */
+  silhouetteClamped: boolean;
   /** How far the silhouette's own centre drifts from the face centre at full
    *  turn, against rest — each side's real landing (whichever part owns that
    *  edge actually carries it there; see `landingAt`) minus how far its rest
@@ -1289,9 +1304,9 @@ interface TurnCandidate {
   /** The silhouette ratio a render actually shows: each side's real LANDING
    *  span over its rest span (`landingAt`/`restAt`, the same pair
    *  `silhouetteCenterShift` reads) — as `measure_turn_reference` would
-   *  measure it off the two images, unlike `achievedSilhouetteRatio`, which
-   *  is the hold's own capped-destination ratio and does not see a
-   *  face-plate edge's own foreshortening. */
+   *  measure it off the two images, and the measure the hold above was FITTED
+   *  against. It is the target itself whenever one was reachable, so it is
+   *  what `TurnSolveReport.achieved.silhouetteRatio` reports. */
   renderedSilhouetteRatio: number;
 }
 
@@ -1299,15 +1314,17 @@ interface TurnCandidate {
 type TurnCandidateMiss =
   | {
       blocked: "silhouetteRatio";
-      /** A ratio the plate-fold geometry can hold here — a safe LOWER bound,
-       *  not the narrowest one: with a measured head the ratio sizes the slide
-       *  too (`shellTravelCap`), and a narrower ratio comes with a smaller
-       *  slide that pulls the plate's own reach in with it, so ratios below
-       *  this can still hold. Everything at or above it does. The widest the
-       *  deformed grid's own reach could have carried without capping — an
-       *  UPPER bound — beside it. Both are computed the same way regardless of
-       *  which of the two actually blocked this radius, so every refusal names
-       *  the same pair a caller could have asked for instead. */
+      /** The ratios a render of this radius can actually SHOW, ascending —
+       *  `renderedSilhouetteRatio`'s own measure, which is the measure a
+       *  caller's own number came from: the narrowest and the widest over the
+       *  holds this radius can ship (`holdRange`'s samples), clipped to the
+       *  ratios `resolveTurnTargets` accepts. The rendered ratio is continuous
+       *  in the hold, so every ratio between them is one the fit lands on the
+       *  shipped mesh's own terms (`hairFrontLandingAt`, which a raster of it
+       *  agrees with to a fraction of a pixel), and both ends are values a
+       *  caller can resubmit and have rigged. Infinity and -Infinity when
+       *  nothing inside that domain renders here: the neutral pair
+       *  `sweepTurnRadii`'s own min/max ignore. */
       lower: number;
       upper: number;
     }
@@ -1343,8 +1360,11 @@ interface TurnSolveContext {
   eyeShift: number;
   /** Whether an eye shift the bounds cut short is a clamp or a rejection. */
   clampEyeShift: boolean;
-  /** Whether a silhouette the deformed grid cannot fully carry is a clamp or a
-   *  rejection — same split as `clampEyeShift`, for the same reason. */
+  /** Whether the ratio is this generator's own default — carried through as
+   *  the hold's own ratio and clamped to what the grid can reach — or a
+   *  caller's render measurement, which the hold is fitted to and which is
+   *  rejected when no hold renders it. Same split as `clampEyeShift`, for the
+   *  same reason. */
   clampSilhouetteRatio: boolean;
   /** The eye row's `u` in `bakeHairSwayWarp`'s own `tipShift · u^CURL` shape —
    *  0 at hair_front's root, 1 at its tips, BEFORE the curl exponent, which is
@@ -1414,22 +1434,30 @@ function hairFrontHoldTarget(
 }
 
 /**
- * hair_front's own silhouette landing at an ARBITRARY rest x — not the
- * analytic hold∘lead∘grid at that single point, but the same piecewise-linear
- * mesh the bake ships: the shipped mesh has only `meshCellsFor`'s own column
- * count (8 on the hero, ~82 px apart), the outer column's `invertX` clamps
- * onto the deformed grid's own edge (see `hairFrontHoldTarget`), and between
- * columns the GPU lerps the FINAL, already-mapped x of the two neighbouring
- * columns — this maps their LERPED pre-bind x once instead, which agrees
- * exactly wherever no column-map segment break falls between the two (most
- * pairs, the map being piecewise-linear) and only approximates it otherwise.
- * A single continuous evaluation misses the bigger of the two effects either
- * way: it can predict a destination the outer column's own clamp never
- * reaches, and it treats a point between columns as if it sat exactly on one.
+ * hair_front's own silhouette landing at an ARBITRARY rest point — not the
+ * analytic hold∘lead∘grid at that point, but what the renderer actually draws
+ * there, on the mesh the bake ships. That mesh has only `meshCellsFor`'s own
+ * cell counts (8 columns on the hero, ~82 px apart), every vertex carries the
+ * hold's own inverse (`hairFrontHoldTarget` through `invertX`, which clamps
+ * onto the deformed grid's edge) plus the row's share of the bangs' turn lead,
+ * and the GPU interpolates the FINAL, already-mapped positions of the vertices
+ * around a point — so this maps each of the four surrounding vertices through
+ * the grid first and interpolates those, column fraction and row fraction
+ * alike. Interpolating anything earlier — the pre-bind xs, or an analytic lead
+ * at a row the mesh has no vertex on — is a different number wherever a
+ * column-map segment break falls between two columns, or the lead's own
+ * `u^HAIR_SWAY_CURL` curve bends between two rows.
  *
- * `x` need not be inside hair_front's own crop at all — past its outer column
- * this clamps to that column's own landing (`t` is clamped below), the same
- * "beyond the mesh's own edge" answer `invertX` gives a real vertex there.
+ * `leadTipShift` is the bangs' full tip lead in px (positive; the −30° keyform
+ * carries `0 − tipShift·u^CURL`, see `bakeHairSwayWarp`) and `leadRow` the
+ * measured row's own fraction of the crop's height, 0 at the pinned root and 1
+ * at the tips — the two the shipped lead warp is built from, rather than one
+ * pre-sampled offset, because the rows the GPU interpolates between are the
+ * mesh's, not the measured row itself.
+ *
+ * The point need not be inside hair_front's own crop at all — past its outer
+ * column this clamps to that column's own landing (`t` is clamped below), the
+ * same "beyond the mesh's own edge" answer `invertX` gives a real vertex there.
  */
 function hairFrontLandingAt(
   x: number,
@@ -1439,9 +1467,10 @@ function hairFrontLandingAt(
   holdBase: number,
   cappedHoldEdge: [number, number],
   map: TurnColumnMap,
-  lead: number,
+  leadTipShift: number,
+  leadRow: number,
 ): number {
-  const { cols } = meshCellsFor(hairFront.cropW, hairFront.cropH);
+  const { cols, rows } = meshCellsFor(hairFront.cropW, hairFront.cropH);
   const preBindAt = (col: number): number => {
     const colX =
       hairFront.x - hairFront.cropW / 2 + (col / cols) * hairFront.cropW;
@@ -1455,13 +1484,37 @@ function hairFrontLandingAt(
     );
     return map.invertX(target);
   };
-  const s = ((x - hairFront.x + hairFront.cropW / 2) / hairFront.cropW) * cols;
-  const lo = Math.max(0, Math.min(cols, Math.floor(s)));
-  const hi = Math.max(0, Math.min(cols, lo + 1));
-  const t = Math.max(0, Math.min(1, s - lo));
-  const preBindLo = preBindAt(lo);
-  const preBind = preBindLo + t * (preBindAt(hi) - preBindLo);
-  return map.mapX(preBind + lead);
+  // Row 0 is the pinned root (createPixelGridMesh's own top row), row `rows`
+  // the tips, and the lead each carries is the bake's own `u^CURL` at that
+  // row's `u = row / rows`.
+  const leadAt = (row: number): number =>
+    -leadTipShift * Math.pow(row / rows, HAIR_SWAY_CURL);
+  const bracket = (v: number, cells: number) => {
+    const lo = Math.max(0, Math.min(cells, Math.floor(v)));
+    return {
+      lo,
+      hi: Math.max(0, Math.min(cells, lo + 1)),
+      t: Math.max(0, Math.min(1, v - lo)),
+    };
+  };
+  const col = bracket(
+    ((x - hairFront.x + hairFront.cropW / 2) / hairFront.cropW) * cols,
+    cols,
+  );
+  const row = bracket(leadRow * rows, rows);
+  const landingAt = (c: number, r: number) =>
+    map.mapX(preBindAt(c) + leadAt(r));
+  // `col.t` runs left→right and `row.t` top→bottom, the axes the mesh's own
+  // cell is built on, so its TL→BR diagonal is `col.t === row.t` and the
+  // lower-left triangle is the one with `col.t <= row.t`.
+  const tl = landingAt(col.lo, row.lo);
+  const br = landingAt(col.hi, row.hi);
+  if (col.t <= row.t) {
+    const bl = landingAt(col.lo, row.hi);
+    return tl + row.t * (bl - tl) + col.t * (br - bl);
+  }
+  const tr = landingAt(col.hi, row.lo);
+  return tl + col.t * (tr - tl) + row.t * (br - tr);
 }
 
 /**
@@ -1482,6 +1535,14 @@ function hairFrontLandingAt(
  * tightest stop wins. Floored at 0: a plate already reaching past the shell
  * cannot be slid any further out.
  *
+ * `holdEdgeAt` is asked for the boundary on the side the slide moves TOWARD,
+ * because that is the only side the plate can breach: a measured shell need
+ * not sit centred on the face (`TurnSolveContext.headEdges` records each
+ * side's own extreme), and a shell 300 px out on one side and 500 on the
+ * other has 300 px of room for a −30° slide however much it has for a +30°
+ * one. Taking one symmetric number for both directions would let the plate
+ * slide straight out of the narrow side and become the silhouette there.
+ *
  * `askedTravel` is only read for the slide's SIGN at each stop, which is the
  * turn's own; the cap it returns is the whole ceiling, for the caller to take
  * a minimum with.
@@ -1491,13 +1552,13 @@ function shellTravelCap(
   faceHalfWidth: number,
   askedTravel: number,
   bendOnlyMapAt: (deg: number) => TurnColumnMap,
-  holdEdgeAt: (deg: number) => number,
+  holdEdgeAt: (deg: number, side: -1 | 1) => number,
 ): number {
   let cap = Infinity;
   for (const deg of HEAD_TURN_STOPS) {
     if (deg === 0) continue; // nothing slides at rest, so nothing to cap
     const map = bendOnlyMapAt(deg);
-    const slideSign = Math.sign(turnSlide(askedTravel, deg));
+    const slideSign: -1 | 1 = turnSlide(askedTravel, deg) < 0 ? -1 : 1;
     // The further-out of the two edge landings ALONG the slide's own direction:
     // the toward edge's own distance from the centre, the away edge's negated.
     // The bend is monotone and pinned on the face centre, so exactly one edge
@@ -1513,7 +1574,7 @@ function shellTravelCap(
     );
     cap = Math.min(
       cap,
-      (Math.max(0, holdEdgeAt(deg) - HOLD_CLEARANCE - towardReach) *
+      (Math.max(0, holdEdgeAt(deg, slideSign) - HOLD_CLEARANCE - towardReach) *
         HEAD_TURN_MAX_DEG) /
         Math.abs(deg),
     );
@@ -1521,28 +1582,62 @@ function shellTravelCap(
   return cap;
 }
 
+/** Everything ONE hold ratio settles inside `evaluateTurnCandidate`: the
+ *  travel that ratio leaves the sliding plate, the map that carries it, and
+ *  where each side's silhouette lands through that map. The ratio the rig
+ *  ships is picked among these — fitted until `renderedSilhouetteRatio` is the
+ *  target, whether that target was measured or defaulted. */
+interface TurnHoldEval {
+  /** The hold's own ratio: where its boundary is sent at full turn, as a
+   *  fraction of the rest distance it keeps. */
+  ratio: number;
+  /** The sideways travel it leaves the face at full turn, px. */
+  travel: number;
+  /** Its column map at the −30° stop, where every cue is measured. */
+  map: TurnColumnMap;
+  holdBase: number;
+  holdEdgeAt: (deg: number) => number;
+  /** Whether any stop sends the hold edge inside the plate's own reach, which
+   *  runs the ramp between them backwards — never acceptable, see
+   *  `bakeHairFrontSilhouetteWarp`. */
+  folds: boolean;
+  /** The ratio at which the tightest stop's hold edge would exactly clear the
+   *  plate ON THIS HOLD's own map — a seed for the range's floor, not the
+   *  floor itself, see `holdRange`. */
+  foldLowerBound: number;
+  /** How far the DEFORMED grid reaches either side of the face centre at full
+   *  turn (`TurnColumnMap.warpedX`'s edges — the bound `invertX` clamps to),
+   *  which is where the hold's own destinations are capped. */
+  gridReach: [number, number];
+  silhouetteCenterShift: number;
+  renderedSilhouetteRatio: number;
+  /** The silhouette's own rest span, px: what the rendered ratio is a
+   *  fraction of, and so the scale a px tolerance on it converts through. */
+  restSpan: number;
+}
+
 /**
  * One radius, evaluated against the cues: the candidate it yields, or which
  * target blocked it and what it could have done instead.
  *
- * The face's own sideways travel is settled first, this radius' bend deciding
- * how much of it the held shell has room for (`shellTravelCap`). Both gates
- * below then read the map that CARRIES that slide, which is the map the rig
- * ships: a slide that pulls an over-bent near edge back inside the shell
- * rescues a radius the bend alone would have folded, and a bend that folds on
- * its own still loses one.
+ * Everything hangs off ONE number here, the hold's own ratio: it sizes the
+ * face's sideways travel (`shellTravelCap` measures the shell's room against
+ * where the hold sends its boundary), and that travel builds the map every
+ * landing is read through — so a slide that pulls an over-bent near edge back
+ * inside the shell rescues a radius the bend alone would have folded, and a
+ * bend that folds on its own still loses one. `evaluateHold` is that whole
+ * chain for one ratio, and nothing outside it may assume a hold.
  *
- * Two hold gates run here, mirroring what `bakeHairFrontSilhouetteWarp`
- * does with the same numbers: the per-stop plate-fold check (through
- * `plateReachAt`), and, at full turn, each side's own reach on the DEFORMED
- * grid (`TurnColumnMap.warpedX`'s edges — the same bound `invertX` clamps to).
- * Both bounds are computed EVERY time, whichever gate actually fires (or
- * neither), so an unreachable silhouette names itself instead of throwing out
- * of the bake, or the rig silently landing short of what a caller asked for,
- * and a refusal never advertises a range the OTHER gate would have narrowed.
- * The grid-reach gate only rejects a radius for a CALLER-measured ratio; a
- * DEFAULTED one takes whatever the grid can actually carry instead — see
- * `achievedSilhouetteRatio`. Folding is never acceptable either way.
+ * The silhouette target is a measurement of a RENDER — the outermost opaque
+ * edge on each side, whichever part owns it — so the hold is FITTED to it
+ * rather than set from it: `holdRange` samples the holds this radius can ship
+ * and the fit bisects the sampled interval that straddles the ask, which lands
+ * on it exactly. What a render shows is NOT monotone in the hold (see
+ * `holdRange`), so no sample's orientation is assumed. Where the target came
+ * from decides only what happens when the range cannot render it: a
+ * CALLER-measured one is refused, naming that range, and a DEFAULTED one takes
+ * the nearest end of it and is reported in `TurnSolveReport.clamped`. Folding
+ * is never acceptable either way.
  */
 function evaluateTurnCandidate(
   ctx: TurnSolveContext,
@@ -1553,219 +1648,431 @@ function evaluateTurnCandidate(
   // slide is what that shell has room for — measured on the bend alone.
   const bendOnlyMapAt = (deg: number) =>
     turnColumnMap(ctx.faceGrid, ctx.faceCenterX, radius, deg, 0);
-  // The boundary stays put and its DESTINATION moves: the full ratio at the
-  // outer stops, none of it at rest, linear in between.
-  const holdEdgeFrom = (base: number) => (deg: number) =>
-    base *
-    (1 + ((ctx.silhouetteRatio - 1) * Math.abs(deg)) / HEAD_TURN_MAX_DEG);
-  // A measured head IS the hold's boundary, so the plate has to stay inside it
-  // once slid — `shellTravelCap` is what keeps it there. A hold base derived
-  // from the plate instead (below) is measured on the SLID maps and clears the
-  // slid plate by construction, so there the whole ask stands.
-  const travel =
-    ctx.headHalfWidth === undefined
-      ? ctx.travel
-      : Math.min(
-          ctx.travel,
-          shellTravelCap(
+  // The measured silhouette's own rest extreme on one side, when `headEdges`
+  // recorded one there. Read both by the travel cap below — which side of the
+  // shell the sliding plate has to stay inside — and by `restAt`, so the two
+  // cannot disagree about where the shell's boundary actually is.
+  const measuredEdgeAt = (side: -1 | 1): number | undefined => {
+    const candidates = side < 0 ? ctx.headEdges?.left : ctx.headEdges?.right;
+    if (candidates === undefined || candidates.length === 0) return undefined;
+    const xs = candidates.map((c) => c.x);
+    return side < 0 ? Math.min(...xs) : Math.max(...xs);
+  };
+  // That side's own half-width: a measured shell can sit off centre, and the
+  // narrow side is the one the plate can breach. Without an edge list there
+  // the measured half-width stands in on both sides, as it always did.
+  const shellHalfWidthAt = (side: -1 | 1): number => {
+    const edge = measuredEdgeAt(side);
+    return edge === undefined
+      ? ctx.headHalfWidth!
+      : side * (edge - ctx.faceCenterX);
+  };
+  const unit = headTurnParallaxUnit(radius);
+  // The bangs' own root-pinned turn lead (bakeHairSwayWarp, shared with the
+  // sway): the shipped warp's own full TIP shift, which each row takes its
+  // `u^HAIR_SWAY_CURL` share of. It moves every row toward the far side by
+  // that row's amount regardless of which side of the axis a column sits on —
+  // a raw offset in REST x, added before the hold's own inverse is re-mapped
+  // inside `hairFrontLandingAt`, exactly like `bakeHairSwayWarp` and
+  // `bakeHairFrontSilhouetteWarp` sum their offsets on the shipped mesh; the
+  // rows the renderer interpolates between are the MESH's, so the row fraction
+  // goes down with it rather than a lead pre-sampled at the measured row.
+  // Only hair_front leads — a role `landingOfRole` sends down any other path
+  // does not use this at all. The hold does not move it, so it is settled
+  // once, outside the fit.
+  const leadTipShift =
+    ctx.hairFrontLeadFraction === undefined ? 0 : HAIR_FRONT_DEPTH * unit;
+  const leadRow = ctx.hairFrontLeadFraction ?? 0;
+
+  const evaluateHold = (ratio: number): TurnHoldEval => {
+    // The boundary stays put and its DESTINATION moves: the full ratio at the
+    // outer stops, none of it at rest, linear in between.
+    const holdEdgeFrom = (base: number) => (deg: number) =>
+      base * (1 + ((ratio - 1) * Math.abs(deg)) / HEAD_TURN_MAX_DEG);
+    // A measured head IS the hold's boundary, so the plate has to stay inside
+    // it once slid — `shellTravelCap` is what keeps it there. A hold base
+    // derived from the plate instead (below) is measured on the SLID maps and
+    // clears the slid plate by construction, so there the whole ask stands.
+    const travel =
+      ctx.headHalfWidth === undefined
+        ? ctx.travel
+        : Math.min(
+            ctx.travel,
+            shellTravelCap(
+              ctx.faceCenterX,
+              ctx.faceHalfWidth,
+              ctx.travel,
+              bendOnlyMapAt,
+              (deg, side) => {
+                const rest = shellHalfWidthAt(side);
+                // Never past the shell's own REST edge, whatever the hold
+                // does: a hold wider than it (the fit sends one there to keep
+                // a rendered ratio of 1 against the bangs' own lead) moves the
+                // bangs, and the parts that draw the outline beside them — a
+                // static hair_back above all — stay where they are drawn.
+                return Math.min(rest, holdEdgeFrom(rest)(deg));
+              },
+            ),
+          );
+    const columnMapAt = (deg: number) =>
+      turnColumnMap(ctx.faceGrid, ctx.faceCenterX, radius, deg, travel);
+    // Without a measured head the boundary is the outermost the slid plate
+    // ever reaches, clear of it by HOLD_CLEARANCE.
+    const holdBase =
+      ctx.headHalfWidth ??
+      plateReach(ctx.faceCenterX, ctx.faceHalfWidth, columnMapAt) +
+        HOLD_CLEARANCE;
+    const holdEdgeAt = holdEdgeFrom(holdBase);
+
+    // The bracket this hold could have been fitted in: the ratio the
+    // plate-fold geometry allows, and the one the deformed grid can still
+    // reach. Both are computed EVERY time, whichever one actually binds (or
+    // neither), so a refusal never advertises a range the other would have
+    // narrowed.
+    //
+    // The lower one is SAFE but not TIGHT: `reach` is read off `columnMapAt`,
+    // the slid map, and with a measured head the ratio sizes that slide as
+    // well (`shellTravelCap` reads `holdEdgeAt`). At the binding stop the cap
+    // moves with the ratio at `holdBase` per unit, i.e. the reach moves at
+    // `holdBase·|deg|/30` — exactly the rate the hold edge itself moves — so a
+    // ratio narrower than this bound arrives with a smaller slide and can
+    // still clear the plate. Everything at or above the bound holds; some
+    // below it do too.
+    let foldLowerBound = -Infinity;
+    let folds = false;
+    for (const deg of HEAD_TURN_STOPS) {
+      if (deg === 0) continue; // proven never to bind — holdBase always clears the rest reach
+      const reach = plateReachAt(
+        columnMapAt(deg),
+        ctx.faceCenterX,
+        ctx.faceHalfWidth,
+      );
+      // What the ratio would have to be for the hold edge to clear the plate
+      // at this stop, given the stop gets |deg|/30 of the ratio's travel.
+      foldLowerBound = Math.max(
+        foldLowerBound,
+        1 +
+          ((reach + HOLD_CLEARANCE) / holdBase - 1) *
+            (HEAD_TURN_MAX_DEG / Math.abs(deg)),
+      );
+      if (holdEdgeAt(deg) <= reach) folds = true;
+    }
+
+    const map = columnMapAt(-HEAD_TURN_MAX_DEG);
+    // The hold can only place a vertex as far out as the deformed grid itself
+    // reaches on that side; past it `invertX` clamps onto the edge column (see
+    // bakeHairFrontSilhouetteWarp). So the ratio this radius can actually
+    // carry at full turn is each side's requested destination capped to that
+    // reach, not the requested ratio itself.
+    const requestedHoldEdge = holdEdgeAt(HEAD_TURN_MAX_DEG);
+    const gridReach: [number, number] = [
+      Math.abs(map.warpedX[0] - ctx.faceCenterX),
+      Math.abs(map.warpedX[map.warpedX.length - 1] - ctx.faceCenterX),
+    ];
+    const cappedHoldEdge: [number, number] = [
+      Math.min(requestedHoldEdge, gridReach[0] - HOLD_CLEARANCE),
+      Math.min(requestedHoldEdge, gridReach[1] - HOLD_CLEARANCE),
+    ];
+    // The silhouette point each side's centre is read from:
+    // `measure_turn_reference` reads the eye pair against the OPAQUE UNION's
+    // own centre, not an assumed faceCenterX-symmetric one, so with
+    // `headEdges` this is that same union's own extreme — the min (−x side) /
+    // max (+x side) of every candidate's own rest x, not `holdBase`'s
+    // idealised, centred stand-in for it (`holdBase` still sizes the HOLD
+    // itself; this is only where the DRIFT is measured from). Without an edge
+    // list for this side — no measured head at all, or one measured but with
+    // nothing recorded there — the measured head's own edge (`holdBase` IS
+    // that edge then, on the nose by construction), or hair_front's own crop
+    // edge otherwise: the best available stand-in for where a render's
+    // outermost opaque pixel sits when nothing measured it.
+    const restAt = (side: -1 | 1): number => {
+      const edge = measuredEdgeAt(side);
+      if (edge !== undefined) return edge;
+      return ctx.headHalfWidth !== undefined ||
+        ctx.hairFrontSilhouette === undefined
+        ? ctx.faceCenterX + side * holdBase
+        : ctx.hairFrontSilhouette.x +
+            (side * ctx.hairFrontSilhouette.cropW) / 2;
+    };
+    const hairFrontAt = (x: number): number =>
+      ctx.hairFrontSilhouette === undefined
+        ? x
+        : hairFrontLandingAt(
+            x,
+            ctx.hairFrontSilhouette,
             ctx.faceCenterX,
             ctx.faceHalfWidth,
-            ctx.travel,
-            bendOnlyMapAt,
-            holdEdgeFrom(ctx.headHalfWidth),
-          ),
-        );
-  const columnMapAt = (deg: number) =>
-    turnColumnMap(ctx.faceGrid, ctx.faceCenterX, radius, deg, travel);
-  // Without a measured head the boundary is the outermost the slid plate ever
-  // reaches, clear of it by HOLD_CLEARANCE.
-  const holdBase =
-    ctx.headHalfWidth ??
-    plateReach(ctx.faceCenterX, ctx.faceHalfWidth, columnMapAt) +
-      HOLD_CLEARANCE;
-  const holdEdgeAt = holdEdgeFrom(holdBase);
-
-  // A lower bound this radius can hold (the plate-fold geometry) and the upper
-  // bound it could ever carry (the deformed grid's own reach), computed
-  // UNCONDITIONALLY — every refusal below names both, regardless of which one
-  // actually blocked this radius, so a caller cannot cut one target down only
-  // to have the other's refusal advertise a stale range.
-  //
-  // The lower one is SAFE but no longer TIGHT: `reach` is read off
-  // `columnMapAt`, the slid map, and with a measured head the ratio sizes that
-  // slide as well (`shellTravelCap` reads `holdEdgeAt`). At the binding stop
-  // the cap moves with the ratio at `holdBase` per unit, i.e. the reach moves
-  // at `holdBase·|deg|/30` — exactly the rate the hold edge itself moves — so
-  // a ratio narrower than this bound arrives with a smaller slide and can
-  // still clear the plate. Everything at or above the bound holds; some below
-  // it do too.
-  let foldLowerBound = -Infinity;
-  let folds = false;
-  for (const deg of HEAD_TURN_STOPS) {
-    if (deg === 0) continue; // proven never to bind — holdBase always clears the rest reach
-    const reach = plateReachAt(
-      columnMapAt(deg),
-      ctx.faceCenterX,
-      ctx.faceHalfWidth,
-    );
-    // What the ratio would have to be for the hold edge to clear the plate at
-    // this stop, given the stop gets |deg|/30 of the ratio's travel.
-    foldLowerBound = Math.max(
-      foldLowerBound,
-      1 +
-        ((reach + HOLD_CLEARANCE) / holdBase - 1) *
-          (HEAD_TURN_MAX_DEG / Math.abs(deg)),
-    );
-    if (holdEdgeAt(deg) <= reach) folds = true;
-  }
-
-  const unit = headTurnParallaxUnit(radius);
-  const map = columnMapAt(-HEAD_TURN_MAX_DEG);
-  // The hold can only place a vertex as far out as the deformed grid itself
-  // reaches on that side; past it `invertX` clamps onto the edge column (see
-  // bakeHairFrontSilhouetteWarp). So the ratio this radius can actually carry
-  // at full turn is each side's requested destination capped to that reach,
-  // not the requested ratio itself.
-  const requestedHoldEdge = holdEdgeAt(HEAD_TURN_MAX_DEG);
-  const gridReach: [number, number] = [
-    Math.abs(map.warpedX[0] - ctx.faceCenterX),
-    Math.abs(map.warpedX[map.warpedX.length - 1] - ctx.faceCenterX),
-  ];
-  const reachUpperBound =
-    (Math.min(gridReach[0], gridReach[1]) - HOLD_CLEARANCE) / holdBase;
-  const cappedHoldEdge: [number, number] = [
-    Math.min(requestedHoldEdge, gridReach[0] - HOLD_CLEARANCE),
-    Math.min(requestedHoldEdge, gridReach[1] - HOLD_CLEARANCE),
-  ];
-  const silhouetteCapped =
-    cappedHoldEdge[0] < requestedHoldEdge ||
-    cappedHoldEdge[1] < requestedHoldEdge;
-  const achievedSilhouetteRatio =
-    (cappedHoldEdge[0] + cappedHoldEdge[1]) / (2 * holdBase);
-  // The bangs' own root-pinned turn lead (bakeHairSwayWarp, shared with the
-  // sway) reaches the eye row at a share of its full tip lead — the same
-  // `u^HAIR_SWAY_CURL` shape the bake applies per row, sampled at
-  // `hairFrontLeadFraction` instead of a mesh row's own fraction (see its own
-  // doc). It moves EVERY row toward the far side by the same amount
-  // regardless of which side of the axis a column sits on — a raw offset in
-  // REST x, negative (this map is the −30° one, and the lead's own −30°
-  // keyform is `0 − tipShift·u^CURL`), added before the hold's own inverse is
-  // re-mapped inside `hairFrontLandingAt`, exactly like `bakeHairSwayWarp` and
-  // `bakeHairFrontSilhouetteWarp` sum their offsets on the shipped mesh. Only
-  // hair_front leads — a role `landingOfRole` sends down any other path does
-  // not use this at all.
-  const lead =
-    ctx.hairFrontLeadFraction === undefined
-      ? 0
-      : -HAIR_FRONT_DEPTH *
-        unit *
-        Math.pow(ctx.hairFrontLeadFraction, HAIR_SWAY_CURL);
-  // The silhouette point each side's centre is read from: `measure_turn_reference`
-  // reads the eye pair against the OPAQUE UNION's own centre, not an assumed
-  // faceCenterX-symmetric one, so with `headEdges` this is that same union's
-  // own extreme — the min (−x side) / max (+x side) of every candidate's own
-  // rest x, not `holdBase`'s idealised, centred stand-in for it (`holdBase`
-  // still sizes the HOLD itself; this is only where the DRIFT is measured
-  // from). Without an edge list for this side — no measured head at all, or
-  // one measured but with nothing recorded there — the measured head's own
-  // edge (`holdBase` IS that edge then, on the nose by construction), or
-  // hair_front's own crop edge otherwise: the best available stand-in for
-  // where a render's outermost opaque pixel sits when nothing measured it.
-  const restAt = (side: -1 | 1): number => {
-    const candidates = side < 0 ? ctx.headEdges?.left : ctx.headEdges?.right;
-    if (candidates !== undefined && candidates.length > 0) {
-      const xs = candidates.map((c) => c.x);
-      return side < 0 ? Math.min(...xs) : Math.max(...xs);
-    }
-    return ctx.headHalfWidth !== undefined ||
-      ctx.hairFrontSilhouette === undefined
-      ? ctx.faceCenterX + side * holdBase
-      : ctx.hairFrontSilhouette.x + (side * ctx.hairFrontSilhouette.cropW) / 2;
-  };
-  const hairFrontAt = (x: number): number =>
-    ctx.hairFrontSilhouette === undefined
-      ? x
-      : hairFrontLandingAt(
-          x,
-          ctx.hairFrontSilhouette,
-          ctx.faceCenterX,
-          ctx.faceHalfWidth,
-          holdBase,
-          cappedHoldEdge,
-          map,
-          lead,
-        );
-  // Where a named role's OWN rest x lands after the turn — the mcp measures
-  // the union of every layer's opaque pixels, so an edge can belong to any
-  // role, not just the bangs. `face` and the FEATURE_NOD_DEPTH family (the
-  // eye stack, lashes, brows, blush, the nose, both mouths) ride `faceWarp`,
-  // so their own path is `map.mapX` — WITHOUT that family's own depth
-  // parallax, which is not solved yet at this point in the sweep (the eye's
-  // own signed solve just below needs `silhouetteCenterShift`, computed from
-  // this, and nose/mouth's are not solved until `solveFeatureDepths`, after a
-  // radius is even chosen). The omission is harmless not because the
-  // magnitude is small but because none of this family can realistically OWN
-  // the eye-row silhouette edge in the first place: they sit near the face's
-  // own centre, well inside whatever hair, face-plate, or body edge is
-  // actually outermost there. `hair_back` and `body` ride their own rigid
-  // deformers, not faceWarp, so neither uses `map` at all. Anything not in
-  // `ROLE_TABLE` is a bug, not a role to render as unmoved.
-  const landingOfRole = (role: string, x: number): number => {
-    if (role === "hair_front") return hairFrontAt(x);
-    if (role === "hair_back") {
-      // It holds the head's outline: it rides a head that no longer travels
-      // and has no turn binding or warp of its own, so it lands where it sits.
-      return x;
-    }
-    if (role === "body") {
-      // The head no longer translates on the turn — its travel is in the face
-      // grid, where only what rides the grid carries it — so the head's frame
-      // is the rest frame and the body lands at its own AngleX travel alone:
-      // the "from" value of its own translateX binding at this stop.
-      return x - BODY_TURN_FOLLOW * travel;
-    }
-    if (role === "face" || FEATURE_NOD_DEPTH[roleFamily(role)] !== undefined) {
-      return map.mapX(x);
-    }
-    throw new Error(
-      `auto-rig: evaluateTurnCandidate: unrecognised role "${role}"`,
-    );
-  };
-  const landingAt = (side: -1 | 1): number => {
-    const candidates = side < 0 ? ctx.headEdges?.left : ctx.headEdges?.right;
-    if (candidates === undefined || candidates.length === 0) {
-      return hairFrontAt(restAt(side));
-    }
-    const landings = candidates.map((c) => landingOfRole(c.role, c.x));
-    return side < 0 ? Math.min(...landings) : Math.max(...landings);
-  };
-  // How far the silhouette's own centre drifts off the face centre at full
-  // turn, against how far it already sat off centre at rest (zero unless
-  // hair_front's crop is itself off-centre) — the held shell keeps its own
-  // place while the face slides inside it, so this is the drift the hold and
-  // the bangs' lead leave behind, and the slide itself shows up in the eye cue
-  // below instead of cancelling out of it.
-  // `measure_turn_reference` reads the eye pair against THIS moved centre,
-  // not the face centre, so it is what the eye cue below is corrected by.
-  const silhouetteCenterShift =
-    (landingAt(1) + landingAt(-1)) / 2 - (restAt(1) + restAt(-1)) / 2;
-  // What a render actually shows: the real landing span over the real rest
-  // span, the same pair silhouetteCenterShift reads — see its own doc on
-  // TurnCandidate for why this differs from achievedSilhouetteRatio.
-  const renderedSilhouetteRatio =
-    (landingAt(1) - landingAt(-1)) / (restAt(1) - restAt(-1));
-
-  // A CALLER-measured ratio this radius would need to cap disqualifies the
-  // radius; a DEFAULTED one takes the capped value instead (see
-  // achievedSilhouetteRatio). Folding is never acceptable, defaulted or not —
-  // see solveTurnModel's own comment on why a defaulted ratio never folds.
-  if (folds || (silhouetteCapped && !ctx.clampSilhouetteRatio)) {
-    return {
-      blocked: "silhouetteRatio",
-      lower: foldLowerBound,
-      upper: reachUpperBound,
+            holdBase,
+            cappedHoldEdge,
+            map,
+            leadTipShift,
+            leadRow,
+          );
+    // Where a named role's OWN rest x lands after the turn — the mcp measures
+    // the union of every layer's opaque pixels, so an edge can belong to any
+    // role, not just the bangs. `face` and the FEATURE_NOD_DEPTH family (the
+    // eye stack, lashes, brows, blush, the nose, both mouths) ride `faceWarp`,
+    // so their own path is `map.mapX` — WITHOUT that family's own depth
+    // parallax, which is not solved yet at this point in the sweep (the eye's
+    // own signed solve below needs `silhouetteCenterShift`, computed from
+    // this, and nose/mouth's are not solved until `solveFeatureDepths`, after
+    // a radius is even chosen). The omission is harmless not because the
+    // magnitude is small but because none of this family can realistically OWN
+    // the eye-row silhouette edge in the first place: they sit near the face's
+    // own centre, well inside whatever hair, face-plate, or body edge is
+    // actually outermost there. `hair_back` and `body` ride their own rigid
+    // deformers, not faceWarp, so neither uses `map` at all. Anything not in
+    // `ROLE_TABLE` is a bug, not a role to render as unmoved.
+    const landingOfRole = (role: string, x: number): number => {
+      if (role === "hair_front") return hairFrontAt(x);
+      if (role === "hair_back") {
+        // It holds the head's outline: it rides a head that no longer travels
+        // and has no turn binding or warp of its own, so it lands where it
+        // sits.
+        return x;
+      }
+      if (role === "body") {
+        // The head no longer translates on the turn — its travel is in the
+        // face grid, where only what rides the grid carries it — so the head's
+        // frame is the rest frame and the body lands at its own AngleX travel
+        // alone: the "from" value of its own translateX binding at this stop.
+        return x - BODY_TURN_FOLLOW * travel;
+      }
+      if (
+        role === "face" ||
+        FEATURE_NOD_DEPTH[roleFamily(role)] !== undefined
+      ) {
+        return map.mapX(x);
+      }
+      throw new Error(
+        `auto-rig: evaluateTurnCandidate: unrecognised role "${role}"`,
+      );
     };
+    const landingAt = (side: -1 | 1): number => {
+      const candidates = side < 0 ? ctx.headEdges?.left : ctx.headEdges?.right;
+      if (candidates === undefined || candidates.length === 0) {
+        return hairFrontAt(restAt(side));
+      }
+      const landings = candidates.map((c) => landingOfRole(c.role, c.x));
+      return side < 0 ? Math.min(...landings) : Math.max(...landings);
+    };
+    return {
+      ratio,
+      travel,
+      map,
+      holdBase,
+      holdEdgeAt,
+      folds,
+      foldLowerBound,
+      gridReach,
+      // How far the silhouette's own centre drifts off the face centre at full
+      // turn, against how far it already sat off centre at rest (zero unless
+      // hair_front's crop is itself off-centre) — the held shell keeps its own
+      // place while the face slides inside it, so this is the drift the hold
+      // and the bangs' lead leave behind, and the slide itself shows up in the
+      // eye cue instead of cancelling out of it.
+      // `measure_turn_reference` reads the eye pair against THIS moved centre,
+      // not the face centre, so it is what the eye cue is corrected by.
+      silhouetteCenterShift:
+        (landingAt(1) + landingAt(-1)) / 2 - (restAt(1) + restAt(-1)) / 2,
+      // What a render actually shows: the real landing span over the real rest
+      // span, the same pair silhouetteCenterShift reads — the measure the
+      // hold is FITTED against, see this function's own doc.
+      renderedSilhouetteRatio:
+        (landingAt(1) - landingAt(-1)) / (restAt(1) - restAt(-1)),
+      restSpan: restAt(1) - restAt(-1),
+    };
+  };
+
+  // The widest hold worth trying at this radius: once BOTH sides' requested
+  // destinations sit outside the deformed grid's own reach, the bake caps them
+  // there (`bakeHairFrontSilhouetteWarp`) and a wider hold renders the
+  // identical silhouette. That reach moves with the travel a wider hold buys,
+  // so this walks up to it — each pass starting from the previous one's own
+  // reach — and settles, the travel being bounded by the plate's own ask.
+  const saturatedHold = (): TurnHoldEval => {
+    let hold = evaluateHold(1);
+    for (let i = 0; i < TURN_HOLD_SATURATION_PASSES; i++) {
+      const needed =
+        (Math.max(hold.gridReach[0], hold.gridReach[1]) - HOLD_CLEARANCE) /
+        hold.holdBase;
+      if (needed <= hold.ratio) break;
+      hold = evaluateHold(needed);
+    }
+    return hold;
+  };
+
+  // Every hold this radius can actually ship, sampled across its own usable
+  // range: from the narrowest that does not fold the ramp onto the strands up
+  // to that saturation point. What a render SHOWS is not monotone in the hold
+  // — a wider hold buys more travel (`shellTravelCap`), and more travel pulls
+  // the deformed grid's near-side reach IN, which caps the near destination
+  // the hold was widening — so the range is sampled rather than read off its
+  // two ends, and the fit below works in whichever sampled interval actually
+  // straddles the ask. Every sample is fold-free, so anything the fit returns
+  // from one can be shipped.
+  //
+  // `foldLowerBound` is a SEED for the floor, not the floor: it reads the
+  // plate's reach off one hold's own map, and that reach does not move with
+  // the hold the way it assumes. A narrower hold buys a smaller slide, which
+  // pulls the plate's toward edge in but pushes its AWAY edge out, and
+  // `plateReachAt` takes the larger of the two — so the seed can itself fold,
+  // and the real floor is bisected between it and the saturation point, where
+  // the slide is largest and the hold furthest out. Undefined when even that
+  // point folds: the radius can hold nothing, so it has nothing to offer.
+  const holdRange = (): TurnHoldEval[] | undefined => {
+    const ceiling = saturatedHold();
+    if (ceiling.folds) return undefined;
+    let floor = evaluateHold(Math.min(ceiling.foldLowerBound, ceiling.ratio));
+    if (floor.folds) {
+      let lo = floor;
+      let hi = ceiling;
+      for (let i = 0; i < TURN_BISECT_STEPS; i++) {
+        const mid = evaluateHold((lo.ratio + hi.ratio) / 2);
+        if (mid.folds) lo = mid;
+        else hi = mid;
+      }
+      floor = hi;
+    }
+    const samples = [floor];
+    for (let i = 1; i < TURN_HOLD_SAMPLES; i++) {
+      const sample = evaluateHold(
+        floor.ratio + ((ceiling.ratio - floor.ratio) * i) / TURN_HOLD_SAMPLES,
+      );
+      if (!sample.folds) samples.push(sample);
+    }
+    samples.push(ceiling);
+    return samples;
+  };
+
+  /** What this radius offers a refused caller: the ratios a render of it can
+   *  show, clipped to the domain `resolveTurnTargets` accepts — offering one
+   *  outside it would be offering a number the validator throws on. Clipped
+   *  PER RADIUS, before `sweepTurnRadii` unions them, so each end of what the
+   *  sweep advertises is an end some radius can really be fitted to. The
+   *  neutral pair when nothing survives that clip (or there was nothing to
+   *  clip): `sweepTurnRadii`'s own min/max ignore it. */
+  const silhouetteMiss = (span?: [number, number]): TurnCandidateMiss => {
+    const lower = Math.max(span?.[0] ?? Infinity, SILHOUETTE_RATIO_MIN);
+    const upper = Math.min(span?.[1] ?? -Infinity, TURN_RATIO_MAX);
+    return lower > upper
+      ? { blocked: "silhouetteRatio", lower: Infinity, upper: -Infinity }
+      : { blocked: "silhouetteRatio", lower, upper };
+  };
+
+  const asked = ctx.silhouetteRatio;
+  // The hold the target names outright, tried first. Where it already renders
+  // the target it IS the answer: a static shell renders its own rest span
+  // whatever the hold does, so every hold there is equally exact, and the one
+  // that leaves the bangs where the target says is the one to ship rather than
+  // an arbitrarily narrower one a search would settle on first.
+  const natural = evaluateHold(asked);
+  // solveTurnDepthSigned's own px slack, on the span the rendered ratio is a
+  // fraction of: the fit stops there, and a caller resubmitting the exact
+  // interval a refusal reported is not refused again by a float ulp of the
+  // division that reported it.
+  const eps = TURN_DEPTH_EPS / natural.restSpan;
+  let hold: TurnHoldEval;
+  let silhouetteClamped = false;
+  if (
+    !natural.folds &&
+    Math.abs(natural.renderedSilhouetteRatio - asked) <= eps
+  ) {
+    hold = natural;
+  } else {
+    const samples = holdRange();
+    if (samples === undefined) return silhouetteMiss();
+    // Every ratio between the extreme samples is on offer, the rendered ratio
+    // being continuous in the hold: the sampled values are all attainable and
+    // so is everything they straddle.
+    const rendered = samples.map((h) => h.renderedSilhouetteRatio);
+    const span: [number, number] = [
+      Math.min(...rendered),
+      Math.max(...rendered),
+    ];
+    // Of two holds, the one whose render is nearer the target — and between
+    // two that both hit it, the one whose own ratio is nearer what was asked,
+    // so a flat stretch of the range does not move the bangs for nothing.
+    const nearer = (a: TurnHoldEval, b: TurnHoldEval) => {
+      const ea = Math.abs(a.renderedSilhouetteRatio - asked);
+      const eb = Math.abs(b.renderedSilhouetteRatio - asked);
+      if (ea <= eps && eb <= eps) {
+        return Math.abs(a.ratio - asked) <= Math.abs(b.ratio - asked) ? a : b;
+      }
+      return ea <= eb ? a : b;
+    };
+    if (asked < span[0] - eps || asked > span[1] + eps) {
+      // A CALLER-measured ratio no hold renders is refused in the rendered
+      // range's own terms; a DEFAULTED one takes the nearest end of that range
+      // and says so — see solveTurnModel's report.
+      if (!ctx.clampSilhouetteRatio) return silhouetteMiss(span);
+      const wanted = asked < span[0] ? span[0] : span[1];
+      hold = samples.reduce((a, b) =>
+        Math.abs(b.renderedSilhouetteRatio - wanted) <
+        Math.abs(a.renderedSilhouetteRatio - wanted)
+          ? b
+          : a,
+      );
+      silhouetteClamped = true;
+    } else {
+      // The sampled interval the target actually sits in, bisected on the
+      // HOLD: the rendered ratio is continuous in it, so an interval whose
+      // ends straddle the target contains a hold that renders it — whichever
+      // way round those ends sit, which is why the direction is read off the
+      // interval rather than assumed.
+      let best = samples.reduce(nearer);
+      let lo: TurnHoldEval | undefined;
+      let hi: TurnHoldEval | undefined;
+      for (let i = 0; i + 1 < samples.length; i++) {
+        const a = samples[i].renderedSilhouetteRatio - asked;
+        const b = samples[i + 1].renderedSilhouetteRatio - asked;
+        if (a * b <= 0) {
+          lo = samples[i];
+          hi = samples[i + 1];
+          break;
+        }
+      }
+      for (let i = 0; lo !== undefined && hi !== undefined; i++) {
+        if (
+          i >= TURN_BISECT_STEPS ||
+          Math.abs(best.renderedSilhouetteRatio - asked) <= eps
+        ) {
+          break;
+        }
+        const mid = evaluateHold((lo.ratio + hi.ratio) / 2);
+        if (!mid.folds) best = nearer(best, mid);
+        // Keep the half the target is still inside, in the orientation these
+        // two ends establish.
+        if (
+          (mid.renderedSilhouetteRatio - asked) *
+            (lo.renderedSilhouetteRatio - asked) >
+          0
+        ) {
+          lo = mid;
+        } else {
+          hi = mid;
+        }
+      }
+      hold = best;
+    }
   }
+  // Folding is never acceptable, fitted or clamped: `natural` is only kept
+  // when it does not fold, every `holdRange()` sample is fold-free, and the
+  // fit only ever replaces `best` with a non-folding evaluation — so a folding
+  // hold here is a broken invariant, not a case to handle.
+  if (hold.folds) {
+    throw new Error(
+      "auto-rig: evaluateTurnCandidate: the hold it settled on folds",
+    );
+  }
+  const {
+    travel,
+    map,
+    holdBase,
+    holdEdgeAt,
+    silhouetteCenterShift,
+    renderedSilhouetteRatio,
+  } = hold;
   const holdEdgeX = ctx.faceCenterX - holdEdgeAt(HEAD_TURN_MAX_DEG);
   // measure_turn_reference reads the eye pair against each pose's OWN
   // silhouette centre, not the face centre — at rest that centre IS the face
@@ -1827,27 +2134,31 @@ function evaluateTurnCandidate(
     holdEdgeAt,
     holdEdgeX,
     eye,
-    achievedSilhouetteRatio,
-    silhouetteCapped,
+    silhouetteClamped,
     silhouetteCenterShift,
     renderedSilhouetteRatio,
   };
 }
 
+/** A swept radius: the candidate it yielded and WHERE in the sweep it sat.
+ *  The feasible radii are not one unbroken run any more — a caller-measured
+ *  silhouette refuses a radius whose own rendered range cannot be fitted to
+ *  it, and that can bite in the middle of the sweep — so which candidates are
+ *  NEIGHBOURS has to be read off the sweep rather than off the array. */
+type SweptCandidate = TurnCandidate & { sweepIndex: number };
+
 /** The radii that can carry the turn, and what blocked the ones that cannot. */
 interface TurnSweep {
-  candidates: TurnCandidate[];
-  /** A silhouette ratio the radii blocked for the silhouette could have held,
-   *  from their own plate-fold geometry — a safe LOWER bound rather than the
-   *  narrowest one, the ratio sizing the slide that sets that geometry too
-   *  (see `TurnCandidateMiss.lower`); computed the same way whichever gate is
-   *  what actually blocked it; Infinity when no radius was blocked for the
-   *  silhouette at all. */
+  candidates: SweptCandidate[];
+  /** The narrowest silhouette a render of the radii blocked for the silhouette
+   *  could have shown, inside the ratios the targets accept (see
+   *  `TurnCandidateMiss.lower`); Infinity when no radius was blocked for the
+   *  silhouette at all, or when none of the blocked ones renders anything a
+   *  caller is allowed to ask for. */
   heldRatioLower: number;
-  /** The widest silhouette ratio any radius blocked for the silhouette could
-   *  have carried without capping, from its own deformed-grid reach — an
-   *  UPPER bound, same convention; -Infinity when no radius was blocked for
-   *  the silhouette at all. */
+  /** The widest silhouette a render of any radius blocked for the silhouette
+   *  could have shown — an UPPER bound, same convention; -Infinity in the same
+   *  two cases. */
   heldRatioUpper: number;
   /** The widest eye shift the blocked radii offered, in shift units; absent
    *  when the slide blocked none. */
@@ -1860,7 +2171,7 @@ interface TurnSweep {
 function sweepTurnRadii(ctx: TurnSolveContext): TurnSweep {
   const minRadius = ctx.faceHalfWidth * HEAD_CYLINDER_RADIUS_FACTOR;
   const maxRadius = ctx.faceHalfWidth * TURN_SWEEP_MAX_FACTOR;
-  const candidates: TurnCandidate[] = [];
+  const candidates: SweptCandidate[] = [];
   let heldRatioLower = Infinity;
   let heldRatioUpper = -Infinity;
   let offeredShift: [number, number] | undefined;
@@ -1869,7 +2180,7 @@ function sweepTurnRadii(ctx: TurnSolveContext): TurnSweep {
       minRadius * Math.pow(maxRadius / minRadius, i / (TURN_SWEEP_SAMPLES - 1));
     const result = evaluateTurnCandidate(ctx, radius);
     if (!("blocked" in result)) {
-      candidates.push(result);
+      candidates.push({ ...result, sweepIndex: i });
     } else if (result.blocked === "silhouetteRatio") {
       heldRatioLower = Math.min(heldRatioLower, result.lower);
       heldRatioUpper = Math.max(heldRatioUpper, result.upper);
@@ -1885,30 +2196,75 @@ function sweepTurnRadii(ctx: TurnSolveContext): TurnSweep {
   return { candidates, heldRatioLower, heldRatioUpper, offeredShift };
 }
 
+/** One unbroken run of the sweep's feasible radii, and the far/near ratios it
+ *  covers: the ratio is continuous in the radius, so a run spans every ratio
+ *  between its own extremes, and a target BETWEEN two runs is one no radius in
+ *  the sweep produces. */
+interface TurnRatioCluster {
+  candidates: SweptCandidate[];
+  /** Ascending. */
+  ratios: [number, number];
+}
+
+/** The sweep's feasible radii, split where it skipped one. A caller-measured
+ *  silhouette can refuse a radius in the middle of the range — the rendered
+ *  ratios a radius can be fitted to move with it — and a far/near ratio that
+ *  falls in the gap between two runs is attainable on neither, so the two must
+ *  not be bracketed across. */
+function ratioClusters(candidates: SweptCandidate[]): TurnRatioCluster[] {
+  const clusters: TurnRatioCluster[] = [];
+  let run: SweptCandidate[] = [];
+  const close = () => {
+    if (run.length === 0) return;
+    const ratios = run.map((c) => c.ratio);
+    clusters.push({
+      candidates: run,
+      ratios: [Math.min(...ratios), Math.max(...ratios)],
+    });
+    run = [];
+  };
+  for (const candidate of candidates) {
+    const previous = run[run.length - 1];
+    if (
+      previous !== undefined &&
+      candidate.sweepIndex !== previous.sweepIndex + 1
+    ) {
+      close();
+    }
+    run.push(candidate);
+  }
+  close();
+  return clusters;
+}
+
 /**
- * The radius whose far/near ratio comes nearest `target`.
+ * The radius whose far/near ratio comes nearest `target`, inside ONE cluster
+ * of sweep-adjacent radii.
  *
  * The ratio is not monotone in the radius — a flatter cylinder foreshortens
  * less but needs a deeper slide to move the eyes as far, and the grid's cells
- * are straight lines the landmarks cross at different radii — so the sweep's
+ * are straight lines the landmarks cross at different radii — so the cluster's
  * samples are scanned from the LARGEST radius down for the first adjacent pair
  * that brackets the target: where two radii both fit, the flatter head is the
  * one that keeps more of the face on the analytic part of the cylinder. The
  * bisection inside that pair is geometric, matching the log-spaced sweep.
+ *
+ * A pair that is adjacent in the array is adjacent in the SWEEP here, the
+ * cluster being one unbroken run of it (see `ratioClusters`) — that is what
+ * keeps the bisection out of a gap the sweep already found. Finer gaps inside
+ * a pair it cannot see: the bisection stops when it lands on a refused radius,
+ * and `solveTurnModel` checks what this actually reached against the target
+ * rather than trusting it.
  */
 function fitTurnRadius(
   ctx: TurnSolveContext,
-  candidates: TurnCandidate[],
+  candidates: SweptCandidate[],
   target: number,
 ): TurnCandidate {
-  // The whole sampled span, narrowed to the bracketing pair — there always is
-  // one, the target being inside the samples' own range. Adjacent in the array
-  // is adjacent in radius because the feasible candidates are an upper interval
-  // of the sweep: both gates bite at the small-radius end (the tightest bend
-  // overshoots the hold and eats the most slide), so nothing is missing from
-  // the middle. An interior gap would need a guard here.
-  let lo = candidates[0];
-  let hi = candidates[candidates.length - 1];
+  // The cluster's whole span, narrowed to the bracketing pair — there is one
+  // whenever the target sits inside its own ratio range.
+  let lo: TurnCandidate = candidates[0];
+  let hi: TurnCandidate = candidates[candidates.length - 1];
   for (let i = candidates.length - 2; i >= 0; i--) {
     if (
       (candidates[i].ratio - target) * (candidates[i + 1].ratio - target) <=
@@ -2128,47 +2484,87 @@ export function solveTurnModel(
           unreachable: true,
           field: "silhouetteRatio",
           value: targets.silhouetteRatio,
-          // Two different bounds, not one number twice, and computed the same
-          // way regardless of which ratio was actually rejected: a ratio the
-          // radii could still hold from their own plate-fold geometry — safe,
-          // not the narrowest, the ratio sizing the slide that geometry is
-          // read off (see TurnCandidateMiss.lower) — and the widest any radius
-          // could carry from its own deformed-grid reach; see
-          // evaluateTurnCandidate. Neither gate firing on any radius leaves
-          // that side's own general range bound.
-          attainable: [
-            pass.heldRatioLower === Infinity
-              ? SILHOUETTE_RATIO_MIN
-              : pass.heldRatioLower,
+          // Two different bounds, not one number twice, and computed the
+          // same way regardless of which ratio was actually rejected: both
+          // are ratios a RENDER could have shown (the measure the caller's
+          // own number came from), the narrowest and the widest any radius
+          // could be fitted to, with every ratio between them one it can be
+          // fitted to exactly; see evaluateTurnCandidate, which clips each
+          // radius' own range to the domain `resolveTurnTargets` accepts
+          // before it gets here. Absent when that left every radius with
+          // nothing: no ratio a caller is allowed to ask for renders at all.
+          attainable:
+            pass.heldRatioLower === Infinity ||
             pass.heldRatioUpper === -Infinity
-              ? TURN_RATIO_MAX
-              : pass.heldRatioUpper,
-          ],
+              ? undefined
+              : [pass.heldRatioLower, pass.heldRatioUpper],
         };
   }
 
-  const ratios = pass.candidates.map((c) => c.ratio);
-  const attainableRatio: [number, number] = [
-    Math.min(...ratios),
-    Math.max(...ratios),
-  ];
+  // The radii that survived, in unbroken runs of the sweep: a far/near ratio
+  // between two runs is one no radius produces, so the fit is confined to the
+  // run that covers the target and a target no run covers is out of reach
+  // rather than bisected across the gap. A DEFAULTED silhouette leaves every
+  // radius standing and so leaves exactly one run — the gaps are what a
+  // CALLER-measured one opens (see evaluateTurnCandidate).
+  const clusters = ratioClusters(pass.candidates);
+  const distanceTo = (c: TurnRatioCluster) =>
+    Math.max(
+      c.ratios[0] - targets.farEyeRatio,
+      targets.farEyeRatio - c.ratios[1],
+      0,
+    );
   let farEyeRatio = targets.farEyeRatio;
-  if (farEyeRatio < attainableRatio[0] || farEyeRatio > attainableRatio[1]) {
+  let cluster = clusters.find(
+    (c) =>
+      farEyeRatio >= c.ratios[0] - TURN_DEPTH_EPS &&
+      farEyeRatio <= c.ratios[1] + TURN_DEPTH_EPS,
+  );
+  if (cluster === undefined) {
+    // What a caller could have asked for instead is one run's own range, not
+    // the span across the gaps: every ratio inside it is one this sweep
+    // reaches. The nearest run is the one to name.
+    cluster = clusters.reduce((a, b) =>
+      distanceTo(b) < distanceTo(a) ? b : a,
+    );
     if (!targets.defaulted.has("farEyeRatio")) {
       return {
         unreachable: true,
         field: "farEyeRatio",
         value: targets.farEyeRatio,
-        attainable: attainableRatio,
+        attainable: cluster.ratios,
       };
     }
-    farEyeRatio = clampInto(farEyeRatio, attainableRatio);
+    farEyeRatio = clampInto(farEyeRatio, cluster.ratios);
     clamped.push("farEyeRatio");
   }
 
-  const best = fitTurnRadius(ctx, pass.candidates, farEyeRatio);
+  const best = fitTurnRadius(ctx, cluster.candidates, farEyeRatio);
+  // What the fit actually reached, against what it was asked for: inside a run
+  // the ratio is continuous, but the bisection can still stop on a radius the
+  // silhouette gate refuses — a gap finer than the sweep resolves — and land
+  // on a bracket end instead. A miss is refused or reported, never passed off
+  // as met. The tolerance is solveTurnDepthSigned's own slack read in this
+  // cue's own units, which are already dimensionless: the far/near ratio is a
+  // width over a width, so there is no px scale to divide it by.
+  if (Math.abs(best.ratio - farEyeRatio) > TURN_DEPTH_EPS) {
+    if (!targets.defaulted.has("farEyeRatio")) {
+      return {
+        unreachable: true,
+        field: "farEyeRatio",
+        value: targets.farEyeRatio,
+        attainable: cluster.ratios,
+      };
+    }
+    if (!clamped.includes("farEyeRatio")) clamped.push("farEyeRatio");
+  }
   if (!best.eye.reached) clamped.push("eyeShift");
-  if (best.silhouetteCapped) clamped.push("silhouetteRatio");
+  // Only a DEFAULTED silhouette can be here cut down: the fit lands a
+  // caller-measured one or refuses the radius outright (evaluateTurnCandidate),
+  // so a ratio that reached this point was either rendered as asked — nothing
+  // to report — or is this generator's own default, cut to the nearest ratio a
+  // render of this layer set can show.
+  if (best.silhouetteClamped) clamped.push("silhouetteRatio");
   // Undo the same silhouette-centre correction the depth was solved with (see
   // evaluateTurnCandidate), so this reports the cue measure_turn_reference
   // would read off a render — eye position against that pose's OWN silhouette
@@ -2714,7 +3110,8 @@ export function plateReachAt(
  * destination is capped to that side's own reach (`holdEdge` below) before
  * `invertX` runs, rather than leaving invertX's own clamp — pinning a target
  * past the edge column onto it — to decide silently. `evaluateTurnCandidate`
- * runs the identical cap first, so a CALLER target that would need it here is
+ * runs the identical cap inside the hold it ships, so what it fits and reports
+ * is what lands here: a CALLER target the cap keeps any hold from rendering is
  * refused there instead, and a DEFAULTED one is reported through
  * `TurnSolveReport.achieved.silhouetteRatio` rather than landing short
  * unannounced. A vertex whose own REST x already sits beyond the grid is a
@@ -3205,7 +3602,12 @@ export function generateIkiFromLayerSet(
     : undefined;
   if (turn?.unreachable) {
     throw new TurnTargetError(
-      `auto-rig: turnTargets.${turn.field} ${turn.value} is unreachable for this layer set (attainable ${turn.attainable[0]}…${turn.attainable[1]})`,
+      turn.attainable === undefined
+        ? // Only a silhouette can land here: nothing the field's own accepted
+          // range allows renders on this layer set, so there is no interval to
+          // offer instead — see `silhouetteMiss` in evaluateTurnCandidate.
+          `auto-rig: turnTargets.${turn.field} ${turn.value} is unreachable for this layer set, and so is every ${turn.field} in [${SILHOUETTE_RATIO_MIN}, ${TURN_RATIO_MAX}]`
+        : `auto-rig: turnTargets.${turn.field} ${turn.value} is unreachable for this layer set (attainable ${turn.attainable[0]}…${turn.attainable[1]})`,
     );
   }
   if (turn) {

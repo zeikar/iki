@@ -84,10 +84,10 @@ caller has measured the actual head (the face plate stands in otherwise).
 Alongside it, `options.headEdges` names, per side, every layer with an opaque
 pixel at the eye row and its own rest x there — a companion to a measured
 `headHalfWidth`, absent otherwise — so the solver can land each candidate
-through its OWN part's deformation (the bangs, the back hair, a face-plate or
-body edge move very differently on the turn) rather than assume the head is
-centred on the face plate or that whichever part drew furthest out at rest is
-still the furthest out after it turns.
+through its OWN part's deformation (the bangs move with their hold, the back
+hair holds still, a face-plate or body edge slide) rather than assume the head
+is centred on the face plate or that whichever part drew furthest out at rest
+is still the furthest out after it turns.
 
 It takes **already-decoded** layer geometry (`LayerInput`), never pixels, which
 is what keeps this package free of any image dependency: the editor app

@@ -874,26 +874,11 @@ describe("autoRigFromLayers", () => {
     const smallPath = path.join(dir, "small.iki");
     const bigPath = path.join(dir, "big.iki");
 
-    // This fixture's own shift FLOOR is 0.066 of the 40px head — measured off
-    // the refusal a deliberately low ask gets here (eyeShift 0.01 comes back
-    // "attainable 0.06609…0.36505"), not guessed. It is the face's OWN slide,
-    // which rides the face-warp map now: the face plate already slides 7.75px
-    // toward the far side, and the eyes ride it — the whole 0.25 × 31px plate
-    // half-width, read off the shipped faceWarp's centre column at −30°, so
-    // shellTravelCap does not bind on a head this size. The bend pulls the
-    // pair ~1.35px back the near way, leaving 6.4px of zero-depth drift, and
-    // it is only the silhouette centre's own drift, which the cue is measured
-    // against, that brings the floor down to 0.066 from there. No bend-only
-    // minimum bounds anything here any more.
-    //
-    // 0.15/0.25 rather than a pair nearer that floor, because a target just
-    // above it only rigs degenerately: 0.145 is the first ask this fixture
-    // reaches with nothing else cut down, and anything nearer the floor
-    // clamps farEyeRatio and silhouetteRatio at a near-flat 140–210px radius
-    // (0.09 does rig, at ~206px — near the sweep's near-flat ceiling, 248px,
-    // which is where the floor itself is reached). These two sit in the clean
-    // band (radii ~45.7 and ~51.4, both `clamped: []`), so what changes
-    // between them is the eye's own depth and not the solve's character.
+    // Both targets are reachable here and neither is cut down — 0.15/0.25 sit
+    // in the band this fixture rigs with `clamped: []`, so what changes
+    // between them is the eye's own depth and not the solve's character. The
+    // floor they clear is measured, not guessed: eyeShift 0.01 comes back
+    // "attainable 0.06609…0.36505".
     const small = await autoRigFromLayers({
       layers,
       outputPath: smallPath,
