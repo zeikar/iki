@@ -7,8 +7,8 @@ import {
   bakeEyelidFoldWarp,
   bakeHairFrontSilhouetteWarp,
   bakeHairSwayWarp,
-  bakeHeadTurnGridWarp2DCentered,
   bakeHeadTurnGridWarpCentered,
+  bakeTurnGroupWarp2D,
   bboxToTransform,
   bindingsForRole,
   createPixelGridMesh,
@@ -24,6 +24,8 @@ import {
   solveTurnModel,
   turnColumnMap,
   turnLandmarks,
+  turnSolveInputs,
+  turnSurface,
   validateLayerInputs,
   type LayerInput,
   type TurnSolveReport,
@@ -71,6 +73,35 @@ const axisGrid = {
 /** The turn radius the rig would pick for `axisGrid`: its own x-reach about
  *  centerX = 0 with the no-fold margin. */
 const axisGridRadiusX = 400 * RADIUS_FACTOR;
+
+/** A surface to bake `grid` from: `radiusX` and `travel` the caller's, the
+ *  nod radius the grid's own y reach about `centre` with the no-fold margin
+ *  (300 · RADIUS_FACTOR on `axisGrid`) — the rule `latticeHalfHeight` applies
+ *  to the generator's lattice today, which is what keeps the primitive suites'
+ *  expectations standing. It is the GRID's reach, not the head's: once a bake
+ *  runs on a group grid the generator's nod radius is the head's own
+ *  `halfH · F` and differs from what this derives, so a caller baking such a
+ *  grid has to pass that radius rather than lean on this. `centre` defaults to
+ *  the origin, where `axisGrid`'s two axes sit. */
+const surfaceOn = (
+  grid: { cols: number; rows: number; points: number[] },
+  radiusX: number,
+  travel: number,
+  centre = { x: 0, y: 0 },
+) => {
+  let reachY = 0;
+  for (let i = 1; i < grid.points.length; i += 2) {
+    reachY = Math.max(reachY, Math.abs(grid.points[i] - centre.y));
+  }
+  return turnSurface({
+    faceCenterX: centre.x,
+    faceCenterY: centre.y,
+    radius: radiusX,
+    travel,
+    nodRadius: reachY * RADIUS_FACTOR,
+    lattice: grid,
+  });
+};
 
 /** One cell of a 2D bake, by angle VALUES (degrees), not lattice indices. */
 const cell = (
@@ -131,8 +162,9 @@ const travelOf = (model: ReturnType<typeof generateIkiFromLayerSet>) =>
  *  own turn binding carried it until the back hair went static on the turn),
  *  so it is captured from the solve's own report. A layer set that solves no
  *  turn at all — no nose layer — falls back to what generateIkiFromLayerSet
- *  falls back to: the FACE GRID's own half-width (the union's reach about the
- *  face centre, not the plate's) with the no-fold margin. */
+ *  falls back to: the LATTICE's own half-width (the shipped face grid's — the
+ *  union's reach about the face centre, not the plate's) with the no-fold
+ *  margin. */
 const solvedRig = (
   layers: LayerInput[],
   canvas: { width: number; height: number },
@@ -151,10 +183,10 @@ const solvedRig = (
   return { model, radius: solved ?? gridHalfWidth * RADIUS_FACTOR };
 };
 
-/** The `hairFront` param `solveTurnModel` needs for the turn-lead
- *  correction, derived the same way `generateIkiFromLayerSet` does —
- *  shared so every direct `solveTurnModel` call in this file solves the
- *  identical turn the generated model ships, lead included. */
+/** hair_front's own rest geometry — transform x/y and crop size, the shape
+ *  `turnSolveInputs` hands the solve as its `hairFront` entry — for a test
+ *  that places a point against the bangs' own mesh columns. Every direct
+ *  `solveTurnModel` call in this file spreads `turnSolveInputs` instead. */
 const hairFrontOf = (layers: LayerInput[]) => {
   const layer = layers.find((l) => l.role === "hair_front");
   if (!layer) return undefined;
@@ -820,14 +852,12 @@ describe("head nod (AngleY)", () => {
   // is under test is the pure bend. The slide has its own describe below.
 
   it("bakes a 5×5 lattice at 15° stops in the format's row-major layout", () => {
-    const w = bakeHeadTurnGridWarp2DCentered(
+    const w = bakeTurnGroupWarp2D(
       axisGrid,
       "ax",
       "ay",
-      0,
-      0,
-      axisGridRadiusX,
-      0,
+      surfaceOn(axisGrid, axisGridRadiusX, 0),
+      () => 0,
     );
     expect(w.valuesX).toEqual([-30, -15, 0, 15, 30]);
     expect(w.valuesY).toEqual([-30, -15, 0, 15, 30]);
@@ -841,14 +871,12 @@ describe("head nod (AngleY)", () => {
     // The 1D bake is the pure-bend reference, so the row matches it at travel
     // 0 and only there — what a shipped row adds on top is the uniform slide,
     // checked column by column in describe("head turn slide").
-    const w = bakeHeadTurnGridWarp2DCentered(
+    const w = bakeTurnGroupWarp2D(
       axisGrid,
       "ax",
       "ay",
-      0,
-      0,
-      axisGridRadiusX,
-      0,
+      surfaceOn(axisGrid, axisGridRadiusX, 0),
+      () => 0,
     );
     const turn = bakeHeadTurnGridWarpCentered(
       axisGrid,
@@ -866,14 +894,12 @@ describe("head nod (AngleY)", () => {
   });
 
   it("mid stops are the analytic bend, not the chord between ±30 and 0", () => {
-    const w = bakeHeadTurnGridWarp2DCentered(
+    const w = bakeTurnGroupWarp2D(
       axisGrid,
       "ax",
       "ay",
-      0,
-      0,
-      axisGridRadiusX,
-      0,
+      surfaceOn(axisGrid, axisGridRadiusX, 0),
+      () => 0,
     );
     const R = axisGridRadiusX;
     const theta15 = 15 * (Math.PI / 180);
@@ -907,14 +933,12 @@ describe("head nod (AngleY)", () => {
       points: generateGridPoints(4, 4, -100, 500, -50, 350),
     };
     const lopsidedRadius = 500 * RADIUS_FACTOR;
-    const w2 = bakeHeadTurnGridWarp2DCentered(
+    const w2 = bakeTurnGroupWarp2D(
       lopsided,
       "ax",
       "ay",
-      0,
-      0,
-      lopsidedRadius,
-      0,
+      surfaceOn(lopsided, lopsidedRadius, 0),
+      () => 0,
     );
     const stride = 5;
     for (const k of w2.keyforms2d) {
@@ -970,14 +994,12 @@ describe("head nod (AngleY)", () => {
         expect(at(1) - at(0)).toBeCloseTo(500, 9);
       }
     };
-    for (const k of bakeHeadTurnGridWarp2DCentered(
+    for (const k of bakeTurnGroupWarp2D(
       wide,
       "ax",
       "ay",
-      0,
-      0,
-      tight,
-      0,
+      surfaceOn(wide, tight, 0),
+      () => 0,
     ).keyforms2d) {
       ordered(k.offsets);
     }
@@ -988,14 +1010,12 @@ describe("head nod (AngleY)", () => {
   });
 
   it("pins the axis row: points on centerY never move vertically", () => {
-    const w = bakeHeadTurnGridWarp2DCentered(
+    const w = bakeTurnGroupWarp2D(
       axisGrid,
       "ax",
       "ay",
-      0,
-      0,
-      axisGridRadiusX,
-      0,
+      surfaceOn(axisGrid, axisGridRadiusX, 0),
+      () => 0,
     );
     for (const k of w.keyforms2d) {
       for (let p = 0; p < axisGrid.points.length / 2; p++) {
@@ -1007,14 +1027,12 @@ describe("head nod (AngleY)", () => {
   });
 
   it("a full nod foreshortens without folding, the far side most", () => {
-    const w = bakeHeadTurnGridWarp2DCentered(
+    const w = bakeTurnGroupWarp2D(
       axisGrid,
       "ax",
       "ay",
-      0,
-      0,
-      axisGridRadiusX,
-      0,
+      surfaceOn(axisGrid, axisGridRadiusX, 0),
+      () => 0,
     );
     const up = cell(w, 0, 30); // AngleX=0, AngleY=+30
     const stride = axisGrid.cols + 1;
@@ -1117,18 +1135,18 @@ describe("head nod (AngleY)", () => {
   it("the nod bends the face gentler than the turn does", () => {
     // Same square grid, same radius on both axes: only NOD_BEND separates the
     // top edge's vertical travel from the right edge's horizontal travel.
-    const w = bakeHeadTurnGridWarp2DCentered(
-      {
-        cols: 4,
-        rows: 4,
-        points: generateGridPoints(4, 4, -400, 400, -400, 400),
-      },
+    const square = {
+      cols: 4,
+      rows: 4,
+      points: generateGridPoints(4, 4, -400, 400, -400, 400),
+    };
+    const w = bakeTurnGroupWarp2D(
+      square,
       "ax",
       "ay",
-      0,
-      0,
-      axisGridRadiusX, // 400 reach × the margin — the same radius the nod axis derives
-      0,
+      // 400 reach × the margin — the same radius surfaceOn derives for the nod
+      surfaceOn(square, axisGridRadiusX, 0),
+      () => 0,
     );
     const stride = 5;
     const turn = cell(w, 30, 0); // AngleX=+30, AngleY=0
@@ -1159,18 +1177,21 @@ describe("turnColumnMap", () => {
   // a slide, so what they read is the bend's own map.
 
   it("its warped columns are the bake's own, at every stop and either travel", () => {
-    // The map has to describe the SAME turn the model ships, or anything
-    // measured through it is measuring a different head — the bend on its own,
-    // and the bend with the head's sideways travel summed into it.
+    // The bake reads each node's dx as `mapAt(deg).mapX(x) − x` off this very
+    // map, so "the map describes the turn the model ships" holds by
+    // construction; the independent check that the map IS the cylinder bend
+    // is the 1D-bake comparison in describe("head nod (AngleY)"). What this
+    // still proves: row 0 of the grid is the map's columns, `mapX` at a node
+    // is that node's own `warpedX` (to an ulp of the `− x` round trip), and
+    // the literal-zero AngleX 0 stop agrees with `warpedX` at 0 — the bend on
+    // its own, and the bend with the head's sideways travel summed into it.
     for (const travel of [0, 60]) {
-      const w = bakeHeadTurnGridWarp2DCentered(
+      const w = bakeTurnGroupWarp2D(
         grid,
         "ax",
         "ay",
-        faceCenterX,
-        200,
-        radiusX,
-        travel,
+        surfaceOn(grid, radiusX, travel, { x: faceCenterX, y: 200 }),
+        () => 0,
       );
       for (const angleX of w.valuesX) {
         const k = cell(w, angleX, 0);
@@ -1238,14 +1259,12 @@ describe("head turn slide", () => {
   const HEAD_TURN_TRAVEL_RATIO = 0.25;
 
   it("the 2D bake slides the centre column by the whole travel at full turn", () => {
-    const w = bakeHeadTurnGridWarp2DCentered(
+    const w = bakeTurnGroupWarp2D(
       axisGrid,
       "ax",
       "ay",
-      0,
-      0,
-      axisGridRadiusX,
-      TRAVEL,
+      surfaceOn(axisGrid, axisGridRadiusX, TRAVEL),
+      () => 0,
     );
     // On the axis the bend is zero, so the centre column shows the slide neat:
     // the whole travel at ±30, half of it at ±15, none at rest — and the same
@@ -1260,14 +1279,12 @@ describe("head turn slide", () => {
   });
 
   it("every other column is its own bend plus that same slide", () => {
-    const slid = bakeHeadTurnGridWarp2DCentered(
+    const slid = bakeTurnGroupWarp2D(
       axisGrid,
       "ax",
       "ay",
-      0,
-      0,
-      axisGridRadiusX,
-      TRAVEL,
+      surfaceOn(axisGrid, axisGridRadiusX, TRAVEL),
+      () => 0,
     );
     // bakeHeadTurnGridWarpCentered is the pure-bend reference: the shipped row
     // is it plus a slide uniform across the whole grid, so the turn still
@@ -1291,14 +1308,12 @@ describe("head turn slide", () => {
   });
 
   it("the AngleX = 0 cells carry no slide at all", () => {
-    const w = bakeHeadTurnGridWarp2DCentered(
+    const w = bakeTurnGroupWarp2D(
       axisGrid,
       "ax",
       "ay",
-      0,
-      0,
-      axisGridRadiusX,
-      TRAVEL,
+      surfaceOn(axisGrid, axisGridRadiusX, TRAVEL),
+      () => 0,
     );
     for (const angleY of w.valuesY) {
       for (const dx of cell(w, 0, angleY).offsets.filter((_, n) => n % 2 === 0))
@@ -2009,18 +2024,14 @@ describe("hair_front silhouette hold", () => {
       plateReach(faceCenterX, faceHalfWidth, columnMapAt) + HOLD_CLEARANCE;
     // Where the hold sends its boundary at each stop is the solve's own
     // `holdEdgeAt`, which the report does not carry: re-solve the identical
-    // turn the generator did (the turn-targets suite's own recipe) and check
-    // by radius, travel AND hold base that it IS this rig's — the landing
-    // asserted below mixes its `holdEdgeAt` with the `holdBase` above, and
-    // the radius alone (fitted to the eye ratio) does not pin the travel
-    // (capped separately) or the hold base built on it.
+    // turn the generator did (`turnSolveInputs`, exactly what it handed the
+    // solve) and check by radius, travel AND hold base that it IS this rig's —
+    // the landing asserted below mixes its `holdEdgeAt` with the `holdBase`
+    // above, and the radius alone (fitted to the eye ratio) does not pin the
+    // travel (capped separately) or the hold base built on it.
     const turn = solveTurnModel(
       resolveTurnTargets({}),
-      turnLandmarks(layers),
-      grid,
-      faceCenterX,
-      faceHalfWidth,
-      hairFrontOf(layers),
+      ...turnSolveInputs(layers, canvas),
     );
     if (turn.unreachable) throw new Error("expected a reachable turn");
     expect(turn.radius).toBe(radius);
@@ -3748,14 +3759,14 @@ describe("feature depth parallax", () => {
       rows: 4,
       points: generateGridPoints(4, 4, -400, 400, -halfH, halfH),
     };
-    const w = bakeHeadTurnGridWarp2DCentered(
+    const w = bakeTurnGroupWarp2D(
       grid,
       "ax",
       "ay",
-      0,
-      0,
-      400 * RADIUS_FACTOR, // turn radius: irrelevant here, the nod is on y
-      0, // no rig behind this bake: the bend alone, no head travel
+      // turn radius: irrelevant here, the nod is on y; travel 0: no rig behind
+      // this bake, the bend alone
+      surfaceOn(grid, 400 * RADIUS_FACTOR, 0),
+      () => 0,
     );
     const up =
       w.keyforms2d[
@@ -4008,24 +4019,18 @@ describe("turn targets", () => {
     return { x, cropW: layer.cropW };
   };
 
-  /** `solveTurnModel` on a layer set, with the grid AND the hair_front
-   *  geometry the generator would build/pass for THAT layer set. */
+  /** `solveTurnModel` on a layer set, with exactly the inputs the generator
+   *  hands it for THAT layer set (`turnSolveInputs`). */
   const solveFor = (
     layers: LayerInput[],
     targets: TurnTargets = {},
     headEdges?: HeadEdges,
-  ) => {
-    const grid = faceWarpOf(generateIkiFromLayerSet(layers, canvas)).grid;
-    return solveTurnModel(
+  ) =>
+    solveTurnModel(
       resolveTurnTargets(targets),
-      turnLandmarks(layers),
-      grid,
-      (grid.points[0] + grid.points[grid.cols * 2]) / 2,
-      HH,
-      hairFrontOf(layers),
+      ...turnSolveInputs(layers, canvas),
       headEdges,
     );
-  };
 
   it("solveTurnModel: a far eye this layer set cannot foreshorten names the range it can", () => {
     const s = solveFor(withNose(), { farEyeRatio: 0.2 });
@@ -4153,10 +4158,6 @@ describe("turn targets", () => {
     // resolves eyeShift's absence to DEFAULT_TURN_TARGETS' own 0.22, so the
     // "same request" is built by hand — the resolved-targets shape is a public
     // type, and this is the only way to ask for a DEFAULT that is not 0.22.
-    const grid = generateIkiFromLayerSet(layers, canvas).deformers!.find(
-      (d) => d.id === "faceWarp",
-    )!.grid;
-    const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
     const resolved = resolveTurnTargets({ headHalfWidth: 2000 });
     const defaulted = solveTurnModel(
       {
@@ -4164,11 +4165,7 @@ describe("turn targets", () => {
         eyeShift: 0.1,
         defaulted: new Set([...resolved.defaulted, "eyeShift"]),
       },
-      turnLandmarks(layers),
-      grid,
-      faceCenterX,
-      HH,
-      hairFrontOf(layers),
+      ...turnSolveInputs(layers, canvas),
     );
     if (defaulted.unreachable)
       throw new Error("a default must never refuse to rig");
@@ -4318,11 +4315,7 @@ describe("turn targets", () => {
     const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
     const turn = solveTurnModel(
       resolveTurnTargets(targets),
-      turnLandmarks(layers),
-      grid,
-      faceCenterX,
-      HH,
-      hairFrontOf(layers),
+      ...turnSolveInputs(layers, canvas),
     );
     if (turn.unreachable) throw new Error("expected a reachable turn");
     // The direct solve IS the rig's: same radius, and the same sideways
@@ -4417,11 +4410,7 @@ describe("turn targets", () => {
     const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
     const turn = solveTurnModel(
       resolveTurnTargets(targets),
-      turnLandmarks(layers),
-      grid,
-      faceCenterX,
-      HH,
-      hairFrontOf(layers),
+      ...turnSolveInputs(layers, canvas),
     );
     if (turn.unreachable) throw new Error("expected a reachable turn");
     expect(turn.radius).toBeCloseTo(radius, 6);
@@ -4579,15 +4568,9 @@ describe("turn targets", () => {
 
     // The turned stops ARE capped, as designed — the fixture's grid genuinely
     // cannot carry a 500px hold at full turn.
-    const grid = faceWarpOf(model).grid;
-    const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
     const turn = solveTurnModel(
       resolveTurnTargets(targets),
-      turnLandmarks(layers),
-      grid,
-      faceCenterX,
-      HH,
-      hairFrontOf(layers),
+      ...turnSolveInputs(layers, canvas),
     );
     if (turn.unreachable) throw new Error("expected a reachable turn");
     expect(turn.holdBase).toBe(500);
@@ -4605,15 +4588,9 @@ describe("turn targets", () => {
     const model = generateIkiFromLayerSet(layers, canvas, {
       turnTargets: targets,
     });
-    const grid = faceWarpOf(model).grid;
-    const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
     const turn = solveTurnModel(
       resolveTurnTargets(targets),
-      turnLandmarks(layers),
-      grid,
-      faceCenterX,
-      HH,
-      hairFrontOf(layers),
+      ...turnSolveInputs(layers, canvas),
     );
     if (turn.unreachable) throw new Error("expected a reachable turn");
     // Not clamped: 0.18 is a MEASURED eyeShift this layer set can reach.
@@ -4638,15 +4615,9 @@ describe("turn targets", () => {
     const model = generateIkiFromLayerSet(layers, canvas, {
       turnTargets: targets,
     });
-    const grid = faceWarpOf(model).grid;
-    const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
     const turn = solveTurnModel(
       resolveTurnTargets(targets),
-      turnLandmarks(layers),
-      grid,
-      faceCenterX,
-      HH,
-      hairFrontOf(layers),
+      ...turnSolveInputs(layers, canvas),
     );
     if (turn.unreachable) throw new Error("expected a reachable turn");
     expect(turn.clamped).not.toContain("noseShift");
@@ -4690,15 +4661,9 @@ describe("turn targets", () => {
     // coincide with the way the measured-head fixture above does.
     const layers = withNose();
     const model = generateIkiFromLayerSet(layers, canvas);
-    const grid = faceWarpOf(model).grid;
-    const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
     const turn = solveTurnModel(
       resolveTurnTargets({}),
-      turnLandmarks(layers),
-      grid,
-      faceCenterX,
-      HH,
-      hairFrontOf(layers),
+      ...turnSolveInputs(layers, canvas),
     );
     if (turn.unreachable) throw new Error("expected a reachable turn");
     expect(cuesOf(model, layers, HH).eyeShift).toBeCloseTo(
@@ -4913,19 +4878,12 @@ describe("turn targets", () => {
   it("solveTurnModel: a headEdges candidate naming hair_back lands at its own rest x", () => {
     const layers = withNose();
     const targets = { headHalfWidth: 400, eyeShift: 0.3 };
-    const grid = generateIkiFromLayerSet(layers, canvas).deformers!.find(
-      (d) => d.id === "faceWarp",
-    )!.grid;
     // Called directly rather than through `solveFor`: the point is that the
     // solve is handed the bangs' geometry and nothing of hair_back's, and
     // still places a hair_back edge.
     const solved = solveTurnModel(
       resolveTurnTargets(targets),
-      turnLandmarks(layers),
-      grid,
-      (grid.points[0] + grid.points[grid.cols * 2]) / 2,
-      HH,
-      hairFrontOf(layers),
+      ...turnSolveInputs(layers, canvas),
       {
         left: [{ role: "hair_back", x: -400 }],
         right: [{ role: "hair_back", x: 400 }],
