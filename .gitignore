@@ -16,3 +16,6 @@ Hiyori/
 
 # Character-generation workdir (the iki-character skill composes and rigs here — generated art, never committed)
 iki-char/
+
+# Scratch model the playground loads while a rig is judged against the shipped hero (never committed)
+examples/playground/public/hero-candidate.iki

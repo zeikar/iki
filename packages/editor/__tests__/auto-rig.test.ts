@@ -29,6 +29,12 @@ import {
   type TurnSolveReport,
   type TurnTargets,
 } from "../src/auto-rig";
+import {
+  type ParamValues,
+  landVertices,
+  landedXAt,
+  preBindVertices,
+} from "./helpers/render-oracle";
 
 /** Mirror of auto-rig's private HEAD_CYLINDER_RADIUS_FACTOR: the margin
  *  between a cylinder's radius and the reach it covers. Tests pick the turn
@@ -5410,5 +5416,203 @@ describe("turn targets", () => {
     // Not even an unreachable one throws: nothing is solved at all.
     expect(targeted).toEqual(plain);
     expect(slideAt30(targeted, "eye_L")).toBe(0);
+  });
+});
+
+// ── Hero-like fixture ────────────────────────────────────────────────────────
+
+/** The 1100×1100 canvas the playground hero's layers are painted on. */
+const canvas1100 = { width: 1100, height: 1100 };
+
+/**
+ * The playground hero's own layer geometry — examples/playground/public/hero.iki
+ * (rigged 2026-09-19 from iki-char/layers-nose), read back off
+ * iki-char/rewrite/baseline.iki, which reproduces it byte for byte: each mesh
+ * part's bbox from its transform and mesh half-extents (createPixelGridMesh
+ * spans ±w/2, ±h/2), the body's from its width/height.
+ */
+function heroLikeLayers(): LayerInput[] {
+  const layer = (
+    role: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+  ): LayerInput => ({
+    role,
+    fileName: `${role}.png`,
+    canvasW: canvas1100.width,
+    canvasH: canvas1100.height,
+    bbox: { x, y, w, h },
+    cropW: w,
+    cropH: h,
+  });
+  return [
+    layer("body", 136, 809, 829, 291),
+    layer("brow_L", 577, 394, 137, 23),
+    layer("brow_R", 387, 394, 137, 23),
+    layer("eye_L", 592, 442, 130, 66),
+    layer("eye_R", 378, 442, 130, 66),
+    layer("face", 349, 234, 402, 592),
+    layer("hair_back", 149, 56, 802, 1028),
+    layer("hair_front", 219, 45, 662, 991),
+    layer("iris_L", 625, 438, 74, 74),
+    layer("iris_R", 401, 438, 74, 74),
+    layer("lash_L", 592, 442, 129, 35),
+    layer("lash_R", 379, 442, 129, 35),
+    layer("mouth", 515, 623, 70, 21),
+    layer("mouth_open", 515, 621, 70, 29),
+    layer("nose", 533, 561, 35, 50),
+  ];
+}
+
+/** The head `auto_rig_from_layers` measured off those layers' opaque union at
+ *  the eye row (`headHalfWidth`, canvas px) and every role's own extent in
+ *  that band, per side (`headEdges`, model x) — copied from
+ *  iki-char/rewrite/baseline-report.json. */
+const HERO_HEAD = {
+  headHalfWidth: 262,
+  headEdges: {
+    left: [
+      { role: "eye_L", x: 45 },
+      { role: "eye_R", x: -170 },
+      { role: "face", x: -180 },
+      { role: "hair_back", x: -214 },
+      { role: "hair_front", x: -263 },
+      { role: "iris_L", x: 76 },
+      { role: "iris_R", x: -148 },
+      { role: "lash_L", x: 45 },
+      { role: "lash_R", x: -167 },
+    ],
+    right: [
+      { role: "eye_L", x: 169 },
+      { role: "eye_R", x: -46 },
+      { role: "face", x: 180 },
+      { role: "hair_back", x: 224 },
+      { role: "hair_front", x: 260 },
+      { role: "iris_L", x: 147 },
+      { role: "iris_R", x: -77 },
+      { role: "lash_L", x: 166 },
+      { role: "lash_R", x: -46 },
+    ],
+  },
+};
+
+/** What the shipped hero's turn solve reached (`turn.achieved`, to 4 decimals)
+ *  and which defaulted target it had to cut down (`turn.clamped`) — copied
+ *  from iki-char/rewrite/baseline-report.json. */
+const HERO_CUES = { eyeShift: 0.2197, farEyeRatio: 0.67, silhouetteRatio: 1 };
+const HERO_CLAMPED = ["eyeShift"];
+
+describe("hero golden cues", () => {
+  const layers = heroLikeLayers();
+  /** The hero-like rig and its report, solved once on first use — from inside
+   *  an `it`, so a solve that throws fails these three tests rather than the
+   *  whole file's collection (vitest collects no test from a `describe` body
+   *  that throws). */
+  let solved:
+    | {
+        model: ReturnType<typeof generateIkiFromLayerSet>;
+        report: TurnSolveReport;
+      }
+    | undefined;
+  const heroRig = () => {
+    if (solved) return solved;
+    let report: TurnSolveReport | undefined;
+    const model = generateIkiFromLayerSet(layers, canvas1100, {
+      turnTargets: { headHalfWidth: HERO_HEAD.headHalfWidth },
+      headEdges: HERO_HEAD.headEdges,
+      onTurnSolved: (r) => {
+        report = r;
+      },
+    });
+    if (!report) throw new Error("the hero-like layer set must solve a turn");
+    solved = { model, report };
+    return solved;
+  };
+  const turned = { [StandardParameter.AngleX]: -30 };
+
+  it("reaches the shipped hero's cues and cuts down the same target", () => {
+    const { report } = heroRig();
+    expect(report.achieved.eyeShift).toBeCloseTo(HERO_CUES.eyeShift, 3);
+    expect(report.achieved.farEyeRatio).toBeCloseTo(HERO_CUES.farEyeRatio, 3);
+    expect(report.achieved.silhouetteRatio).toBeCloseTo(
+      HERO_CUES.silhouetteRatio,
+      3,
+    );
+    expect(report.clamped).toEqual(HERO_CLAMPED);
+  });
+
+  it("reports the cues the engine renders at −30, equal to the landed geometry's float32 rounding", () => {
+    const { model, report } = heroRig();
+    // Each eye white read where its mesh lands it: the width between its two
+    // edges on its own centre row, at rest and turned, and its centre's slide.
+    const white = (role: string) => {
+      const { x, y } = model.parts.find((p) => p.id === role)!.transform;
+      const w = layers.find((l) => l.role === role)!.cropW;
+      const widthAt = (params?: ParamValues) =>
+        landedXAt(model, role, x + w / 2, y, params) -
+        landedXAt(model, role, x - w / 2, y, params);
+      return {
+        x,
+        y,
+        rest: widthAt(),
+        turned: widthAt(turned),
+        centreShift: landedXAt(model, role, x, y, turned) - x,
+      };
+    };
+    // A −30° turn foreshortens the −x side, whichever character side that is.
+    const [far, near] = ["eye_L", "eye_R"].map(white).sort((a, b) => a.x - b.x);
+    const farEyeRatio = far.turned / near.turned / (far.rest / near.rest);
+
+    // The silhouette: each side's outermost landing among the roles the mcp
+    // saw in the eye-row band, each read at its own rest x on the eye row,
+    // against that side's outermost rest x — what measure_turn_reference
+    // reads off a render's opaque span.
+    const eyeRowY = (far.y + near.y) / 2;
+    const side = (
+      candidates: { role: string; x: number }[],
+      outermost: (...xs: number[]) => number,
+    ) => ({
+      landed: outermost(
+        ...candidates.map((c) =>
+          landedXAt(model, c.role, c.x, eyeRowY, turned),
+        ),
+      ),
+      rest: outermost(...candidates.map((c) => c.x)),
+    });
+    const left = side(HERO_HEAD.headEdges.left, Math.min);
+    const right = side(HERO_HEAD.headEdges.right, Math.max);
+    const silhouetteCenterShift =
+      (left.landed + right.landed) / 2 - (left.rest + right.rest) / 2;
+    const silhouetteRatio =
+      (right.landed - left.landed) / (right.rest - left.rest);
+    // Positive toward the far side — the report's own
+    // `(−achieved + silhouetteCenterShift) / hh`, `achieved` being the pair's
+    // signed slide against the face centre.
+    const pairShift = (far.centreShift + near.centreShift) / 2;
+    const eyeShift =
+      (silhouetteCenterShift - pairShift) / HERO_HEAD.headHalfWidth;
+
+    // The report is float64; the oracle lands in float32 as the engine does,
+    // so the two differ by that rounding alone (≈3e-5 px on x ≈ 300, ≈1e-7
+    // in cue units) — 1e-6 is deterministic agreement, not a flake margin.
+    expect(farEyeRatio).toBeCloseTo(report.achieved.farEyeRatio, 6);
+    expect(eyeShift).toBeCloseTo(report.achieved.eyeShift, 6);
+    expect(silhouetteRatio).toBeCloseTo(report.achieved.silhouetteRatio, 6);
+  });
+
+  it("hair_back holds the outline: its vertices land at rest at every stop", () => {
+    const { model } = heroRig();
+    // headDeformer is the identity at rest, so the pre-bind positions ARE the
+    // rest placement — and the landing at every AngleX stop is the same
+    // float32 pipeline with nothing moving in it, so it equals them exactly.
+    const rest = Array.from(preBindVertices(model, "hair_back"));
+    for (const deg of faceWarpOf(model).warp2d.valuesX) {
+      const landed = landVertices(model, "hair_back", {
+        [StandardParameter.AngleX]: deg,
+      });
+      expect(Array.from(landed)).toEqual(rest);
+    }
   });
 });
