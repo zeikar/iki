@@ -32,6 +32,8 @@ import {
 import {
   type ParamValues,
   landVertices,
+  landedCentroidX,
+  landedCentroidY,
   landedXAt,
   preBindVertices,
 } from "./helpers/render-oracle";
@@ -44,6 +46,15 @@ const RADIUS_FACTOR = 0.6 / 0.5;
 /** Mirror of auto-rig's private HOLD_CLEARANCE: how far past the plate's own
  *  landing the held silhouette edge has to sit. */
 const HOLD_CLEARANCE = 1;
+
+/** Mirror of auto-rig's private BODY_TURN_FOLLOW: the torso's share of the
+ *  face's turn travel — the one rigid share of it left. */
+const BODY_TURN_FOLLOW = 0.3;
+
+/** Mirror of auto-rig's private HAIR_SWAY_TIP_FRACTION: how far a hair part's
+ *  tips swing at the end of a sway's range, as a fraction of its crop height
+ *  (before the bangs' grid cap). */
+const HAIR_SWAY_TIP_FRACTION = 0.09;
 
 /** The 1000×1000 canvas every layer fixture in this file is painted on. */
 const canvas1000 = { width: 1000, height: 1000 };
@@ -554,6 +565,26 @@ describe("validate", () => {
 
 // ── describe("assembly") ─────────────────────────────────────────────────────
 
+/** One fixture layer: `role.png`, its bbox on `canvas`, cropped to that bbox. */
+function layer(
+  canvas: { width: number; height: number },
+  role: string,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): LayerInput {
+  return {
+    role,
+    fileName: `${role}.png`,
+    canvasW: canvas.width,
+    canvasH: canvas.height,
+    bbox: { x, y, w, h },
+    cropW: w,
+    cropH: h,
+  };
+}
+
 /** Fixture layers for assembly tests: face + eye_L + eye_R + mouth + hair_back */
 function assemblyLayers(): LayerInput[] {
   return [
@@ -652,6 +683,25 @@ function noseLayer(): LayerInput {
     cropW: 40,
     cropH: 60,
   };
+}
+
+/** hairFrontLayers() + noseLayer() + the rest of what a face carries: irises
+ *  inside the whites (narrower), lashes over the whites' top halves, brows
+ *  above them and an open mouth on the closed one's bbox. Symmetric about the
+ *  canvas centre like the layers it extends, so a part's −30° landing is the
+ *  other side's +30° landing mirrored. */
+function fullFaceLayers(): LayerInput[] {
+  return [
+    ...hairFrontLayers(),
+    noseLayer(),
+    layer(canvas1000, "iris_L", 340, 310, 70, 80),
+    layer(canvas1000, "iris_R", 590, 310, 70, 80),
+    layer(canvas1000, "lash_L", 300, 300, 150, 50),
+    layer(canvas1000, "lash_R", 550, 300, 150, 50),
+    layer(canvas1000, "brow_L", 300, 270, 150, 25),
+    layer(canvas1000, "brow_R", 550, 270, 150, 25),
+    layer(canvas1000, "mouth_open", 400, 600, 200, 80),
+  ];
 }
 
 // ── describe("head nod (AngleY)") ────────────────────────────────────────────
@@ -1078,8 +1128,6 @@ describe("head turn slide", () => {
    *  grid's own offsets — so the checks on a generated rig below mirror it,
    *  the way this file already mirrors HAIR_FRONT_DEPTH. */
   const HEAD_TURN_TRAVEL_RATIO = 0.25;
-  /** Mirror of auto-rig's private BODY_TURN_FOLLOW: the torso's share. */
-  const BODY_TURN_FOLLOW = 0.3;
 
   it("the 2D bake slides the centre column by the whole travel at full turn", () => {
     const w = bakeHeadTurnGridWarp2DCentered(
@@ -1518,8 +1566,7 @@ describe("head-turn depth parallax", () => {
     const bottomY = Math.min(
       ...front.mesh!.vertices.filter((_, i) => i % 2 === 1),
     );
-    // The shared parallaxUnit, off that same cylinder radius (hairHeadroomAt
-    // below reads the grid edges it is scaled from).
+    // The shared parallaxUnit, off that same cylinder radius.
     const parallaxUnit = headTurnParallaxUnit(radius);
     for (let v = 0; v < front.mesh!.vertices.length / 2; v++) {
       const vy = front.mesh!.vertices[v * 2 + 1];
@@ -1609,54 +1656,65 @@ describe("head-turn depth parallax", () => {
   // steady state) — the parameter value the sway cap is sized for.
   const SPRING_PEAK = 11.2;
 
-  /** Worst-case x reach of hair_front's tips at parameter `v` on ONE sway warp,
-   *  plus the turn lead's own warp (both root-pinned, so both peak at the same
-   *  tip row), against the faceWarp grid's x-edges. */
-  const hairHeadroomAt = (
+  /** Where every vertex on a part's bottom mesh row — the hair's tips, the row
+   *  a root-pinned sway swings furthest — lands on x at `params`. */
+  const tipLandingsX = (
     model: ReturnType<typeof generateIkiFromLayerSet>,
-    v: number,
+    partId: string,
+    params: ParamValues = {},
   ) => {
-    const grid = model.deformers!.find((d) => d.id === "faceWarp")!.grid;
-    const gridMaxX = grid.points[grid.cols * 2];
-    const gridMinX = grid.points[0];
-    const hair = model.parts.find((p) => p.id === "hair_front")!;
-    const xs = hair.mesh!.vertices.filter((_, i) => i % 2 === 0);
-    const lead = (hair.warps ?? []).find(
-      (w) => w.parameter === StandardParameter.AngleX,
-    )!;
-    const shift = Math.max(
-      ...lead.keyforms[1].offsets.filter((_, i) => i % 2 === 0),
+    const verts = model.parts.find((p) => p.id === partId)!.mesh!.vertices;
+    const bottomY = Math.min(...verts.filter((_, i) => i % 2 === 1));
+    const landed = landVertices(model, partId, params);
+    return verts.flatMap((v, i) =>
+      i % 2 === 1 && v === bottomY ? [landed[i - 1]] : [],
     );
-    const sway = (hair.warps ?? []).find(
-      (w) => w.parameter === StandardParameter.HairSwayX,
-    )!;
-    const tip = Math.max(
-      ...sway.keyforms[1].offsets.filter((_, i) => i % 2 === 0),
-    );
-    const swing = (tip * v) / 20;
-    return {
-      right: gridMaxX - (hair.transform!.x + Math.max(...xs) + shift + swing),
-      left: hair.transform!.x + Math.min(...xs) - shift - swing - gridMinX,
-      tip,
-    };
   };
 
-  it("the swayed, shifted hair_front tips stay inside the faceWarp grid at a spring's peak", () => {
-    // applyWarpToChild sways and shifts a vertex BEFORE binding it to the rest
-    // grid; past the edge the binding clamps and the tips flatten into a line.
-    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
-    const h = hairHeadroomAt(model, SPRING_PEAK);
-    expect(h.right).toBeGreaterThan(0);
-    expect(h.left).toBeGreaterThan(0);
-    // On this fixture the cap does not bite: the swing is the full 9%.
-    expect(h.tip).toBeCloseTo(0.09 * 400, 6);
+  /** hair_front's tip swing on x out to HairSwayX `peak`, split at half the
+   *  peak, per tip: `[half − rest, peak − half]`. A swing that renders linear
+   *  in the parameter gives two equal halves; a tip the grid's edge has
+   *  clamped gains less over the second half than over the first. */
+  const tipSwingHalves = (
+    model: ReturnType<typeof generateIkiFromLayerSet>,
+    peak: number,
+  ) => {
+    const sway = (v: number) => ({ [StandardParameter.HairSwayX]: v });
+    const rest = tipLandingsX(model, "hair_front");
+    const half = tipLandingsX(model, "hair_front", sway(peak / 2));
+    const at = tipLandingsX(model, "hair_front", sway(peak));
+    return at.map((x, i) => [half[i] - rest[i], x - half[i]] as const);
+  };
+
+  it("the hair_front tips swing linearly out to a spring's peak, the full uncapped fraction of their height", () => {
+    // What the shared grid renders today (Tasks 4–7 take the bangs off it):
+    // applyWarpToChild sways a vertex BEFORE binding it to the rest grid, and
+    // past the grid's edge the binding clamps, so a clamped tip gains less
+    // over the second half of the swing than over the first. On this fixture
+    // the tips have room: both halves are equal to float32 rounding, and the
+    // whole swing is the uncapped fraction of the hair's height.
+    const layers = hairFrontLayers();
+    const model = generateIkiFromLayerSet(layers, canvas);
+    const cropH = layers.find((l) => l.role === "hair_front")!.cropH;
+    for (const peak of [SPRING_PEAK, -SPRING_PEAK]) {
+      for (const [first, second] of tipSwingHalves(model, peak)) {
+        expect(second).toBeCloseTo(first, 4);
+        expect(first + second).toBeCloseTo(
+          HAIR_SWAY_TIP_FRACTION * cropH * (peak / 20),
+          4,
+        );
+      }
+    }
   });
 
-  it("tall bangs on a narrow face get their swing capped to the grid, not clamped by it", () => {
+  it("tall bangs on a narrow face: the swing is capped so the tips still swing linearly to a spring's peak, instead of clamping between half the peak and the peak", () => {
     // The grid's margin is 12% of the union's WIDTH, but the swing is 9% of the
     // hair's HEIGHT; hair that sets the union's width and is much taller than
-    // it is wide puts its tips past the edge at a spring's peak. Uncapped, this
-    // layout swings 90px against ~33px of headroom after the parallax shift.
+    // it is wide would, uncapped, put its tips 50px out at a spring's peak
+    // against ~48px of headroom at rest — clamped by the grid's edge between
+    // half the peak and the peak, gaining less over the second half than the
+    // first. The cap on the swing is what keeps the two halves equal here, on
+    // today's shared grid (Tasks 4–7 take the bangs off it).
     const tall: LayerInput[] = [
       {
         role: "face",
@@ -1714,19 +1772,20 @@ describe("head-turn depth parallax", () => {
       },
     ];
     const model = generateIkiFromLayerSet(tall, canvas);
-    const h = hairHeadroomAt(model, SPRING_PEAK);
-    expect(h.tip).toBeLessThan(0.09 * 1000);
-    expect(h.tip).toBeGreaterThan(0);
-    expect(h.right).toBeGreaterThanOrEqual(-1e-6);
-    expect(h.left).toBeGreaterThanOrEqual(-1e-6);
-    // The back hair, a matrix child with no grid, keeps the full swing.
-    const back = model.parts.find((p) => p.id === "hair_back")!;
-    const backSway = (back.warps ?? []).find(
-      (w) => w.parameter === StandardParameter.HairSwayX,
-    )!;
-    expect(
-      Math.max(...backSway.keyforms[1].offsets.filter((_, i) => i % 2 === 0)),
-    ).toBeCloseTo(0.09 * 800, 6);
+    for (const peak of [SPRING_PEAK, -SPRING_PEAK]) {
+      for (const [first, second] of tipSwingHalves(model, peak)) {
+        expect(second).toBeCloseTo(first, 4);
+      }
+    }
+    // The back hair, a matrix child with no grid, keeps the full swing: its
+    // tips move the whole fraction of its crop height at the end of the range.
+    const backCropH = tall.find((l) => l.role === "hair_back")!.cropH;
+    const rest = tipLandingsX(model, "hair_back");
+    tipLandingsX(model, "hair_back", {
+      [StandardParameter.HairSwayX]: 20,
+    }).forEach((x, i) => {
+      expect(x - rest[i]).toBeCloseTo(HAIR_SWAY_TIP_FRACTION * backCropH, 3);
+    });
   });
 });
 
@@ -3335,14 +3394,10 @@ describe("assembly", () => {
 
 describe("feature depth parallax", () => {
   const canvas = { width: 1000, height: 1000 };
-  // Turn depths come from the solve, so a direct bindingsForRole call supplies
-  // its own; the shape (nose deepest, mouth with the eyes) is the solver's.
-  const units = {
-    parallaxUnit: 250,
-    parallaxUnitY: 120,
-    hasNose: true,
-    turnDepths: { eye: 0.26, nose: 0.31, mouth: 0.27 },
-  };
+  // What a direct bindingsForRole call needs for the nod binding the checks
+  // below read: the nod's unit and the nose that gates every feature depth.
+  // The turn's depth is solved per rig and read off landings, never bindings.
+  const units = { parallaxUnitY: 120, hasNose: true };
   // Mirrors auto-rig.ts's FEATURE_NOD_DEPTH for the eye stack — not exported,
   // so pinned here the way HAIR_FRONT_DEPTH is above.
   const NOD_EYE_DEPTH = 0.04;
@@ -3362,44 +3417,95 @@ describe("feature depth parallax", () => {
     (bindings ?? []).find(
       (b) => b.parameter === parameter && b.channel === channel,
     ) as Binding | undefined;
-  const turnOf = (b: { parameter: string; channel: string }[] | undefined) =>
-    slideOf(b, StandardParameter.AngleX, "translateX");
   const nodOf = (b: { parameter: string; channel: string }[] | undefined) =>
     slideOf(b, StandardParameter.AngleY, "translateY");
 
   it("every feature on the face slides WITH the head on the turn and the nod", () => {
-    const roles = [
-      "eye_L",
-      "iris_R",
-      "pupil_L",
-      "highlight_R",
-      "lash_L",
-      "brow_R",
-      "mouth",
-      "mouth_open",
-      "nose",
-      "blush_L",
-    ];
-    for (const role of roles) {
-      const b = bindingsForRole(ROLE_TABLE[role], role, 100, 50, {
-        ...units,
-        hasMouthOpen: true,
+    const model = generateIkiFromLayerSet(fullFaceLayers(), canvas);
+    // Everything on the face but the contour itself and the hair.
+    const features = fullFaceLayers()
+      .map((l) => l.role)
+      .filter((r) => r !== "face" && !r.startsWith("hair_"));
+    /** The other side's part; an unsided role is its own mirror. */
+    const mirrorOf = (id: string) =>
+      id.endsWith("_L")
+        ? `${id.slice(0, -2)}_R`
+        : id.endsWith("_R")
+          ? `${id.slice(0, -2)}_L`
+          : id;
+    for (const id of features) {
+      // A −30° turn foreshortens the −x side, and every feature's centre of
+      // mass lands toward it, whichever side of the face it sits on.
+      const restX = landedCentroidX(model, id);
+      const turnedX = landedCentroidX(model, id, {
+        [StandardParameter.AngleX]: -30,
       });
-      const turn = turnOf(b)!;
-      const nod = nodOf(b)!;
-      // The face grid's own turn slide runs with +AngleX (see describe("head
-      // turn slide")) and headDeformer's AngleY translateY runs -30 -> 30, so
-      // a positive `to` is WITH the head on both.
-      expect(turn.to, role).toBeGreaterThan(0);
-      expect(turn.from, role).toBeCloseTo(-turn.to, 10);
-      expect(nod.to, role).toBeGreaterThan(0);
-      expect(nod.from, role).toBeCloseTo(-nod.to, 10);
+      expect(turnedX - restX, id).toBeLessThan(0);
+      // The fixture is symmetric about the canvas centre, so the other side's
+      // part at +30 lands exactly there, mirrored.
+      expect(
+        landedCentroidX(model, mirrorOf(id), {
+          [StandardParameter.AngleX]: 30,
+        }),
+        id,
+      ).toBeCloseTo(-turnedX, 4);
+      // headDeformer's nod translate runs −30 → 30 with AngleY, so up at +30
+      // and down at −30 is WITH the head. The two distances are not each
+      // other's mirror — the pinned nod bend pulls toward the axis at either
+      // pitch — so it is the direction that flips with the head's.
+      const restY = landedCentroidY(model, id);
+      expect(
+        landedCentroidY(model, id, { [StandardParameter.AngleY]: 30 }) - restY,
+        id,
+      ).toBeGreaterThan(0);
+      expect(
+        landedCentroidY(model, id, { [StandardParameter.AngleY]: -30 }) - restY,
+        id,
+      ).toBeLessThan(0);
     }
   });
 
-  it("the contour, the hair and the body keep their own: face none, both hair parts nod-only", () => {
-    const face = bindingsForRole(ROLE_TABLE["face"], "face", 300, 400, units);
-    expect(face).toHaveLength(0);
+  it("the contour, the hair and the body keep their own: the face slides on its axis, hair_back stands, the body follows a share", () => {
+    const model = generateIkiFromLayerSet(
+      [...fullFaceLayers(), bodyLayers().find((l) => l.role === "body")!],
+      canvas,
+    );
+    const travel = travelOf(model);
+    const turned = { [StandardParameter.AngleX]: -30 };
+    // The face has no depth of its own — it IS the cylinder — and on its axis
+    // column the bend is zero, so those vertices land the slide away and
+    // nothing more: rest − travel at −30.
+    const faceCenterX = model.parts.find((p) => p.id === "face")!.transform.x;
+    const faceRest = preBindVertices(model, "face");
+    const faceLanded = landVertices(model, "face", turned);
+    let axisVertices = 0;
+    for (let i = 0; i < faceRest.length; i += 2) {
+      if (faceRest[i] !== faceCenterX) continue;
+      axisVertices++;
+      expect(faceLanded[i]).toBeCloseTo(faceRest[i] - travel, 4);
+    }
+    expect(axisVertices).toBeGreaterThan(0);
+    // The back hair holds the head's outline: at rest at every stop.
+    const backRest = Array.from(preBindVertices(model, "hair_back"));
+    for (const deg of faceWarpOf(model).warp2d.valuesX) {
+      expect(
+        Array.from(
+          landVertices(model, "hair_back", {
+            [StandardParameter.AngleX]: deg,
+          }),
+        ),
+      ).toEqual(backRest);
+    }
+    // The torso follows the face's slide at BODY_TURN_FOLLOW, the one rigid
+    // share of the travel left, and nothing bends it.
+    const bodyRest = preBindVertices(model, "body");
+    const bodyLanded = landVertices(model, "body", turned);
+    for (let i = 0; i < bodyRest.length; i += 2) {
+      expect(bodyLanded[i]).toBeCloseTo(
+        bodyRest[i] - BODY_TURN_FOLLOW * travel,
+        4,
+      );
+    }
     // The bangs' turn lead is a warp; on the nod they slide with the brows.
     const bangs = bindingsForRole(
       ROLE_TABLE["hair_front"],
@@ -3408,51 +3514,70 @@ describe("feature depth parallax", () => {
       400,
       units,
     );
-    expect(turnOf(bangs)).toBeUndefined();
     expect(nodOf(bangs)!.to).toBe(
       nodOf(bindingsForRole(ROLE_TABLE["brow_L"], "brow_L", 120, 40, units))!
         .to,
     );
-    // The back hair holds the head's outline, so it has nothing on the turn
-    // either; its only depth binding tucks its crown under the bent bangs on
-    // the nod, which is DOWN (a negative `to` against headDeformer's own
-    // -30 -> 30 nod translate).
-    const backHair = bindingsForRole(
-      ROLE_TABLE["hair_back"],
-      "hair_back",
-      800,
-      700,
-      units,
-    );
-    expect(turnOf(backHair)).toBeUndefined();
-    expect(nodOf(backHair)!.to).toBeLessThan(0);
-    expect(
-      bindingsForRole(ROLE_TABLE["body"], "body", 900, 400, units),
-    ).toHaveLength(0);
   });
 
   it("the nose stands off the face; the mouth has its own; the eye stack shares one depth", () => {
-    const to = (role: string) =>
-      turnOf(bindingsForRole(ROLE_TABLE[role], role, 100, 50, units))!.to;
-    expect(to("nose")).toBeGreaterThan(to("mouth"));
-    expect(to("mouth")).toBeGreaterThan(to("eye_L"));
-    expect(to("mouth_open")).toBe(to("mouth"));
-    // iris/pupil/highlight clip to the white and the lash folds onto it: a
-    // different slide would drag them across the sclera on every turn.
-    for (const role of ["iris_L", "pupil_L", "highlight_L", "lash_L"]) {
-      expect(to(role), role).toBe(to("eye_L"));
+    const model = generateIkiFromLayerSet(fullFaceLayers(), canvas);
+    const turned = { [StandardParameter.AngleX]: -30 };
+    // A feature's own slide across the surface at a stop: how far its centre
+    // of mass lands from where the face's axis column carries it.
+    const ownShift = (id: string, angleX: number) =>
+      landedCentroidX(model, id, { [StandardParameter.AngleX]: angleX }) -
+      landedCentroidX(model, id) -
+      centreSlideOf(model, angleX);
+    // The solved targets order the three, not the tabulated depths: the nose
+    // carries the most, then the mouth, then the eye pair as a whole. The pair
+    // is averaged because nose and mouth sit on the axis, where the bend is
+    // zero, so their ownShift is their slide alone; each eye is off-axis and
+    // carries the bend too, and only the pair's mean cancels it.
+    const eyePair = (ownShift("eye_L", -30) + ownShift("eye_R", -30)) / 2;
+    expect(Math.abs(ownShift("nose", -30))).toBeGreaterThan(
+      Math.abs(ownShift("mouth", -30)),
+    );
+    expect(Math.abs(ownShift("mouth", -30))).toBeGreaterThan(Math.abs(eyePair));
+    // The two mouth drawings cross-fade, so they land as one.
+    expect(ownShift("mouth_open", -30)).toBeCloseTo(ownShift("mouth", -30), 6);
+    // iris/pupil/highlight clip to the white and the lash folds onto it: each
+    // of their vertices lands where the white lands that same point of itself,
+    // or a turn would drag them across the sclera. Under a pixel, not exact:
+    // landedXAt reads the white's landing through the white's own coarser
+    // mesh triangles, so the grid's bend inside one white cell shows as a
+    // sub-pixel gap, while a wrong iris depth would be tens of px (the depth
+    // difference × parallaxUnit).
+    for (const [role, white] of [
+      ["iris_L", "eye_L"],
+      ["lash_L", "eye_L"],
+      ["iris_R", "eye_R"],
+      ["lash_R", "eye_R"],
+    ]) {
+      const rest = preBindVertices(model, role);
+      const landed = landVertices(model, role, turned);
+      for (let i = 0; i < rest.length; i += 2) {
+        expect(
+          Math.abs(
+            landed[i] - landedXAt(model, white, rest[i], rest[i + 1], turned),
+          ),
+          role,
+        ).toBeLessThan(1);
+      }
     }
-    // Both sides slide the same way — the pair moves as one toward the far side.
-    expect(to("eye_R")).toBe(to("eye_L"));
-    expect(to("brow_R")).toBe(to("brow_L"));
+    // Both sides slide the same way: the far eye at −30 is the other eye at
+    // +30, mirrored.
+    expect(ownShift("eye_R", 30)).toBeCloseTo(-ownShift("eye_L", -30), 4);
   });
 
   it("without the units no parallax is emitted", () => {
     expect(bindingsForRole(ROLE_TABLE["eye_L"], "eye_L", 100, 50)).toHaveLength(
       0,
     );
+    // The mouth always carries its own MouthOpen/MouthForm bindings, so it is
+    // the nod binding that has to be missing.
     expect(
-      turnOf(bindingsForRole(ROLE_TABLE["mouth"], "mouth", 150, 15)),
+      nodOf(bindingsForRole(ROLE_TABLE["mouth"], "mouth", 150, 15)),
     ).toBeUndefined();
   });
 
@@ -3471,9 +3596,8 @@ describe("feature depth parallax", () => {
       6,
     );
     // The turn's own depth is solved, not tabulated — it is checked against the
-    // cues it was solved from under "turn targets". The white is a required
-    // role, so both slides are on every generated rig with a nose.
-    expect(turnOf(eye)!.to).toBeGreaterThan(0);
+    // cues it was solved from under "turn targets", and where it lands the
+    // features under "every feature on the face slides WITH the head".
   });
 
   it("headNodParallaxUnit is the bulk the 2D bake pins out at full nod", () => {
@@ -3518,16 +3642,48 @@ describe("feature depth parallax", () => {
       bindingsForRole(ROLE_TABLE["eye_L"], "eye_L", 100, 50, noNose),
     ).toHaveLength(0);
     expect(
-      turnOf(bindingsForRole(ROLE_TABLE["mouth"], "mouth", 150, 15, noNose)),
+      nodOf(bindingsForRole(ROLE_TABLE["mouth"], "mouth", 150, 15, noNose)),
     ).toBeUndefined();
     expect(
       bindingsForRole(ROLE_TABLE["hair_front"], "hair_front", 700, 400, noNose),
     ).toHaveLength(0);
-    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+    // A rig with no nose solves no depth, so nothing on the face has a slide
+    // of its own: every vertex of every part on it lands exactly where the
+    // shared grid's column map carries its PRE-BIND position TODAY. That
+    // position, not the rest x: the mouth family binds at scaleX 1.1 (the
+    // MouthForm range −0.2 … 0.4 is not centred on the parameter's default),
+    // so its vertices sit at t.x + 1.1·vx when the map pins them to the
+    // surface — and a centre of mass would carry the map's kinks.
+    const { model, radius } = solvedRig(
+      fullFaceLayers().filter((l) => l.role !== "nose"),
+      canvas,
+    );
+    const faceCenterX = model.parts.find((p) => p.id === "face")!.transform.x;
+    const map = turnColumnMap(
+      faceWarpOf(model).grid,
+      faceCenterX,
+      radius,
+      -30,
+      travelOf(model),
+    );
+    const turned = { [StandardParameter.AngleX]: -30 };
+    // The hair is not a feature: the bangs carry warps of their own and the
+    // back hair rides the head.
+    for (const part of model.parts.filter((p) => !p.id.startsWith("hair_"))) {
+      const preBind = preBindVertices(model, part.id);
+      const landed = landVertices(model, part.id, turned);
+      for (let i = 0; i < preBind.length; i += 2) {
+        // The engine's grid and landings are float32, an ulp of 3e-5 at
+        // |x| < 512: the two agree to that rounding (under two ulps, a
+        // deterministic margin), not to 1e-6.
+        expect(landed[i], part.id).toBeCloseTo(map.mapX(preBind[i]), 4);
+      }
+    }
     const part = (id: string) => model.parts.find((p) => p.id === id)!;
-    expect(part("eye_L").bindings).toBeUndefined();
     expect(nodOf(part("hair_front").bindings)).toBeUndefined();
-    expect(turnOf(part("hair_back").bindings)).toBeUndefined();
+    expect(Array.from(landVertices(model, "hair_back", turned))).toEqual(
+      Array.from(preBindVertices(model, "hair_back")),
+    );
     expect(nodOf(part("hair_back").bindings)!.to).toBeLessThan(0);
   });
 });
@@ -5432,37 +5588,22 @@ const canvas1100 = { width: 1100, height: 1100 };
  * spans ±w/2, ±h/2), the body's from its width/height.
  */
 function heroLikeLayers(): LayerInput[] {
-  const layer = (
-    role: string,
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-  ): LayerInput => ({
-    role,
-    fileName: `${role}.png`,
-    canvasW: canvas1100.width,
-    canvasH: canvas1100.height,
-    bbox: { x, y, w, h },
-    cropW: w,
-    cropH: h,
-  });
   return [
-    layer("body", 136, 809, 829, 291),
-    layer("brow_L", 577, 394, 137, 23),
-    layer("brow_R", 387, 394, 137, 23),
-    layer("eye_L", 592, 442, 130, 66),
-    layer("eye_R", 378, 442, 130, 66),
-    layer("face", 349, 234, 402, 592),
-    layer("hair_back", 149, 56, 802, 1028),
-    layer("hair_front", 219, 45, 662, 991),
-    layer("iris_L", 625, 438, 74, 74),
-    layer("iris_R", 401, 438, 74, 74),
-    layer("lash_L", 592, 442, 129, 35),
-    layer("lash_R", 379, 442, 129, 35),
-    layer("mouth", 515, 623, 70, 21),
-    layer("mouth_open", 515, 621, 70, 29),
-    layer("nose", 533, 561, 35, 50),
+    layer(canvas1100, "body", 136, 809, 829, 291),
+    layer(canvas1100, "brow_L", 577, 394, 137, 23),
+    layer(canvas1100, "brow_R", 387, 394, 137, 23),
+    layer(canvas1100, "eye_L", 592, 442, 130, 66),
+    layer(canvas1100, "eye_R", 378, 442, 130, 66),
+    layer(canvas1100, "face", 349, 234, 402, 592),
+    layer(canvas1100, "hair_back", 149, 56, 802, 1028),
+    layer(canvas1100, "hair_front", 219, 45, 662, 991),
+    layer(canvas1100, "iris_L", 625, 438, 74, 74),
+    layer(canvas1100, "iris_R", 401, 438, 74, 74),
+    layer(canvas1100, "lash_L", 592, 442, 129, 35),
+    layer(canvas1100, "lash_R", 379, 442, 129, 35),
+    layer(canvas1100, "mouth", 515, 623, 70, 21),
+    layer(canvas1100, "mouth_open", 515, 621, 70, 29),
+    layer(canvas1100, "nose", 533, 561, 35, 50),
   ];
 }
 

@@ -289,3 +289,15 @@ export function landedCentroidX(
   for (let i = 0; i < landed.length; i += 2) sum += landed[i];
   return sum / (landed.length / 2);
 }
+
+/** Mean rendered y of a part's vertices. */
+export function landedCentroidY(
+  model: IkiModel,
+  partId: string,
+  params: ParamValues = {},
+): number {
+  const landed = landVertices(model, partId, params);
+  let sum = 0;
+  for (let i = 1; i < landed.length; i += 2) sum += landed[i];
+  return sum / (landed.length / 2);
+}
