@@ -24,13 +24,46 @@ import {
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+/**
+ * The warp deformers the face and its features turn on — one per group of
+ * parts that share a turn depth and a place on the face: the plate, each
+ * side's eye stack (white, iris, pupil, highlight, lash), the two mouth
+ * drawings, the nose, each brow and each blush. Every one is a `warp2d` over
+ * a grid sized to its own members, parented to `headDeformer`, baked from the
+ * one solved surface and emitted only when a member layer exists
+ * (`generateIkiFromLayerSet`). `faceWarp` keeps the id the shared face grid
+ * had.
+ */
+const TURN_GROUP_IDS = [
+  "faceWarp",
+  "eyeWarp_L",
+  "eyeWarp_R",
+  "mouthWarp",
+  "noseWarp",
+  "browWarp_L",
+  "browWarp_R",
+  "blushWarp_L",
+  "blushWarp_R",
+] as const;
+/** One of `TURN_GROUP_IDS`. */
+export type TurnGroupId = (typeof TURN_GROUP_IDS)[number];
+const TURN_GROUP_ID_SET: ReadonlySet<string> = new Set<string>(TURN_GROUP_IDS);
+
+/** Whether a `RoleSpec.deformer` names one of the per-group turn warps — the
+ *  test for "a part painted on the face" wherever the generator or the solve
+ *  needs it. Exported at module level for the tests, not from the package. */
+export function isTurnGroup(id: string): id is TurnGroupId {
+  return TURN_GROUP_ID_SET.has(id);
+}
+
 export interface RoleSpec {
   /**
-   * Which deformer the part is attached to in the generated rig. `"none"`
-   * attaches it to nothing, so it holds still in world space; no shipped
-   * role uses it.
+   * Which deformer the part is attached to in the generated rig: its turn
+   * group's warp for anything painted on the face (`TurnGroupId`), the rigid
+   * head or body otherwise. `"none"` attaches it to nothing, so it holds
+   * still in world space; no shipped role uses it.
    */
-  deformer: "faceWarp" | "headDeformer" | "bodyDeformer" | "none";
+  deformer: TurnGroupId | "headDeformer" | "bodyDeformer" | "none";
   /** Back-to-front draw order. Higher = in front. */
   order: number;
   /** Whether this part gets a warp mesh (true) or is a static quad (false). */
@@ -84,30 +117,37 @@ export const ROLE_TABLE: Record<string, RoleSpec> = {
   // reading as a floating head. Drawn over the back hair so long hair falls
   // behind the shoulders.
   body: { deformer: "bodyDeformer", order: 5, mesh: false },
+  // The face plate and everything painted on it ride per-group turn warps
+  // under the head (TurnGroupId): the plate its own, each eye stack its
+  // side's, both mouth drawings one, the nose, each brow and each blush their
+  // own. A group's grid is sized to its members alone and baked from the one
+  // solved surface with the family's turn depth in its keyforms, so a feature
+  // slides across the plate on its own grid instead of a translate binding
+  // (see generateIkiFromLayerSet).
   face: { deformer: "faceWarp", order: 10, mesh: true },
-  nose: { deformer: "faceWarp", order: 15, mesh: true },
-  blush_L: { deformer: "faceWarp", order: 20, mesh: true },
-  blush_R: { deformer: "faceWarp", order: 20, mesh: true },
-  mouth: { deformer: "faceWarp", order: 25, mesh: true },
+  nose: { deformer: "noseWarp", order: 15, mesh: true },
+  blush_L: { deformer: "blushWarp_L", order: 20, mesh: true },
+  blush_R: { deformer: "blushWarp_R", order: 20, mesh: true },
+  mouth: { deformer: "mouthWarp", order: 25, mesh: true },
   // An OPTIONAL second mouth drawing, open. When present the two cross-fade on
   // MouthOpen instead of the closed one being stretched, which is the
   // difference between a portrait rig and one that can lip-sync.
-  mouth_open: { deformer: "faceWarp", order: 26, mesh: true },
-  eye_L: { deformer: "faceWarp", order: 30, mesh: true, eyeSide: "L" },
-  eye_R: { deformer: "faceWarp", order: 30, mesh: true, eyeSide: "R" },
-  iris_L: { deformer: "faceWarp", order: 31, mesh: true, eyeSide: "L" },
-  iris_R: { deformer: "faceWarp", order: 31, mesh: true, eyeSide: "R" },
-  pupil_L: { deformer: "faceWarp", order: 32, mesh: true, eyeSide: "L" },
-  pupil_R: { deformer: "faceWarp", order: 32, mesh: true, eyeSide: "R" },
-  highlight_L: { deformer: "faceWarp", order: 33, mesh: true, eyeSide: "L" },
-  highlight_R: { deformer: "faceWarp", order: 33, mesh: true, eyeSide: "R" },
+  mouth_open: { deformer: "mouthWarp", order: 26, mesh: true },
+  eye_L: { deformer: "eyeWarp_L", order: 30, mesh: true, eyeSide: "L" },
+  eye_R: { deformer: "eyeWarp_R", order: 30, mesh: true, eyeSide: "R" },
+  iris_L: { deformer: "eyeWarp_L", order: 31, mesh: true, eyeSide: "L" },
+  iris_R: { deformer: "eyeWarp_R", order: 31, mesh: true, eyeSide: "R" },
+  pupil_L: { deformer: "eyeWarp_L", order: 32, mesh: true, eyeSide: "L" },
+  pupil_R: { deformer: "eyeWarp_R", order: 32, mesh: true, eyeSide: "R" },
+  highlight_L: { deformer: "eyeWarp_L", order: 33, mesh: true, eyeSide: "L" },
+  highlight_R: { deformer: "eyeWarp_R", order: 33, mesh: true, eyeSide: "R" },
   // Upper lashes: an OPTIONAL separate layer ABOVE the iris that folds down to
   // the closed-eye seam (the same crease the white folds to), covering the cut
   // eyeball cleanly. When absent, the white's own fold is the only closed line.
-  lash_L: { deformer: "faceWarp", order: 34, mesh: true, eyeSide: "L" },
-  lash_R: { deformer: "faceWarp", order: 34, mesh: true, eyeSide: "R" },
-  brow_L: { deformer: "faceWarp", order: 40, mesh: true },
-  brow_R: { deformer: "faceWarp", order: 40, mesh: true },
+  lash_L: { deformer: "eyeWarp_L", order: 34, mesh: true, eyeSide: "L" },
+  lash_R: { deformer: "eyeWarp_R", order: 34, mesh: true, eyeSide: "R" },
+  brow_L: { deformer: "browWarp_L", order: 40, mesh: true },
+  brow_R: { deformer: "browWarp_R", order: 40, mesh: true },
   // The bangs ride the rigid head, like the back hair, and bind to no grid:
   // every motion of their own — the silhouette hold, the turn lead, the nod
   // and the sway — is a per-vertex warp attached in generateIkiFromLayerSet,
@@ -423,10 +463,11 @@ export function createPixelGridMesh(
 
 // ── Mesh density ─────────────────────────────────────────────────────────────
 
-/** Target size of one mesh cell. A part's vertices sample the face-warp grid
- *  (and its own per-vertex warps) at this spacing; the GPU is linear between
- *  them, so the spacing bounds how smooth a bend can render. 64 px puts two
- *  vertices per FACE_GRID_CELLS cell on the hero and eight rows on the back
+/** Target size of one mesh cell. A part's vertices sample its group's turn
+ *  grid (and its own per-vertex warps) at this spacing; the GPU is linear
+ *  between them, so the spacing bounds how smooth a bend can render. 64 px
+ *  keeps a face-mesh cell near a plate-grid cell on the hero (67 px against
+ *  the 45 px FACE_PLATE_CELLS gives its plate) and puts eight rows on the back
  *  hair for the sway curl. */
 const MESH_CELL_PX = 64;
 /** Cell-count floor / ceiling per axis: small parts stay at 4×4 (their
@@ -449,19 +490,45 @@ export function meshCellsFor(
   return { cols: cells(w), rows: cells(h) };
 }
 
-/** Cells per axis of the face-warp grid. Bilinear cells render the cylinder
- *  bend as a chord: on the hero (821 px across) 4 cells = 205 px chords with
- *  a 12 px worst-case sag at full turn on the plate's far edge, 6 cells halve
- *  it for ~10 KB of keyforms. The fold guard is the cylinder's own bound and does
- *  not depend on this. */
-const FACE_GRID_CELLS = 6;
+/** Cells per axis of the face plate's turn grid (`faceWarp`). Bilinear cells
+ *  render the cylinder bend as a chord: the shared 6-cell grid over the whole
+ *  head put 137 px cells under the hero's plate; 10 cells over the plate's own
+ *  450 px are 45 px chords, under 0.3 px of sag at full turn, and keep the
+ *  nod's chord under 0.35 px on the same rows. The plate is the one group
+ *  read at every guard row and under the bangs' join, so it gets the most
+ *  cells: 121 nodes × 25 stops × 2 is ≈6 000 keyform numbers, ≈0.1 MB at JSON
+ *  precision. 8 is the fallback if the byte budget (1.4 MB on the hero)
+ *  bites. The fold guard is the cylinder's own bound and does not depend on
+ *  this. */
+const FACE_PLATE_CELLS = 10;
+/** Cells per axis of every feature group's turn grid. A feature grid spans a
+ *  part a few tens of px across plus its bindings' reach and its turn shift,
+ *  so 4 cells are 20–60 px chords — under 0.2 px of sag — and the hero's six
+ *  feature groups at 25 nodes each add ≈7 500 keyform numbers: with the
+ *  plate's, ≈0.2 MB over the shared grid they replace, which took the hero
+ *  from 1.09 MB to ≈1.3 MB. */
+const FEATURE_GRID_CELLS = 4;
+/** Column pitch of the turn's VIRTUAL lattice — the one row of columns
+ *  `TurnSurface.mapAt` is piecewise-linear between, anchored on the face
+ *  centre (`faceCenterX ± k·16`) so the axis is a node and its dx the slide
+ *  exactly. Never shipped: every group grid's node samples it. At 16 px the
+ *  chord of the bend stays under 0.25 px at any radius the sweep tries
+ *  (≈0.2 px at the hero plate's edge, 0.0005 in cue units), so the map IS the
+ *  analytic bend as far as a cue can tell, where a coarser lattice would put
+ *  its kinks wherever a group grid's nodes happened to fall. */
+const TURN_LATTICE_CELL_PX = 16;
+/** Margin a grid is grown by, as a fraction of its span per axis: the turn
+ *  family's union for the head's vertical reach, and every group grid on top
+ *  of the extent its members can reach (`groupGridFor`), so no vertex lands
+ *  on a grid boundary and gets clamped by `bindPointToRestGrid`. */
+const GRID_MARGIN = 0.12;
 
 // ── Head-turn cylinder constants ─────────────────────────────────────────────
 
 /** Margin between a cylinder's radius and the reach it has to cover: at
  *  |local|/radius <= 1/1.2 the asin stays clear of +/-1 and asin(1/1.2) + 30°
  *  is still under 90°, so the bend never folds. The nod radius is derived from
- *  the grid's vertical reach this way; the turn radius is an input, and
+ *  the head's vertical reach this way; the turn radius is an input, and
  *  radius/factor is the bound `boundedCylinderBend` clamps `local` to. */
 const HEAD_CYLINDER_RADIUS_FACTOR = 0.6 / 0.5;
 /** Outer keyform stop of the head-turn bake, matching ParamAngleX's range. */
@@ -560,20 +627,6 @@ export function bakeHeadTurnGridWarpCentered(
   return { parameter, keyforms };
 }
 
-/** A lattice's vertical reach about the face centre: the larger of its two
- *  distances from `faceCenterY`, so a lattice that is not symmetric about the
- *  nod axis still keeps every row within it. The nod cylinder's radius is this
- *  with the no-fold margin (`· HEAD_CYLINDER_RADIUS_FACTOR`, so no row's
- *  |local|/radius exceeds 1/1.2) and `headNodParallaxUnit` takes it as is —
- *  the solve and the generator both read it from here, so the unit IS that
- *  cylinder's pinned-out slide. The turn's radius is solved, not read. */
-function latticeHalfHeight(lattice: IkiWarpGrid, faceCenterY: number): number {
-  // Row 0 is the top row and the last point the bottom (generateGridPoints).
-  const top = lattice.points[1];
-  const bottom = lattice.points[lattice.points.length - 1];
-  return Math.max(faceCenterY - bottom, top - faceCenterY);
-}
-
 /**
  * Displacement of a point at signed distance `local` from the cylinder axis
  * after the cylinder rotates by `theta`, with the axis column pinned.
@@ -646,8 +699,11 @@ function turnSlide(travel: number, angleX: number): number {
  * primitive and `solveTurnModel` stays the fitter: it fits `radius` and
  * `travel` on these very maps, and `bakeTurnGroupWarp2D` reads its dx off the
  * same ones, which is what makes a solved cue a promise about the shipped
- * keyforms. The lattice is the face-warp grid itself today, so a rendered
- * vertex reads exactly what the solve read.
+ * keyforms. The lattice is VIRTUAL — a dense row of columns anchored on the
+ * face centre (`TURN_LATTICE_CELL_PX`) that nothing ships: every group grid's
+ * node reads the map at its own rest x, and a rendered vertex reads those
+ * nodes bilinearly, which is what the solve reproduces through a landmark's
+ * carrier (`TurnLandmark.carrier`).
  */
 interface TurnSurface {
   faceCenterX: number;
@@ -657,8 +713,9 @@ interface TurnSurface {
   radius: number;
   /** The head's sideways travel at full turn, px — see `turnSlide`. */
   travel: number;
-  /** Nod cylinder radius, px: the lattice's vertical reach about `faceCenterY`
-   *  with the no-fold margin (`latticeHalfHeight`). */
+  /** Nod cylinder radius, px: the head's vertical reach about `faceCenterY`
+   *  with the no-fold margin — one value for the whole rig, sized where the
+   *  turn family's union is (`turnSetup`). */
   nodRadius: number;
   /** The columns `mapAt` is piecewise-linear between; row 0 is all it reads. */
   lattice: IkiWarpGrid;
@@ -774,39 +831,42 @@ export function bakeTurnGroupWarp2D(
 
 // ── turnColumnMap ─────────────────────────────────────────────────────────────
 
-/** Where the head turn sends each column of a face-warp grid, and back. */
+/** Where the head turn sends each column of a lattice, and back. */
 export interface TurnColumnMap {
-  /** Rest x of every grid column, ascending — row 0 of `grid.points`. */
+  /** Rest x of every lattice column, ascending — row 0 of `grid.points`. */
   restX: number[];
   /** Where the turn puts each of those columns: strictly increasing whenever
    *  `restX` is, since the bound and the capped angle rule out a fold. */
   warpedX: number[];
-  /** Rest x → turned x, for anything riding the grid. */
+  /** Rest x → turned x, for anything reading the lattice. */
   mapX(x: number): number;
   /** The inverse: which rest x lands on `X`. */
   invertX(X: number): number;
 }
 
 /**
- * The head turn as a 1D map on x: where the face-warp grid puts a point at
+ * The head turn as a 1D map on x: where the turn puts a point resting at x at
  * `angleX` — the bend AND the same uniform `turnSlide(travel, angleX)` the
- * bake ships, so a caller passes the travel the rig was baked with or it
+ * bakes ship, so a caller passes the travel the rig was baked with or it
  * measures a head the rig never renders. headDeformer adds no turn translate
  * on top of it.
  *
- * It equals the shipped bake AT the `HEAD_TURN_STOPS`, which is where callers
- * should key: between stops the engine blends the keyforms parameter-linearly
- * (the chord the HEAD_TURN_STOPS comment measures), while this is analytic, so
- * off-stop the two differ by that chord error.
+ * It equals the shipped bakes AT the `HEAD_TURN_STOPS` on the nodes of their
+ * grids, which is where callers should key: between stops the engine blends
+ * the keyforms parameter-linearly (the chord the HEAD_TURN_STOPS comment
+ * measures), while this is analytic, so off-stop the two differ by that chord
+ * error.
  *
  * The bend depends only on a point's x, so a single row of columns describes
- * the whole grid, and the engine's sampling of it is piecewise-linear:
- * `bindPointToRestGrid` puts a point in the cell its rest x falls in and
- * `sampleWarpGrid` lerps between that cell's deformed corners — so between two
- * columns the map is a straight line, and outside the outer columns the
- * clamped (s, t) pin it to the edge column's warped x. `mapX` reproduces that
- * clamp rather than extrapolating, because a caller measuring a silhouette
- * needs where the geometry lands, not where an extended cylinder would put it.
+ * the whole surface, and the map is piecewise-linear between them the way a
+ * grid child's read is: `bindPointToRestGrid` puts a point in the cell its
+ * rest x falls in and `sampleWarpGrid` lerps between that cell's deformed
+ * corners — so between two columns the map is a straight line, and outside the
+ * outer columns the clamped (s, t) pin it to the edge column's warped x.
+ * `mapX` reproduces that clamp rather than extrapolating, because a caller
+ * measuring a silhouette needs where the geometry lands, not where an extended
+ * cylinder would put it — and the virtual lattice is sized so nothing a bake
+ * reads ever sits outside its columns (`turnSetup`).
  *
  * `invertX` answers the other direction — "which rest x has to be here for the
  * turn to land it there". No bake reads it any more: the bangs hold the
@@ -883,11 +943,13 @@ export function turnColumnMap(
 
 /** A mesh part as the renderer places it before any deformer moves it: its
  *  rest centre and crop, `meshCellsFor`'s cell counts, and its DEFAULT-POSE
- *  TRS — what `evaluateTransform` returns with every parameter at its default.
- *  The identity for the face and the bangs; the mouth family rests at scaleX
- *  1.1, its MouthForm range (−0.2…0.4) not being centred on the parameter's
- *  default, so a caller reading it has to pass that rather than assume 1. */
-interface RenderedPart {
+ *  TRS — what `evaluateTransform` returns with every parameter at its default
+ *  (`defaultPoseOf`). The identity for the face and the bangs; the mouth
+ *  family rests at scaleX 1.1, its MouthForm range (−0.2…0.4) not being
+ *  centred on the parameter's default, so a caller reading it has to pass
+ *  that rather than assume 1. Exported at module level for the tests, not
+ *  from the package. */
+export interface RenderedPart {
   x: number;
   y: number;
   cropW: number;
@@ -913,10 +975,11 @@ interface RenderedPart {
  * fraction clamped: the landing of the nearest boundary point, which is what a
  * silhouette point past the bangs' own crop renders as.
  *
- * Every production reader of a rendered point goes through this — the bangs'
- * own silhouette landing, and the plate's rendered edge under the hold's join
- * and the fold guards — so a solved cue is a promise about the shipped mesh,
- * not about an analytic surface the mesh only chords.
+ * Every production reader of a rendered point goes through this — the solve's
+ * landmarks and silhouette candidates on their carriers, the bangs' own
+ * silhouette landing, and the plate's rendered edge under the hold's join and
+ * the fold guards — so a solved cue is a promise about the shipped mesh, not
+ * about an analytic surface the mesh only chords.
  */
 function renderedLandingX(
   part: RenderedPart,
@@ -999,12 +1062,62 @@ function gridChildLandingX(
   return top + (bot - top) * t;
 }
 
+/** The grid a face-family part binds to — its turn group's — and the part as
+ *  it renders on it: what a landmark, a silhouette candidate or the plate's
+ *  edge is read through (`carrierLandingX`), and what the generator ships as
+ *  that group's deformer and that part's mesh. Exported at module level for
+ *  the tests, not from the package. */
+export interface TurnCarrier {
+  grid: IkiWarpGrid;
+  part: RenderedPart;
+}
+
+/** Where a rest point of a carried part renders on x: `renderedLandingX` on
+ *  the part, each mesh vertex landed through the carrier's grid
+ *  (`gridChildLandingX`) with `nodeLanding` at the grid's nodes — the two
+ *  stages the engine and the GPU draw a warp child in. */
+function carrierLandingX(
+  carrier: TurnCarrier,
+  nodeLanding: (nodeX: number, nodeY: number) => number,
+  px: number,
+  py: number,
+): number {
+  return renderedLandingX(
+    carrier.part,
+    (vx, vy) => gridChildLandingX(carrier.grid, nodeLanding, vx, vy),
+    px,
+    py,
+  );
+}
+
+/** `surface.mapAt`, memoised per stop and node row: the map depends on
+ *  nothing else, and a solve reads it at every node of every carrier at every
+ *  guard row of every stop of every hold it tries. */
+function rowMapsOf(
+  surface: TurnSurface,
+): (deg: number, nodeY: number) => TurnColumnMap {
+  const maps = new Map<number, Map<number, TurnColumnMap>>();
+  return (deg, nodeY) => {
+    let byRow = maps.get(deg);
+    if (byRow === undefined) {
+      byRow = new Map();
+      maps.set(deg, byRow);
+    }
+    let map = byRow.get(nodeY);
+    if (map === undefined) {
+      map = surface.mapAt(deg, nodeY);
+      byRow.set(nodeY, map);
+    }
+    return map;
+  };
+}
+
 /** The face plate as the renderer places it — its rest centre and crop, the
  *  mesh `meshCellsFor` gives that crop, and the identity TRS the generator
  *  writes for it (`bboxToTransform` places it by translate alone, and it
- *  carries no binding). The solver and the generator build theirs here so
- *  both read the rendered plate through one geometry. Exported at module
- *  level for the tests, not from the package. */
+ *  carries no binding). A hand-built plate for the primitive tests; the
+ *  solver and the generator read theirs from `turnSetup`'s `face` member.
+ *  Exported at module level for the tests, not from the package. */
 export function facePlate(
   faceCenterX: number,
   faceCenterY: number,
@@ -1027,47 +1140,27 @@ export function facePlate(
 /**
  * The face plate's rendered landing on x at one stop, for ANY rest point of
  * it: `renderedLandingX` on the plate's own mesh, each vertex landed through
- * the shared `faceWarp` grid — the bilinear blend, over the lattice cell that
- * holds it, of the surface's map at the four corner nodes, each node read at
- * its own rest y (`gridChildLandingX`) — which is what the engine draws
- * there. Not the bare surface: the grid and the mesh each chord it, and the
- * bangs' join has to sit on what RENDERS. The plate's own group carrier takes
- * the lattice's place here once the face turns on a grid of its own.
+ * the carrier's grid — the plate's own `faceWarp` grid — as the bilinear
+ * blend, over the cell that holds it, of the surface's map at the four corner
+ * nodes, each node read at its own rest y (`gridChildLandingX`), which is
+ * what the engine draws there. The plate has no turn shift of its own, so a
+ * node reads the map at its rest x. Not the bare surface: the grid and the
+ * mesh each chord it, and the bangs' join has to sit on what RENDERS.
+ *
+ * `mapAt` is the surface's map per stop and node row — a caller hands in the
+ * memoised reader `rowMapsOf` gives a surface, so the plate's node rows are
+ * built once and shared with everything else reading that surface.
  *
  * Exported at module level for the tests, not from the package.
  */
 export function plateLandingOn(
-  plate: RenderedPart,
-  lattice: IkiWarpGrid,
-  surface: TurnSurface,
+  plate: TurnCarrier,
+  mapAt: (deg: number, nodeY: number) => TurnColumnMap,
 ): (deg: number, x: number, y: number) => number {
-  // One map per stop and node row: the surface's map depends on nothing else,
-  // and a solve reads this at every guard row of every stop of every hold it
-  // tries.
-  const maps = new Map<number, Map<number, TurnColumnMap>>();
-  const mapAt = (deg: number, nodeY: number): TurnColumnMap => {
-    let byRow = maps.get(deg);
-    if (byRow === undefined) {
-      byRow = new Map();
-      maps.set(deg, byRow);
-    }
-    let map = byRow.get(nodeY);
-    if (map === undefined) {
-      map = surface.mapAt(deg, nodeY);
-      byRow.set(nodeY, map);
-    }
-    return map;
-  };
   return (deg, x, y) =>
-    renderedLandingX(
+    carrierLandingX(
       plate,
-      (vx, vy) =>
-        gridChildLandingX(
-          lattice,
-          (nodeX, nodeY) => mapAt(deg, nodeY).mapX(nodeX),
-          vx,
-          vy,
-        ),
+      (nodeX, nodeY) => mapAt(deg, nodeY).mapX(nodeX),
       x,
       y,
     );
@@ -1310,13 +1403,22 @@ export function resolveTurnTargets(
 // ── Turn landmarks ───────────────────────────────────────────────────────────
 
 /** A feature the turn slides across the face: its rest centre and its width in
- *  model px, which is all the cues measure. `y` is optional — only the eye
- *  pair's is used, to place the eye row against hair_front's own crop for the
- *  bangs' turn-lead correction (see `solveTurnModel`'s `hairFront` param). */
+ *  model px, which is all the cues measure. `y` is optional — the eye pair's
+ *  places the eye row (`solveTurnModel`'s `eyeRowY`), and every landmark's is
+ *  the row its points are read on; a hand-built landmark without one reads
+ *  row 0, which is the same map as any other until the face's radius varies
+ *  by row. */
 export interface TurnLandmark {
   x: number;
   y?: number;
   w: number;
+  /** The grid the part binds to and the part as it renders on it, when the
+   *  landmark is a rigged part's: its points are then read the way the
+   *  engine draws them — the mesh triangle over vertices landed bilinearly
+   *  on the grid (`landmarkLandingX`) — rather than straight off the
+   *  surface's map, which the grid and the mesh only chord. A landmark
+   *  without one (hand-built, in a test) reads the map itself. */
+  carrier?: TurnCarrier;
 }
 
 /** The landmarks each solved depth is fitted to. The eye family is a PAIR — the
@@ -1339,13 +1441,22 @@ export interface TurnLandmarkSet {
  * character the far/near ratio read off the white and off the iris differ by
  * 0.01. Bounding the slide by the narrower iris instead would put the white's
  * outer edge over the side hair, where the render loses it.
+ *
+ * With `carriers` (by role — what `turnSetup` builds) each landmark is read
+ * through its own part's grid and mesh; without, straight off the map.
  */
-export function turnLandmarks(layers: LayerInput[]): TurnLandmarkSet {
+export function turnLandmarks(
+  layers: LayerInput[],
+  carriers?: ReadonlyMap<string, TurnCarrier>,
+): TurnLandmarkSet {
   const markOf = (role: string): TurnLandmark | undefined => {
     const layer = layers.find((l) => l.role === role);
     if (!layer) return undefined;
     const t = bboxToTransform(layer.bbox, layer.canvasW, layer.canvasH, role);
-    return { x: t.x, y: t.y, w: layer.cropW };
+    const mark: TurnLandmark = { x: t.x, y: t.y, w: layer.cropW };
+    const carrier = carriers?.get(role);
+    if (carrier !== undefined) mark.carrier = carrier;
+    return mark;
   };
   const pairOf = (left: string, right: string) => {
     const l = markOf(left);
@@ -1407,9 +1518,48 @@ export function solveTurnDepth(
     -Math.abs(targetPx),
     landmarks,
     unit,
-    map,
+    () => map,
     plateEdgeX,
   );
+}
+
+/**
+ * Where a landmark's rest point `(px, py)` lands on x at a stop whose map for
+ * a point resting at `y` is `mapAt(y)`, the family shifted by `shift` px
+ * (negative toward the far side): through the landmark's carrier when it has
+ * one — every node of its grid lands at `mapAt(y_node).mapX(x_node + shift)`,
+ * the shift being that grid's own keyform geometry, and the point is read
+ * over the part's mesh the way the engine draws it (`carrierLandingX`) — or
+ * straight off the map, `mapAt(py).mapX(px + shift)`, without one.
+ */
+function landmarkLandingX(
+  landmark: TurnLandmark,
+  mapAt: (y: number) => TurnColumnMap,
+  shift: number,
+  px: number,
+  py: number,
+): number {
+  if (landmark.carrier === undefined) return mapAt(py).mapX(px + shift);
+  return carrierLandingX(
+    landmark.carrier,
+    (nodeX, nodeY) => mapAt(nodeY).mapX(nodeX + shift),
+    px,
+    py,
+  );
+}
+
+/** How far a landmark family's solved depth may carry it toward the far side,
+ *  px: its landmarks' far edge to the plate's far edge, never negative — a
+ *  family that starts past the plate cannot be slid back in by a depth, and a
+ *  depth away from the turn is not a depth. The depth solver's own cap, and
+ *  what every group grid and the lattice are sized to before the solve
+ *  (`turnSetup`), so the two cannot disagree. */
+function familyReachPx(
+  landmarks: readonly TurnLandmark[],
+  plateEdgeX: number,
+): number {
+  const farEdge = Math.min(...landmarks.map((l) => l.x - l.w / 2));
+  return Math.max(0, farEdge - plateEdgeX);
 }
 
 /**
@@ -1420,14 +1570,18 @@ export function solveTurnDepth(
  * surface), so a positive `target` past `atRest` is exactly as unreached as a
  * too-negative one past `atCap`.
  *
- * The part is translated `depth * unit` toward the far side BEFORE its vertices
- * bind to the face grid (that is the order `applyWarpToChild` works in), so
- * what a reference measures is the grid's map OF the translated position, not
- * the translation: `achieved(d) = mean(mapX(x - d*unit) - x)`. The map
- * compresses the far side and stretches the near one, so the two are not the
- * same number, and the far side's compression makes `achieved` shrink faster
- * than `d` grows. It is monotone decreasing in `d` because the map is monotone
- * increasing, which is what makes a bisection valid.
+ * The family's grid carries the slide as keyform geometry: each node lands
+ * where the map sends its rest x shifted by `depth * unit` toward the far side
+ * (`bakeTurnGroupWarp2D`'s `shiftAt`), and the part binds at its rest
+ * position, so what a reference measures is the grid's map OF the shifted
+ * position, not the shift: `achieved(d) = mean(landing(x, −d·unit) − x)`,
+ * each landmark's centre read through its own carrier and mesh
+ * (`landmarkLandingX`) — the very keyforms and triangles the engine draws.
+ * The map compresses the far side and stretches the near one, so the two are
+ * not the same number, and the far side's compression makes `achieved` shrink
+ * faster than `d` grows. It is monotone decreasing in `d` because the map is
+ * monotone increasing and the two interpolations weight it non-negatively,
+ * which is what makes a bisection valid.
  *
  * The travel's upper bound is the FACE: every landmark's far edge has to stay
  * on the face plate, whose contour the turn only foreshortens. A feature past
@@ -1464,19 +1618,19 @@ function solveTurnDepthSigned(
   target: number,
   landmarks: TurnLandmark[],
   unit: number,
-  map: TurnColumnMap,
+  mapAt: (y: number) => TurnColumnMap,
   plateEdgeX: number,
 ): TurnDepthSolution {
   if (landmarks.length === 0) {
     throw new Error("auto-rig: solveTurnDepth: no landmark to slide");
   }
-  const farEdge = Math.min(...landmarks.map((l) => l.x - l.w / 2));
-  // Never negative: a landmark that starts outside the plate cannot be slid
-  // back in by a depth, and a depth away from the turn is not a depth.
-  const cap = Math.max(0, (farEdge - plateEdgeX) / unit);
+  const cap = familyReachPx(landmarks, plateEdgeX) / unit;
   const achieved = (d: number) =>
-    landmarks.reduce((sum, l) => sum + (map.mapX(l.x - d * unit) - l.x), 0) /
-    landmarks.length;
+    landmarks.reduce(
+      (sum, l) =>
+        sum + (landmarkLandingX(l, mapAt, -d * unit, l.x, l.y ?? 0) - l.x),
+      0,
+    ) / landmarks.length;
 
   const atCap = achieved(cap);
   const atRest = achieved(0);
@@ -1578,12 +1732,13 @@ interface TurnCandidate {
   unit: number;
   /** The sideways travel it carries at full turn, px: `ctx.travel` capped to
    *  what this radius' own held shell can swallow (`shellTravelCap`). The face
-   *  bake and the bangs' hold have to be built with THIS number — `map`
+   *  bake and the bangs' hold have to be built with THIS number — `mapAt`
    *  already is. */
   travel: number;
-  /** Its column map at the −30° stop, where every cue is measured. */
-  map: TurnColumnMap;
-  /** The surface `map` was read off: this radius, that travel. */
+  /** Its column map at the −30° stop, where every cue is measured, for a
+   *  point resting at `y`. */
+  mapAt: (y: number) => TurnColumnMap;
+  /** The surface `mapAt` is read off: this radius, that travel. */
   surface: TurnSurface;
   holdBase: number;
   holdEdgeAt: (deg: number) => number;
@@ -1636,14 +1791,16 @@ type TurnCandidateMiss =
 /** Everything a candidate is evaluated against that does not vary with the
  *  radius. One pass of the solve holds one of these. */
 interface TurnSolveContext {
+  /** Each family's landmarks, every one carrying the carrier its part renders
+   *  on (`turnSetup`). */
   landmarks: TurnLandmarkSet;
   /** The columns every candidate's maps are piecewise-linear between — the
-   *  face-warp grid, which the bake reads the same way (`TurnSurface`). */
+   *  virtual lattice every group grid's node reads (`TurnSurface`). */
   lattice: IkiWarpGrid;
   faceCenterX: number;
   faceCenterY: number;
-  /** The nod cylinder's radius, `latticeHalfHeight` with the no-fold margin:
-   *  not fitted, carried so every candidate's surface is complete. */
+  /** The nod cylinder's radius, the head's vertical reach with the no-fold
+   *  margin: not fitted, carried so every candidate's surface is complete. */
   nodRadius: number;
   /** The row the cues are measured on — the eye pair's mean y, else the face
    *  centre — where every candidate's maps are sampled, and where the bangs'
@@ -1652,10 +1809,13 @@ interface TurnSolveContext {
   faceHalfWidth: number;
   /** Rest x of the plate's far edge — the slide's hard stop. */
   plateEdgeX: number;
-  /** The face plate as it renders (`facePlate`): what the plate's rendered
-   *  edge under the hold's join and the fold guards is read through
-   *  (`plateLandingOn`). */
-  plate: RenderedPart;
+  /** The face plate as it renders — its own group grid and mesh
+   *  (`facePlate`): what the plate's rendered edge under the hold's join and
+   *  the fold guards is read through (`plateLandingOn`). */
+  plate: TurnCarrier;
+  /** Every face-family part's carrier by role, the plate's under `face`:
+   *  what a `headEdges` candidate naming one of them is landed through. */
+  carriers: ReadonlyMap<string, TurnCarrier>;
   /** The plate's PAINTED half-width at row `y` — where the hold's join and
    *  the guards read its edge. The crop's own half-width on every row until a
    *  silhouette profile is measured. */
@@ -1884,9 +2044,10 @@ interface TurnHoldEval {
   ratio: number;
   /** The sideways travel it leaves the face at full turn, px. */
   travel: number;
-  /** Its column map at the −30° stop, where every cue is measured. */
-  map: TurnColumnMap;
-  /** The surface `map` was read off: the candidate's radius, this travel. */
+  /** Its column map at the −30° stop, where every cue is measured, for a
+   *  point resting at `y`. */
+  mapAt: (y: number) => TurnColumnMap;
+  /** The surface `mapAt` is read off: the candidate's radius, this travel. */
   surface: TurnSurface;
   holdBase: number;
   holdEdgeAt: (deg: number) => number;
@@ -1947,11 +2108,7 @@ function evaluateTurnCandidate(
   // from it: the face slides INSIDE a shell the bangs hold, so what it may
   // slide is what that shell has room for — measured on the bend alone, as
   // the plate renders it.
-  const bendOnlyLandingAt = plateLandingOn(
-    ctx.plate,
-    ctx.lattice,
-    surfaceAt(0),
-  );
+  const bendOnlyLandingAt = plateLandingOn(ctx.plate, rowMapsOf(surfaceAt(0)));
   // The measured silhouette's own rest extreme on one side, when `headEdges`
   // recorded one there. Read both by the travel cap below — which side of the
   // shell the sliding plate has to stay inside — and by `restAt`, so the two
@@ -2019,10 +2176,14 @@ function evaluateTurnCandidate(
             ),
           );
     const surface = surfaceAt(travel);
-    const columnMapAt = (deg: number) => surface.mapAt(deg, ctx.eyeRowY);
+    // One memoised reader of this surface's maps for every carrier read on
+    // it: the −30° map for a point resting at `y`, where every cue is
+    // measured, is what each landmark's and candidate's nodes are read off.
+    const rowMaps = rowMapsOf(surface);
+    const mapAt = (y: number) => rowMaps(-HEAD_TURN_MAX_DEG, y);
     // The plate as it renders on THIS hold's slide: what its painted edge is
     // read off below, and what the bangs' join sits on.
-    const plateLandingAt = plateLandingOn(ctx.plate, ctx.lattice, surface);
+    const plateLandingAt = plateLandingOn(ctx.plate, rowMaps);
     // Without a measured head the boundary is the outermost the slid plate
     // ever reaches, clear of it by HOLD_CLEARANCE.
     const holdBase =
@@ -2071,7 +2232,6 @@ function evaluateTurnCandidate(
       if (holdEdgeAt(deg) <= reach) folds = true;
     }
 
-    const map = columnMapAt(-HEAD_TURN_MAX_DEG);
     // The silhouette point each side's centre is read from:
     // `measure_turn_reference` reads the eye pair against the OPAQUE UNION's
     // own centre, not an assumed faceCenterX-symmetric one, so with
@@ -2120,18 +2280,20 @@ function evaluateTurnCandidate(
     // Where a named role's OWN rest x lands after the turn — the mcp measures
     // the union of every layer's opaque pixels, so an edge can belong to any
     // role, not just the bangs. `face` and the FEATURE_NOD_DEPTH family (the
-    // eye stack, lashes, brows, blush, the nose, both mouths) ride `faceWarp`,
-    // so their own path is `map.mapX` — WITHOUT that family's own depth
-    // parallax, which is not solved yet at this point in the sweep (the eye's
-    // own signed solve below needs `silhouetteCenterShift`, computed from
-    // this, and nose/mouth's are not solved until `solveFeatureDepths`, after
-    // a radius is even chosen). The omission is harmless not because the
-    // magnitude is small but because none of this family can realistically OWN
-    // the eye-row silhouette edge in the first place: they sit near the face's
-    // own centre, well inside whatever hair, face-plate, or body edge is
-    // actually outermost there. `hair_back` and `body` ride their own rigid
-    // deformers, not faceWarp, so neither uses `map` at all. Anything not in
-    // `ROLE_TABLE` is a bug, not a role to render as unmoved.
+    // eye stack, lashes, brows, blush, the nose, both mouths) each ride their
+    // own group grid, so each is read through its own carrier — the grid and
+    // mesh it renders with — with a shift of 0: the family's turn depth is
+    // that grid's keyform geometry, and it is not solved yet at this point in
+    // the sweep (the eye's own signed solve below needs
+    // `silhouetteCenterShift`, computed from this, and nose/mouth's are not
+    // solved until `solveFeatureDepths`, after a radius is even chosen). The
+    // omission is harmless not because the magnitude is small but because
+    // none of this family can realistically OWN the eye-row silhouette edge
+    // in the first place: they sit near the face's own centre, well inside
+    // whatever hair, face-plate, or body edge is actually outermost there.
+    // `hair_back` and `body` ride their own rigid deformers, not a group
+    // grid, so neither reads a map at all. Anything not in `ROLE_TABLE` is a
+    // bug, not a role to render as unmoved.
     const landingOfRole = (role: string, x: number): number => {
       if (role === "hair_front") return hairFrontAt(x);
       if (role === "hair_back") {
@@ -2142,7 +2304,7 @@ function evaluateTurnCandidate(
       }
       if (role === "body") {
         // The head no longer translates on the turn — its travel is in the
-        // face grid, where only what rides the grid carries it — so the head's
+        // group grids, where only what rides a grid carries it — so the head's
         // frame is the rest frame and the body lands at its own AngleX travel
         // alone: the "from" value of its own translateX binding at this stop.
         return x - BODY_TURN_FOLLOW * travel;
@@ -2151,7 +2313,21 @@ function evaluateTurnCandidate(
         role === "face" ||
         FEATURE_NOD_DEPTH[roleFamily(role)] !== undefined
       ) {
-        return map.mapX(x);
+        const carrier = ctx.carriers.get(role);
+        if (carrier === undefined) {
+          // The mcp measures edges off the layers it rigs, so a face-family
+          // role it names is one this layer set has — anything else is a
+          // caller's list that does not belong to these layers.
+          throw new Error(
+            `auto-rig: evaluateTurnCandidate: headEdges names "${role}", which this layer set has no layer for`,
+          );
+        }
+        return carrierLandingX(
+          carrier,
+          (nodeX, nodeY) => mapAt(nodeY).mapX(nodeX),
+          x,
+          ctx.eyeRowY,
+        );
       }
       throw new Error(
         `auto-rig: evaluateTurnCandidate: unrecognised role "${role}"`,
@@ -2168,7 +2344,7 @@ function evaluateTurnCandidate(
     return {
       ratio,
       travel,
-      map,
+      mapAt,
       surface,
       holdBase,
       holdEdgeAt,
@@ -2359,7 +2535,7 @@ function evaluateTurnCandidate(
   }
   const {
     travel,
-    map,
+    mapAt,
     surface,
     holdBase,
     holdEdgeAt,
@@ -2387,7 +2563,7 @@ function evaluateTurnCandidate(
     silhouetteCenterShift - ctx.eyeShift * ctx.hh,
     ctx.landmarks.eye,
     unit,
-    map,
+    mapAt,
     ctx.plateEdgeX,
   );
   // A measured shift this radius cannot produce disqualifies the radius; a
@@ -2405,10 +2581,12 @@ function evaluateTurnCandidate(
     };
   }
 
-  // Each eye's rest width against its turned width, where the slide put it.
+  // Each eye's rest width against its turned width, where the slide put it:
+  // its two edges on its own centre row, read as its mesh renders them.
+  const eyeShiftPx = -eye.depth * unit;
   const scaleOf = (l: TurnLandmark) =>
-    (map.mapX(l.x + l.w / 2 - eye.depth * unit) -
-      map.mapX(l.x - l.w / 2 - eye.depth * unit)) /
+    (landmarkLandingX(l, mapAt, eyeShiftPx, l.x + l.w / 2, l.y ?? 0) -
+      landmarkLandingX(l, mapAt, eyeShiftPx, l.x - l.w / 2, l.y ?? 0)) /
     l.w;
   // A −30° turn foreshortens the −x side: that eye is the far one. Dividing the
   // two rest-normalised scales IS the cue — the reference's own far/near ratio
@@ -2420,7 +2598,7 @@ function evaluateTurnCandidate(
     ratio: scaleOf(far) / scaleOf(near),
     unit,
     travel,
-    map,
+    mapAt,
     surface,
     holdBase,
     holdEdgeAt,
@@ -2611,7 +2789,7 @@ function solveFeatureDepths(
       best.silhouetteCenterShift - m * ctx.hh,
       marks,
       best.unit,
-      best.map,
+      best.mapAt,
       ctx.plateEdgeX,
     );
     if (!solution.reached) {
@@ -2654,7 +2832,8 @@ function solveFeatureDepths(
  *
  * Everything is measured on the SAME surface the rig is baked from — the
  * piecewise-linear map `turnColumnMap` builds from the lattice's own columns
- * (`TurnSurface.mapAt`), at the −30° stop — so a solved target is a promise
+ * (`TurnSurface.mapAt`), at the −30° stop, read through the very grids and
+ * meshes the parts render with (`carriers`) — so a solved target is a promise
  * about the shipped keyforms, not about an idealised cylinder the engine never
  * evaluates. The solved surface is returned for the bakes to sample.
  *
@@ -2672,13 +2851,17 @@ export function solveTurnModel(
   lattice: IkiWarpGrid,
   faceCenterX: number,
   faceHalfWidth: number,
-  /** The nod axis, and with the lattice what the returned surface's nod
-   *  radius is read from (`latticeHalfHeight`). */
+  /** The nod axis. */
   faceCenterY: number,
-  /** The plate's crop height: with `faceHalfWidth` it is the face mesh the
-   *  bangs' join and the plate guards read the RENDERED plate through
-   *  (`facePlate`, `plateGuardRowsFor`). */
-  faceCropH: number,
+  /** The nod cylinder's radius — the head's vertical reach with the no-fold
+   *  margin, sized once by `turnSetup` for the solve and the generator alike
+   *  (the virtual lattice has no height to read it from). */
+  nodRadius: number,
+  /** Every face-family part's carrier by role — the group grid it binds to
+   *  and the part as it renders on it — the plate's under `face`: what the
+   *  landmarks, the silhouette candidates, the bangs' join and the plate
+   *  guards read the RENDERED parts through. */
+  carriers: ReadonlyMap<string, TurnCarrier>,
   /** hair_front's own transform x/y and crop width/height, when the layer set
    *  has one — see `TurnSolveContext.hairFrontSilhouette`. Absent skips the
    *  turn-lead correction and falls the silhouette-centre correction back to
@@ -2715,23 +2898,26 @@ export function solveTurnModel(
     landmarks.eye[1].y !== undefined
       ? (landmarks.eye[0].y + landmarks.eye[1].y) / 2
       : faceCenterY;
-  const plate = facePlate(faceCenterX, faceCenterY, faceHalfWidth, faceCropH);
+  const plate = carriers.get("face");
+  if (plate === undefined) {
+    throw new Error("auto-rig: solveTurnModel: the carriers have no face");
+  }
 
   const ctx: TurnSolveContext = {
     landmarks,
     lattice,
     faceCenterX,
     faceCenterY,
-    nodRadius:
-      latticeHalfHeight(lattice, faceCenterY) * HEAD_CYLINDER_RADIUS_FACTOR,
+    nodRadius,
     eyeRowY,
     faceHalfWidth,
     plateEdgeX: faceCenterX - faceHalfWidth,
     plate,
+    carriers,
     // No silhouette profile yet: the plate is painted out to its crop on
     // every row.
     edgeAt: () => faceHalfWidth,
-    plateGuardRows: plateGuardRowsFor(plate, hairFront),
+    plateGuardRows: plateGuardRowsFor(plate.part, hairFront),
     // What this plate asks the turn for; each candidate caps it to its own
     // shell — see TurnSolveContext.travel.
     travel: headTurnTravel(faceHalfWidth),
@@ -2915,8 +3101,9 @@ const HAIR_FRONT_DEPTH = 0.1;
 /** Rigid vertical travel of the head at full nod (px at AngleY = ±30). */
 const NOD_TRAVEL = 30;
 /** Geometric pitch per degree of ParamAngleY: a full ±30 nod bends the face
- *  cylinder by ±15°. The face-warp grid reaches up to the hair crown, which
- *  sits near 45° on the vertical cylinder; a full 30° pitch there drops the
+ *  cylinder by ±15°. The nod cylinder — sized to the turn family's union,
+ *  bangs included (`turnSetup`) — reaches up to the hair crown, which sits
+ *  near 45° on it; a full 30° pitch there drops the
  *  bangs' crown ~140px while the rigid back hair stays put, and the back
  *  hair's crown pops out above it as a second silhouette. At half pitch the
  *  drop stays under the back hair and the nod still foreshortens visibly. */
@@ -2930,10 +3117,11 @@ const HAIR_BACK_NOD_DEPTH = -0.135;
 
 /**
  * The nod's counterpart of `headTurnParallaxUnit`: the bulk vertical slide the
- * 2D bake pins out of the face warp at full nod (`TurnSurface.nodBendAt`). The
- * nod bends at NOD_BEND of the angle, so this is nodRadius · sin(30° · NOD_BEND),
- * not nodRadius · sin(30°), with nodRadius the lattice's half-height and the
- * no-fold margin (`latticeHalfHeight`).
+ * 2D bakes pin out of every group grid at full nod (`TurnSurface.nodBendAt`).
+ * The nod bends at NOD_BEND of the angle, so this is
+ * nodRadius · sin(30° · NOD_BEND), not nodRadius · sin(30°), with nodRadius
+ * the head's half-height about the nod axis (`gridHalfHeight`, the turn
+ * family's margined union — see `turnSetup`) with the no-fold margin.
  */
 export function headNodParallaxUnit(gridHalfHeight: number): number {
   return (
@@ -3009,51 +3197,42 @@ function turnFamily(role: string): keyof TurnDepths {
 }
 
 /**
- * The depth-parallax translate bindings of a facial feature, or [] for any
- * other role, whenever the units are absent (a unit-less call is a rig without
- * a face warp to slide across), and whenever the rig has no nose layer to lead
+ * The nod's depth-parallax translate binding of a facial feature, or [] for
+ * any other role, whenever the unit is absent (a unit-less call is a rig
+ * without a head to nod on), and whenever the rig has no nose layer to lead
  * (see FEATURE_NOD_DEPTH). Symmetric about zero, so the rest pose — the one
  * every proportion is judged on — is untouched.
  *
- * The two axes take their depth from different places: the turn's is SOLVED per
- * layer set from the measured cues (`turnDepths`, absent on a rig that solved
- * none), the nod's is the tuned table.
+ * The TURN has no binding here: its depth is SOLVED per layer set from the
+ * measured cues and baked into the feature's own group grid as keyform
+ * geometry (`bakeTurnGroupWarp2D`'s `shiftAt`), so the part binds at its rest
+ * position and the grid carries it — the landing a translate-then-bind gave,
+ * now read by the solve through that very grid (`TurnLandmark.carrier`). The
+ * nod's depth is the tuned table and stays a translate: it binds a nodded
+ * vertex at `y + t` on its group grid exactly as it did on the shared one.
  */
 function featureParallaxBindings(
   role: string,
   options: {
-    parallaxUnit?: number;
     parallaxUnitY?: number;
     hasNose?: boolean;
-    turnDepths?: TurnDepths;
   },
 ): IkiBinding[] {
   if (!options.hasNose) return [];
   // The nod's table is also the role gate: a family with no depth in it is not
-  // a feature painted on the face, and slides on neither axis.
+  // a feature painted on the face, and does not slide.
   const nodDepth = FEATURE_NOD_DEPTH[roleFamily(role)];
   if (nodDepth === undefined) return [];
-  const bindings: IkiBinding[] = [];
-  const turnDepth = options.turnDepths?.[turnFamily(role)] ?? 0;
-  const shiftX = turnDepth * (options.parallaxUnit ?? 0);
-  if (shiftX !== 0) {
-    bindings.push({
-      parameter: StandardParameter.AngleX,
-      channel: "translateX",
-      from: -shiftX,
-      to: shiftX,
-    });
-  }
   const shiftY = nodDepth * (options.parallaxUnitY ?? 0);
-  if (shiftY !== 0) {
-    bindings.push({
+  if (shiftY === 0) return [];
+  return [
+    {
       parameter: StandardParameter.AngleY,
       channel: "translateY",
       from: -shiftY,
       to: shiftY,
-    });
-  }
-  return bindings;
+    },
+  ];
 }
 
 /**
@@ -3061,10 +3240,10 @@ function featureParallaxBindings(
  *
  * - face → no bindings: the contour is the cylinder itself, pinned by the bake
  * - every feature on that contour — eye stack, lashes, brows, both mouths,
- *     nose, blush — carries the AngleX translateX / AngleY translateY depth
- *     parallax: the turn's from the solved `turnDepths`, the nod's from
- *     FEATURE_NOD_DEPTH (both need `parallaxUnit` / `parallaxUnitY` and
- *     `hasNose`), on top of whatever its role adds below
+ *     nose, blush — carries the AngleY translateY nod parallax from
+ *     FEATURE_NOD_DEPTH (needs `parallaxUnitY` and `hasNose`) on top of
+ *     whatever its role adds below; its TURN parallax is no binding but its
+ *     group grid's own keyform geometry (see featureParallaxBindings)
  * - hair_front: no bindings. Every motion of its own is a per-vertex warp
  *     attached in generateIkiFromLayerSet: the sway and the AngleX turn lead
  *     are root-pinned (a rigid translate/rotate would carry the whole sheet,
@@ -3096,13 +3275,9 @@ export function bindingsForRole(
   cropH: number,
   options: {
     hasMouthOpen?: boolean;
-    parallaxUnit?: number;
     parallaxUnitY?: number;
     /** Whether the layer set has a `nose` role — the feature parallax's gate. */
     hasNose?: boolean;
-    /** The turn depths solved for this layer set; without them nothing slides
-     *  on the turn. */
-    turnDepths?: TurnDepths;
   } = {},
 ): IkiBinding[] {
   return [
@@ -3639,34 +3814,356 @@ type TurnSolveInputs = [
   faceCenterX: number,
   faceHalfWidth: number,
   faceCenterY: number,
-  faceCropH: number,
+  nodRadius: number,
+  carriers: ReadonlyMap<string, TurnCarrier>,
   hairFront:
     | { x: number; centerY: number; cropW: number; cropH: number }
     | undefined,
 ];
 
+/** The standard parameters every generated rig declares — ids and ranges
+ *  verbatim from sample-model.ts; the hair-sway pair joins them per rig
+ *  (`generateIkiFromLayerSet`). Also where a binding's default-pose value is
+ *  read from (`defaultPoseOf`). */
+const STANDARD_PARAMETERS: readonly IkiParameter[] = [
+  {
+    id: StandardParameter.MouthOpen,
+    name: "Mouth Open",
+    min: 0,
+    max: 1,
+    default: 0,
+  },
+  {
+    id: StandardParameter.MouthForm,
+    name: "Mouth Form",
+    min: -1,
+    max: 1,
+    default: 0,
+  },
+  {
+    id: StandardParameter.EyeOpenLeft,
+    name: "Eye L",
+    min: 0,
+    max: 1,
+    default: 1,
+  },
+  {
+    id: StandardParameter.EyeOpenRight,
+    name: "Eye R",
+    min: 0,
+    max: 1,
+    default: 1,
+  },
+  {
+    id: StandardParameter.EyeballX,
+    name: "Gaze X",
+    min: -1,
+    max: 1,
+    default: 0,
+  },
+  {
+    id: StandardParameter.EyeballY,
+    name: "Gaze Y",
+    min: -1,
+    max: 1,
+    default: 0,
+  },
+  {
+    id: StandardParameter.AngleX,
+    name: "Head Angle",
+    min: -30,
+    max: 30,
+    default: 0,
+  },
+  {
+    id: StandardParameter.AngleY,
+    name: "Head Angle Y",
+    min: -30,
+    max: 30,
+    default: 0,
+  },
+  {
+    id: StandardParameter.AngleZ,
+    name: "Head Angle Z",
+    min: -30,
+    max: 30,
+    default: 0,
+  },
+  {
+    id: StandardParameter.Breath,
+    name: "Breath",
+    min: 0,
+    max: 1,
+    default: 0,
+  },
+  {
+    id: StandardParameter.BrowLeftY,
+    name: "Brow L Y",
+    min: -1,
+    max: 1,
+    default: 0,
+  },
+  {
+    id: StandardParameter.BrowRightY,
+    name: "Brow R Y",
+    min: -1,
+    max: 1,
+    default: 0,
+  },
+  {
+    id: StandardParameter.BrowLeftAngle,
+    name: "Brow L Angle",
+    min: -1,
+    max: 1,
+    default: 0,
+  },
+  {
+    id: StandardParameter.BrowRightAngle,
+    name: "Brow R Angle",
+    min: -1,
+    max: 1,
+    default: 0,
+  },
+];
+
 /**
- * Everything `generateIkiFromLayerSet` hands `solveTurnModel` for a layer set,
- * the targets and the caller's `headEdges` excepted (they are the caller's
- * own) — built here and nowhere else, so a test that solves a layer set
- * directly solves exactly the turn the generator solves. Exported at module
- * level for those tests, not from the package.
- *
- * The lattice is the face-warp grid: the union of the TURN LAYERS' model-space
- * extent — every faceWarp child, plus hair_front (transform ± crop/2, the
- * centred pixel-mesh convention) — grown by 12 % of its span per axis so no
- * child vertex lands on the grid boundary and gets clamped by
- * bindPointToRestGrid, then made symmetric about `faceCenterX` on x — the
- * larger of the two distances to the union's edges, on both sides — so the
- * cylinder axis is a column; its y range is the margined union as is.
- * FACE_GRID_CELLS² cells. The bangs bind to no grid any more, but their
- * extent stays in the union so the lattice — and the turn solved on it — is
- * unchanged until the per-group grids replace this rule.
+ * `evaluateTransform`'s additive rule, mirrored (the engine is not a
+ * dependency of this package): scale starts at 1 and adds each binding's
+ * value, rotation and translate sum, opacity moves nothing. `valueOf` picks
+ * each binding's value — a `from`/`to` extreme for a bound, the default-pose
+ * value for the pose the renderer rests in.
  */
-export function turnSolveInputs(
+function transformUnder(
+  bindings: readonly IkiBinding[],
+  valueOf: (binding: IkiBinding, index: number) => number,
+): { x: number; y: number; rotation: number; scaleX: number; scaleY: number } {
+  const trs = { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 };
+  bindings.forEach((binding, i) => {
+    const value = valueOf(binding, i);
+    switch (binding.channel) {
+      case "translateX":
+        trs.x += value;
+        break;
+      case "translateY":
+        trs.y += value;
+        break;
+      case "rotate":
+        trs.rotation += value;
+        break;
+      case "scaleX":
+        trs.scaleX += value;
+        break;
+      case "scaleY":
+        trs.scaleY += value;
+        break;
+      case "opacity":
+        break;
+    }
+  });
+  return trs;
+}
+
+/** The TRS a part's bindings give it with every parameter at its declared
+ *  default — what `evaluateTransform` returns on a freshly loaded rig, the
+ *  pose every `RenderedPart` is read in. A binding's value there is its
+ *  range at `ParameterStore.normalized`'s own `(default − min) / (max − min)`
+ *  (no standard parameter is zero-width). */
+function defaultPoseOf(bindings: readonly IkiBinding[]) {
+  return transformUnder(bindings, (binding) => {
+    const p = STANDARD_PARAMETERS.find((p) => p.id === binding.parameter);
+    if (p === undefined) {
+      throw new Error(
+        `auto-rig: defaultPoseOf: "${binding.parameter}" is not a standard parameter`,
+      );
+    }
+    const t = (p.default - p.min) / (p.max - p.min);
+    return binding.from + (binding.to - binding.from) * t;
+  });
+}
+
+/** A face-family layer as the generator rigs it: the crop's placement, the
+ *  part as it renders (`RenderedPart`, the default pose on that placement),
+ *  the mesh it renders with, the role's OWN bindings — `bindingsForRole`
+ *  without the parallax units, the expression it has whatever the turn does
+ *  — and its part warps (the eyelid fold on a white or a lash, else none).
+ *  Everything its group grid is sized from (`groupGridFor`) and its carrier
+ *  reads with, built once for the solve and the parts alike. Exported at
+ *  module level for the tests, not from the package. */
+export interface TurnGroupMember {
+  role: string;
+  group: TurnGroupId;
+  /** The crop's own placement (`bboxToTransform`), what the bindings add to. */
+  transform: { x: number; y: number };
+  part: RenderedPart;
+  mesh: IkiMesh;
+  bindings: readonly IkiBinding[];
+  warps: readonly IkiWarp[];
+}
+
+/**
+ * One turn group's grid: the members' PRE-BIND extent — where the engine
+ * binds their vertices to it (`applyWarpToChild`: part warps, then the TRS
+ * the bindings give) — grown by the family's turn and nod shifts and then by
+ * GRID_MARGIN of its span per axis plus a pixel, over `cells` × `cells`
+ * uniform cells (the format allows uneven columns; nothing here needs them).
+ *
+ * The extent is the union, over every member, of its mesh under each part
+ * warp's keyforms — the rest mesh, and the mesh with each keyform's offsets
+ * added (the fold's closed shape; a blend of two keyforms lies inside the box
+ * of their union, and a member carries one warp at most) — placed by EVERY
+ * combination of its geometric bindings' `from`/`to` extremes through
+ * `evaluateTransform`'s additive rule (`transformUnder`: scale = 1 + Σ
+ * values, so a `mouth` without an open drawing reaches scaleY 4 and scaleX
+ * 1.4; rotation = Σ, so a ±12° brow grows its y extent by its half-width's
+ * sine; a translate sums; opacity moves nothing and is skipped). The extremes
+ * are at the corners: each channel is affine in its bindings, and the
+ * rotations are small enough that a corner's x and y are monotone in the
+ * angle to within a fraction of a pixel (a brow flatter than tan 12° peaks a
+ * little inside ±12° and overshoots its corner by under 0.1 px), far under
+ * the margin. `turnShiftPx` is the furthest the family's solved depth can carry a
+ * node — the depth solver's own cap in px — and `nodShiftPx` its nod
+ * translate; both are added on both sides, every stop being ±.
+ *
+ * The margin is what keeps a vertex off the grid boundary, where
+ * `bindPointToRestGrid` would clamp it. The face — no binding, no warp, no
+ * shift — gets its crop plus the margin and nothing else, symmetric about its
+ * centre, so the plate's axis is a node. Exported at module level for the
+ * tests, not from the package.
+ */
+export function groupGridFor(
+  members: readonly TurnGroupMember[],
+  cells: number,
+  turnShiftPx: number,
+  nodShiftPx: number,
+): IkiWarpGrid {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const member of members) {
+    const rest = member.mesh.vertices;
+    const shapes = [rest];
+    for (const warp of member.warps) {
+      for (const keyform of warp.keyforms) {
+        shapes.push(rest.map((v, i) => v + keyform.offsets[i]));
+      }
+    }
+    const geometric = member.bindings.filter((b) => b.channel !== "opacity");
+    for (let corner = 0; corner < 1 << geometric.length; corner++) {
+      const trs = transformUnder(geometric, (b, i) =>
+        (corner & (1 << i)) === 0 ? b.from : b.to,
+      );
+      const cos = Math.cos(trs.rotation * (Math.PI / 180));
+      const sin = Math.sin(trs.rotation * (Math.PI / 180));
+      for (const shape of shapes) {
+        for (let i = 0; i < shape.length; i += 2) {
+          // The engine's order: scale, rotate, translate — about the part's
+          // own centre, where the crop places it.
+          const sx = shape[i] * trs.scaleX;
+          const sy = shape[i + 1] * trs.scaleY;
+          const x = member.transform.x + trs.x + cos * sx - sin * sy;
+          const y = member.transform.y + trs.y + sin * sx + cos * sy;
+          minX = Math.min(minX, x);
+          maxX = Math.max(maxX, x);
+          minY = Math.min(minY, y);
+          maxY = Math.max(maxY, y);
+        }
+      }
+    }
+  }
+  minX -= turnShiftPx;
+  maxX += turnShiftPx;
+  minY -= nodShiftPx;
+  maxY += nodShiftPx;
+  const marginX = (maxX - minX) * GRID_MARGIN + 1;
+  const marginY = (maxY - minY) * GRID_MARGIN + 1;
+  return {
+    cols: cells,
+    rows: cells,
+    points: generateGridPoints(
+      cells,
+      cells,
+      minX - marginX,
+      maxX + marginX,
+      minY - marginY,
+      maxY + marginY,
+    ),
+  };
+}
+
+/** The eyelid fold of an eye white or a lash, or undefined for any other
+ *  role: both fold to the WHITE's crease on that side — EYELID_FOLD_CREASE
+ *  below the white's own centre — on that side's EyeOpen, so the lash lands
+ *  on top of the cut eyeball and covers the seam. The lash keeps LASH_FOLD_K
+ *  of its height; the white EYELID_FOLD_K, or nothing at all when a lash
+ *  supplies the closed line (a strip of iris must not show under it). Both
+ *  whites are REQUIRED_ROLES, so the crease always has one to read. `t` is
+ *  the part's placement and `mesh` the mesh it renders with. */
+function eyelidFoldFor(
   layers: LayerInput[],
-  canvas: { width: number; height: number },
-): TurnSolveInputs {
+  layer: LayerInput,
+  mesh: IkiMesh,
+  t: { x: number; y: number },
+): IkiWarp | undefined {
+  const side = ROLE_TABLE[layer.role].eyeSide;
+  const isLash = layer.role.startsWith("lash_");
+  if (side === undefined || !(layer.role.startsWith("eye_") || isLash)) {
+    return undefined;
+  }
+  const white = layers.find((l) => l.role === `eye_${side}`)!;
+  const creaseWorldY =
+    bboxToTransform(white.bbox, white.canvasW, white.canvasH, white.role).y -
+    EYELID_FOLD_CREASE * white.cropH;
+  const hasLash = layers.some((l) => l.role === `lash_${side}`);
+  return bakeEyelidFoldWarp(
+    mesh,
+    side === "L"
+      ? StandardParameter.EyeOpenLeft
+      : StandardParameter.EyeOpenRight,
+    creaseWorldY - t.y,
+    isLash ? LASH_FOLD_K : hasLash ? 0 : EYELID_FOLD_K,
+  );
+}
+
+/** Everything `turnSetup` derives from a layer set: what the solve is handed
+ *  (`inputs`), and what the generator ships and bakes from — the members'
+ *  meshes and warps, each group's grid, the nod's parallax unit off the same
+ *  head half-height as the nod radius — so the two read one set of values. */
+interface TurnSetup {
+  inputs: TurnSolveInputs;
+  members: readonly TurnGroupMember[];
+  groupGrids: ReadonlyMap<TurnGroupId, IkiWarpGrid>;
+  parallaxUnitY: number;
+  hasNose: boolean;
+  hasMouthOpen: boolean;
+}
+
+/**
+ * The turn's geometry for a layer set, in the order nothing may depend on the
+ * solve: every face-family layer's placement, role bindings and part warps
+ * (pure — no unit, no depth) → each group's grid from its members
+ * (`groupGridFor`) → the virtual lattice from those grids → the landmarks on
+ * their carriers. The solve then runs on exactly these, and the bakes sample
+ * exactly these, which is what lets the report equal the render.
+ *
+ * The head's vertical reach — the nod cylinder's radius and its parallax unit
+ * — is the TURN FAMILY's union on y (every group member plus the bangs,
+ * transform ± crop/2, the centred pixel-mesh convention) grown by GRID_MARGIN,
+ * about the face centre: the rows the shared face grid had, kept as the one
+ * head-level value however the groups are cut.
+ *
+ * A family's shift bound is the depth solver's own cap in px — its landmarks'
+ * far edge to the plate's edge (`solveTurnDepthSigned`) — and 0 when nothing
+ * is solved (no nose, FEATURE_NOD_DEPTH's gate); the brows and the blush ride
+ * with the eyes (`turnFamily`), the plate has none. Each group's grid takes its
+ * family's, and the lattice — one row of TURN_LATTICE_CELL_PX columns
+ * anchored on the face centre — is widened so every grid's every node,
+ * shifted by the LARGEST bound either way, sits strictly inside its outer
+ * columns, snapped outward to the next anchored column: `mapX` pins anything
+ * outside onto the edge column, which would deform a node even at rest. The
+ * lattice's height is the union's; `turnColumnMap` reads row 0 only.
+ */
+function turnSetup(layers: LayerInput[]): TurnSetup {
   // validateLayerInputs guarantees "face" is present — safe to assert here.
   const faceLayer = layers.find((l) => l.role === "face")!;
   const faceTransform = bboxToTransform(
@@ -3679,61 +4176,126 @@ export function turnSolveInputs(
   const faceCenterX = faceTransform.x;
   const faceCenterY = faceTransform.y;
   const faceHalfWidth = faceLayer.cropW / 2;
+  const plateEdgeX = faceCenterX - faceHalfWidth;
+  // The feature parallax's gate — see FEATURE_NOD_DEPTH.
+  const hasNose = layers.some((l) => l.role === "nose");
+  const hasMouthOpen = layers.some((l) => l.role === "mouth_open");
 
-  // The turn layers: every faceWarp child (all with spec.mesh===true, validated
-  // by ROLE_TABLE) plus the bangs — see the doc above for why they stay in.
+  // ── The head's vertical reach ─────────────────────────────────────────────
+  // The face is required and a group member, so the union is never empty.
   const turnLayers = layers.filter(
-    (l) =>
-      ROLE_TABLE[l.role].deformer === "faceWarp" || l.role === "hair_front",
+    (l) => isTurnGroup(ROLE_TABLE[l.role].deformer) || l.role === "hair_front",
   );
+  const turnYs = turnLayers.map((l) => ({
+    y: bboxToTransform(l.bbox, l.canvasW, l.canvasH, l.role).y,
+    h: l.cropH,
+  }));
+  let unionMinY = Math.min(...turnYs.map(({ y, h }) => y - h / 2));
+  let unionMaxY = Math.max(...turnYs.map(({ y, h }) => y + h / 2));
+  const spanY = unionMaxY - unionMinY;
+  unionMinY -= spanY * GRID_MARGIN;
+  unionMaxY += spanY * GRID_MARGIN;
+  // The larger of the two distances from the nod axis, so a union that is not
+  // symmetric about it still keeps every row within the cylinder's bound.
+  const halfH = Math.max(faceCenterY - unionMinY, unionMaxY - faceCenterY);
+  const nodRadius = halfH * HEAD_CYLINDER_RADIUS_FACTOR;
+  const parallaxUnitY = headNodParallaxUnit(halfH);
 
-  // Fall back to a full-canvas box only when no turn layers exist (shouldn't
-  // happen given required roles, but guards against future role-table changes).
-  let unionMinX = -canvas.width / 2;
-  let unionMaxX = canvas.width / 2;
-  let unionMinY = -canvas.height / 2;
-  let unionMaxY = canvas.height / 2;
-
-  if (turnLayers.length > 0) {
-    const transforms = turnLayers.map((l) =>
-      bboxToTransform(l.bbox, l.canvasW, l.canvasH, l.role),
-    );
-
-    unionMinX = Math.min(
-      ...transforms.map((t, i) => t.x - turnLayers[i].cropW / 2),
-    );
-    unionMaxX = Math.max(
-      ...transforms.map((t, i) => t.x + turnLayers[i].cropW / 2),
-    );
-    unionMinY = Math.min(
-      ...transforms.map((t, i) => t.y - turnLayers[i].cropH / 2),
-    );
-    unionMaxY = Math.max(
-      ...transforms.map((t, i) => t.y + turnLayers[i].cropH / 2),
-    );
-
-    const spanX = unionMaxX - unionMinX;
-    const spanY = unionMaxY - unionMinY;
-    const MARGIN = 0.12;
-    unionMinX -= spanX * MARGIN;
-    unionMaxX += spanX * MARGIN;
-    unionMinY -= spanY * MARGIN;
-    unionMaxY += spanY * MARGIN;
+  // ── The members ───────────────────────────────────────────────────────────
+  const members: TurnGroupMember[] = [];
+  for (const layer of layers) {
+    const spec = ROLE_TABLE[layer.role];
+    if (!isTurnGroup(spec.deformer)) continue;
+    const { role, cropW, cropH } = layer;
+    const t = bboxToTransform(layer.bbox, layer.canvasW, layer.canvasH, role);
+    const { cols, rows } = meshCellsFor(cropW, cropH);
+    const mesh = createPixelGridMesh(cols, rows, cropW, cropH);
+    const bindings = bindingsForRole(spec, role, cropW, cropH, {
+      hasMouthOpen,
+    });
+    const fold = eyelidFoldFor(layers, layer, mesh, t);
+    const pose = defaultPoseOf(bindings);
+    members.push({
+      role,
+      group: spec.deformer,
+      transform: t,
+      part: {
+        x: t.x + pose.x,
+        y: t.y + pose.y,
+        cropW,
+        cropH,
+        cols,
+        rows,
+        scaleX: pose.scaleX,
+        scaleY: pose.scaleY,
+        rotation: pose.rotation,
+      },
+      mesh,
+      bindings,
+      warps: fold === undefined ? [] : [fold],
+    });
   }
 
-  const halfW = Math.max(faceCenterX - unionMinX, unionMaxX - faceCenterX);
-  const lattice = {
-    cols: FACE_GRID_CELLS,
-    rows: FACE_GRID_CELLS,
-    points: generateGridPoints(
-      FACE_GRID_CELLS,
-      FACE_GRID_CELLS,
-      faceCenterX - halfW,
-      faceCenterX + halfW,
-      unionMinY,
-      unionMaxY,
-    ),
+  // ── Each family's shift bounds ────────────────────────────────────────────
+  const landmarks = turnLandmarks(layers);
+  const turnShiftOf = (marks: TurnLandmark[]) =>
+    hasNose && marks.length > 0 ? familyReachPx(marks, plateEdgeX) : 0;
+  const turnShift: Record<keyof TurnDepths, number> = {
+    eye: turnShiftOf(landmarks.eye),
+    nose: turnShiftOf(landmarks.nose),
+    mouth: turnShiftOf(landmarks.mouth),
   };
+
+  // ── The group grids and the carriers ──────────────────────────────────────
+  const groupGrids = new Map<TurnGroupId, IkiWarpGrid>();
+  for (const { group, role } of members) {
+    if (groupGrids.has(group)) continue;
+    const own = members.filter((m) => m.group === group);
+    const isPlate = group === "faceWarp";
+    // The nod translate the members will carry (featureParallaxBindings) —
+    // one depth per group, taken as the members' largest all the same.
+    const nodShiftPx = hasNose
+      ? Math.max(
+          ...own.map((m) => FEATURE_NOD_DEPTH[roleFamily(m.role)] ?? 0),
+        ) * parallaxUnitY
+      : 0;
+    groupGrids.set(
+      group,
+      groupGridFor(
+        own,
+        isPlate ? FACE_PLATE_CELLS : FEATURE_GRID_CELLS,
+        isPlate ? 0 : turnShift[turnFamily(role)],
+        nodShiftPx,
+      ),
+    );
+  }
+  const carriers = new Map<string, TurnCarrier>(
+    members.map((m) => [
+      m.role,
+      { grid: groupGrids.get(m.group)!, part: m.part },
+    ]),
+  );
+
+  // ── The lattice ───────────────────────────────────────────────────────────
+  const maxShift = Math.max(turnShift.eye, turnShift.nose, turnShift.mouth);
+  let reach = 0;
+  for (const grid of groupGrids.values()) {
+    reach = Math.max(
+      reach,
+      faceCenterX - grid.points[0] + maxShift,
+      grid.points[grid.cols * 2] - faceCenterX + maxShift,
+    );
+  }
+  const halfCells = Math.floor(reach / TURN_LATTICE_CELL_PX) + 1;
+  // Columns at faceCenterX ± k·pitch outright, not a span divided up, so the
+  // axis column IS faceCenterX to the last bit; row 0 is the top row.
+  const points: number[] = [];
+  for (const y of [unionMaxY, unionMinY]) {
+    for (let k = -halfCells; k <= halfCells; k++) {
+      points.push(faceCenterX + k * TURN_LATTICE_CELL_PX, y);
+    }
+  }
+  const lattice: IkiWarpGrid = { cols: 2 * halfCells, rows: 1, points };
 
   const hairFrontLayer = layers.find((l) => l.role === "hair_front");
   const hairFront =
@@ -3753,15 +4315,35 @@ export function turnSolveInputs(
       };
     })();
 
-  return [
-    turnLandmarks(layers),
-    lattice,
-    faceCenterX,
-    faceHalfWidth,
-    faceCenterY,
-    faceLayer.cropH,
-    hairFront,
-  ];
+  return {
+    inputs: [
+      turnLandmarks(layers, carriers),
+      lattice,
+      faceCenterX,
+      faceHalfWidth,
+      faceCenterY,
+      nodRadius,
+      carriers,
+      hairFront,
+    ],
+    members,
+    groupGrids,
+    parallaxUnitY,
+    hasNose,
+    hasMouthOpen,
+  };
+}
+
+/**
+ * Everything `generateIkiFromLayerSet` hands `solveTurnModel` for a layer set,
+ * the targets and the caller's `headEdges` excepted (they are the caller's
+ * own) — built by `turnSetup` and nowhere else, so a test that solves a layer
+ * set directly solves exactly the turn the generator solves, on the very
+ * grids and carriers it ships. Exported at module level for those tests, not
+ * from the package.
+ */
+export function turnSolveInputs(layers: LayerInput[]): TurnSolveInputs {
+  return turnSetup(layers).inputs;
 }
 
 // ── generateIkiFromLayerSet ───────────────────────────────────────────────────
@@ -3772,16 +4354,23 @@ export function turnSolveInputs(
  *
  *   - Validate all inputs before deriving anything.
  *   - Place parts at source-derived positions (bboxToTransform, unshifted).
- *   - Emit the standard parameters (same ids/ranges as sample-model.ts), plus a
- *     conditional HairSwayX descriptor + hair-sway physics rig when a hair_front
- *     layer is present.
+ *   - Emit the standard parameters (STANDARD_PARAMETERS), plus a conditional
+ *     HairSwayX/Z pair + hair-sway physics rigs when a hair_front layer is
+ *     present.
+ *   - Size every turn group's grid to its own members and the virtual lattice
+ *     to those grids, then solve the turn on them (turnSetup, solveTurnModel):
+ *     one surface — radius, travel, the head-level nod radius — that every
+ *     bake below samples.
  *   - Build headDeformer (matrix, neck pivot, nod/tilt/breath bindings — the
- *     turn translates nothing rigidly; its travel is in the face warp),
+ *     turn translates nothing rigidly; its travel is in the group grids), one
+ *     warp deformer per turn group present — `faceWarp` for the plate,
+ *     `eyeWarp_L/R`, `mouthWarp`, `noseWarp`, `browWarp_L/R`, `blushWarp_L/R`
+ *     — each a warp2d over its own grid baked from that surface with the
+ *     family's solved depth as keyform geometry (bakeTurnGroupWarp2D), and
  *     bodyDeformer when a body layer is present (matrix, torso-base pivot,
- *     AngleX follow + Breath follow), and faceWarp (warp, FACE_GRID_CELLS²,
- *     baked cylinder warp center-relative on faceCenterX).
+ *     AngleX follow + Breath follow).
  *   - Mesh parts (spec.mesh===true) → width:1, height:1, pixel grid mesh sized by
- *     meshCellsFor + role bindings.
+ *     meshCellsFor + role bindings, each face-family part on its group's warp.
  *   - Static parts (spec.mesh===false) → width:cropW, height:cropH, no mesh.
  *   - Part ids equal the role string (deterministic, no crypto.randomUUID).
  *   - Return parseIkiModel(structuredClone(model)) — every caller gets a
@@ -3817,112 +4406,10 @@ export function generateIkiFromLayerSet(
 
   // Hair-sway secondary motion is gated on a front-hair layer being present.
   const hasHair = layers.some((l) => l.role === "hair_front");
-  const hasMouthOpen = layers.some((l) => l.role === "mouth_open");
-  // The feature parallax's gate — see FEATURE_NOD_DEPTH.
-  const hasNose = layers.some((l) => l.role === "nose");
   const bodyLayer = layers.find((l) => l.role === "body");
 
-  // ── Standard parameters — verbatim from sample-model.ts ──────────────────
-  const parameters: IkiParameter[] = [
-    {
-      id: StandardParameter.MouthOpen,
-      name: "Mouth Open",
-      min: 0,
-      max: 1,
-      default: 0,
-    },
-    {
-      id: StandardParameter.MouthForm,
-      name: "Mouth Form",
-      min: -1,
-      max: 1,
-      default: 0,
-    },
-    {
-      id: StandardParameter.EyeOpenLeft,
-      name: "Eye L",
-      min: 0,
-      max: 1,
-      default: 1,
-    },
-    {
-      id: StandardParameter.EyeOpenRight,
-      name: "Eye R",
-      min: 0,
-      max: 1,
-      default: 1,
-    },
-    {
-      id: StandardParameter.EyeballX,
-      name: "Gaze X",
-      min: -1,
-      max: 1,
-      default: 0,
-    },
-    {
-      id: StandardParameter.EyeballY,
-      name: "Gaze Y",
-      min: -1,
-      max: 1,
-      default: 0,
-    },
-    {
-      id: StandardParameter.AngleX,
-      name: "Head Angle",
-      min: -30,
-      max: 30,
-      default: 0,
-    },
-    {
-      id: StandardParameter.AngleY,
-      name: "Head Angle Y",
-      min: -30,
-      max: 30,
-      default: 0,
-    },
-    {
-      id: StandardParameter.AngleZ,
-      name: "Head Angle Z",
-      min: -30,
-      max: 30,
-      default: 0,
-    },
-    {
-      id: StandardParameter.Breath,
-      name: "Breath",
-      min: 0,
-      max: 1,
-      default: 0,
-    },
-    {
-      id: StandardParameter.BrowLeftY,
-      name: "Brow L Y",
-      min: -1,
-      max: 1,
-      default: 0,
-    },
-    {
-      id: StandardParameter.BrowRightY,
-      name: "Brow R Y",
-      min: -1,
-      max: 1,
-      default: 0,
-    },
-    {
-      id: StandardParameter.BrowLeftAngle,
-      name: "Brow L Angle",
-      min: -1,
-      max: 1,
-      default: 0,
-    },
-    {
-      id: StandardParameter.BrowRightAngle,
-      name: "Brow R Angle",
-      min: -1,
-      max: 1,
-      default: 0,
-    },
-  ];
+  // ── Standard parameters ───────────────────────────────────────────────────
+  const parameters: IkiParameter[] = [...STANDARD_PARAMETERS];
 
   // Hair-sway output params (physics-driven), declared only when there is front
   // hair to drive — keeps no-hair models free of unused parameters.
@@ -3945,40 +4432,35 @@ export function generateIkiFromLayerSet(
     );
   }
 
-  // ── The face, the lattice and the turn ────────────────────────────────────
-  // Exactly what the solve is handed, built once in turnSolveInputs so a test
-  // that solves this layer set directly solves this very turn.
-  const solveInputs = turnSolveInputs(layers, canvas);
+  // ── The face, its groups, the lattice and the turn ────────────────────────
+  // Exactly what the solve is handed, and the members and group grids it was
+  // built from — built once in turnSetup, so a test that solves this layer
+  // set directly (turnSolveInputs) solves this very turn on these very grids.
+  const setup = turnSetup(layers);
+  const { members, groupGrids, parallaxUnitY, hasNose, hasMouthOpen } = setup;
   const [
     ,
     lattice,
     faceCenterX,
     faceHalfWidth,
     faceCenterY,
-    faceCropH,
+    nodRadius,
+    carriers,
     hairFront,
-  ] = solveInputs;
-  // The lattice's reach about the face centre per axis: it is symmetric about
-  // faceCenterX, so on x that is its half-width; on y the larger of its two
-  // distances from faceCenterY. The nod cylinder — and the nod's parallax
-  // unit, off the same number — is sized from the latter with the no-fold
-  // margin, so asin(1/1.2) + 15° stays under 90° whether or not the lattice is
-  // symmetric about that axis.
-  const latticeMinX = lattice.points[0];
-  const latticeMaxX = lattice.points[lattice.cols * 2];
-  const halfW = (latticeMaxX - latticeMinX) / 2;
-  const halfH = latticeHalfHeight(lattice, faceCenterY);
-  const nodRadius = halfH * HEAD_CYLINDER_RADIUS_FACTOR;
+  ] = setup.inputs;
+  // validateLayerInputs guarantees "face", and its carrier is the plate.
+  const plate = carriers.get("face")!;
+  const faceCropH = plate.part.cropH;
 
   // The head cylinder's turn radius, the face's sideways travel and how far in
   // front of the axis each feature sits: SOLVED from the turn cues, on the
-  // very surface the face warp is baked from, so what the targets promise is
-  // what the keyforms do. Without a nose there is no feature slide to fit (see
-  // FEATURE_NOD_DEPTH) and nothing to solve the radius against.
+  // very surface every group grid is baked from, so what the targets promise
+  // is what the keyforms do. Without a nose there is no feature slide to fit
+  // (see FEATURE_NOD_DEPTH) and nothing to solve the radius against.
   const turn = hasNose
     ? solveTurnModel(
         resolveTurnTargets(options.turnTargets),
-        ...solveInputs,
+        ...setup.inputs,
         options.headEdges,
       )
     : undefined;
@@ -4001,36 +4483,38 @@ export function generateIkiFromLayerSet(
       clamped: turn.clamped,
     });
   }
-  // The analytic head every bake below samples — the face warp, the bangs'
-  // hold and the body's follow all read this ONE surface, so nothing renders a
-  // turn the cues were not measured on. Solved when there was a nose; without
-  // one, the lattice's own reach with the no-fold margin (the bound then lands
-  // exactly on the outer columns, so the rig never leaves the surface) and the
-  // plate's own uncut travel ask, there being no held silhouette to size it
-  // against. Its nod radius is the one the solve reads off the same lattice.
-  // Depth-parallax units for the hair and feature layers come off the same
-  // cylinders the bake bends: this radius for the turn, halfH's for the nod.
+  // The analytic head every bake below samples — every group's grid, the
+  // bangs' hold and the body's follow all read this ONE surface, so nothing
+  // renders a turn the cues were not measured on. Solved when there was a
+  // nose; without one, the lattice's own reach about the face centre with the
+  // no-fold margin (the bound then lands beyond every node any grid reads, so
+  // the rig never leaves the surface) and the plate's own uncut travel ask,
+  // there being no held silhouette to size it against. Its nod radius is the
+  // head's, the one the solve was handed. The turn's depth-parallax unit
+  // comes off the same cylinder the bakes bend.
+  const latticeReach = Math.max(
+    faceCenterX - lattice.points[0],
+    lattice.points[lattice.cols * 2] - faceCenterX,
+  );
   const surface =
     turn?.surface ??
     turnSurface({
       faceCenterX,
       faceCenterY,
-      radius: halfW * HEAD_CYLINDER_RADIUS_FACTOR,
+      radius: latticeReach * HEAD_CYLINDER_RADIUS_FACTOR,
       travel: headTurnTravel(faceHalfWidth),
       nodRadius,
       lattice,
     });
   const parallaxUnit = headTurnParallaxUnit(surface.radius);
-  const parallaxUnitY = headNodParallaxUnit(halfH);
-  // The plate as it RENDERS on that surface — its own mesh over the face-warp
-  // grid — and the rows its painted edge is guarded at: the same geometry and
-  // the same list the solve read, so the hold the solve fitted is the hold
-  // the bake below can build. No silhouette profile yet: the plate is painted
-  // out to its crop on every row.
-  const plate = facePlate(faceCenterX, faceCenterY, faceHalfWidth, faceCropH);
-  const plateLandingAt = plateLandingOn(plate, lattice, surface);
+  // The plate as it RENDERS on that surface — its own mesh over its own grid,
+  // the carrier — and the rows its painted edge is guarded at: the same
+  // geometry and the same list the solve read, so the hold the solve fitted is
+  // the hold the bake below can build. No silhouette profile yet: the plate is
+  // painted out to its crop on every row.
+  const plateLandingAt = plateLandingOn(plate, rowMapsOf(surface));
   const edgeAt = () => faceHalfWidth;
-  const plateGuardRows = plateGuardRowsFor(plate, hairFront);
+  const plateGuardRows = plateGuardRowsFor(plate.part, hairFront);
 
   // ── headDeformer pivot (neck): slightly below the face bottom ─────────────
   // faceBottom is the model-space y of the bottom edge of the face crop.
@@ -4040,17 +4524,6 @@ export function generateIkiFromLayerSet(
     x: faceCenterX,
     y: faceBottom - faceCropH * 0.15, // 15% below face bottom = neck
   };
-
-  // ── Bake the turn × nod warp off the surface ──────────────────────────────
-  // The plate has no turn shift of its own — the features' depth slides ride
-  // their own bindings — so every node reads the surface at its own rest x.
-  const faceWarp2d = bakeTurnGroupWarp2D(
-    lattice,
-    StandardParameter.AngleX,
-    StandardParameter.AngleY,
-    surface,
-    () => 0,
-  );
 
   // ── Deformers ─────────────────────────────────────────────────────────────
   const deformers: IkiDeformer[] = [
@@ -4062,8 +4535,8 @@ export function generateIkiFromLayerSet(
       pivot: neckPivot,
       bindings: [
         // No AngleX binding: the turn moves NOTHING rigidly. Its sideways
-        // travel is baked into faceWarp's own grid (the surface's `travel`,
-        // see bakeTurnGroupWarp2D) so the face slides inside a silhouette the
+        // travel is baked into every group grid (the surface's `travel`, see
+        // bakeTurnGroupWarp2D) so the face slides inside a silhouette the
         // bangs hold; a translate here would take the hair shell with it. Nor
         // is the turn a roll — the sample model's ±6° "lean into the turn" was
         // tried here and dropped, since rotating about the neck pivot swings
@@ -4100,19 +4573,34 @@ export function generateIkiFromLayerSet(
         },
       ],
     },
-    // faceWarp: cylinder-bend warp parented to headDeformer. Its grid is the
-    // very lattice the surface was fitted on — symmetric about faceCenterX so
-    // the cylinder axis is a column — and every node samples that surface at
-    // its own rest position. One 2D warp carries both the turn and the nod (a
-    // deformer holds either `warps` or `warp2d`, never both).
-    {
-      kind: "warp" as const,
-      id: "faceWarp",
-      parent: "headDeformer",
-      grid: lattice,
-      warp2d: faceWarp2d,
-    },
   ];
+
+  // One cylinder-bend warp per turn group present, parented to headDeformer:
+  // the group's own grid (`groupGridFor`, the very carrier the solve read its
+  // parts through), every node sampling the surface at its own rest position
+  // — shifted, at each turn stop, by the family's solved depth share of the
+  // parallax unit, so the depth is the grid's keyform geometry rather than a
+  // translate on the parts (see featureParallaxBindings). The plate has no
+  // depth: it IS the cylinder. Without a solve no depth is known and every
+  // group reads the surface unshifted. One 2D warp carries both the turn and
+  // the nod (a deformer holds either `warps` or `warp2d`, never both).
+  for (const [group, grid] of groupGrids) {
+    const family = turnFamily(members.find((m) => m.group === group)!.role);
+    const depth = group === "faceWarp" ? 0 : (turn?.depths[family] ?? 0);
+    deformers.push({
+      kind: "warp" as const,
+      id: group,
+      parent: "headDeformer",
+      grid,
+      warp2d: bakeTurnGroupWarp2D(
+        grid,
+        StandardParameter.AngleX,
+        StandardParameter.AngleY,
+        surface,
+        (deg) => (depth * parallaxUnit * deg) / HEAD_TURN_MAX_DEG,
+      ),
+    });
+  }
 
   // bodyDeformer: the torso's own rigid deformer. A sibling of headDeformer, not
   // its parent, so the head's own bindings stay untouched; reparent the head
@@ -4148,44 +4636,29 @@ export function generateIkiFromLayerSet(
     });
   }
 
-  // ── Shared closed-eye crease per side ─────────────────────────────────────
-  // The white AND the lash fold to the SAME seam (derived from the eye-white
-  // center), so the lash lands on top of the cut eyeball and covers it.
-  const eyeCreaseBySide: Partial<Record<"L" | "R", number>> = {};
-  for (const layer of layers) {
-    const side = ROLE_TABLE[layer.role].eyeSide;
-    if ((layer.role === "eye_L" || layer.role === "eye_R") && side) {
-      const ey = bboxToTransform(
-        layer.bbox,
-        layer.canvasW,
-        layer.canvasH,
-        layer.role,
-      ).y;
-      eyeCreaseBySide[side] = ey - EYELID_FOLD_CREASE * layer.cropH;
-    }
-  }
-
   // ── Parts ─────────────────────────────────────────────────────────────────
+  const memberByRole = new Map(members.map((m) => [m.role, m]));
   const parts: IkiPart[] = layers.map((layer) => {
     const { role, bbox, cropW, cropH, canvasW, canvasH } = layer;
     const spec = ROLE_TABLE[role];
     const t = bboxToTransform(bbox, canvasW, canvasH, role);
     const roleBindings = bindingsForRole(spec, role, cropW, cropH, {
       hasMouthOpen,
-      parallaxUnit,
       parallaxUnitY,
       hasNose,
-      turnDepths: turn?.depths,
     });
     // `IkiPart.deformer` is optional, so a "none" role states its detachment by
     // leaving the field off rather than naming a deformer that must exist.
     const deformerId = spec.deformer === "none" ? undefined : spec.deformer;
 
     if (spec.mesh) {
-      // Warp-deformer child: width:1, height:1 with a pixel grid mesh centered
-      // at the crop center. The engine applies the part transform to position it.
+      // Mesh part: width:1, height:1 with a pixel grid mesh centered at the
+      // crop center; the engine applies the part transform to position it. A
+      // group member renders on the very mesh its carrier was read with.
+      const member = memberByRole.get(role);
       const { cols, rows } = meshCellsFor(cropW, cropH);
-      const mesh = createPixelGridMesh(cols, rows, cropW, cropH);
+      const mesh =
+        member?.mesh ?? createPixelGridMesh(cols, rows, cropW, cropH);
       const part: IkiPart = {
         id: role,
         color: [1, 1, 1, 1] as [number, number, number, number],
@@ -4280,29 +4753,14 @@ export function generateIkiFromLayerSet(
         ];
       }
       // Eye blink = fold: the white (eye_) and the lash (lash_) fold shut via a
-      // warp toward the shared crease; iris/pupil/highlight clip to the white, so
-      // the closing white CUTS them away (round, not squashed) and the lash lands
-      // on top to cover the seam. The white is a required role (clip mask exists).
+      // warp toward the shared crease — the one their member was built with
+      // (eyelidFoldFor), so the grid that bounds them saw the same fold;
+      // iris/pupil/highlight clip to the white, so the closing white CUTS them
+      // away (round, not squashed) and the lash lands on top to cover the
+      // seam. The white is a required role (clip mask exists).
       if (spec.eyeSide !== undefined) {
-        const isLash = role.startsWith("lash_");
-        if (role.startsWith("eye_") || isLash) {
-          const openParam =
-            spec.eyeSide === "L"
-              ? StandardParameter.EyeOpenLeft
-              : StandardParameter.EyeOpenRight;
-          const creaseWorldY =
-            eyeCreaseBySide[spec.eyeSide] ?? t.y - EYELID_FOLD_CREASE * cropH;
-          // Separate lashes supply the closed-eye line. Collapse their sclera
-          // clip completely so a strip of iris cannot show underneath.
-          const hasLash = layers.some((l) => l.role === `lash_${spec.eyeSide}`);
-          part.warps = [
-            bakeEyelidFoldWarp(
-              mesh,
-              openParam,
-              creaseWorldY - t.y,
-              isLash ? LASH_FOLD_K : hasLash ? 0 : EYELID_FOLD_K,
-            ),
-          ];
+        if (role.startsWith("eye_") || role.startsWith("lash_")) {
+          part.warps = [...member!.warps];
         } else {
           part.clip = { masks: [`eye_${spec.eyeSide}`] };
         }

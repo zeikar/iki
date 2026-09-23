@@ -688,17 +688,23 @@ describe("autoRigFromLayers", () => {
     ];
   }
 
-  /** The eye's turn slide in a written model: the `from` end of its AngleX
-   *  translateX binding, i.e. where it sits at the turn's own limit. */
+  /** The eye's turn slide in a written model: the mean dx the nodes of its own
+   *  turn grid carry at the −30° stop (AngleY 0) — the family's solved depth
+   *  is that grid's keyform geometry, the eye part carrying no AngleX binding
+   *  of its own. */
   function eyeSlide(filePath: string): number {
     const model = parseIkiModel(JSON.parse(fs.readFileSync(filePath, "utf8")));
-    const binding = (
-      model.parts.find((p) => p.id === "eye_L")!.bindings ?? []
-    ).find(
-      (b) =>
-        b.parameter === StandardParameter.AngleX && b.channel === "translateX",
-    );
-    return binding!.from;
+    const eye = model.parts.find((p) => p.id === "eye_L")!;
+    const group = model.deformers!.find((d) => d.id === eye.deformer)!;
+    if (group.kind !== "warp" || group.warp2d === undefined) {
+      throw new Error("eye_L rides no 2D warp");
+    }
+    const { valuesX, valuesY, keyforms2d } = group.warp2d;
+    const at30 =
+      keyforms2d[valuesY.indexOf(0) * valuesX.length + valuesX.indexOf(-30)];
+    let sum = 0;
+    for (let i = 0; i < at30.offsets.length; i += 2) sum += at30.offsets[i];
+    return sum / (at30.offsets.length / 2);
   }
 
   it("falls back to the face plate, and still rigs, when the layers are translucent (alpha below the opaque-union threshold)", async () => {
