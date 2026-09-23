@@ -744,8 +744,9 @@ const FACE_ROW_SMOOTHING = 0.05;
 /** How far the chin swings toward the NEAR side at full turn, as a fraction
  *  of the plate's half-width, scaled by how much narrower than the widest row
  *  a row is (`TurnSurface.swingAt`): a turned head's jaw comes round with it
- *  while the cranium stays. Judged on the hero two-up (slice ④). */
-const CHIN_SWING = 0.05;
+ *  while the cranium stays. Judged on the hero two-up (slice ④): 0.05
+ *  under-read the 30° reference's chin, 0.08 is the ladder value that reads. */
+const CHIN_SWING = 0.08;
 
 /**
  * The face plate's painted half-width per row, read off its layer's

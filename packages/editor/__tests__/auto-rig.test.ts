@@ -6762,7 +6762,7 @@ describe("odd-column golden cues", () => {
 /** Mirror of auto-rig's private CHIN_SWING: the chin's swing toward the near
  *  side at full turn, as a fraction of the plate's half-width, scaled by how
  *  much narrower than the widest row a row is. */
-const CHIN_SWING = 0.05;
+const CHIN_SWING = 0.08;
 
 /** Mirror of auto-rig's private FACE_ROW_MIN_FRACTION: the floor under a
  *  row's half-width, as a fraction of the widest row's. */
