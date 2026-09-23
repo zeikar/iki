@@ -27,10 +27,10 @@ deliberately deferred.
    - PSD import in the editor; the `auto_rig_from_layers` tool in [`@ikijs/mcp`](./packages/mcp) so an agent can go from PNGs to a renderable `.iki` on disk
    - A Claude skill chains image generation → layer compose → rig in one gesture
    - Head-turn depth parallax: the hair silhouette holds still while the face plate slides and foreshortens inside it, the bangs leading that slide — a turn reads as a head rotating rather than a flat cutout sliding
-   - Head nod: `AngleY` drives the face warp as one 2D grid warp (`warp2d`) over turn × nod, with a gentler vertical bend so the hair crown stays whole
+   - Head nod: `AngleY` drives the face plate and each feature group on its own 2D grid warp (`warp2d`) over turn × nod, all baked from one surface, with a gentler vertical bend so the hair crown stays whole
    - Head tilt: `AngleZ` rolls the head about the neck pivot, clockwise-positive to match Live2D
    - Torso: `body` rides a `bodyDeformer` that follows the turn at a light share and the breath bob at half amplitude, so the shoulders come along instead of staying bolted to the canvas
-   - Motion fidelity: turn/nod keyforms at 15° stops, a 6×6 face grid, and meshes sized to the art (`meshCellsFor`), so mid-angle poses and full turns render as curves rather than chords
+   - Motion fidelity: turn/nod keyforms at 15° stops, a 10-cell face plate and 4-cell feature grids, and meshes sized to the art (`meshCellsFor`), so mid-angle poses and full turns render as curves rather than chords
    - Deferred: ML segmentation of a single flat illustration (today the parts arrive as separate layers)
 7. **Physics / secondary motion** — done
    - Spring-mass-damper rigs (`model.physics`) driven by the `PhysicsMotion` peer driver

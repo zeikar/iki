@@ -92,7 +92,10 @@ is still the furthest out after it turns.
 It takes **already-decoded** layer geometry (`LayerInput`), never pixels, which
 is what keeps this package free of any image dependency: the editor app
 decodes with canvas, `@ikijs/mcp` decodes with `sharp`, and both feed the same
-pure function.
+pure function — including the optional `rowHalfWidths` (one entry per crop row,
+half that row's opaque span in canvas px), which `@ikijs/mcp` measures for the
+face so the plate turns on a radius that varies by row; absent, it turns on one
+constant radius.
 
 `*_L` / `*_R` are the **character's** sides — `eye_L` is the character's left
 eye, which appears on the viewer's right.
