@@ -14,6 +14,7 @@ import {
   bindingsForRole,
   createPixelGridMesh,
   facePlate,
+  faceRowProfile,
   generateGridPoints,
   generateIkiFromLayerSet,
   headNodParallaxUnit,
@@ -300,6 +301,10 @@ const hairFrontOf = (layers: LayerInput[]) => {
   );
   return { x: t.x, centerY: t.y, cropW: layer.cropW, cropH: layer.cropH };
 };
+
+/** `layers` with `rows` as the FACE layer's `rowHalfWidths`. */
+const withProfile = (layers: LayerInput[], rows: number[]): LayerInput[] =>
+  layers.map((l) => (l.role === "face" ? { ...l, rowHalfWidths: rows } : l));
 
 /** Full turn toward −x: the pose every turn cue is measured in. */
 const turned = { [StandardParameter.AngleX]: -30 };
@@ -802,6 +807,59 @@ describe("validate", () => {
     expect(() =>
       validateLayerInputs(layers, { width: 800, height: 800 }),
     ).toThrow(/canvas size/);
+  });
+
+  /** minimalLayers()' face is 600 rows tall and 600 wide, so a valid profile
+   *  is 600 entries in [0, 300]. */
+  const validRows = () => Array.from({ length: 600 }, (_, i) => (i % 7) * 40);
+  const canvas = { width: 1000, height: 1000 };
+
+  it("a well-formed rowHalfWidths passes", () => {
+    expect(() =>
+      validateLayerInputs(withProfile(minimalLayers(), validRows()), canvas),
+    ).not.toThrow();
+  });
+
+  it("rowHalfWidths that is not an array throws naming the role, before its length is read", () => {
+    expect(() =>
+      validateLayerInputs(
+        withProfile(minimalLayers(), 300 as unknown as number[]),
+        canvas,
+      ),
+    ).toThrow(/role "face" rowHalfWidths must be an array/);
+  });
+
+  it("rowHalfWidths of the wrong length throws naming the role and the crop height", () => {
+    expect(() =>
+      validateLayerInputs(
+        withProfile(minimalLayers(), [100, 200, 300]),
+        canvas,
+      ),
+    ).toThrow(/role "face" rowHalfWidths has 3 entries.*cropH 600/);
+  });
+
+  it("a negative rowHalfWidths entry throws naming the role and the row", () => {
+    const rows = validRows();
+    rows[17] = -1;
+    expect(() =>
+      validateLayerInputs(withProfile(minimalLayers(), rows), canvas),
+    ).toThrow(/role "face" rowHalfWidths\[17\] is -1/);
+  });
+
+  it("a rowHalfWidths entry past half the crop's width throws naming the role and the bound", () => {
+    const rows = validRows();
+    rows[599] = 300.5;
+    expect(() =>
+      validateLayerInputs(withProfile(minimalLayers(), rows), canvas),
+    ).toThrow(/role "face" rowHalfWidths\[599\] is 300.5.*\[0, 300\]/);
+  });
+
+  it("a NaN rowHalfWidths entry throws naming the role and the row", () => {
+    const rows = validRows();
+    rows[0] = Number.NaN;
+    expect(() =>
+      validateLayerInputs(withProfile(minimalLayers(), rows), canvas),
+    ).toThrow(/role "face" rowHalfWidths\[0\] is NaN/);
   });
 });
 
@@ -2217,7 +2275,7 @@ describe("hair_front silhouette hold", () => {
     // below, and the radius alone (fitted to the eye ratio) does not pin the
     // travel (capped separately) or the hold base built on it.
     const inputs = turnSolveInputs(layers);
-    const [, lattice, faceCenterX, faceHalfWidth, , , carriers, hairFront] =
+    const [, lattice, faceCenterX, faceHalfWidth, , , carriers, , hairFront] =
       inputs;
     const turn = solveTurnModel(resolveTurnTargets({}), ...inputs);
     if (turn.unreachable) throw new Error("expected a reachable turn");
@@ -5159,7 +5217,7 @@ describe("turn targets", () => {
     // renders.
     const mesh = createPixelGridMesh(20, 2, 1000, 100);
     const col = (x: number) => (x - faceCenterX + 500) / 50;
-    const [, , , , , , carriers, hairFront] = turnSolveInputs(layers);
+    const [, , , , , , carriers, , hairFront] = turnSolveInputs(layers);
     // The plate as the solve read it: its own grid and mesh, the carrier.
     const plate = carriers.get("face")!;
     const plateLandingAt = plateLandingOn(plate, turn.surface.mapAt);
@@ -5427,9 +5485,9 @@ describe("turn targets", () => {
     // with it to the oracle's float32 rounding. Exact, unlike the eye sweep's
     // within1Percent above: the family depth is bisected to float64 precision
     // (solveTurnDepth, 40 steps), not fitted to a tolerance. The nose and mouth
-    // sit below the eye row, so a row-dependent radius (Task 7) is the first
-    // change that can legitimately move this — a loud failure here is the
-    // signal to make that solve row-aware.
+    // sit below the eye row and read their own rows' map (TurnLandmark.y);
+    // this layer set has no row profile, so every row's map is the eye row's
+    // — a profile is what can legitimately move this.
     expect(cueOf("nose")).toBeCloseTo(targets.noseShift, 6);
 
     // The mouth is DERIVED (no explicit mouthShift): MOUTH_SHIFT_SHARE times
@@ -6696,5 +6754,708 @@ describe("odd-column golden cues", () => {
       report.achieved.silhouetteRatio,
       6,
     );
+  });
+});
+
+// ── Face row profile (④) ─────────────────────────────────────────────────────
+
+/** Mirror of auto-rig's private CHIN_SWING: the chin's swing toward the near
+ *  side at full turn, as a fraction of the plate's half-width, scaled by how
+ *  much narrower than the widest row a row is. */
+const CHIN_SWING = 0.05;
+
+/** Mirror of auto-rig's private FACE_ROW_MIN_FRACTION: the floor under a
+ *  row's half-width, as a fraction of the widest row's. */
+const FACE_ROW_MIN_FRACTION = 0.15;
+
+/** The bounded bend's own fraction: where a point at signed distance `l` from
+ *  the axis lands, as a fraction of `l`, on a cylinder of radius `R` turned
+ *  by `theta` with the axis pinned — `R·sin(asin(l/R) + θ) − R·sinθ` over
+ *  `l`, the analytic branch of boundedCylinderBend (|l| ≤ R / RADIUS_FACTOR).
+ *  Scale-free: the same for (l, R) and (l/2, R/2). */
+const bendFraction = (l: number, R: number, theta: number) =>
+  (R * Math.sin(Math.asin(l / R) + theta) - R * Math.sin(theta)) / l;
+
+/** Mirror of auto-rig's private `turnSlide`: the whole travel at ±30°, linear
+ *  between. */
+const slideAt = (travel: number, deg: number) => (travel * deg) / 30;
+
+describe("face row profile", () => {
+  const layers = heroLikeLayers();
+  const faceLayer = layers.find((l) => l.role === "face")!;
+  /** 592 crop rows, 201 px half-wide, the face centre at (0, 20): its crop
+   *  spans model y 316 (row 0) down to −276 (row 591). */
+  const cropH = faceLayer.cropH;
+  const faceHalfWidth = faceLayer.cropW / 2;
+  const heroTargets = {
+    turnTargets: { headHalfWidth: HERO_HEAD.headHalfWidth },
+    headEdges: HERO_HEAD.headEdges,
+  };
+  const stops = [-30, -15, 15, 30];
+  const theta30 = (-30 * Math.PI) / 180;
+
+  /** A hero-like rig on `rows` as the face's profile (none when undefined),
+   *  its report, and the solve's own `holdEdgeAt` — re-solved on the identical
+   *  inputs the generator used (`turnSolveInputs`), checked by radius to be
+   *  this rig's, as `rigOf` does — plus the profile as the generator read it.
+   *  Solved once per fixture on first use. */
+  type Profiled = {
+    layers: LayerInput[];
+    model: ReturnType<typeof generateIkiFromLayerSet>;
+    report: TurnSolveReport;
+    holdEdgeAt: (deg: number) => number;
+    faceCenterX: number;
+    faceCenterY: number;
+    eyeRowY: number;
+    profile: ReturnType<typeof faceRowProfile>;
+  };
+  const solved = new Map<string, Profiled>();
+  const profiled = (
+    key: string,
+    rows: number[] | undefined,
+    opts: { turnTargets: TurnTargets; headEdges?: HeadEdges } = heroTargets,
+  ): Profiled => {
+    const cached = solved.get(key);
+    if (cached) return cached;
+    const own = rows === undefined ? layers : withProfile(layers, rows);
+    let report: TurnSolveReport | undefined;
+    const model = generateIkiFromLayerSet(own, canvas1100, {
+      ...opts,
+      onTurnSolved: (r) => (report = r),
+    });
+    if (!report) throw new Error("the hero-like layer set must solve a turn");
+    const turn = solveTurnModel(
+      resolveTurnTargets(opts.turnTargets),
+      ...turnSolveInputs(own),
+      opts.headEdges,
+    );
+    if (turn.unreachable) throw new Error("expected a reachable turn");
+    expect(turn.radius).toBe(report.radius);
+    const face = model.parts.find((p) => p.id === "face")!.transform;
+    const eyes = ["eye_L", "eye_R"].map(
+      (id) => model.parts.find((p) => p.id === id)!.transform.y,
+    );
+    const result: Profiled = {
+      layers: own,
+      model,
+      report,
+      holdEdgeAt: turn.holdEdgeAt,
+      faceCenterX: face.x,
+      faceCenterY: face.y,
+      eyeRowY: (eyes[0] + eyes[1]) / 2,
+      profile: faceRowProfile(own.find((l) => l.role === "face")!, face.y),
+    };
+    solved.set(key, result);
+    return result;
+  };
+
+  /** A dense lattice of the test's own: 16 px columns anchored on the face
+   *  centre, wide enough to hold every node plus the largest shift — so a
+   *  painted edge at a multiple of 16 from the centre IS a column. */
+  const denseLattice = (faceCenterX: number) => {
+    const half = 48 * 16;
+    return {
+      cols: 96,
+      rows: 1,
+      points: generateGridPoints(
+        96,
+        1,
+        faceCenterX - half,
+        faceCenterX + half,
+        -1,
+        1,
+      ),
+    };
+  };
+
+  /** The surface's per-row numbers, mirrored off a profile: the radius scaled
+   *  by the row's half-width over the eye row's, and the chin's swing below
+   *  the widest row. */
+  const rowTerms = (r: Profiled, y: number) => {
+    const p = r.profile!;
+    const a = p.at(y);
+    return {
+      a,
+      radius: (r.report.radius * a) / p.at(r.eyeRowY),
+      swing:
+        y < p.widestY
+          ? -CHIN_SWING * faceHalfWidth * Math.max(0, 1 - a / p.aMax)
+          : 0,
+    };
+  };
+
+  it("builds the profile by the rule: aMax above the widest row, the measurement filled, smoothed and floored at and below it, linear between rows, the end rows beyond", () => {
+    // Ten rows on a 20 px-wide face centred at y = 0: rows rest at 4.5, 3.5,
+    // … −4.5. The widest is row 2 (10); rows 0–1 read it however little they
+    // paint; below it the empty rows 5–6 take row 4's 6 and row 9 takes row
+    // 8's 1; the window is three rows (5 % of ten, at least three), the end
+    // row repeated past the crop; the floor is 1.5.
+    const face = layer({ width: 100, height: 100 }, "face", 40, 45, 20, 10);
+    const p = faceRowProfile(
+      { ...face, rowHalfWidths: [0, 4, 10, 8, 6, 0, 0, 2, 1, 0] },
+      0,
+    )!;
+    expect(p.aMax).toBe(10);
+    expect(p.widestY).toBe(2.5);
+    expect(p.faceHalfWidth).toBe(10);
+    const smoothed = [10, 10, 28 / 3, 8, 20 / 3, 6, 14 / 3, 3, 1.5, 1.5];
+    smoothed.forEach((a, i) => {
+      expect(p.at(4.5 - i), `row ${i}`).toBeCloseTo(a, 12);
+    });
+    // Linear between two rows' centres; the end rows past the crop.
+    expect(p.at(1.5 + 0.25)).toBeCloseTo(8 + (28 / 3 - 8) * 0.25, 12);
+    expect(p.at(50)).toBe(10);
+    expect(p.at(-50)).toBe(1.5);
+    // The widest of several equal rows is the lowest of them.
+    expect(
+      faceRowProfile(
+        { ...face, rowHalfWidths: [3, 5, 5, 5, 2, 0, 0, 0, 0, 0] },
+        0,
+      )!.widestY,
+    ).toBe(1.5);
+    // No painted row at all — or no profile — is no profile.
+    expect(
+      faceRowProfile({ ...face, rowHalfWidths: new Array(10).fill(0) }, 0),
+    ).toBeUndefined();
+    expect(faceRowProfile(face, 0)).toBeUndefined();
+  });
+
+  describe("two bands", () => {
+    /** Rows 0–349 (model y down to −33.5) at 192, the rest at 96: both
+     *  multiples of TURN_LATTICE_CELL_PX, so `faceCenterX ∓ a(y)` is a lattice
+     *  node on both bands; each band far wider than the 31-row smoothing
+     *  window, so its interior rows read exactly 192 / 96. The boundary sits
+     *  below every eye-family grid node (the lowest rests at y ≈ 2) and
+     *  between the plate grid's node rows at 20 and −53.6, so the eye row
+     *  (75) and everything the cues read is in the upper band. */
+    const BOUNDARY_ROW = 350;
+    const twoBand = Array.from({ length: cropH }, (_, i) =>
+      i < BOUNDARY_ROW ? 192 : 96,
+    );
+    const rig = () => profiled("twoBand", twoBand);
+    /** An interior row of each band: 200 sits between the plate's node rows
+     *  240.8 and 167.2 and the face mesh's 242 and 168; −200 between −127.2
+     *  and −200.8 and the mesh's −128 and −202 — nothing a render reads there
+     *  touches the smoothing ramp (y −19.5 … −49). */
+    const UPPER_Y = 200;
+    const LOWER_Y = -200;
+
+    it("a constant profile — the crop's half-width on every row — rigs the no-profile model, byte for byte", () => {
+      const bare = profiled("none", undefined);
+      const flat = profiled("constant", new Array(cropH).fill(faceHalfWidth));
+      expect(flat.model).toEqual(bare.model);
+      expect(flat.report).toEqual(bare.report);
+    });
+
+    it("reads each band exactly: the eye row, an interior row of each band, and the widest row", () => {
+      const r = rig();
+      const p = r.profile!;
+      expect(p.aMax).toBe(192);
+      expect(p.at(r.eyeRowY)).toBe(192);
+      expect(p.at(UPPER_Y)).toBe(192);
+      expect(p.at(LOWER_Y)).toBe(96);
+      // The widest row is the last 192 row, row 349, resting at 316 − 349.5.
+      expect(p.widestY).toBe(-33.5);
+      expect(192 % 16).toBe(0);
+      expect(96 % 16).toBe(0);
+    });
+
+    it("bends each row on its own radius: an interior row of each band lands its painted edges at the SAME fraction of its half-width, the bounded bend's own, to 1e-9", () => {
+      const r = rig();
+      const travel = travelOf(r.model);
+      const dense = denseLattice(r.faceCenterX);
+      const fractions = (y: number) => {
+        const { a, radius, swing } = rowTerms(r, y);
+        const map = turnColumnMap(
+          dense,
+          r.faceCenterX,
+          radius,
+          -30,
+          travel + swing,
+        );
+        const slide = slideAt(travel + swing, -30);
+        // Both painted edges are lattice nodes here, so `mapX` returns the
+        // node's own bend + slide — the analytic value, no chord.
+        return [-1, 1].map(
+          (side) =>
+            (map.mapX(r.faceCenterX + side * a) - r.faceCenterX - slide) /
+            (side * a),
+        );
+      };
+      const upper = fractions(UPPER_Y);
+      const lower = fractions(LOWER_Y);
+      for (const side of [0, 1]) {
+        expect(lower[side]).toBeCloseTo(upper[side], 9);
+      }
+      // And that fraction is the bend's own at the eye row's radius: far
+      // side foreshortened, near side stretched.
+      expect(upper[0]).toBeCloseTo(
+        bendFraction(-192, r.report.radius, theta30),
+        9,
+      );
+      expect(upper[1]).toBeCloseTo(
+        bendFraction(192, r.report.radius, theta30),
+        9,
+      );
+      expect(upper[0]).toBeLessThan(1);
+      expect(upper[1]).toBeGreaterThan(1);
+      // The lower band's radius is half the eye row's — the rule that keeps
+      // the fraction — and its edge stays on the analytic branch.
+      expect(rowTerms(r, LOWER_Y).radius).toBeCloseTo(r.report.radius / 2, 9);
+      expect(96 / (r.report.radius / 2)).toBeLessThan(1 / RADIUS_FACTOR);
+    });
+
+    it("renders those painted edges within the plate grid's and the face mesh's chord of the analytic map", () => {
+      const r = rig();
+      const travel = travelOf(r.model);
+      const dense = denseLattice(r.faceCenterX);
+      const analytic = (y: number, side: -1 | 1) => {
+        const { a, radius, swing } = rowTerms(r, y);
+        return turnColumnMap(
+          dense,
+          r.faceCenterX,
+          radius,
+          -30,
+          travel + swing,
+        ).mapX(r.faceCenterX + side * a);
+      };
+      const rendered = (y: number, side: -1 | 1) =>
+        landedXAt(
+          r.model,
+          "face",
+          r.faceCenterX + side * rowTerms(r, y).a,
+          y,
+          turned,
+        );
+      // The render never samples the plate at the painted edge itself: it
+      // lands the face mesh's vertices bracketing it — each bilinear over the
+      // 50.05 px plate cells — and interpolates linearly between them, so the
+      // error is the mesh's chord of the bend over that 67 px cell plus the
+      // plate chord the two vertices carry. On the upper band (the eye row's
+      // radius, ≈ 361) −192 sits 9 px from the mesh column at −201 and the
+      // two together stay under 1.1 px. The lower band's radius is HALF that,
+      // doubling the curvature, and ∓96 falls mid-cell between the mesh's
+      // ∓134 and ∓67: measured at −30, the mesh chord is 2.89 px and the
+      // plate chord the −67 vertex carries 1.03 px (0.63 at +134; ≈ 0 at
+      // −134, where the lattice's kink at the bound R/1.2 ≈ 150 cancels it)
+      // — 3.46 px far, 3.75 near, against the 4 px bound. The bound is TIGHT,
+      // 0.25 px of margin: FACE_PLATE_CELLS at 8, Decision 6's byte fallback,
+      // gives 62.6 px plate cells and would exceed it.
+      for (const side of [-1, 1] as const) {
+        expect(
+          Math.abs(rendered(UPPER_Y, side) - analytic(UPPER_Y, side)),
+          `upper ${side}`,
+        ).toBeLessThan(2);
+        expect(
+          Math.abs(rendered(LOWER_Y, side) - analytic(LOWER_Y, side)),
+          `lower ${side}`,
+        ).toBeLessThan(4);
+      }
+    });
+
+    it("swings the chin toward the near side: the plate's axis column carries the slide alone above the widest row and the slide less the swing below it", () => {
+      const r = rig();
+      const travel = travelOf(r.model);
+      const faceWarp = faceWarpOf(r.model);
+      const { grid } = faceWarp;
+      const stride = grid.cols + 1;
+      const col = grid.cols / 2; // the axis column (asserted in centreSlideOf)
+      let lower = 0;
+      let upper = 0;
+      for (const deg of stops) {
+        const k = cell(faceWarp.warp2d, deg, 0);
+        for (let row = 0; row <= grid.rows; row++) {
+          const y = grid.points[(row * stride + col) * 2 + 1];
+          const dx = k.offsets[(row * stride + col) * 2];
+          if (y < r.profile!.widestY) {
+            // Every node row below the widest rests on the 96 band, so
+            // 1 − a/aMax is ½ on each: the slide less CHIN_SWING · ½ of the
+            // plate's half-width, scaled to the stop — at −30 that is
+            // −travel + 0.025 · faceHalfWidth, toward the near side.
+            expect(rowTerms(r, y).a).toBe(96);
+            expect(dx, `${deg}° row ${row}`).toBeCloseTo(
+              slideAt(travel, deg) -
+                (CHIN_SWING * faceHalfWidth * 0.5 * deg) / 30,
+              1,
+            );
+            expect(Math.abs(dx)).toBeLessThan(Math.abs(slideAt(travel, deg)));
+            lower++;
+          } else {
+            expect(dx, `${deg}° row ${row}`).toBeCloseTo(
+              slideAt(travel, deg),
+              1,
+            );
+            upper++;
+          }
+        }
+      }
+      expect(lower).toBe(5 * stops.length);
+      expect(upper).toBe(6 * stops.length);
+      expect(travel).toBeCloseTo(0.25 * faceHalfWidth, 9);
+    });
+
+    it("keeps the bangs' join on the rendered plate and puts the strands between a row's painted edge and the plate's crop on the ramp", () => {
+      const r = rig();
+      const hair = r.model.parts.find((p) => p.id === "hair_front")!;
+      const hairLayer = r.layers.find((l) => l.role === "hair_front")!;
+      const { cols, rows } = meshCellsFor(hairLayer.cropW, hairLayer.cropH);
+      const stride = cols + 1;
+      const restX = (v: number) =>
+        hair.transform.x + hair.mesh!.vertices[v * 2];
+      const restY = (v: number) =>
+        hair.transform.y + hair.mesh!.vertices[v * 2 + 1];
+      const unit = headTurnParallaxUnit(r.report.radius);
+      for (const deg of stops) {
+        const params = { [StandardParameter.AngleX]: deg };
+        const landed = landVertices(r.model, "hair_front", params);
+        let onPlate = 0;
+        let onRamp = 0;
+        for (let v = 0; v < (cols + 1) * (rows + 1); v++) {
+          const x = restX(v);
+          const y = restY(v);
+          const dist = Math.abs(x - r.faceCenterX);
+          const a = r.profile!.at(y);
+          const row = Math.floor(v / stride);
+          // The root row (lead 0) over the painted plate lands where the
+          // RENDERED plate lands that point — float32, 3e-5 at |x| < 512.
+          if (row === 0 && dist <= a) {
+            expect(landed[v * 2], `${deg}° vertex ${v}`).toBeCloseTo(
+              landedXAt(r.model, "face", x, y, params),
+              4,
+            );
+            onPlate++;
+          }
+          // On the 96 band a strand drawn over the plate's crop but past its
+          // painted edge is on the ramp: its hold target (the landing less
+          // the row's own lead) lies strictly between the painted edge's
+          // rendered landing and the hold edge.
+          if (a === 96 && dist > a && dist <= faceHalfWidth) {
+            const side = Math.sign(x - r.faceCenterX);
+            const lead =
+              (deg / 30) *
+              HAIR_FRONT_DEPTH *
+              unit *
+              Math.pow(row / rows, HAIR_SWAY_CURL);
+            const hold = landed[v * 2] - lead;
+            const inner = landedXAt(
+              r.model,
+              "face",
+              r.faceCenterX + side * a,
+              y,
+              params,
+            );
+            const outer = r.faceCenterX + side * r.holdEdgeAt(deg);
+            expect(
+              (hold - inner) * (outer - hold),
+              `${deg}° vertex ${v}`,
+            ).toBeGreaterThan(0);
+            onRamp++;
+          }
+        }
+        expect(onPlate).toBe(5);
+        expect(onRamp).toBeGreaterThan(0);
+      }
+    });
+
+    it("the mouth's grid reads the same surface as the plate: each node the map at its own row, swing and radius included", () => {
+      const r = rig();
+      const unit = headTurnParallaxUnit(r.report.radius);
+      const surface = turnSurface({
+        faceCenterX: r.faceCenterX,
+        faceCenterY: r.faceCenterY,
+        radius: r.report.radius,
+        travel: travelOf(r.model),
+        nodRadius: headNodRadiusOf(r.layers),
+        lattice: denseLattice(r.faceCenterX),
+        profile: r.profile,
+        eyeRowY: r.eyeRowY,
+      });
+      const mouth = groupWarpOf(r.model, "mouthWarp");
+      const shift = -r.report.depths.mouth * unit;
+      const k = cell(mouth.warp2d, -30, 0);
+      let nodes = 0;
+      for (let n = 0; n < mouth.grid.points.length / 2; n++) {
+        const x = mouth.grid.points[n * 2];
+        const y = mouth.grid.points[n * 2 + 1];
+        // Every mouth node rests on the 96 band, where the swing is live.
+        expect(surface.swingAt(y)).toBeCloseTo(
+          -CHIN_SWING * faceHalfWidth * 0.5,
+          9,
+        );
+        expect(k.offsets[n * 2], `node ${n}`).toBeCloseTo(
+          surface.mapAt(-30, y).mapX(x + shift) - x,
+          6,
+        );
+        nodes++;
+      }
+      expect(nodes).toBe(25);
+    });
+
+    it("reports the cues the engine renders at −30 with the profile in play, to float32 rounding", () => {
+      const r = rig();
+      const cues = cuesOf(
+        r.model,
+        r.layers,
+        HERO_HEAD.headHalfWidth,
+        HERO_HEAD.headEdges,
+      );
+      expect(cues.farEyeRatio).toBeCloseTo(r.report.achieved.farEyeRatio, 6);
+      expect(cues.eyeShift).toBeCloseTo(r.report.achieved.eyeShift, 6);
+      expect(cues.silhouetteRatio).toBeCloseTo(
+        r.report.achieved.silhouetteRatio,
+        6,
+      );
+    });
+
+    it("folds nowhere: every faceWarp row keeps x ascending and every bangs row lands in order, at the stops and between them", () => {
+      const r = rig();
+      const { grid } = faceWarpOf(r.model);
+      const stride = grid.cols + 1;
+      const hair = r.model.parts.find((p) => p.id === "hair_front")!;
+      const hairLayer = r.layers.find((l) => l.role === "hair_front")!;
+      const hairStride =
+        meshCellsFor(hairLayer.cropW, hairLayer.cropH).cols + 1;
+      for (const deg of [-30, -22.5, -15, -7.5, 0, 7.5, 15, 22.5, 30]) {
+        const params = { [StandardParameter.AngleX]: deg };
+        const g = deformedGrid(r.model, "faceWarp", params);
+        for (let row = 0; row <= grid.rows; row++) {
+          for (let c = 1; c <= grid.cols; c++) {
+            expect(g.points[(row * stride + c) * 2], `${deg}°`).toBeGreaterThan(
+              g.points[(row * stride + c - 1) * 2],
+            );
+          }
+        }
+        const landed = landVertices(r.model, "hair_front", params);
+        for (let v = 1; v < hair.mesh!.vertices.length / 2; v++) {
+          if (v % hairStride === 0) continue;
+          expect(landed[v * 2], `${deg}° vertex ${v}`).toBeGreaterThan(
+            landed[(v - 1) * 2],
+          );
+        }
+      }
+    });
+
+    it("without a nose the fallback surface still reads the profile: it rigs, the plate folds nowhere, and the lower band's axis carries the slide less the swing", () => {
+      // No nose, so nothing is solved and the generator builds its own
+      // surface — the profile and the eye row have to reach it the same way.
+      const noNose = withProfile(
+        layers.filter((l) => l.role !== "nose"),
+        twoBand,
+      );
+      const model = generateIkiFromLayerSet(noNose, canvas1100);
+      const face = model.parts.find((p) => p.id === "face")!.transform;
+      const profile = faceRowProfile(
+        noNose.find((l) => l.role === "face")!,
+        face.y,
+      )!;
+      const faceWarp = faceWarpOf(model);
+      const { grid } = faceWarp;
+      const stride = grid.cols + 1;
+      for (const deg of [-30, -22.5, -15, -7.5, 0, 7.5, 15, 22.5, 30]) {
+        const g = deformedGrid(model, "faceWarp", {
+          [StandardParameter.AngleX]: deg,
+        });
+        for (let row = 0; row <= grid.rows; row++) {
+          for (let c = 1; c <= grid.cols; c++) {
+            expect(g.points[(row * stride + c) * 2], `${deg}°`).toBeGreaterThan(
+              g.points[(row * stride + c - 1) * 2],
+            );
+          }
+        }
+      }
+      // The fallback travel is the plate's own ask; the top row reads the
+      // upper band, so `travelOf` still reads the slide alone.
+      const travel = travelOf(model);
+      expect(travel).toBeCloseTo(0.25 * faceHalfWidth, 9);
+      const col = grid.cols / 2;
+      let lower = 0;
+      for (const deg of stops) {
+        const k = cell(faceWarp.warp2d, deg, 0);
+        for (let row = 0; row <= grid.rows; row++) {
+          const y = grid.points[(row * stride + col) * 2 + 1];
+          if (y >= profile.widestY) continue;
+          expect(
+            k.offsets[(row * stride + col) * 2],
+            `${deg}° row ${row}`,
+          ).toBeCloseTo(
+            slideAt(travel, deg) -
+              (CHIN_SWING * faceHalfWidth * 0.5 * deg) / 30,
+            1,
+          );
+          lower++;
+        }
+      }
+      expect(lower).toBe(5 * stops.length);
+    });
+  });
+
+  describe("guards agree", () => {
+    /** The widest rows ABOVE the eyes: every row down to 40 above the eye row
+     *  (crop row 200) at the full half-width, the eye row's band and everything
+     *  below at 0.8 of it. The eye row then reads 160.8 and rows above it
+     *  201 — on a radius 1.25× the eye row's, so their painted edge lands
+     *  f · 0.2 · aMax further out than the eye row's. */
+    const eyeRow = Math.round(cropH / 2 - (75 - 20) - 0.5);
+    const widestAbove = Array.from({ length: cropH }, (_, i) =>
+      i < eyeRow - 40 ? faceHalfWidth : 0.8 * faceHalfWidth,
+    );
+    /** A shell four px wider than the plate's half-width — wider than the
+     *  plate itself, as the solve requires, and tight enough that the slide
+     *  has to be cut to fit inside it. */
+    const SHELL = faceHalfWidth + 4;
+    const rig = () =>
+      profiled("widestAbove", widestAbove, {
+        turnTargets: { headHalfWidth: SHELL },
+      });
+
+    it("holds the widest rows where they land, not the eye row: the shell cap binds on them and every guard row's painted edge stays inside the hold edge at every stop", () => {
+      const r = rig();
+      const p = r.profile!;
+      expect(p.widestY).toBeGreaterThan(r.eyeRowY);
+      expect(p.at(r.eyeRowY)).toBeCloseTo(0.8 * faceHalfWidth, 9);
+      expect(p.at(300)).toBe(faceHalfWidth);
+      // The cap bit: the rig slides, but less than the plate's own ask.
+      const travel = travelOf(r.model);
+      expect(travel).toBeGreaterThan(0);
+      expect(travel).toBeLessThan(0.25 * faceHalfWidth);
+      // Every row the bake's guard iterates, both sides, every stop: inside
+      // the hold edge by the clearance. Float32 landings: 3e-5 at |x| < 512.
+      const [, , , , , , carriers, , hairFront] = turnSolveInputs(r.layers);
+      const guardRows = plateGuardRowsFor(
+        carriers.get("face")!.part,
+        hairFront,
+      );
+      let furthest = 0;
+      for (const deg of stops) {
+        const params = { [StandardParameter.AngleX]: deg };
+        for (const y of guardRows) {
+          for (const side of [-1, 1]) {
+            const reach = Math.abs(
+              landedXAt(
+                r.model,
+                "face",
+                r.faceCenterX + side * p.at(y),
+                y,
+                params,
+              ) - r.faceCenterX,
+            );
+            expect(reach, `${deg}° y ${y} side ${side}`).toBeLessThanOrEqual(
+              r.holdEdgeAt(deg) - HOLD_CLEARANCE + 1e-4,
+            );
+            furthest = Math.max(furthest, reach);
+          }
+        }
+      }
+      // And the row that set the cap lands ON the shell's line: the slide was
+      // cut to what the WIDEST rows leave, not to the eye row's own room.
+      expect(furthest).toBeCloseTo(SHELL - HOLD_CLEARANCE, 4);
+      // The case an eye-row-only cap gets wrong: at −30 the widest row's
+      // painted far edge lands f · 0.2 · aMax further out than the eye row's
+      // — ≈ 30 px here — which the bake's row guard would have refused.
+      const farReach = (y: number) =>
+        Math.abs(
+          landedXAt(r.model, "face", r.faceCenterX - p.at(y), y, turned) -
+            r.faceCenterX,
+        );
+      expect(farReach(300) - farReach(r.eyeRowY)).toBeGreaterThan(20);
+    });
+  });
+
+  describe("occlusion", () => {
+    /** A hero-like profile: the top 30 crop rows at 0.06 of the max (the
+     *  hairline under the bangs), ramping to the max by row 60, the max down
+     *  to row 340, a taper to 0.06 of it by row 471, and the last 120 rows
+     *  empty (sub-threshold neck shading). */
+    const heroLike = Array.from({ length: cropH }, (_, i) => {
+      if (i < 30) return 0.06 * faceHalfWidth;
+      if (i < 60) return faceHalfWidth * (0.06 + (0.94 * (i - 30)) / 30);
+      if (i <= 340) return faceHalfWidth;
+      if (i < cropH - 120)
+        return faceHalfWidth * (1 - (0.94 * (i - 340)) / (cropH - 120 - 341));
+      return 0;
+    });
+    const rig = () => profiled("heroLike", heroLike);
+    /** Model y of crop row `i`'s centre. */
+    const rowY = (i: number) => 20 + cropH / 2 - i - 0.5;
+    const lastPainted = cropH - 120 - 1;
+
+    it("reads the cranium as wide as the cheeks: rows above the widest row land their far edge where the eye row does, though the layer paints little there", () => {
+      const r = rig();
+      const p = r.profile!;
+      expect(p.aMax).toBe(faceHalfWidth);
+      expect(heroLike[0]).toBeCloseTo(0.06 * faceHalfWidth, 9);
+      expect(p.at(rowY(0))).toBe(faceHalfWidth);
+      expect(p.at(r.eyeRowY)).toBe(faceHalfWidth);
+      expect(p.widestY).toBe(rowY(340));
+      const farLanding = (y: number) =>
+        landedXAt(r.model, "face", r.faceCenterX - p.at(y), y, turned);
+      const eye = farLanding(r.eyeRowY);
+      // Same half-width, same radius, no swing: the same map on every node
+      // row above the widest, so the same landing — to float32.
+      for (const y of [rowY(0), 280, 200, 120, 30]) {
+        expect(farLanding(y), `y ${y}`).toBeCloseTo(eye, 4);
+      }
+    });
+
+    it("tapers the jaw: the chin's painted far edge, and the bangs over it, land inside the eye row's reach", () => {
+      const r = rig();
+      const p = r.profile!;
+      const chinY = rowY(lastPainted);
+      // The last painted row is 6 % of the max — floored to 15 %.
+      expect(p.at(chinY)).toBeCloseTo(FACE_ROW_MIN_FRACTION * faceHalfWidth, 9);
+      const reachOf = (partId: string, x: number, y: number) =>
+        Math.abs(landedXAt(r.model, partId, x, y, turned) - r.faceCenterX);
+      const eyeReach = reachOf(
+        "face",
+        r.faceCenterX - p.at(r.eyeRowY),
+        r.eyeRowY,
+      );
+      expect(reachOf("face", r.faceCenterX - p.at(chinY), chinY)).toBeLessThan(
+        eyeReach,
+      );
+      // The bangs over the painted chin — its two edges and the axis, read
+      // where the bangs' mesh renders them — sit inside it too. Strands
+      // further out ride the ramp onto the held outline, which is wider than
+      // the plate on every row by design.
+      const hairLayer = r.layers.find((l) => l.role === "hair_front")!;
+      const hair = r.model.parts.find((p) => p.id === "hair_front")!;
+      const { rows } = meshCellsFor(hairLayer.cropW, hairLayer.cropH);
+      const hairRows = Array.from(
+        { length: rows + 1 },
+        (_, k) =>
+          hair.transform.y + hairLayer.cropH / 2 - (k / rows) * hairLayer.cropH,
+      );
+      // The bangs' mesh row nearest the chin inside the face's crop.
+      const chinRow = hairRows
+        .filter((y) => y >= r.faceCenterY - cropH / 2)
+        .reduce((a, b) => (Math.abs(b - chinY) < Math.abs(a - chinY) ? b : a));
+      for (const x of [-p.at(chinRow), 0, p.at(chinRow)]) {
+        expect(
+          reachOf("hair_front", r.faceCenterX + x, chinRow),
+          `x ${x}`,
+        ).toBeLessThan(eyeReach);
+      }
+    });
+
+    it("treats the empty rows under the chin as the last painted row", () => {
+      const r = rig();
+      const p = r.profile!;
+      const last = p.at(rowY(lastPainted));
+      for (const i of [lastPainted + 1, lastPainted + 40, cropH - 1]) {
+        expect(p.at(rowY(i)), `row ${i}`).toBe(last);
+      }
+      expect(p.at(rowY(cropH) - 100)).toBe(last);
+      // Rendered alike where the whole cell rests on those rows — float32.
+      const farLanding = (y: number) =>
+        landedXAt(r.model, "face", r.faceCenterX - p.at(y), y, turned);
+      expect(farLanding(rowY(cropH - 1))).toBeCloseTo(farLanding(-250), 4);
+    });
+
+    it("an all-zero profile counts as absent", () => {
+      const bare = profiled("none", undefined);
+      const zero = profiled("allZero", new Array(cropH).fill(0));
+      expect(zero.profile).toBeUndefined();
+      expect(zero.model).toEqual(bare.model);
+    });
   });
 });

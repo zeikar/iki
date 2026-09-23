@@ -92,6 +92,19 @@ export interface LayerInput {
   cropW: number;
   /** Cropped image height = bbox.h. */
   cropH: number;
+  /**
+   * The layer's painted half-width on every CROP row, top → bottom, one entry
+   * per row (`cropH` of them): half the row's opaque span in canvas px under
+   * the same alpha ≥ 128 rule the head's `headEdges` are measured with
+   * (`@ikijs/mcp`'s `measure-turn`), 0 for a row with no opaque pixel.
+   * Optional, and only the FACE's is read: it gives the face plate a
+   * row-dependent turn radius and a chin swing (`faceRowProfile`,
+   * `turnSurface`); absent — as the editor's own import leaves it — the plate
+   * turns on one radius on every row. Validated before anything reads it: an
+   * array of length `cropH` whose every entry is a finite number in
+   * [0, cropW / 2], the most an inclusive span inside the crop can be.
+   */
+  rowHalfWidths?: number[];
 }
 
 // ── Role table ───────────────────────────────────────────────────────────────
@@ -311,6 +324,8 @@ export function bboxToTransform(
  *   4. Per-layer canvas size vs. the supplied `canvas` argument.
  *      Matching every layer to the `canvas` arg inherently guarantees all layers
  *      agree with each other — no separate peer-comparison loop is needed.
+ *   5. `rowHalfWidths`, when present: an array of `cropH` finite numbers in
+ *      [0, cropW / 2] — checked before anything reads its length or entries.
  *
  * Validates `layer.role` DIRECTLY (not via fileName). A caller could supply
  * `fileName:"face.png"` with `role:"bad_role"` — a filename check would miss it.
@@ -354,6 +369,35 @@ export function validateLayerInputs(
       throw new Error(
         `auto-rig: validateLayerInputs: role "${role}" canvas size (${canvasW}×${canvasH}) does not match canvas arg (${canvas.width}×${canvas.height})`,
       );
+    }
+    // The shape is checked before `.length` or an entry is read, so a plain-JS
+    // caller with a malformed profile gets the path-qualified message rather
+    // than a TypeError out of faceRowProfile.
+    if (layer.rowHalfWidths !== undefined) {
+      const rows: unknown = layer.rowHalfWidths;
+      if (!Array.isArray(rows)) {
+        throw new Error(
+          `auto-rig: validateLayerInputs: role "${role}" rowHalfWidths must be an array with one entry per crop row`,
+        );
+      }
+      if (rows.length !== cropH) {
+        throw new Error(
+          `auto-rig: validateLayerInputs: role "${role}" rowHalfWidths has ${rows.length} entries, not one per crop row (cropH ${cropH})`,
+        );
+      }
+      for (let i = 0; i < rows.length; i++) {
+        const a: unknown = rows[i];
+        if (
+          typeof a !== "number" ||
+          !Number.isFinite(a) ||
+          a < 0 ||
+          a > cropW / 2
+        ) {
+          throw new Error(
+            `auto-rig: validateLayerInputs: role "${role}" rowHalfWidths[${i}] is ${String(a)}, not a finite number in [0, ${cropW / 2}] (half the crop's width)`,
+          );
+        }
+      }
     }
   }
 }
@@ -686,6 +730,118 @@ function turnSlide(travel: number, angleX: number): number {
   return (travel * angleX) / HEAD_TURN_MAX_DEG;
 }
 
+// ── faceRowProfile ───────────────────────────────────────────────────────────
+
+/** Floor of a face row's half-width, as a fraction of the widest row's. The
+ *  rows under the chin are sub-threshold shading and near-empty rows whose
+ *  own span would bend them on a cylinder a few px wide; the floor keeps
+ *  every row's radius a usable fraction of the eye row's. */
+const FACE_ROW_MIN_FRACTION = 0.15;
+/** Width of the centred moving average over the measured rows, as a fraction
+ *  of the crop's height: wide enough to take the pixel steps out of an
+ *  alpha-thresholded outline, narrow enough to leave the jaw's taper. */
+const FACE_ROW_SMOOTHING = 0.05;
+/** How far the chin swings toward the NEAR side at full turn, as a fraction
+ *  of the plate's half-width, scaled by how much narrower than the widest row
+ *  a row is (`TurnSurface.swingAt`): a turned head's jaw comes round with it
+ *  while the cranium stays. Judged on the hero two-up (slice ④). */
+const CHIN_SWING = 0.05;
+
+/**
+ * The face plate's painted half-width per row, read off its layer's
+ * `rowHalfWidths` (`LayerInput`) in model y. Exported at module level for the
+ * tests, not from the package.
+ */
+export interface FaceRowProfile {
+  /** The painted half-width, px, on the row resting at model `y`: linear
+   *  between rows, the end rows beyond the crop. */
+  at(y: number): number;
+  /** The widest row's half-width — what every row above it reads. */
+  aMax: number;
+  /** Model y of the widest row (the lowest of them when several tie): rows
+   *  ABOVE it — greater y, model y running up — read `aMax`; rows at and
+   *  below it are the measured ones, and they alone taper and swing. */
+  widestY: number;
+  /** The crop's own half-width, px: the bound every entry respects and the
+   *  width the chin swing is a fraction of. */
+  faceHalfWidth: number;
+}
+
+/**
+ * The face's row profile, or `undefined` when its layer measured none — or
+ * measured no opaque row at all, which is the same thing to the turn.
+ *
+ * The face layer's alpha is NOT the head's width on every row: the hairline
+ * rows sit under the bangs (on the hero the top crop row reads 6 % of the
+ * cheek's half-width) and the rows under the chin are neck shading below the
+ * threshold. Bent on their own span those rows would ride a cylinder a few px
+ * wide and the far forehead would land OUTSIDE the cheek at full turn — a
+ * cranium bulging past the face. So: the widest row is found among the raw
+ * positive entries; every row ABOVE it reads that width (the cranium is as
+ * wide as the cheeks; only the jaw tapers); the rows at and below it are the
+ * measured ones, an empty row filled from the nearest positive row above it,
+ * smoothed by a centred moving average FACE_ROW_SMOOTHING of the crop's
+ * height wide (an odd window of at least three rows, the end rows repeated
+ * past the crop) and floored at FACE_ROW_MIN_FRACTION of the widest. `at` is
+ * linear between the rows' centres and clamps to the end rows outside the
+ * crop, so a grid node on the plate's margin reads the row nearest it.
+ */
+export function faceRowProfile(
+  face: LayerInput,
+  faceCenterY: number,
+): FaceRowProfile | undefined {
+  const raw = face.rowHalfWidths;
+  if (raw === undefined) return undefined;
+  const n = raw.length;
+  let aMax = 0;
+  let widest = -1;
+  for (let i = 0; i < n; i++) {
+    if (raw[i] > 0 && raw[i] >= aMax) {
+      aMax = raw[i];
+      widest = i;
+    }
+  }
+  if (widest < 0) return undefined;
+
+  // Above the widest row aMax; at and below it the measurement, an empty row
+  // taking the nearest positive row above it (the widest row is positive, so
+  // there always is one).
+  const filled: number[] = [];
+  for (let i = 0; i < n; i++) {
+    filled.push(i < widest ? aMax : raw[i] > 0 ? raw[i] : filled[i - 1]);
+  }
+  const half = Math.max(1, Math.round((FACE_ROW_SMOOTHING * n) / 2));
+  const floor = FACE_ROW_MIN_FRACTION * aMax;
+  const rows: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (i < widest) {
+      rows.push(aMax);
+      continue;
+    }
+    let sum = 0;
+    for (let k = i - half; k <= i + half; k++) {
+      sum += filled[Math.max(0, Math.min(n - 1, k))];
+    }
+    rows.push(Math.max(floor, sum / (2 * half + 1)));
+  }
+
+  // Crop row i is the pixel row whose centre rests at top − i − ½: image rows
+  // run down where model y runs up.
+  const top = faceCenterY + face.cropH / 2;
+  const rowAt = (y: number) => Math.max(0, Math.min(n - 1, top - y - 0.5));
+  return {
+    at: (y) => {
+      const r = rowAt(y);
+      const i = Math.floor(r);
+      if (i + 1 >= n) return rows[n - 1];
+      return rows[i] + (rows[i + 1] - rows[i]) * (r - i);
+    },
+    aMax,
+    widestY: top - widest - 0.5,
+    faceHalfWidth: face.cropW / 2,
+  };
+}
+
 // ── TurnSurface ───────────────────────────────────────────────────────────────
 
 /**
@@ -694,22 +850,24 @@ function turnSlide(travel: number, angleX: number): number {
  * horizontal axis through `faceCenterY`, each read at a point's REST position.
  *
  * `mapAt` is the turn as `turnColumnMap` describes it on the `lattice`'s
- * columns — the bounded bend plus the uniform `travel` slide — so
- * `turnColumnMap` / `pinnedCylinderBend` / `boundedCylinderBend` stay the
- * primitive and `solveTurnModel` stays the fitter: it fits `radius` and
- * `travel` on these very maps, and `bakeTurnGroupWarp2D` reads its dx off the
- * same ones, which is what makes a solved cue a promise about the shipped
- * keyforms. The lattice is VIRTUAL — a dense row of columns anchored on the
- * face centre (`TURN_LATTICE_CELL_PX`) that nothing ships: every group grid's
- * node reads the map at its own rest x, and a rendered vertex reads those
- * nodes bilinearly, which is what the solve reproduces through a landmark's
- * carrier (`TurnLandmark.carrier`).
+ * columns — the bounded bend on the row's own radius plus the slide of
+ * `travel` and the row's own chin swing — so `turnColumnMap` /
+ * `pinnedCylinderBend` / `boundedCylinderBend` stay the primitive and
+ * `solveTurnModel` stays the fitter: it fits `radius` and `travel` on these
+ * very maps, and `bakeTurnGroupWarp2D` reads its dx off the same ones, which
+ * is what makes a solved cue a promise about the shipped keyforms. The
+ * lattice is VIRTUAL — a dense row of columns anchored on the face centre
+ * (`TURN_LATTICE_CELL_PX`) that nothing ships: every group grid's node reads
+ * the map at its own rest x, and a rendered vertex reads those nodes
+ * bilinearly, which is what the solve reproduces through a landmark's carrier
+ * (`TurnLandmark.carrier`).
  */
 interface TurnSurface {
   faceCenterX: number;
   faceCenterY: number;
-  /** Turn cylinder radius, px: solved, or the lattice's own reach with the
-   *  no-fold margin when there is nothing to solve against. */
+  /** Turn cylinder radius at the EYE ROW, px: solved, or the lattice's own
+   *  reach with the no-fold margin when there is nothing to solve against.
+   *  `radiusAt` scales it per row. */
   radius: number;
   /** The head's sideways travel at full turn, px — see `turnSlide`. */
   travel: number;
@@ -719,10 +877,23 @@ interface TurnSurface {
   nodRadius: number;
   /** The columns `mapAt` is piecewise-linear between; row 0 is all it reads. */
   lattice: IkiWarpGrid;
-  /** The turn's column map at `deg` for a point resting at `y`. Every row
-   *  reads the same map today: `y` is accepted so a caller already samples
-   *  the surface where its point sits, and is unused until the face's radius
-   *  varies by row. */
+  /** The turn cylinder's radius on the row resting at `y`: `radius` scaled by
+   *  that row's painted half-width over the eye row's (`FaceRowProfile`), so
+   *  every row's own painted edge lands at the SAME fraction of its
+   *  half-width; `radius` on every row without a profile. */
+  radiusAt(y: number): number;
+  /** The chin's swing on the row resting at `y`, as a signed addition to
+   *  `travel`: −CHIN_SWING · faceHalfWidth · (1 − a(y)/aMax) for a row BELOW
+   *  the widest (smaller y), 0 at and above it and everywhere without a
+   *  profile. Negative, so it opposes the slide — at −30° the far side is −x
+   *  and the slide is −travel, and the swing's `turnSlide` share is a POSITIVE
+   *  offset, toward the near side — and ∝ deg like the slide, so it vanishes
+   *  at rest. */
+  swingAt(y: number): number;
+  /** The turn's column map at `deg` for a point resting at `y`: the bend on
+   *  `radiusAt(y)` plus `turnSlide(travel + swingAt(y), deg)` — one map per
+   *  row (`rowMapsOf` memoises them), every row the same one without a
+   *  profile. */
   mapAt(deg: number, y: number): TurnColumnMap;
   /** The nod's vertical displacement of a point resting at `y`, at `angleY`
    *  degrees of ParamAngleY: the pinned cylinder bend about `faceCenterY` at
@@ -731,9 +902,9 @@ interface TurnSurface {
   nodBendAt(y: number, angleY: number): number;
 }
 
-/** A `TurnSurface` from its numbers; the two samplers are derived from them
- *  and nothing else is. Exported at module level for the bake tests, not from
- *  the package. */
+/** A `TurnSurface` from its numbers; the samplers are derived from them and
+ *  nothing else is. Exported at module level for the bake tests, not from the
+ *  package. */
 export function turnSurface(spec: {
   faceCenterX: number;
   faceCenterY: number;
@@ -741,21 +912,60 @@ export function turnSurface(spec: {
   travel: number;
   nodRadius: number;
   lattice: IkiWarpGrid;
+  /** The face's own row profile, when its layer measured one. Without it
+   *  every row turns on `radius` with no swing — slice ③'s bake, byte for
+   *  byte. */
+  profile?: FaceRowProfile;
+  /** The row `radiusAt` is normalised at — the eye row the solve fits, so the
+   *  report stays a promise about that row. Read only with a `profile`; the
+   *  face centre when not given. */
+  eyeRowY?: number;
 }): TurnSurface {
+  const { faceCenterX, faceCenterY, radius, travel, nodRadius, lattice } = spec;
+  const { profile } = spec;
+  let radiusAt = (_y: number) => radius;
+  let swingAt = (_y: number) => 0;
+  if (profile !== undefined) {
+    // Normalised at the eye row: a(y)/radiusAt(y) = a(eyeRow)/radius on every
+    // row, and a(eyeRow) ≤ faceHalfWidth ≤ radius/HEAD_CYLINDER_RADIUS_FACTOR
+    // (the sweep's floor), so every row's own painted edge stays on the
+    // analytic branch of boundedCylinderBend. The ratio is taken first so a
+    // row as wide as the eye row reads `radius` exactly, not to an ulp.
+    const aEye = profile.at(spec.eyeRowY ?? faceCenterY);
+    radiusAt = (y) => radius * (profile.at(y) / aEye);
+    // Below the widest row only (Decision 5): the gate is what keeps the
+    // cranium — every row reading aMax, where the term is 0 anyway — free of
+    // the swing by construction. It bites only where the smoothing pulls the
+    // widest row itself under aMax (two 192/96 bands: 145.5 there), so the
+    // swing steps in across that one row by the smoothing's own amount.
+    swingAt = (y) =>
+      y < profile.widestY
+        ? -CHIN_SWING *
+          profile.faceHalfWidth *
+          Math.max(0, 1 - profile.at(y) / profile.aMax)
+        : 0;
+  }
   return {
-    ...spec,
-    mapAt: (deg) =>
+    faceCenterX,
+    faceCenterY,
+    radius,
+    travel,
+    nodRadius,
+    lattice,
+    radiusAt,
+    swingAt,
+    mapAt: (deg, y) =>
       turnColumnMap(
-        spec.lattice,
-        spec.faceCenterX,
-        spec.radius,
+        lattice,
+        faceCenterX,
+        radiusAt(y),
         deg,
-        spec.travel,
+        travel + swingAt(y),
       ),
     nodBendAt: (y, angleY) =>
       pinnedCylinderBend(
-        y - spec.faceCenterY,
-        spec.nodRadius,
+        y - faceCenterY,
+        nodRadius,
         angleY * NOD_BEND * (Math.PI / 180),
       ),
   };
@@ -779,7 +989,8 @@ export function turnSurface(spec: {
  * — the hero's rest cell used to carry seven of them. That rule discards
  * `shiftAt(0)` too, so it assumes `shiftAt(0) = 0` — which every turn shift
  * satisfies by construction, being proportional to the stop's own degrees
- * (`depth · unit · deg / 30`).
+ * (`depth · unit · deg / 30`) — and the row's chin swing with it, which rides
+ * `turnSlide` and is 0 at the 0° stop the same way.
  *
  * The surface's `travel` belongs in the grid rather than on a headDeformer
  * translate because a rigid head translate carries the hair shell along with
@@ -1203,6 +1414,38 @@ export function plateGuardRowsFor(
   ];
 }
 
+/**
+ * The face plate as every guard reads it: its carrier — the `face` member's
+ * grid and mesh — the painted half-width on each row, and the rows the
+ * rendered edge is read at (`plateGuardRowsFor`). `edgeAt` is the profile's
+ * own row when the face layer measured one (`faceRowProfile`), and the crop's
+ * half-width on every row otherwise: the hold's join ends there and both
+ * fold guards read the plate's edge there. Derived HERE and nowhere else —
+ * `turnSetup` hands the generator these and `solveTurnModel` builds its
+ * context from the same call on the same inputs — so the hold the solve fits
+ * is the hold the bake builds.
+ */
+function plateGuardsOf(
+  carriers: ReadonlyMap<string, TurnCarrier>,
+  faceHalfWidth: number,
+  profile: FaceRowProfile | undefined,
+  hairFront?: { centerY: number; cropW: number; cropH: number },
+): {
+  plate: TurnCarrier;
+  edgeAt: (y: number) => number;
+  plateGuardRows: number[];
+} {
+  const plate = carriers.get("face");
+  if (plate === undefined) {
+    throw new Error("auto-rig: plateGuardsOf: the carriers have no face");
+  }
+  return {
+    plate,
+    edgeAt: profile === undefined ? () => faceHalfWidth : profile.at,
+    plateGuardRows: plateGuardRowsFor(plate.part, hairFront),
+  };
+}
+
 // ── Turn targets ─────────────────────────────────────────────────────────────
 
 /**
@@ -1405,9 +1648,9 @@ export function resolveTurnTargets(
 /** A feature the turn slides across the face: its rest centre and its width in
  *  model px, which is all the cues measure. `y` is optional — the eye pair's
  *  places the eye row (`solveTurnModel`'s `eyeRowY`), and every landmark's is
- *  the row its points are read on; a hand-built landmark without one reads
- *  row 0, which is the same map as any other until the face's radius varies
- *  by row. */
+ *  the row its points are read on — its own radius and swing once the face
+ *  has a row profile (`TurnSurface.mapAt`). A hand-built landmark without one
+ *  reads row 0, the same map as any other on a surface without a profile. */
 export interface TurnLandmark {
   x: number;
   y?: number;
@@ -1472,6 +1715,19 @@ export function turnLandmarks(
     nose: one("nose"),
     mouth: one("mouth"),
   };
+}
+
+/** The row the cues are measured on and a row profile is normalised at: the
+ *  eye pair's mean y when both eyes carry one (every landmark `turnLandmarks`
+ *  builds does), else `fallback` — the face centre, for landmarks a
+ *  lower-level test built by hand without rows. One derivation for the solve
+ *  and `turnSetup`, so the generator's own surface and the solve's read the
+ *  same row. */
+function eyeRowOf(landmarks: TurnLandmarkSet, fallback: number): number {
+  const [l, r] = landmarks.eye;
+  return landmarks.eye.length === 2 && l.y !== undefined && r.y !== undefined
+    ? (l.y + r.y) / 2
+    : fallback;
 }
 
 // ── solveTurnDepth ───────────────────────────────────────────────────────────
@@ -1816,9 +2072,13 @@ interface TurnSolveContext {
   /** Every face-family part's carrier by role, the plate's under `face`:
    *  what a `headEdges` candidate naming one of them is landed through. */
   carriers: ReadonlyMap<string, TurnCarrier>;
+  /** The face's own row profile, when its layer measured one: every
+   *  candidate's surface bends each row on its own radius and swings the chin
+   *  by it (`turnSurface`). Absent, one radius on every row. */
+  profile?: FaceRowProfile;
   /** The plate's PAINTED half-width at row `y` — where the hold's join and
-   *  the guards read its edge. The crop's own half-width on every row until a
-   *  silhouette profile is measured. */
+   *  the guards read its edge: the profile's row, else the crop's own
+   *  half-width on every row (`plateGuardsOf`). */
   edgeAt: (y: number) => number;
   /** The rows every plate guard reads the rendered painted edge at — see
    *  `plateGuardRowsFor`; the bake iterates the identical list. */
@@ -1975,7 +2235,8 @@ function hairFrontLandingAt(
  * the face may slide before the plate's own edge reaches the hold's boundary.
  *
  * Read off the BEND ALONE (`bendOnlyLandingAt` — the rendered plate at a stop
- * with no travel in it), the slide being what is solved for here: at each
+ * with no travel in it; each row's own chin swing, which does not scale with
+ * the travel, stays in), the slide being what is solved for here: at each
  * turned stop the plate's painted edges land either side of the face centre —
  * read at every guard row, kept SIGNED — and the slide then pushes the edge on
  * the side it moves toward further out while pulling the other one in. So
@@ -2103,11 +2364,14 @@ function evaluateTurnCandidate(
       travel,
       nodRadius: ctx.nodRadius,
       lattice: ctx.lattice,
+      profile: ctx.profile,
+      eyeRowY: ctx.eyeRowY,
     });
   // The travel is settled BEFORE the map that carries it, the map being built
   // from it: the face slides INSIDE a shell the bangs hold, so what it may
   // slide is what that shell has room for — measured on the bend alone, as
-  // the plate renders it.
+  // the plate renders it (the chin swing rides the rows, not the travel, so
+  // it is in this landing too: what the travel has to fit beside).
   const bendOnlyLandingAt = plateLandingOn(ctx.plate, rowMapsOf(surfaceAt(0)));
   // The measured silhouette's own rest extreme on one side, when `headEdges`
   // recorded one there. Read both by the travel cap below — which side of the
@@ -2862,6 +3126,12 @@ export function solveTurnModel(
    *  landmarks, the silhouette candidates, the bangs' join and the plate
    *  guards read the RENDERED parts through. */
   carriers: ReadonlyMap<string, TurnCarrier>,
+  /** The face's own row profile (`faceRowProfile`), when its layer measured
+   *  one: every candidate's surface bends each row on its own radius,
+   *  normalised at the eye row the cues are fitted on, and the plate's
+   *  painted edge is read at each row's own half-width. Absent, the plate is
+   *  painted out to its crop and turns on one radius. */
+  profile?: FaceRowProfile,
   /** hair_front's own transform x/y and crop width/height, when the layer set
    *  has one — see `TurnSolveContext.hairFrontSilhouette`. Absent skips the
    *  turn-lead correction and falls the silhouette-centre correction back to
@@ -2889,19 +3159,7 @@ export function solveTurnModel(
     );
   }
 
-  // The row the cues are measured on: the eye pair's own, when both eyes carry
-  // a y (a caller that built landmarks by hand, e.g. a lower-level test, may
-  // not), else the face centre.
-  const eyeRowY =
-    landmarks.eye.length === 2 &&
-    landmarks.eye[0].y !== undefined &&
-    landmarks.eye[1].y !== undefined
-      ? (landmarks.eye[0].y + landmarks.eye[1].y) / 2
-      : faceCenterY;
-  const plate = carriers.get("face");
-  if (plate === undefined) {
-    throw new Error("auto-rig: solveTurnModel: the carriers have no face");
-  }
+  const eyeRowY = eyeRowOf(landmarks, faceCenterY);
 
   const ctx: TurnSolveContext = {
     landmarks,
@@ -2911,13 +3169,12 @@ export function solveTurnModel(
     nodRadius,
     eyeRowY,
     faceHalfWidth,
+    // The slide's hard stop is the CROP's edge, profile or not: the far eye
+    // may sit on the plate's transparent margin, as it does on the hero.
     plateEdgeX: faceCenterX - faceHalfWidth,
-    plate,
     carriers,
-    // No silhouette profile yet: the plate is painted out to its crop on
-    // every row.
-    edgeAt: () => faceHalfWidth,
-    plateGuardRows: plateGuardRowsFor(plate.part, hairFront),
+    profile,
+    ...plateGuardsOf(carriers, faceHalfWidth, profile, hairFront),
     // What this plate asks the turn for; each candidate caps it to its own
     // shell — see TurnSolveContext.travel.
     travel: headTurnTravel(faceHalfWidth),
@@ -3816,6 +4073,7 @@ type TurnSolveInputs = [
   faceCenterY: number,
   nodRadius: number,
   carriers: ReadonlyMap<string, TurnCarrier>,
+  profile: FaceRowProfile | undefined,
   hairFront:
     | { x: number; centerY: number; cropW: number; cropH: number }
     | undefined,
@@ -4125,12 +4383,34 @@ function eyelidFoldFor(
   );
 }
 
-/** Everything `turnSetup` derives from a layer set: what the solve is handed
- *  (`inputs`), and what the generator ships and bakes from — the members'
- *  meshes and warps, each group's grid, the nod's parallax unit off the same
- *  head half-height as the nod radius — so the two read one set of values. */
+/** Everything `turnSetup` derives from a layer set, by name: what the solve
+ *  is handed (`solveInputsOf` lines the first nine up in `solveTurnModel`'s
+ *  order), the plate guards derived once for the solve and the bake alike,
+ *  and what the generator ships and bakes from — the members' meshes and
+ *  warps, each group's grid, the nod's parallax unit off the same head
+ *  half-height as the nod radius — so the two read one set of values. */
 interface TurnSetup {
-  inputs: TurnSolveInputs;
+  landmarks: TurnLandmarkSet;
+  lattice: IkiWarpGrid;
+  faceCenterX: number;
+  faceHalfWidth: number;
+  faceCenterY: number;
+  nodRadius: number;
+  carriers: ReadonlyMap<string, TurnCarrier>;
+  /** The face layer's own row profile, when it measured one. */
+  profile: FaceRowProfile | undefined;
+  hairFront:
+    | { x: number; centerY: number; cropW: number; cropH: number }
+    | undefined;
+  /** The eye pair's mean y — the row the cues are measured on and a row
+   *  profile is normalised at, as `solveTurnModel` reads it off the same
+   *  landmarks; the generator's own surface, when nothing is solved, is
+   *  normalised there too. */
+  eyeRowY: number;
+  /** The plate and its guards, `plateGuardsOf` — see that function. */
+  plate: TurnCarrier;
+  edgeAt: (y: number) => number;
+  plateGuardRows: number[];
   members: readonly TurnGroupMember[];
   groupGrids: ReadonlyMap<TurnGroupId, IkiWarpGrid>;
   parallaxUnitY: number;
@@ -4162,6 +4442,10 @@ interface TurnSetup {
  * columns, snapped outward to the next anchored column: `mapX` pins anything
  * outside onto the edge column, which would deform a node even at rest. The
  * lattice's height is the union's; `turnColumnMap` reads row 0 only.
+ *
+ * The face's row profile (`faceRowProfile`), when its layer carries one, is
+ * read here and handed to the solve and the generator alike, and the plate's
+ * guards are derived from it once (`plateGuardsOf`).
  */
 function turnSetup(layers: LayerInput[]): TurnSetup {
   // validateLayerInputs guarantees "face" is present — safe to assert here.
@@ -4315,17 +4599,21 @@ function turnSetup(layers: LayerInput[]): TurnSetup {
       };
     })();
 
+  const eyeRowY = eyeRowOf(landmarks, faceCenterY);
+  const profile = faceRowProfile(faceLayer, faceCenterY);
+
   return {
-    inputs: [
-      turnLandmarks(layers, carriers),
-      lattice,
-      faceCenterX,
-      faceHalfWidth,
-      faceCenterY,
-      nodRadius,
-      carriers,
-      hairFront,
-    ],
+    landmarks: turnLandmarks(layers, carriers),
+    lattice,
+    faceCenterX,
+    faceHalfWidth,
+    faceCenterY,
+    nodRadius,
+    carriers,
+    profile,
+    hairFront,
+    eyeRowY,
+    ...plateGuardsOf(carriers, faceHalfWidth, profile, hairFront),
     members,
     groupGrids,
     parallaxUnitY,
@@ -4343,7 +4631,23 @@ function turnSetup(layers: LayerInput[]): TurnSetup {
  * from the package.
  */
 export function turnSolveInputs(layers: LayerInput[]): TurnSolveInputs {
-  return turnSetup(layers).inputs;
+  return solveInputsOf(turnSetup(layers));
+}
+
+/** A setup's fields in `solveTurnModel`'s positional order — spelled here
+ *  once, since four adjacent numbers in it are not told apart by type. */
+function solveInputsOf(s: TurnSetup): TurnSolveInputs {
+  return [
+    s.landmarks,
+    s.lattice,
+    s.faceCenterX,
+    s.faceHalfWidth,
+    s.faceCenterY,
+    s.nodRadius,
+    s.carriers,
+    s.profile,
+    s.hairFront,
+  ];
 }
 
 // ── generateIkiFromLayerSet ───────────────────────────────────────────────────
@@ -4437,19 +4741,23 @@ export function generateIkiFromLayerSet(
   // built from — built once in turnSetup, so a test that solves this layer
   // set directly (turnSolveInputs) solves this very turn on these very grids.
   const setup = turnSetup(layers);
-  const { members, groupGrids, parallaxUnitY, hasNose, hasMouthOpen } = setup;
-  const [
-    ,
+  const {
     lattice,
     faceCenterX,
     faceHalfWidth,
     faceCenterY,
     nodRadius,
-    carriers,
-    hairFront,
-  ] = setup.inputs;
-  // validateLayerInputs guarantees "face", and its carrier is the plate.
-  const plate = carriers.get("face")!;
+    profile,
+    eyeRowY,
+    plate,
+    edgeAt,
+    plateGuardRows,
+    members,
+    groupGrids,
+    parallaxUnitY,
+    hasNose,
+    hasMouthOpen,
+  } = setup;
   const faceCropH = plate.part.cropH;
 
   // The head cylinder's turn radius, the face's sideways travel and how far in
@@ -4460,7 +4768,7 @@ export function generateIkiFromLayerSet(
   const turn = hasNose
     ? solveTurnModel(
         resolveTurnTargets(options.turnTargets),
-        ...setup.inputs,
+        ...solveInputsOf(setup),
         options.headEdges,
       )
     : undefined;
@@ -4487,11 +4795,16 @@ export function generateIkiFromLayerSet(
   // bangs' hold and the body's follow all read this ONE surface, so nothing
   // renders a turn the cues were not measured on. Solved when there was a
   // nose; without one, the lattice's own reach about the face centre with the
-  // no-fold margin (the bound then lands beyond every node any grid reads, so
-  // the rig never leaves the surface) and the plate's own uncut travel ask,
-  // there being no held silhouette to size it against. Its nod radius is the
-  // head's, the one the solve was handed. The turn's depth-parallax unit
-  // comes off the same cylinder the bakes bend.
+  // no-fold margin (on a row reading aMax the bound lands beyond every node
+  // any grid reads, so those rows never leave the surface; a narrower profile
+  // row's bound is nearer — ≈ 150 px on a 96 px band, against plate nodes at
+  // ±250 — so its transparent-margin nodes ride the rigid branch: monotone,
+  // so fold-free, and beyond the painted edge, so nothing reads them, as
+  // Decision 5 accepts) and the plate's own uncut travel ask, there being no
+  // held silhouette to size it against; the face's own row profile, when it
+  // has one, bends that surface's rows the same way it would a solved one's.
+  // Its nod radius is the head's, the one the solve was handed. The turn's
+  // depth-parallax unit comes off the same cylinder the bakes bend.
   const latticeReach = Math.max(
     faceCenterX - lattice.points[0],
     lattice.points[lattice.cols * 2] - faceCenterX,
@@ -4505,16 +4818,16 @@ export function generateIkiFromLayerSet(
       travel: headTurnTravel(faceHalfWidth),
       nodRadius,
       lattice,
+      profile,
+      eyeRowY,
     });
   const parallaxUnit = headTurnParallaxUnit(surface.radius);
   // The plate as it RENDERS on that surface — its own mesh over its own grid,
-  // the carrier — and the rows its painted edge is guarded at: the same
-  // geometry and the same list the solve read, so the hold the solve fitted is
-  // the hold the bake below can build. No silhouette profile yet: the plate is
-  // painted out to its crop on every row.
+  // the carrier. Its painted edge per row (`edgeAt`) and the rows it is
+  // guarded at (`plateGuardRows`) are the setup's own, the very ones the solve
+  // read (`plateGuardsOf`), so the hold the solve fitted is the hold the bake
+  // below can build.
   const plateLandingAt = plateLandingOn(plate, rowMapsOf(surface));
-  const edgeAt = () => faceHalfWidth;
-  const plateGuardRows = plateGuardRowsFor(plate.part, hairFront);
 
   // ── headDeformer pivot (neck): slightly below the face bottom ─────────────
   // faceBottom is the model-space y of the bottom edge of the face crop.
