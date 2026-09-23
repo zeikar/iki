@@ -8,17 +8,22 @@ import {
   bakeHairFrontSilhouetteWarp,
   bakeHairSwayWarp,
   bakeHeadTurnGridWarpCentered,
+  bakeNodWarp,
   bakeTurnGroupWarp2D,
   bboxToTransform,
   bindingsForRole,
   createPixelGridMesh,
+  facePlate,
   generateGridPoints,
   generateIkiFromLayerSet,
   headNodParallaxUnit,
   headTurnParallaxUnit,
   meshCellsFor,
   parseLayerRoles,
+  plateGuardRowsFor,
+  plateLandingOn,
   plateReach,
+  plateReachAt,
   resolveTurnTargets,
   solveTurnDepth,
   solveTurnModel,
@@ -54,9 +59,18 @@ const HOLD_CLEARANCE = 1;
 const BODY_TURN_FOLLOW = 0.3;
 
 /** Mirror of auto-rig's private HAIR_SWAY_TIP_FRACTION: how far a hair part's
- *  tips swing at the end of a sway's range, as a fraction of its crop height
- *  (before the bangs' grid cap). */
+ *  tips swing at the end of a sway's range, as a fraction of its crop height. */
 const HAIR_SWAY_TIP_FRACTION = 0.09;
+
+/** Mirror of auto-rig's private HAIR_SWAY_CURL: the exponent on a root-pinned
+ *  hair warp's distance from the root, the sway's and the turn lead's alike. */
+const HAIR_SWAY_CURL = 1.5;
+
+/** Mirror of auto-rig's private HAIR_FRONT_DEPTH: the bangs' turn lead at
+ *  the fringe tips, as a fraction of the parallax unit. Pinned here, not
+ *  imported — it isn't exported — so the lead's exact value can be checked
+ *  against the unit recovered from the rig's own turn radius. */
+const HAIR_FRONT_DEPTH = 0.1;
 
 /** The 1000×1000 canvas every layer fixture in this file is painted on. */
 const canvas1000 = { width: 1000, height: 1000 };
@@ -1120,13 +1134,27 @@ describe("head nod (AngleY)", () => {
       ) as { from: number; to: number } | undefined;
     // The bangs hang from the hairline, on the same surface as the brows: they
     // slide with them, WITH the head, or the fringe closes onto the brows
-    // looking up and leaves a bare forehead looking down.
-    const front = nodOf("hair_front")!;
-    expect(front.to).toBeGreaterThan(0);
-    expect(front.to).toBe(nodOf("brow_L")!.to);
-    expect(front.from).toBeCloseTo(-front.to, 10);
-    // Looking up (+AngleY) bends the front crown down; the rigid back hair has
-    // to follow or it shows above it as a second crown.
+    // looking up and leaves a bare forehead looking down. Riding the rigid
+    // head, they carry that slide in a per-vertex AngleY warp — no binding —
+    // that bends the crown as well: looking up (+AngleY) bends it DOWN, so at
+    // the root row the warp lands short of the brows' own slide.
+    expect(nodOf("hair_front")).toBeUndefined();
+    const front = model.parts.find((p) => p.id === "hair_front")!;
+    const nod = front.warps!.find(
+      (w) => w.parameter === StandardParameter.AngleY,
+    )!;
+    const browSlide = nodOf("brow_L")!.to;
+    expect(browSlide).toBeGreaterThan(0);
+    const up = nod.keyforms.find((k) => k.value === 30)!;
+    const topY = Math.max(
+      ...front.mesh!.vertices.filter((_, i) => i % 2 === 1),
+    );
+    for (let v = 0; v < front.mesh!.vertices.length / 2; v++) {
+      if (front.mesh!.vertices[v * 2 + 1] !== topY) continue;
+      expect(up.offsets[v * 2 + 1]).toBeLessThan(browSlide);
+    }
+    // The rigid back hair has to follow the bent crown down or it shows above
+    // it as a second crown.
     const back = nodOf("hair_back")!;
     expect(back.to).toBeLessThan(0);
     expect(back.from).toBeCloseTo(-back.to, 10);
@@ -1626,12 +1654,6 @@ describe("head-turn depth parallax", () => {
         b.parameter === StandardParameter.AngleX && b.channel === "translateX",
     ) as { from: number; to: number } | undefined;
 
-  // Mirrors auto-rig.ts's HAIR_FRONT_DEPTH, matching the impl, not imported —
-  // it isn't exported: pinned here so the lead's exact numeric value can be
-  // checked against the parallaxUnit recovered from the model's own faceWarp
-  // grid.
-  const HAIR_FRONT_DEPTH = 0.1;
-
   it("bindingsForRole: a parallaxUnit adds no AngleX translateX to either hair part", () => {
     const unit = 250;
     const front = bindingsForRole(
@@ -1776,7 +1798,7 @@ describe("head-turn depth parallax", () => {
   });
 
   // One hair spring peaks near 11.2 of its ±20 range (ζ ≈ 0.56 on a ±10
-  // steady state) — the parameter value the sway cap is sized for.
+  // steady state) — the furthest a sway actually drives the tips.
   const SPRING_PEAK = 11.2;
 
   /** Where every vertex on a part's bottom mesh row — the hair's tips, the row
@@ -1795,27 +1817,29 @@ describe("head-turn depth parallax", () => {
   };
 
   /** hair_front's tip swing on x out to HairSwayX `peak`, split at half the
-   *  peak, per tip: `[half − rest, peak − half]`. A swing that renders linear
-   *  in the parameter gives two equal halves; a tip the grid's edge has
-   *  clamped gains less over the second half than over the first. */
+   *  peak, per tip: `[half − rest, peak − half]`, at `pose` (rest by default).
+   *  A swing that renders linear in the parameter gives two equal halves; a
+   *  tip something clamped would gain less over the second half than over
+   *  the first. */
   const tipSwingHalves = (
     model: ReturnType<typeof generateIkiFromLayerSet>,
     peak: number,
+    pose: ParamValues = {},
   ) => {
-    const sway = (v: number) => ({ [StandardParameter.HairSwayX]: v });
-    const rest = tipLandingsX(model, "hair_front");
+    const sway = (v: number) => ({
+      ...pose,
+      [StandardParameter.HairSwayX]: v,
+    });
+    const rest = tipLandingsX(model, "hair_front", pose);
     const half = tipLandingsX(model, "hair_front", sway(peak / 2));
     const at = tipLandingsX(model, "hair_front", sway(peak));
     return at.map((x, i) => [half[i] - rest[i], x - half[i]] as const);
   };
 
-  it("the hair_front tips swing linearly out to a spring's peak, the full uncapped fraction of their height", () => {
-    // What the shared grid renders today (Tasks 4–7 take the bangs off it):
-    // applyWarpToChild sways a vertex BEFORE binding it to the rest grid, and
-    // past the grid's edge the binding clamps, so a clamped tip gains less
-    // over the second half of the swing than over the first. On this fixture
-    // the tips have room: both halves are equal to float32 rounding, and the
-    // whole swing is the uncapped fraction of the hair's height.
+  it("the hair_front tips swing linearly out to a spring's peak, the full fraction of their height", () => {
+    // The bangs ride the rigid head with no grid under them, so nothing clamps
+    // a swayed vertex: both halves of the swing are equal to float32 rounding
+    // and the whole swing is the full fraction of the hair's height.
     const layers = hairFrontLayers();
     const model = generateIkiFromLayerSet(layers, canvas);
     const cropH = layers.find((l) => l.role === "hair_front")!.cropH;
@@ -1830,14 +1854,34 @@ describe("head-turn depth parallax", () => {
     }
   });
 
-  it("tall bangs on a narrow face: the swing is capped so the tips still swing linearly to a spring's peak, instead of clamping between half the peak and the peak", () => {
-    // The grid's margin is 12% of the union's WIDTH, but the swing is 9% of the
-    // hair's HEIGHT; hair that sets the union's width and is much taller than
-    // it is wide would, uncapped, put its tips 50px out at a spring's peak
-    // against ~48px of headroom at rest — clamped by the grid's edge between
-    // half the peak and the peak, gaining less over the second half than the
-    // first. The cap on the swing is what keeps the two halves equal here, on
-    // today's shared grid (Tasks 4–7 take the bangs off it).
+  it("the tips swing as far at full turn as at rest: no grid edge freezes them", () => {
+    // A face-warp child's swayed vertices used to clamp at the grid's edge,
+    // and at full turn the silhouette hold parked the outermost columns on
+    // that edge, so their swing was swallowed there whatever the sway. Off
+    // the grid, a spring's peak combined with AngleX ±30 still moves every
+    // tip further out than half the peak does, by the same amount as the
+    // first half: the hold and the lead are constant in the sway.
+    const model = generateIkiFromLayerSet(hairFrontLayers(), canvas);
+    for (const angleX of [-30, 30]) {
+      for (const peak of [SPRING_PEAK, -SPRING_PEAK]) {
+        const halves = tipSwingHalves(model, peak, {
+          [StandardParameter.AngleX]: angleX,
+        });
+        expect(halves.length).toBeGreaterThan(0);
+        for (const [first, second] of halves) {
+          expect(second * Math.sign(peak)).toBeGreaterThan(0);
+          expect(second).toBeCloseTo(first, 4);
+        }
+      }
+    }
+  });
+
+  it("tall bangs on a narrow face swing the full fraction of their height too", () => {
+    // Hair much taller than the face is wide: its tips swing 9% of that height
+    // — 50 px at a spring's peak — where a face-warp child would have hit the
+    // grid's 12%-of-width margin and clamped between half the peak and the
+    // peak. With no grid under the bangs both halves stay equal and the swing
+    // is the same full fraction as the back hair's.
     const tall: LayerInput[] = [
       {
         role: "face",
@@ -1895,13 +1939,18 @@ describe("head-turn depth parallax", () => {
       },
     ];
     const model = generateIkiFromLayerSet(tall, canvas);
+    const frontCropH = tall.find((l) => l.role === "hair_front")!.cropH;
     for (const peak of [SPRING_PEAK, -SPRING_PEAK]) {
       for (const [first, second] of tipSwingHalves(model, peak)) {
         expect(second).toBeCloseTo(first, 4);
+        expect(first + second).toBeCloseTo(
+          HAIR_SWAY_TIP_FRACTION * frontCropH * (peak / 20),
+          4,
+        );
       }
     }
-    // The back hair, a matrix child with no grid, keeps the full swing: its
-    // tips move the whole fraction of its crop height at the end of the range.
+    // The back hair's tips move the whole fraction of its crop height at the
+    // end of the range, the same way.
     const backCropH = tall.find((l) => l.role === "hair_back")!.cropH;
     const rest = tipLandingsX(model, "hair_back");
     tipLandingsX(model, "hair_back", {
@@ -2000,9 +2049,10 @@ describe("hair_front silhouette hold", () => {
   const shiftedBy = (layers: LayerInput[], dx: number): LayerInput[] =>
     layers.map((l) => ({ ...l, bbox: { ...l.bbox, x: l.bbox.x + dx } }));
 
-  /** A generated rig, plus the pieces a silhouette assertion needs: the face
-   *  grid's own turn map, the hold zone the generator picks from it and where
-   *  the hold sends its boundary at each stop, and the bangs' own rest mesh. */
+  /** A generated rig, plus the pieces a silhouette assertion needs: the plate
+   *  as it RENDERS on the solved surface and the rows its edge is guarded at,
+   *  the hold zone the generator picks from them and where the hold sends its
+   *  boundary at each stop, and the bangs' own rest mesh. */
   const rigOf = (layers: LayerInput[]) => {
     let report: TurnSolveReport | undefined;
     const { model, radius } = solvedRig(layers, canvas, {
@@ -2010,32 +2060,35 @@ describe("hair_front silhouette hold", () => {
     });
     const faceWarp = faceWarpOf(model);
     const grid = faceWarp.grid;
-    // The grid is built symmetric about the face centre, so its own mid-x IS
-    // the cylinder axis.
-    const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
-    // The map a RENDER reads this rig through: the solved radius and the slide
-    // the shipped grid actually carries, not the plate's own uncapped ask.
-    // Read once — every hold assertion below calls columnMapAt per stop.
+    // The slide the shipped grid actually carries, not the plate's own
+    // uncapped ask.
     const travel = travelOf(model);
-    const columnMapAt = (deg: number) =>
-      turnColumnMap(grid, faceCenterX, radius, deg, travel);
-    const faceHalfWidth = layers.find((l) => l.role === "face")!.cropW / 2;
-    const holdBase =
-      plateReach(faceCenterX, faceHalfWidth, columnMapAt) + HOLD_CLEARANCE;
     // Where the hold sends its boundary at each stop is the solve's own
     // `holdEdgeAt`, which the report does not carry: re-solve the identical
     // turn the generator did (`turnSolveInputs`, exactly what it handed the
     // solve) and check by radius, travel AND hold base that it IS this rig's —
     // the landing asserted below mixes its `holdEdgeAt` with the `holdBase`
-    // above, and the radius alone (fitted to the eye ratio) does not pin the
+    // below, and the radius alone (fitted to the eye ratio) does not pin the
     // travel (capped separately) or the hold base built on it.
-    const turn = solveTurnModel(
-      resolveTurnTargets({}),
-      ...turnSolveInputs(layers, canvas),
-    );
+    const inputs = turnSolveInputs(layers, canvas);
+    const [, , faceCenterX, faceHalfWidth, faceCenterY, faceCropH, hairFront] =
+      inputs;
+    const turn = solveTurnModel(resolveTurnTargets({}), ...inputs);
     if (turn.unreachable) throw new Error("expected a reachable turn");
     expect(turn.radius).toBe(radius);
     expect(turn.travel).toBeCloseTo(travel, 6);
+    // The plate the generator renders — its own mesh over the face-warp grid
+    // on the solved surface — and the rows every guard reads its painted edge
+    // at, built from the same inputs the generator builds them from. Without
+    // a measured head the hold base is that rendered edge's furthest reach
+    // over the turn plus the clearance.
+    const plate = facePlate(faceCenterX, faceCenterY, faceHalfWidth, faceCropH);
+    const plateLandingAt = plateLandingOn(plate, grid, turn.surface);
+    const edgeAt = () => faceHalfWidth;
+    const plateGuardRows = plateGuardRowsFor(plate, hairFront);
+    const holdBase =
+      plateReach(plateLandingAt, faceCenterX, edgeAt, plateGuardRows) +
+      HOLD_CLEARANCE;
     expect(turn.holdBase).toBeCloseTo(holdBase, 9);
     const hair = model.parts.find((p) => p.id === "hair_front")!;
     const partX = hair.transform!.x;
@@ -2044,7 +2097,7 @@ describe("hair_front silhouette hold", () => {
     const restX = (v: number) => partX + hair.mesh!.vertices[v * 2];
     const restY = (v: number) => partY + hair.mesh!.vertices[v * 2 + 1];
     const hairLayer = layers.find((l) => l.role === "hair_front")!;
-    const { cols } = meshCellsFor(hairLayer.cropW, hairLayer.cropH);
+    const { cols, rows } = meshCellsFor(hairLayer.cropW, hairLayer.cropH);
     return {
       model,
       grid,
@@ -2052,13 +2105,21 @@ describe("hair_front silhouette hold", () => {
       faceHalfWidth,
       holdBase,
       holdEdgeAt: turn.holdEdgeAt,
-      columnMapAt,
+      surface: turn.surface,
+      plate,
+      plateLandingAt,
+      edgeAt,
+      plateGuardRows,
+      /** The parallax unit the bangs' lead is a fraction of. */
+      unit: headTurnParallaxUnit(radius),
       stops: faceWarp.warp2d.valuesX,
       hair,
       partX,
+      partY,
       restX,
       restY,
       cols,
+      rows,
       /** The bangs' ROOT row — mesh row 0, the top, the row the lead pins
        *  (`bakeHairSwayWarp` swings by `u^CURL` of the distance from it, 0
        *  there) — so a root-row vertex lands where the hold alone sends it. */
@@ -2121,26 +2182,60 @@ describe("hair_front silhouette hold", () => {
       expect(r.report.clamped).not.toContain("silhouetteRatio");
     });
 
-    it(`leaves the root-row vertices on the face plate to the grid's own bend (${label})`, () => {
+    it(`lands the root-row vertices on the face plate where the RENDERED plate lands them (${label})`, () => {
       const r = rigOf(layers);
       const onPlate = r.rootRow.filter(
         (v) => Math.abs(r.restX(v) - r.faceCenterX) <= r.faceHalfWidth,
       );
       expect(onPlate.length).toBeGreaterThan(0);
       for (const deg of r.stops) {
-        const map = r.columnMapAt(deg);
+        const params = { [StandardParameter.AngleX]: deg };
         const landed = landedAt(r.model, deg);
         for (const v of onPlate) {
-          // Today the bangs bind to that grid themselves, so a plate vertex
-          // lands exactly where the grid's own map sends its rest x — the
-          // hold adds nothing there — and keeps its row: the hold is
-          // horizontal like the map it cancels. To float32 rounding again.
+          // A bangs vertex over the plate lands where the FACE lands that
+          // same point of itself — read off the face's own landed mesh, so
+          // the bangs sit on the face they cover however the plate's grid and
+          // mesh chord the surface. The root row sits above the plate's top,
+          // so both read the face's top row, the nearest point it draws. The
+          // hold is horizontal, so the row stays. To float32 rounding again.
           expect(landed[v * 2], `${deg}° vertex ${v}`).toBeCloseTo(
-            map.mapX(r.restX(v)),
+            landedXAt(r.model, "face", r.restX(v), r.restY(v), params),
             4,
           );
           expect(landed[v * 2 + 1], `${deg}° vertex ${v}`).toBeCloseTo(
             r.restY(v),
+            4,
+          );
+        }
+      }
+    });
+
+    it(`lands every strand past the hold edge, on EVERY row, at the boundary's displacement plus that row's own lead (${label})`, () => {
+      const r = rigOf(layers);
+      const stride = r.cols + 1;
+      const outer = Array.from({ length: r.vertexCount }, (_, v) => v).filter(
+        (v) => Math.abs(r.restX(v) - r.faceCenterX) > r.holdBase,
+      );
+      // One mesh column past the hold edge each side, every row of it.
+      expect(outer).toHaveLength(2 * (r.rows + 1));
+      for (const deg of r.stops) {
+        const landed = landedAt(r.model, deg);
+        for (const v of outer) {
+          const x = r.restX(v);
+          const side = Math.sign(x - r.faceCenterX);
+          // The lead is root-pinned — `u^CURL` of the row's distance from the
+          // root, the full HAIR_FRONT_DEPTH share of the unit at ±30 and
+          // linear between — and sums onto the hold UNSCALED: no grid's local
+          // slope multiplies it any more, so the row's landing is the
+          // boundary's displacement plus exactly that lead.
+          const u = Math.floor(v / stride) / r.rows;
+          const lead =
+            (deg / 30) *
+            HAIR_FRONT_DEPTH *
+            r.unit *
+            Math.pow(u, HAIR_SWAY_CURL);
+          expect(landed[v * 2], `${deg}° vertex ${v}`).toBeCloseTo(
+            x + side * (r.holdEdgeAt(deg) - r.holdBase) + lead,
             4,
           );
         }
@@ -2177,11 +2272,32 @@ describe("hair_front silhouette hold", () => {
     });
   }
 
+  it("rides the head: hair_front is a headDeformer child with no bindings, every motion of its own a warp", () => {
+    const r = rigOf([...hairFrontLayers(), noseLayer()]);
+    expect(r.hair.deformer).toBe("headDeformer");
+    expect(r.hair.bindings).toBeUndefined();
+    // Sway X, sway Z, the turn lead, the silhouette hold and the nod — the
+    // two-keyform ones swing between ±range, the five-keyform ones sit on the
+    // turn stops. Warps sum, so their order is not part of the contract.
+    const warps = r.hair.warps!.map(
+      (w) => `${w.parameter}:${w.keyforms.length}`,
+    );
+    expect(warps).toHaveLength(5);
+    expect(warps).toEqual(
+      expect.arrayContaining([
+        `${StandardParameter.HairSwayX}:2`,
+        `${StandardParameter.HairSwayZ}:2`,
+        `${StandardParameter.AngleX}:2`,
+        `${StandardParameter.AngleX}:5`,
+        `${StandardParameter.AngleY}:5`,
+      ]),
+    );
+  });
+
   /** How far the plate's edge lands from the face centre at `deg` through a
-   *  given map, whichever side lands further out — `plateReachAt`'s own
-   *  quantity, the reach a hold edge has to clear at that stop. The two sides
-   *  race each other now: the bend pulls the far one in while the slide
-   *  pushes it out, and the near one the other way round. */
+   *  bare column map, whichever side lands further out. The two sides race
+   *  each other: the bend pulls the far one in while the slide pushes it
+   *  out, and the near one the other way round. */
   const plateEdgeThrough = (
     columnMapAt: (deg: number) => ReturnType<typeof turnColumnMap>,
     faceCenterX: number,
@@ -2197,13 +2313,25 @@ describe("hair_front silhouette hold", () => {
       ),
     );
 
-  /** That reach on a generated rig's own map. */
+  /** That reach on a generated rig's own RENDERED plate — `plateReachAt`'s
+   *  quantity, the reach a hold edge has to clear at that stop. */
   const plateEdgeAt = (r: ReturnType<typeof rigOf>, deg: number) =>
-    plateEdgeThrough(r.columnMapAt, r.faceCenterX, r.faceHalfWidth, deg);
+    plateReachAt(
+      r.plateLandingAt,
+      r.faceCenterX,
+      r.edgeAt,
+      r.plateGuardRows,
+      deg,
+    );
 
   it("takes its hold edge from the plate's reach over ALL the stops, mid ones included", () => {
     const r = rigOf([...hairFrontLayers(), noseLayer()]);
-    const reach = plateReach(r.faceCenterX, r.faceHalfWidth, r.columnMapAt);
+    const reach = plateReach(
+      r.plateLandingAt,
+      r.faceCenterX,
+      r.edgeAt,
+      r.plateGuardRows,
+    );
     // On THIS rig the slide pulls the near edge back inside its own rest
     // half-width faster than the bend throws it out, so every turned stop
     // lands short of the rest pose and the reach is the plate's own 300.
@@ -2211,17 +2339,51 @@ describe("hair_front silhouette hold", () => {
     expect(plateEdgeAt(r, -15)).toBeLessThan(reach);
     expect(plateEdgeAt(r, -30)).toBeLessThan(plateEdgeAt(r, -15));
     expect(r.holdBase).toBeCloseTo(reach + HOLD_CLEARANCE, 9);
+    // What renders TODAY (Task 6's plate carrier / Task 7's row profile
+    // retarget this): the rendered plate's edge IS the surface's own map at
+    // the plate's edge columns — the face mesh has a vertex column there, and
+    // every row reads the same map on the shared lattice, so the mesh and the
+    // grid chord nothing at the edge.
+    const mapAt = (deg: number) =>
+      turnColumnMap(
+        r.grid,
+        r.faceCenterX,
+        r.report.radius,
+        deg,
+        travelOf(r.model),
+      );
+    for (const deg of r.stops) {
+      expect(plateEdgeAt(r, deg)).toBeCloseTo(
+        plateEdgeThrough(mapAt, r.faceCenterX, r.faceHalfWidth, deg),
+        9,
+      );
+    }
 
     // Which stop reaches furthest moves with the radius (see `plateReach`),
     // so the all-stops scan is what makes the hold edge safe: flatten the
     // same plate's cylinder to 4 half-widths, keep its own 75 px of travel,
     // and a MID stop wins — 317.24 px against the rest pose's 300 and full
     // turn's 315.42, the worked case `plateReach`'s own doc quotes.
-    const flat = (deg: number) =>
-      turnColumnMap(r.grid, r.faceCenterX, 4 * r.faceHalfWidth, deg, 75);
+    const flat = plateLandingOn(
+      r.plate,
+      r.grid,
+      turnSurface({
+        faceCenterX: r.faceCenterX,
+        faceCenterY: r.surface.faceCenterY,
+        radius: 4 * r.faceHalfWidth,
+        travel: 75,
+        nodRadius: r.surface.nodRadius,
+        lattice: r.grid,
+      }),
+    );
     const flatAt = (deg: number) =>
-      plateEdgeThrough(flat, r.faceCenterX, r.faceHalfWidth, deg);
-    const flatReach = plateReach(r.faceCenterX, r.faceHalfWidth, flat);
+      plateReachAt(flat, r.faceCenterX, r.edgeAt, r.plateGuardRows, deg);
+    const flatReach = plateReach(
+      flat,
+      r.faceCenterX,
+      r.edgeAt,
+      r.plateGuardRows,
+    );
     expect(flatReach).toBeCloseTo(flatAt(15), 9);
     expect(flatReach).toBeCloseTo(317.24, 2);
     expect(flatAt(0)).toBeCloseTo(r.faceHalfWidth, 9);
@@ -2229,7 +2391,46 @@ describe("hair_front silhouette hold", () => {
     expect(flatReach).toBeGreaterThan(flatAt(30));
   });
 
-  it("refuses a hold edge inside the plate's mapped edge, naming the stop and both numbers", () => {
+  it("the bake's fold guard reads the very reach the solve accepted, at every stop", () => {
+    const r = rigOf([...hairFrontLayers(), noseLayer()]);
+    // Provoke the guard at ONE stop — a hold edge of 1 px there, the boundary
+    // itself everywhere else so the rest-pose check passes — and read the
+    // reach it names off its message.
+    const guardReachAt = (stop: number) => {
+      try {
+        bakeHairFrontSilhouetteWarp(
+          r.hair.mesh!,
+          r.partX,
+          r.partY,
+          r.faceCenterX,
+          r.plateLandingAt,
+          r.edgeAt,
+          r.holdBase,
+          (deg) => (deg === stop ? 1 : r.holdBase),
+          r.plateGuardRows,
+        );
+      } catch (e) {
+        return Number(/maps to ([\d.]+)/.exec((e as Error).message)![1]);
+      }
+      throw new Error(`expected the guard to fire at ${stop}°`);
+    };
+    const turnedStops = [-30, -15, 15, 30];
+    for (const deg of turnedStops) {
+      // The same list of rows through the same rendered plate: equal bytes,
+      // not a tolerance.
+      expect(guardReachAt(deg)).toBe(plateEdgeAt(r, deg));
+    }
+    // And the solve's own hold base is the largest of them (the rest pose's
+    // own half-width included) plus the clearance — so a hold the solve ships
+    // is one the bake can build.
+    expect(r.report.holdBase).toBeCloseTo(
+      Math.max(...turnedStops.map(guardReachAt), r.faceHalfWidth) +
+        HOLD_CLEARANCE,
+      9,
+    );
+  });
+
+  it("refuses a hold edge inside the plate's rendered edge, naming the stop and both numbers", () => {
     const r = rigOf([...hairFrontLayers(), noseLayer()]);
     // Well inside the plate's own landing at every stop: the ramp between
     // them would run backwards. The scan starts at −30, so that is the stop
@@ -2239,11 +2440,13 @@ describe("hair_front silhouette hold", () => {
       bakeHairFrontSilhouetteWarp(
         r.hair.mesh!,
         r.partX,
+        r.partY,
         r.faceCenterX,
-        r.faceHalfWidth,
+        r.plateLandingAt,
+        r.edgeAt,
         200,
         () => 200,
-        r.columnMapAt,
+        r.plateGuardRows,
       ),
     ).toThrow(
       `auto-rig: bakeHairFrontSilhouetteWarp: at -30° on the -x side the hold edge sits 200 from the face centre but the plate's edge maps to ${plateEdgeAt(r, -30)}`,
@@ -2260,11 +2463,13 @@ describe("hair_front silhouette hold", () => {
       bakeHairFrontSilhouetteWarp(
         r.hair.mesh!,
         r.partX,
+        r.partY,
         r.faceCenterX,
-        r.faceHalfWidth,
+        r.plateLandingAt,
+        r.edgeAt,
         holdBase,
         () => holdBase,
-        r.columnMapAt,
+        r.plateGuardRows,
       ),
     ).toThrow(/at -15°/);
   });
@@ -2277,44 +2482,74 @@ describe("hair_front silhouette hold", () => {
       bakeHairFrontSilhouetteWarp(
         r.hair.mesh!,
         r.partX,
+        r.partY,
         r.faceCenterX,
-        r.faceHalfWidth,
+        r.plateLandingAt,
+        r.edgeAt,
         r.holdBase,
         () => r.holdBase - 1,
-        r.columnMapAt,
+        r.plateGuardRows,
       ),
     ).toThrow(/auto-rig: bakeHairFrontSilhouetteWarp: holdEdgeAt\(0\)/);
   });
 
-  it("moves the outer strands by the hold edge's own displacement", () => {
-    // A hold edge that NARROWS as the head turns — 400 at rest, 360 at full
-    // turn — which is what a caller with a measured head width and a target
-    // silhouette ratio passes. Its boundary stays at 400 throughout.
+  /** A hand-built plate for the direct bake tests: 200 px half-wide and 200
+   *  tall about the origin, over a 4×4 grid, on a surface with travel 0 —
+   *  no rig behind it to size a slide, the bend alone — and the guard rows
+   *  of a 1000×100 bangs mesh over it. */
+  const handPlate = () => {
     const grid = {
       cols: 4,
       rows: 4,
       points: generateGridPoints(4, 4, -800, 800, -400, 400),
     };
-    // Travel 0: a grid built by hand to exercise the hold itself, with no
-    // rig behind it to size a slide — the bend alone.
-    const columnMapAt = (deg: number) =>
-      turnColumnMap(grid, 0, 800 * RADIUS_FACTOR, deg, 0);
-    // Vertex xs every 50 from -500 to 500: the plate (0, 200), the ramp (300),
-    // the boundary (400) and two strands beyond it (450, 500).
-    const mesh = createPixelGridMesh(20, 2, 1000, 100);
-    const col = (x: number) => (x + 500) / 50;
+    const plate = facePlate(0, 0, 200, 200);
+    const surface = turnSurface({
+      faceCenterX: 0,
+      faceCenterY: 0,
+      radius: 800 * RADIUS_FACTOR,
+      travel: 0,
+      nodRadius: 400 * RADIUS_FACTOR,
+      lattice: grid,
+    });
+    return {
+      grid,
+      plate,
+      plateLandingAt: plateLandingOn(plate, grid, surface),
+      edgeAt: () => 200,
+      plateGuardRows: plateGuardRowsFor(plate, {
+        centerY: 0,
+        cropW: 1000,
+        cropH: 100,
+      }),
+      columnMapAt: (deg: number) =>
+        turnColumnMap(grid, 0, 800 * RADIUS_FACTOR, deg, 0),
+      // Vertex xs every 50 from -500 to 500: the plate (0, 200), the ramp
+      // (300), the boundary (400) and two strands beyond it (450, 500).
+      mesh: createPixelGridMesh(20, 2, 1000, 100),
+      col: (x: number) => (x + 500) / 50,
+    };
+  };
+
+  it("moves the outer strands by the hold edge's own displacement", () => {
+    // A hold edge that NARROWS as the head turns — 400 at rest, 360 at full
+    // turn — which is what a caller with a measured head width and a target
+    // silhouette ratio passes. Its boundary stays at 400 throughout.
+    const h = handPlate();
     const warp = bakeHairFrontSilhouetteWarp(
-      mesh,
+      h.mesh,
       0,
       0,
-      200,
+      0,
+      h.plateLandingAt,
+      h.edgeAt,
       400,
       (deg) => 400 - (40 * Math.abs(deg)) / 30,
-      columnMapAt,
+      h.plateGuardRows,
     );
     const k = warp.keyforms.find((x) => x.value === 30)!;
-    const map = columnMapAt(30);
-    const landing = (x: number) => map.mapX(x + k.offsets[col(x) * 2]);
+    // The hold is direct: a vertex lands at its rest x plus its offset.
+    const landing = (x: number) => x + k.offsets[h.col(x) * 2];
     // Continuity: the boundary lands ON the hold edge's destination, where the
     // ramp ends and the outer zone begins.
     expect(landing(400)).toBeCloseTo(360, 6);
@@ -2324,11 +2559,63 @@ describe("hair_front silhouette hold", () => {
     expect(landing(500)).toBeCloseTo(460, 6);
     expect(landing(500) - landing(450)).toBeCloseTo(50, 6);
     expect(landing(-450)).toBeCloseTo(-410, 6);
-    // The ramp, at the midpoint of the band: half way from the plate edge's
-    // destination to the hold edge's.
+    // The ramp, at the midpoint of the band: half way from the plate's painted
+    // edge's RENDERED landing to the hold edge's. What renders TODAY (Task 6's
+    // plate carrier / Task 7's row profile retarget this): on a
+    // row-independent surface over the shared lattice that landing is the
+    // surface's own map at the plate's edge.
+    const map = h.columnMapAt(30);
     expect(landing(300)).toBeCloseTo((map.mapX(200) + 360) / 2, 6);
-    // On the plate: the grid's own bend, nothing added.
-    expect(k.offsets[col(0) * 2]).toBeCloseTo(0, 9);
+    // On the plate: where the plate lands the point, nothing added — on the
+    // axis column, nowhere at all.
+    expect(k.offsets[h.col(0) * 2]).toBeCloseTo(0, 9);
+    // The rest keyform is literal zeros, not the bend's residue at 0.
+    for (const o of warp.keyforms.find((x) => x.value === 0)!.offsets) {
+      expect(o).toBe(0);
+    }
+  });
+
+  it("refuses a hold edge that only ONE guard row's painted edge reaches past", () => {
+    // A rendered plate whose edge lands where the bare map puts it on every
+    // guard row but one of the bangs' own rows, which bulges 250 px further
+    // out than the hold edge sits: a guard that read only the face's own rows
+    // — or only one row — would pass it, so the fold guard has to iterate
+    // every row of `plateGuardRows`.
+    const h = handPlate();
+    const bulgeRow = h.plateGuardRows[h.plateGuardRows.length - 1];
+    const bulging = (deg: number, x: number, y: number) =>
+      deg !== 0 && y === bulgeRow
+        ? x + Math.sign(x) * 250
+        : h.columnMapAt(deg).mapX(x);
+    expect(() =>
+      bakeHairFrontSilhouetteWarp(
+        h.mesh,
+        0,
+        0,
+        0,
+        bulging,
+        h.edgeAt,
+        400,
+        () => 400,
+        h.plateGuardRows,
+      ),
+    ).toThrow(
+      /at -30° on the -x side the hold edge sits 400 from the face centre but the plate's edge maps to 450/,
+    );
+    // Without the bulge the same hold builds.
+    expect(() =>
+      bakeHairFrontSilhouetteWarp(
+        h.mesh,
+        0,
+        0,
+        0,
+        h.plateLandingAt,
+        h.edgeAt,
+        400,
+        () => 400,
+        h.plateGuardRows,
+      ),
+    ).not.toThrow();
   });
 });
 
@@ -3128,34 +3415,62 @@ describe("meshCellsFor", () => {
 });
 
 describe("per-vertex bakes generalize to any grid (not just 4×4/stride-5)", () => {
-  it("bakeEyelidFoldWarp / bakeHairSwayWarp / bakeHairFrontSilhouetteWarp all work on an odd-cols mesh", () => {
+  it("bakeEyelidFoldWarp / bakeHairSwayWarp / bakeHairFrontSilhouetteWarp / bakeNodWarp all work on an odd-cols mesh", () => {
     // Odd cols/rows deliberately: none of these bakes may assume a stride.
     const mesh = createPixelGridMesh(7, 9, 300, 500);
     const tipShift = 36;
 
     const fold = bakeEyelidFoldWarp(mesh, "p", -12, 0);
     const sway = bakeHairSwayWarp(mesh, "p", tipShift, 20);
-    // Odd face-grid columns too: the silhouette hold reads the grid's own
-    // column map, so it must not assume a column on the cylinder's axis.
+    // Odd face-grid columns too: the silhouette hold reads the plate through
+    // the grid, so it must not assume a column on the cylinder's axis.
     const grid = {
       cols: 5,
       rows: 5,
       points: generateGridPoints(5, 5, -260, 260, -300, 300),
     };
-    // Travel 0: hand-built grid, no rig behind it — the bend alone.
-    const columnMapAt = (deg: number) =>
-      turnColumnMap(grid, 0, 260 * RADIUS_FACTOR, deg, 0);
-    const holdBase = plateReach(0, 100, columnMapAt) + 1;
+    // Travel 0: hand-built grid, no rig behind it — the bend alone; a plate
+    // 100 px half-wide about the axis, rendered on that surface.
+    const nodRadius = 300 * RADIUS_FACTOR;
+    const surface = turnSurface({
+      faceCenterX: 0,
+      faceCenterY: 0,
+      radius: 260 * RADIUS_FACTOR,
+      travel: 0,
+      nodRadius,
+      lattice: grid,
+    });
+    const plate = facePlate(0, 0, 100, 200);
+    const plateLandingAt = plateLandingOn(plate, grid, surface);
+    const edgeAt = () => 100;
+    const rows = plateGuardRowsFor(plate, {
+      centerY: 0,
+      cropW: 300,
+      cropH: 500,
+    });
+    const holdBase = plateReach(plateLandingAt, 0, edgeAt, rows) + 1;
     const hold = bakeHairFrontSilhouetteWarp(
       mesh,
       0,
       0,
-      100,
+      0,
+      plateLandingAt,
+      edgeAt,
       holdBase,
       () => holdBase,
-      columnMapAt,
+      rows,
     );
-    for (const k of [...fold.keyforms, ...sway.keyforms, ...hold.keyforms]) {
+    // A part resting 40 px above the nod axis, with a 12 px nod slide of its
+    // own.
+    const partY = 40;
+    const nodTravel = 12;
+    const nod = bakeNodWarp(mesh, partY, surface, nodTravel);
+    for (const k of [
+      ...fold.keyforms,
+      ...sway.keyforms,
+      ...hold.keyforms,
+      ...nod.keyforms,
+    ]) {
       expect(k.offsets).toHaveLength(mesh.vertices.length);
     }
 
@@ -3179,16 +3494,16 @@ describe("per-vertex bakes generalize to any grid (not just 4×4/stride-5)", () 
 
     const stride = 8; // 7 cols → 8 vertex columns
 
-    // Hold: rest keyform all-zero, and every row still lands in x-order.
+    // Hold: rest keyform all-zero, and every row still lands in x-order — the
+    // hold is direct, so a vertex lands at its rest x plus its offset.
     const holdRest = hold.keyforms.find((k) => k.value === 0)!;
-    for (const o of holdRest.offsets) expect(o).toBeCloseTo(0, 9);
+    for (const o of holdRest.offsets) expect(o).toBe(0);
     for (const k of hold.keyforms) {
-      const map = columnMapAt(k.value);
       for (let row = 0; row * stride < mesh.vertices.length / 2; row++) {
         let prev = -Infinity;
         for (let col = 0; col < stride; col++) {
           const v = row * stride + col;
-          const x = map.mapX(mesh.vertices[v * 2] + k.offsets[v * 2]);
+          const x = mesh.vertices[v * 2] + k.offsets[v * 2];
           expect(x).toBeGreaterThan(prev);
           prev = x;
         }
@@ -3200,6 +3515,29 @@ describe("per-vertex bakes generalize to any grid (not just 4×4/stride-5)", () 
     for (let i = 0; i < mesh.vertices.length; i += 2) {
       const closedY = mesh.vertices[i + 1] + closed.offsets[i + 1];
       expect(closedY).toBeCloseTo(-12, 9);
+    }
+
+    // Nod: AngleY on the turn stops, a literal-zero rest keyform, dx 0
+    // everywhere, and at +30 every vertex carries its slide `t` plus the
+    // surface's pinned bend WHERE THE SLIDE PUT IT — `y + t` — on the nod
+    // radius, at NOD_BEND (0.5) of the angle.
+    expect(nod.parameter).toBe(StandardParameter.AngleY);
+    expect(nod.keyforms.map((k) => k.value)).toEqual([-30, -15, 0, 15, 30]);
+    for (const o of nod.keyforms.find((k) => k.value === 0)!.offsets) {
+      expect(o).toBe(0);
+    }
+    const up = nod.keyforms.find((k) => k.value === 30)!;
+    const theta = (30 * 0.5 * Math.PI) / 180;
+    const pinnedBend = (local: number) =>
+      nodRadius * Math.sin(Math.asin(local / nodRadius) + theta) -
+      local -
+      nodRadius * Math.sin(theta);
+    for (let i = 0; i < mesh.vertices.length; i += 2) {
+      expect(up.offsets[i]).toBe(0);
+      expect(up.offsets[i + 1]).toBeCloseTo(
+        nodTravel + pinnedBend(partY + mesh.vertices[i + 1] + nodTravel),
+        9,
+      );
     }
   });
 });
@@ -3553,8 +3891,10 @@ describe("feature depth parallax", () => {
   // Mirrors auto-rig.ts's FEATURE_NOD_DEPTH for the eye stack — not exported,
   // so pinned here the way HAIR_FRONT_DEPTH is above.
   const NOD_EYE_DEPTH = 0.04;
-  // 30° × NOD_BEND (0.5), the half-angle the nod bends at — mirrored likewise.
-  const NOD_THETA = (30 * 0.5 * Math.PI) / 180;
+  // NOD_BEND (0.5) of a degree of ParamAngleY, in radians — the pitch the nod
+  // bends at — mirrored likewise; a full 30° nod is the 15° NOD_THETA.
+  const NOD_THETA_PER_DEG = (0.5 * Math.PI) / 180;
+  const NOD_THETA = 30 * NOD_THETA_PER_DEG;
   type Binding = {
     parameter: string;
     channel: string;
@@ -3657,18 +3997,40 @@ describe("feature depth parallax", () => {
         4,
       );
     }
-    // The bangs' turn lead is a warp; on the nod they slide with the brows.
-    const bangs = bindingsForRole(
-      ROLE_TABLE["hair_front"],
-      "hair_front",
-      700,
-      400,
-      units,
-    );
-    expect(nodOf(bangs)!.to).toBe(
-      nodOf(bindingsForRole(ROLE_TABLE["brow_L"], "brow_L", 120, 40, units))!
-        .to,
-    );
+    // The bangs carry no AngleY binding: their nod is a per-vertex warp that
+    // bakes the brows' own slide `t` at each stop AND the head's pinned bend
+    // where that slide puts the vertex — the composition a grid child gets
+    // from its binding and the grid — on the nod cylinder the generator sizes
+    // from the lattice's half-height about the face centre.
+    const bangs = model.parts.find((p) => p.id === "hair_front")!;
+    expect(nodOf(bangs.bindings)).toBeUndefined();
+    const browNod = nodOf(
+      model.parts.find((p) => p.id === "brow_L")!.bindings,
+    )!;
+    const faceY = model.parts.find((p) => p.id === "face")!.transform.y;
+    const ys = faceWarpOf(model).grid.points.filter((_, i) => i % 2 === 1);
+    const nodRadius =
+      Math.max(faceY - Math.min(...ys), Math.max(...ys) - faceY) *
+      RADIUS_FACTOR;
+    const pinnedBend = (local: number, radius: number, theta: number) =>
+      radius * Math.sin(Math.asin(local / radius) + theta) -
+      local -
+      radius * Math.sin(theta);
+    const nodWarp = bangs.warps!.find(
+      (w) => w.parameter === StandardParameter.AngleY,
+    )!;
+    expect(nodWarp.keyforms.map((k) => k.value)).toEqual([-30, -15, 0, 15, 30]);
+    for (const k of nodWarp.keyforms) {
+      const t = browNod.to * (k.value / 30);
+      for (let v = 0; v < bangs.mesh!.vertices.length / 2; v++) {
+        const y = bangs.transform.y + bangs.mesh!.vertices[v * 2 + 1];
+        expect(k.offsets[v * 2]).toBe(0);
+        expect(k.offsets[v * 2 + 1], `${k.value}° vertex ${v}`).toBeCloseTo(
+          t + pinnedBend(y + t - faceY, nodRadius, k.value * NOD_THETA_PER_DEG),
+          9,
+        );
+      }
+    }
   });
 
   it("the nose stands off the face; the mouth has its own; the eye stack shares one depth", () => {
@@ -3896,7 +4258,7 @@ describe("turn targets", () => {
   // solver against a known bend, with no rig behind it to size a slide.
   const restMap = turnColumnMap(depthGrid, 0, DEPTH_RADIUS, 0, 0);
   const turnedMap = turnColumnMap(depthGrid, 0, DEPTH_RADIUS, -30, 0);
-  /** A plate edge far enough out that only the silhouette bound can bite. */
+  /** A plate edge far enough out that it never bites. */
   const FAR_PLATE = -400;
 
   it("solveTurnDepth: on a map that deforms nothing, the depth IS the target", () => {
@@ -3906,7 +4268,6 @@ describe("turn targets", () => {
       [{ x: -100, w: 40 }],
       DEPTH_UNIT,
       restMap,
-      -380,
       FAR_PLATE,
     );
     expect(s.reached).toBe(true);
@@ -3920,7 +4281,6 @@ describe("turn targets", () => {
       [{ x: -100, w: 40 }],
       DEPTH_UNIT,
       restMap,
-      -380,
       FAR_PLATE,
     );
     const bent = solveTurnDepth(
@@ -3928,7 +4288,6 @@ describe("turn targets", () => {
       [{ x: -100, w: 40 }],
       DEPTH_UNIT,
       turnedMap,
-      -380,
       FAR_PLATE,
     );
     expect(bent.reached).toBe(true);
@@ -3936,38 +4295,35 @@ describe("turn targets", () => {
     expect(bent.achieved).toBeCloseTo(-60, 6);
   });
 
-  it("solveTurnDepth: the face plate is a bound of its own, and the tighter bound wins", () => {
+  it("solveTurnDepth: the face plate bounds the slide, and a nearer edge cuts it shorter", () => {
     // The landmark's far edge is -120, so a plate edge at -200 leaves it 80px
-    // of travel where the silhouette alone would have allowed far more.
+    // of travel where a far one would have allowed far more.
     const plate = solveTurnDepth(
       100_000,
       [{ x: -100, w: 40 }],
       DEPTH_UNIT,
       turnedMap,
-      -380,
       -200,
     );
-    const silhouette = solveTurnDepth(
+    const far = solveTurnDepth(
       100_000,
       [{ x: -100, w: 40 }],
       DEPTH_UNIT,
       turnedMap,
-      -380,
       FAR_PLATE,
     );
     expect(plate.depth).toBeCloseTo(80 / DEPTH_UNIT, 9);
-    expect(plate.depth).toBeLessThan(silhouette.depth);
+    expect(plate.depth).toBeLessThan(far.depth);
     // At that depth the far edge sits exactly ON the plate, never past it.
     expect(-120 - plate.depth * DEPTH_UNIT).toBeCloseTo(-200, 9);
   });
 
-  it("solveTurnDepth: a slide past both bounds stops at the nearer one, and says what was on offer", () => {
+  it("solveTurnDepth: a slide past the plate stops at it, and says what was on offer", () => {
     const s = solveTurnDepth(
       100_000,
       [{ x: -100, w: 40 }],
       DEPTH_UNIT,
       turnedMap,
-      -380,
       FAR_PLATE,
     );
     expect(s.reached).toBe(false);
@@ -3979,7 +4335,7 @@ describe("turn targets", () => {
 
   it("solveTurnDepth: a family with no landmark is an error, not a depth", () => {
     expect(() =>
-      solveTurnDepth(60, [], DEPTH_UNIT, restMap, -380, FAR_PLATE),
+      solveTurnDepth(60, [], DEPTH_UNIT, restMap, FAR_PLATE),
     ).toThrow(/auto-rig: solveTurnDepth: no landmark to slide/);
   });
 
@@ -3993,7 +4349,6 @@ describe("turn targets", () => {
       [{ x: 200, w: 40 }],
       DEPTH_UNIT,
       turnedMap,
-      -380,
       FAR_PLATE,
     );
     expect(s.reached).toBe(false);
@@ -4108,10 +4463,14 @@ describe("turn targets", () => {
     if (small.unreachable) throw new Error("expected a reachable turn");
     expect(small.clamped).not.toContain("eyeShift");
     within1Percent(small.achieved.eyeShift, s.attainable[1] * 0.8);
-    // The DEFAULT shift this fixture used to be refused for is inside what it
-    // offers, so it is met rather than refused — the refusal above is about
-    // the ask, not about the fixture being unable to shift its eyes at all.
-    expect(s.attainable[1]).toBeGreaterThan(DEFAULT_TURN_TARGETS.eyeShift);
+    // What it offers is what the plate leaves: the default is past it too,
+    // which is why the default solve above CLAMPS on this fixture — and the
+    // ceiling it names is the shift that clamp lands on, not a number some
+    // other hold could have reached.
+    expect(s.attainable[1]).toBeLessThan(DEFAULT_TURN_TARGETS.eyeShift);
+    const defaulted = solveFor(edgeEyes());
+    if (defaulted.unreachable) throw new Error("expected a reachable turn");
+    expect(s.attainable[1]).toBeCloseTo(defaulted.achieved.eyeShift, 3);
   });
 
   it("solveTurnModel: eyeShift and its negation solve identically", () => {
@@ -4303,9 +4662,9 @@ describe("turn targets", () => {
   // ── the silhouette ratio ──────────────────────────────────────────────────
 
   it("a measured head narrows the silhouette by the ratio, and only past the boundary", () => {
-    // The wide-bangs variant: its grid reaches past the strands this checks,
-    // which the 700px one does not — outside the grid the engine clamps, and
-    // the hold has nothing left to say.
+    // The wide-bangs variant: the 700 px bangs stop short of the 400 px
+    // boundary, so they have no strand past it to measure the narrowing on;
+    // the 1000 px ones do.
     const layers = wideBangs();
     const targets = { headHalfWidth: 400, silhouetteRatio: 0.9 };
     const { model, radius } = solvedRig(layers, canvas, {
@@ -4326,14 +4685,16 @@ describe("turn targets", () => {
     // The measured head IS the boundary, and it holds its rest place; only its
     // DESTINATION narrows, and only by |deg|/30 of the hold's own ratio. That
     // ratio is FITTED rather than taken from the ask: 0.9 is what a render has
-    // to MEASURE, and on this fixture the hold has to sit wide of it (≈0.9054)
-    // for the strands that draw the silhouette to land there.
+    // to MEASURE. The measured edge (±400) is read on the bangs' own mesh
+    // between the vertex at 375 (in the ramp) and the one at 500 (past the
+    // boundary), so it lands a hair off the hold's own destination and the
+    // fitted hold sits a hair off the ask (≈0.8999).
     expect(turn.holdBase).toBe(400);
     expect(turn.holdEdgeAt(0)).toBe(400);
     expect(turn.achieved.silhouetteRatio).toBeCloseTo(0.9, 8);
     const fittedHold = turn.holdEdgeAt(30) / turn.holdBase;
-    expect(fittedHold).toBeGreaterThan(0.905);
-    expect(fittedHold).toBeLessThan(0.906);
+    expect(fittedHold).toBeGreaterThan(0.899);
+    expect(fittedHold).toBeLessThan(0.9);
     expect(turn.holdEdgeAt(-30)).toBeCloseTo(400 * fittedHold, 9);
     expect(turn.holdEdgeAt(15)).toBeCloseTo(
       400 * (1 + (fittedHold - 1) / 2),
@@ -4342,38 +4703,45 @@ describe("turn targets", () => {
 
     // The fixture's own bangs stop short of 400, so the strands that carry the
     // ratio are checked on a mesh wide enough to have some: vertex xs every 50
-    // from -500 to 500, about the same face centre.
+    // from -500 to 500, about the same face centre, on the plate this solve
+    // renders.
     const mesh = createPixelGridMesh(20, 2, 1000, 100);
     const col = (x: number) => (x - faceCenterX + 500) / 50;
-    const columnMapAt = (deg: number) =>
-      turnColumnMap(grid, faceCenterX, turn.radius, deg, turn.travel);
+    const [, lattice, , , faceCenterY, faceCropH, hairFront] = turnSolveInputs(
+      layers,
+      canvas,
+    );
+    const plate = facePlate(faceCenterX, faceCenterY, HH, faceCropH);
+    const plateLandingAt = plateLandingOn(plate, lattice, turn.surface);
     const warp = bakeHairFrontSilhouetteWarp(
       mesh,
       faceCenterX,
+      0,
       faceCenterX,
-      HH,
+      plateLandingAt,
+      () => HH,
       turn.holdBase,
       turn.holdEdgeAt,
-      columnMapAt,
+      plateGuardRowsFor(plate, hairFront),
     );
     for (const o of warp.keyforms.find((k) => k.value === 0)!.offsets) {
-      expect(o).toBeCloseTo(0, 9);
+      expect(o).toBe(0);
     }
     for (const deg of [-30, -15, 15, 30]) {
       const k = warp.keyforms.find((x) => x.value === deg)!;
-      const map = columnMapAt(deg);
+      // The hold is direct: a vertex lands at its rest x plus its offset.
       const landing = (d: number) => {
         const x = faceCenterX + d;
-        return map.mapX(x + k.offsets[col(x) * 2]) - faceCenterX;
+        return x + k.offsets[col(x) * 2] - faceCenterX;
       };
       // The boundary lands on its own destination — the ratio's share of this
-      // stop — and the strand outside it takes the SAME displacement, slope 1,
-      // so the spacing between them survives. (The next strand out, at 500, is
-      // past what the turned grid can reach; see bakeHairFrontSilhouetteWarp.)
+      // stop — and the strands outside it take the SAME displacement, slope 1,
+      // so the spacing between them survives.
       const side = Math.sign(deg);
       const edge = turn.holdEdgeAt(deg);
       expect(landing(side * 400)).toBeCloseTo(side * edge, 6);
       expect(landing(side * 450)).toBeCloseTo(side * (450 - (400 - edge)), 6);
+      expect(landing(side * 500)).toBeCloseTo(side * (500 - (400 - edge)), 6);
       expect(landing(side * 450) - landing(side * 400)).toBeCloseTo(
         side * 50,
         6,
@@ -4384,9 +4752,7 @@ describe("turn targets", () => {
         let prev = -Infinity;
         for (let c = 0; c < stride; c++) {
           const v = row * stride + c;
-          const x = map.mapX(
-            faceCenterX + mesh.vertices[v * 2] + k.offsets[v * 2],
-          );
+          const x = mesh.vertices[v * 2] + k.offsets[v * 2];
           expect(x).toBeGreaterThan(prev);
           prev = x;
         }
@@ -4394,20 +4760,20 @@ describe("turn targets", () => {
     }
   });
 
-  it("a grid too narrow for the measured head caps the far side and clamps the DEFAULT ratio, the near side ramping onto the furthest its own reach allows", () => {
-    // withNose()'s grid, solved for the default eye cues, does not reach as
-    // far as a full 400px hold on its compressed (far) side at full turn —
-    // the promise this generator used to keep silently short, landing the
-    // bangs short of where the DEFAULT silhouetteRatio (1, held) asked for.
+  it("a measured head wider than the bangs that draw it holds the DEFAULT silhouette with a hold wider than the head, its inner strands ramping off the RENDERED plate", () => {
     // 400 is hair_back's own half-width here: the widest part of the head,
-    // and so the head a measurement of this character returns.
+    // and so the head a measurement of this character returns — 50 px wider
+    // than the bangs (350) that carry the hold. Those outermost strands sit
+    // INSIDE the boundary, in the hold's RAMP, so to land them on the
+    // boundary at full turn — what the DEFAULT silhouetteRatio (1, held)
+    // asks — the hold's own destination has to overshoot the head. No grid
+    // edge stops it any more, so it does, and nothing is cut down.
     const layers = withNose();
     const targets = { headHalfWidth: 400 };
     const { model, radius } = solvedRig(layers, canvas, {
       turnTargets: targets,
     });
-    const grid = faceWarpOf(model).grid;
-    const faceCenterX = (grid.points[0] + grid.points[grid.cols * 2]) / 2;
+    const faceCenterX = model.parts.find((p) => p.id === "face")!.transform.x;
     const turn = solveTurnModel(
       resolveTurnTargets(targets),
       ...turnSolveInputs(layers, canvas),
@@ -4415,80 +4781,57 @@ describe("turn targets", () => {
     if (turn.unreachable) throw new Error("expected a reachable turn");
     expect(turn.radius).toBeCloseTo(radius, 6);
     expect(turn.holdBase).toBe(400);
-    // A default is clamped, never refused.
-    expect(turn.clamped).toContain("silhouetteRatio");
-    expect(turn.achieved.silhouetteRatio).toBeLessThan(1);
-
-    const map = turnColumnMap(grid, faceCenterX, turn.radius, -30, turn.travel);
-    const farReach = Math.abs(map.warpedX[0] - faceCenterX);
-    const nearReach = Math.abs(
-      map.warpedX[map.warpedX.length - 1] - faceCenterX,
-    );
-    // The far side's own deformed reach is what falls short of the hold; the
-    // near side's clears it — the slide carries the grid's near edge out
-    // while the bend pulls the far one in, so only one side is ever capped.
-    expect(farReach).toBeLessThan(400);
-    expect(nearReach).toBeGreaterThan(400);
-
-    // Verified through the full pipeline: hair_front's own baked warp, at
-    // -30°, applied to its outermost mesh vertex on each side. Both sit
-    // INSIDE the boundary — the measured head (400) is wider than the bangs
-    // that draw it (350) — so both are in the hold's RAMP, and the cap shows
-    // up in where that ramp ends.
-    const hair = model.parts.find((p) => p.id === "hair_front")!;
-    const warp = hair.warps!.find(
-      (w) =>
-        w.parameter === StandardParameter.AngleX && w.keyforms.length === 5,
-    )!;
-    const partX = hair.transform!.x;
-    const vertexXs = Array.from(
-      { length: hair.mesh!.vertices.length / 2 },
-      (_, v) => partX + hair.mesh!.vertices[v * 2],
-    );
-    const farV = vertexXs.indexOf(Math.min(...vertexXs));
-    const nearV = vertexXs.indexOf(Math.max(...vertexXs));
-    expect(Math.abs(vertexXs[farV] - faceCenterX)).toBeLessThan(400);
-    expect(Math.abs(vertexXs[nearV] - faceCenterX)).toBeLessThan(400);
-    const k = warp.keyforms.find((x) => x.value === -30)!;
-    const landing = (v: number) =>
-      map.mapX(vertexXs[v] + k.offsets[v * 2]) - faceCenterX;
-    /** The hold's own ramp, from the plate edge's destination at HH out to
-     *  `dest` at the boundary — bakeHairFrontSilhouetteWarp's middle zone. */
-    const rampLanding = (restX: number, dest: number, side: -1 | 1) => {
-      const inner = map.mapX(faceCenterX + side * HH) - faceCenterX;
-      const u = (Math.abs(restX - faceCenterX) - HH) / (turn.holdBase - HH);
-      return inner + (side * dest - inner) * u;
+    expect(turn.clamped).not.toContain("silhouetteRatio");
+    expect(turn.achieved.silhouetteRatio).toBeCloseTo(1, 8);
+    expect(turn.holdEdgeAt(30)).toBeGreaterThan(400);
+    // A render measures it: the silhouette points the solve read (the head's
+    // own edges, ±400, which the bangs' mesh renders as its nearest column)
+    // land at their rest span, to the oracle's float32 rounding.
+    const edges = {
+      left: [{ role: "hair_front", x: faceCenterX - 400 }],
+      right: [{ role: "hair_front", x: faceCenterX + 400 }],
     };
-    // The far strand ramps onto the grid's own reach less the clearance — the
-    // capped destination — which is what keeps the shortfall an honest,
-    // reported one instead of a silent clamp (see achieved.silhouetteRatio).
-    expect(landing(farV)).toBeCloseTo(
-      rampLanding(vertexXs[farV], farReach - HOLD_CLEARANCE, -1),
-      6,
+    expect(cuesOf(model, layers, 400, edges).silhouetteRatio).toBeCloseTo(1, 6);
+
+    // The ramp's inner end is the plate as it RENDERS — the face's own landed
+    // mesh — not the bare surface: on the root row (no lead) the outermost
+    // strand on each side lands on the ramp from the face's painted edge's
+    // own landing to the hold edge, at its own fraction of the band.
+    const hair = model.parts.find((p) => p.id === "hair_front")!;
+    const rootY = hair.transform.y + hair.mesh!.vertices[1];
+    const stride = meshCellsFor(700, 400).cols + 1;
+    const rootXs = Array.from(
+      { length: stride },
+      (_, c) => hair.transform.x + hair.mesh!.vertices[c * 2],
     );
-    // Uncapped it would have gone further out: the cap is what moved it.
-    expect(Math.abs(landing(farV))).toBeLessThan(
-      Math.abs(rampLanding(vertexXs[farV], turn.holdEdgeAt(-30), -1)),
-    );
-    // The near side's ramp ends on the furthest its own deformed reach allows
-    // — past the boundary's own rest distance (≈407 against 400), where the
-    // fit ran out of room and clamped. That is what makes the clamped cue
-    // above the honest ceiling of what this grid renders rather than a number
-    // the near side could still have improved on.
-    expect(turn.holdEdgeAt(-30)).toBeGreaterThan(400);
-    expect(turn.holdEdgeAt(-30)).toBe(nearReach - HOLD_CLEARANCE);
-    expect(landing(nearV)).toBeCloseTo(
-      rampLanding(vertexXs[nearV], turn.holdEdgeAt(-30), 1),
-      6,
-    );
+    const landed = landVertices(model, "hair_front", turned);
+    for (const [v, side] of [
+      [0, -1],
+      [stride - 1, 1],
+    ] as const) {
+      const x = rootXs[v];
+      expect(Math.abs(x - faceCenterX)).toBeGreaterThan(HH);
+      expect(Math.abs(x - faceCenterX)).toBeLessThan(400);
+      const inner = landedXAt(
+        model,
+        "face",
+        faceCenterX + side * HH,
+        rootY,
+        turned,
+      );
+      const u = (Math.abs(x - faceCenterX) - HH) / (turn.holdBase - HH);
+      expect(landed[v * 2]).toBeCloseTo(
+        inner + (faceCenterX + side * turn.holdEdgeAt(-30) - inner) * u,
+        4,
+      );
+    }
   });
 
-  it("a CALLER-measured silhouette the grid cannot reach at any radius is refused, naming the attainable ratio", () => {
-    // Same measured head as above, but silhouetteRatio is now the CALLER's
-    // own number: held (1) is a measurement here, not a style prior, so a
-    // radius that would need capping to reach it is not a candidate — and
-    // when that rules out every radius, the target is refused instead of
-    // silently capped.
+  it("a CALLER-measured silhouette no hold renders is refused, naming ONE rendered range whatever was asked, both ends of which rig", () => {
+    // Same measured head, silhouetteRatio now the CALLER's own number — a
+    // measurement, not a style prior, so what no hold renders is refused
+    // instead of quietly cut down. Held (1) IS rendered here (see above); a
+    // narrowing past the plate's fold floor is not.
     const layers = withNose();
     const messageAt = (silhouetteRatio: number) => {
       try {
@@ -4500,39 +4843,36 @@ describe("turn targets", () => {
         return (e as Error).message;
       }
     };
-    const heldMessage = messageAt(1);
-    expect(heldMessage).toMatch(
-      /turnTargets\.silhouetteRatio 1 is unreachable/,
-    );
-    const [, lower, upper] = /attainable ([\d.]+)…([\d.]+)/.exec(heldMessage)!;
-    // Both bounds are ratios a RENDER of this layer set could show — the
-    // measure the caller's own number came from — with the hold at each end of
-    // its own bracket: that radius' plate-fold floor below, the deformed
-    // grid's own reach above. Both ends are computed for every radius
-    // regardless of which of the two actually blocked it, so a refusal never
-    // advertises a range the other would have narrowed.
-    // Re-derived off this refusal on withNose() + headHalfWidth 400: ≈0.655
-    // to ≈0.809. The ceiling sits well under the ≈0.968 HOLD it is read off —
-    // this fixture's measured head (400) is wider than the bangs that draw it
-    // (350), so the strand that carries the silhouette lands inside the hold's
-    // own destination and no hold makes a render show the full narrowing.
-    expect(Number(upper)).toBeGreaterThan(0.8);
-    expect(Number(upper)).toBeLessThan(0.82);
-    expect(Number(lower)).toBeGreaterThan(0.65);
-    expect(Number(lower)).toBeLessThan(0.66);
-    const narrowMessage = messageAt(0.5);
+    expect(messageAt(1)).toBe("");
+    const narrowMessage = messageAt(0.6);
     expect(narrowMessage).toMatch(
-      /turnTargets\.silhouetteRatio 0\.5 is unreachable/,
+      /turnTargets\.silhouetteRatio 0\.6 is unreachable/,
     );
-    const [, narrowLower, narrowUpper] = /attainable ([\d.]+)…([\d.]+)/.exec(
+    const [, lower, upper] = /attainable ([\d.]+)…([\d.]+)/.exec(
       narrowMessage,
     )!;
+    // Both bounds are ratios a RENDER of this layer set could show — the
+    // measure the caller's own number came from — with the hold at each end
+    // of its own bracket: that radius' plate-fold floor below, the widest
+    // hold the targets accept above. On withNose() + headHalfWidth 400 the
+    // floor is ≈0.656; the ceiling is past the held silhouette, since the
+    // bangs are free to hold the outline wherever they are sent.
+    expect(Number(lower)).toBeGreaterThan(0.65);
+    expect(Number(lower)).toBeLessThan(0.66);
+    expect(Number(upper)).toBeGreaterThan(1);
+    expect(Number(upper)).toBeLessThan(1.5);
+    const narrowerMessage = messageAt(0.5);
+    expect(narrowerMessage).toMatch(
+      /turnTargets\.silhouetteRatio 0\.5 is unreachable/,
+    );
+    const [, narrowerLower, narrowerUpper] =
+      /attainable ([\d.]+)…([\d.]+)/.exec(narrowerMessage)!;
     // Every refusal names the IDENTICAL interval whatever was asked: the
     // bracket it is read off is the hold's own at REST scale, so it belongs to
     // the layer set and this radius sweep rather than to the number that was
     // refused.
-    expect(Number(narrowLower)).toBe(Number(lower));
-    expect(Number(narrowUpper)).toBe(Number(upper));
+    expect(Number(narrowerLower)).toBe(Number(lower));
+    expect(Number(narrowerUpper)).toBe(Number(upper));
     // And what it advertises both rigs and LANDS: a caller resubmitting either
     // end gets a rig whose own rendered silhouette is that number, the hold
     // fitted until it is (see the mixed-owner test below).
@@ -4549,10 +4889,11 @@ describe("turn targets", () => {
     }
   });
 
-  it("a measured head wider than the grid's own REST reach still holds the rest pose exactly", () => {
-    // headHalfWidth (500) exceeds the grid's REST reach on the front-hair
-    // fixture — the cap this generator adds must never reach back into the
-    // rest keyform, only the turned stops it was built for.
+  it("a measured head far wider than the bangs still holds the rest pose exactly, and is cut down honestly at the turned stops", () => {
+    // headHalfWidth 500 against bangs 350 half-wide: the strands that carry
+    // the silhouette sit deep inside the ramp, and even the widest hold the
+    // targets accept (1.5) cannot land them on the boundary at full turn. The
+    // cut must never reach back into the rest keyform, only the turned stops.
     const layers = withNose();
     const targets = { headHalfWidth: 500 };
     const model = generateIkiFromLayerSet(layers, canvas, {
@@ -4566,8 +4907,6 @@ describe("turn targets", () => {
     const rest = warp.keyforms.find((k) => k.value === 0)!;
     for (const o of rest.offsets) expect(o).toBe(0);
 
-    // The turned stops ARE capped, as designed — the fixture's grid genuinely
-    // cannot carry a 500px hold at full turn.
     const turn = solveTurnModel(
       resolveTurnTargets(targets),
       ...turnSolveInputs(layers, canvas),
@@ -4921,8 +5260,8 @@ describe("turn targets", () => {
     // is that one ratio twice — not a range the hold can be walked along.
     expect(narrow.attainable).toEqual([1, 1]);
     // What it advertises rigs, renders exactly that, and is NOT reported as
-    // cut down: the bangs' own hold is capped here (this grid cannot carry a
-    // 400px hold at full turn), but that cap never reaches the silhouette.
+    // cut down: where the bangs' own strands land inside that shell is the
+    // hold's business and never the silhouette's.
     const held = solveFor(
       layers,
       { ...targets, silhouetteRatio: 1 },
@@ -4935,8 +5274,7 @@ describe("turn targets", () => {
     expect(held.clamped).not.toContain("silhouetteRatio");
     // The DEFAULTED ratio rigs too, and needs no clamp either: the shell
     // renders its own rest span, which IS the default, so the hold the
-    // default names is shipped untouched — the bangs' own destination inside
-    // that shell is the cap's business and never the silhouette's.
+    // default names is shipped untouched.
     const defaulted = solveFor(layers, targets, headEdges);
     if (defaulted.unreachable) {
       throw new Error("a default must never refuse to rig");
@@ -4946,15 +5284,57 @@ describe("turn targets", () => {
     expect(defaulted.holdEdgeAt(30) / defaulted.holdBase).toBe(1);
   });
 
-  it("solveTurnModel: a far/near ratio in a GAP between feasible radii is refused, not rigged at the nearest run's edge", () => {
-    // A caller-measured silhouette refuses the radii whose own rendered range
-    // cannot be fitted to it, and it does that in the MIDDLE of the sweep, so
-    // the radii that survive come in runs: on this shell the far/near ratios
-    // they produce are ≈[0.589, 0.621] and ≈[0.779, 0.905], with nothing in
-    // between. A target in that gap used to be bisected across it and shipped
-    // at a run's edge — 0.67 asked, 0.621 rigged, `clamped: []`.
+  it("solveTurnModel: a CALLER-measured silhouette on a mixed-owner shell leaves the far/near ratio fit intact", () => {
+    // A caller-measured silhouette narrows the feasible radii to the ones
+    // whose own rendered range covers it. With the bangs free to hold the
+    // outline wherever they are sent, that range covers this ask at every
+    // radius of the sweep, so the far/near fit runs on the whole sweep: both
+    // ratios are met exactly and nothing is reported cut — where a fit that
+    // bisected across a refused radius used to ship the wrong run's edge.
     const layers = withNose();
     const base = { headHalfWidth: 400, silhouetteRatio: 0.977997 };
+    const headEdges = {
+      left: [{ role: "hair_front", x: -350 }],
+      right: [{ role: "hair_back", x: 400 }],
+    };
+    for (const asked of [0.6, 0.67, 0.72, 0.8]) {
+      const fitted = solveFor(
+        layers,
+        { ...base, farEyeRatio: asked },
+        headEdges,
+      );
+      if (fitted.unreachable) throw new Error(`expected ${asked} to rig`);
+      expect(fitted.achieved.farEyeRatio).toBeCloseTo(asked, 8);
+      expect(fitted.achieved.silhouetteRatio).toBeCloseTo(
+        base.silhouetteRatio,
+        8,
+      );
+      expect(fitted.clamped).toEqual([]);
+    }
+    // A far/near ratio no radius produces still names the run that exists.
+    const refused = solveFor(layers, { ...base, farEyeRatio: 0.2 }, headEdges);
+    expect(refused.unreachable).toBe(true);
+    if (!refused.unreachable) return;
+    expect(refused.field).toBe("farEyeRatio");
+    const [lo, hi] = refused.attainable!;
+    expect(lo).toBeLessThan(0.6);
+    expect(hi).toBeGreaterThan(0.8);
+  });
+
+  it("solveTurnModel: a far/near ratio in a GAP between feasible radii is refused, not rigged at the nearest run's edge", () => {
+    // A caller-measured eyeShift refuses the radii that cannot land it, and
+    // it does that in the MIDDLE of the sweep: 0.16 of this head (64 px) sits
+    // just under the eye pair's own drift at depth 0 — the plate's slide plus
+    // the bend — which GROWS with the radius through the middle of the sweep
+    // (offered floor 0.161 → 0.172 by r ≈ 750) and falls back under the ask
+    // only at the flat end, where `shellTravelCap` cuts the slide the shell
+    // has no room for (75 → 34 px). The radii that survive therefore come in
+    // two runs: the tight ones, whose far/near ratios are ≈[0.603, 0.659],
+    // and the flat ones, ≈[0.847, 0.941], with nothing in between. A target
+    // in that gap used to be bisected across it and shipped at a run's edge
+    // with `clamped: []`.
+    const layers = withNose();
+    const base = { headHalfWidth: 400, eyeShift: 0.16 };
     const headEdges = {
       left: [{ role: "hair_front", x: -350 }],
       right: [{ role: "hair_back", x: 400 }],
@@ -4966,16 +5346,28 @@ describe("turn targets", () => {
     expect(refused.value).toBe(0.67);
     // The nearest RUN's own range, not the span across the gap.
     const [lo, hi] = refused.attainable!;
-    expect(lo).toBeGreaterThan(0.58);
-    expect(hi).toBeLessThan(0.63);
+    expect(lo).toBeGreaterThan(0.6);
+    expect(hi).toBeLessThan(0.66);
     // A target on the far side of the gap names the run on ITS side.
-    const above = solveFor(layers, { ...base, farEyeRatio: 0.72 }, headEdges);
+    const above = solveFor(layers, { ...base, farEyeRatio: 0.8 }, headEdges);
     expect(above.unreachable).toBe(true);
     if (!above.unreachable) return;
-    expect(above.attainable![0]).toBeGreaterThan(0.72);
-    expect(above.attainable![0]).toBeLessThan(0.78);
+    expect(above.attainable![0]).toBeGreaterThan(0.84);
+    expect(above.attainable![0]).toBeLessThan(0.86);
+    expect(above.attainable![1]).toBeLessThan(0.95);
+    // The generator's own message names that same range.
+    expect(() =>
+      generateIkiFromLayerSet(layers, canvas, {
+        turnTargets: { ...base, farEyeRatio: 0.67 },
+        headEdges,
+      }),
+    ).toThrow(
+      new RegExp(
+        `turnTargets\\.farEyeRatio 0\\.67 is unreachable for this layer set \\(attainable ${lo}…${hi}\\)`,
+      ),
+    );
     // Inside either run the target is met exactly and nothing is reported cut.
-    for (const asked of [0.6, 0.8]) {
+    for (const asked of [0.63, 0.9]) {
       const fitted = solveFor(
         layers,
         { ...base, farEyeRatio: asked },
@@ -4983,10 +5375,11 @@ describe("turn targets", () => {
       );
       if (fitted.unreachable) throw new Error(`expected ${asked} to rig`);
       expect(fitted.achieved.farEyeRatio).toBeCloseTo(asked, 8);
-      expect(fitted.clamped).not.toContain("farEyeRatio");
+      expect(fitted.achieved.eyeShift).toBeCloseTo(base.eyeShift, 8);
+      expect(fitted.clamped).toEqual([]);
     }
-    // The DEFAULT falls in the same gap: it rigs on the nearest run's edge and
-    // SAYS so, where it used to report the miss as a cue it had met.
+    // The DEFAULT (0.67) falls in the same gap: it rigs on the nearest run's
+    // edge and SAYS so, where it used to report the miss as a cue it had met.
     const defaulted = solveFor(layers, base, headEdges);
     if (defaulted.unreachable) {
       throw new Error("a default must never refuse to rig");
@@ -4998,13 +5391,12 @@ describe("turn targets", () => {
     );
   });
 
-  it("solveTurnModel: a mixed-owner shell whose rendered ratio FALLS with the hold still names an ordered range, and fits inside it", () => {
-    // The static edge on the -x side and the moving one on the +x: widening
-    // the hold there buys the face more travel (shellTravelCap), and more
-    // travel pulls the deformed grid's near-side reach IN, which caps the
-    // very destination the hold was widening. What a render shows can then
-    // FALL as the hold grows, so nothing may assume which end of the hold's
-    // own range renders wider.
+  it("solveTurnModel: a mixed-owner shell names the range its ONE moving side can render, and fits inside it", () => {
+    // The static edge on the -x side and the moving one on the +x: the bangs'
+    // side carries the whole change on its own, so what a render can show is
+    // narrower than the hold's own ratio range — a widening past what the
+    // moving strand reaches, even under the widest hold the targets accept,
+    // is refused in the RENDERED range's own terms.
     const layers = withNose();
     const base = { headHalfWidth: 400 };
     const headEdges = {
@@ -5013,15 +5405,17 @@ describe("turn targets", () => {
     };
     const refused = solveFor(
       layers,
-      { ...base, silhouetteRatio: 1 },
+      { ...base, silhouetteRatio: 1.2 },
       headEdges,
     );
     expect(refused.unreachable).toBe(true);
     if (!refused.unreachable) return;
     expect(refused.field).toBe("silhouetteRatio");
     const offered = refused.attainable!;
-    // Ordered, and a real interval rather than a point.
-    expect(offered[0]).toBeLessThan(offered[1]);
+    // Ordered, a real interval rather than a point, and short of the ask.
+    expect(offered[0]).toBeLessThan(1);
+    expect(offered[1]).toBeGreaterThan(1);
+    expect(offered[1]).toBeLessThan(1.2);
     // Both ends rig, and a render of each measures the end it advertised.
     for (const bound of offered) {
       const again = solveFor(
@@ -5045,6 +5439,16 @@ describe("turn targets", () => {
     if (fitted.unreachable) throw new Error("expected the midpoint to rig");
     expect(fitted.achieved.silhouetteRatio).toBeCloseTo(inside, 8);
     expect(fitted.clamped).not.toContain("silhouetteRatio");
+    // The held DEFAULT is inside it too, and needs a hold WIDER than the head
+    // to render: the static side takes no share, so the moving strand — in
+    // the ramp, inside the boundary — has to be sent past it.
+    const defaulted = solveFor(layers, base, headEdges);
+    if (defaulted.unreachable) {
+      throw new Error("a default must never refuse to rig");
+    }
+    expect(defaulted.achieved.silhouetteRatio).toBeCloseTo(1, 8);
+    expect(defaulted.clamped).not.toContain("silhouetteRatio");
+    expect(defaulted.holdEdgeAt(30)).toBeGreaterThan(defaulted.holdBase);
   });
 
   it("solveTurnModel: a silhouette edge between mesh columns lands where the shipped mesh puts it", () => {
@@ -5059,28 +5463,6 @@ describe("turn targets", () => {
     const { cols, rows } = meshCellsFor(hairLayer.cropW, hairLayer.cropH);
     const hf = hairFrontOf(layers);
     const cellW = hf.cropW / cols;
-    // Inside the hold's RAMP (past the plate's own half-width, inside the
-    // measured head), so the hold and the lead both move it.
-    const colFraction = 0.43;
-    const edgeX = hf.x - hf.cropW / 2 + colFraction * cellW;
-    expect(Math.abs(edgeX)).toBeGreaterThan(HH);
-    const staticEdgeX = 400;
-    const targets = { headHalfWidth: 400 };
-    const headEdges = {
-      left: [{ role: "hair_front", x: edgeX }],
-      right: [{ role: "hair_back", x: staticEdgeX }],
-    };
-    let report: TurnSolveReport | undefined;
-    const model = generateIkiFromLayerSet(layers, canvas, {
-      turnTargets: targets,
-      headEdges,
-      onTurnSolved: (r) => (report = r),
-    });
-    // hair_back holds its rest x, so the solve's own landing for the bangs'
-    // edge falls out of the ratio it reports.
-    const solverLanding =
-      staticEdgeX - report!.achieved.silhouetteRatio * (staticEdgeX - edgeX);
-
     // The eye row's own fraction of the crop, the row measure_turn_reference
     // reads the silhouette on — solveTurnModel's own formula.
     const eyeRowY =
@@ -5089,20 +5471,45 @@ describe("turn targets", () => {
     expect(rowFrac).toBeGreaterThan(0);
     expect(rowFrac).toBeLessThan(1);
     const r = rowFrac * rows;
-    // Both fractions are real fractions: the point sits inside a cell, not on
-    // one of its corners, which is the case this is about.
+    // A real fraction: the row sits between two mesh rows, which is the case
+    // this is about.
     expect(r - Math.floor(r)).toBeGreaterThan(0);
-    // The same point where the SHIPPED mesh renders it: the oracle lands the
-    // surrounding vertices as the engine does and interpolates over the
-    // TRIANGLE the point falls in ([BL, BR, TL] below the TL→BR diagonal,
-    // [TL, BR, TR] above it), never bilinearly — a bilinear patch would
-    // differ by its own cross term, 0.085 px on this fixture. The landing is
-    // float32 (an ulp of 3e-5 at |x| < 512), so the solver's float64 agrees
-    // to that rounding.
-    expect(landedXAt(model, "hair_front", edgeX, eyeRowY, turned)).toBeCloseTo(
-      solverLanding,
-      4,
-    );
+    // Two candidates: one 0.43 of a column across — inside a cell, not on a
+    // corner — and one ON the crop's own edge column, the point the solve
+    // falls back to when nothing measured the head. Both inside the hold's
+    // RAMP (past the plate's own half-width, inside the measured head), so
+    // the hold and the lead both move them.
+    for (const colFraction of [0.43, 0]) {
+      const edgeX = hf.x - hf.cropW / 2 + colFraction * cellW;
+      expect(Math.abs(edgeX)).toBeGreaterThan(HH);
+      const staticEdgeX = 400;
+      const targets = { headHalfWidth: 400 };
+      const headEdges = {
+        left: [{ role: "hair_front", x: edgeX }],
+        right: [{ role: "hair_back", x: staticEdgeX }],
+      };
+      let report: TurnSolveReport | undefined;
+      const model = generateIkiFromLayerSet(layers, canvas, {
+        turnTargets: targets,
+        headEdges,
+        onTurnSolved: (r) => (report = r),
+      });
+      // hair_back holds its rest x, so the solve's own landing for the bangs'
+      // edge falls out of the ratio it reports.
+      const solverLanding =
+        staticEdgeX - report!.achieved.silhouetteRatio * (staticEdgeX - edgeX);
+      // The same point where the SHIPPED mesh renders it: the oracle lands the
+      // surrounding vertices as the engine does and interpolates over the
+      // TRIANGLE the point falls in ([BL, BR, TL] below the TL→BR diagonal,
+      // [TL, BR, TR] above it), never bilinearly — a bilinear patch would
+      // differ by its own cross term, 0.085 px on this fixture. The landing is
+      // float32 (an ulp of 3e-5 at |x| < 512), so the solver's float64 agrees
+      // to that rounding.
+      expect(
+        landedXAt(model, "hair_front", edgeX, eyeRowY, turned),
+        `column fraction ${colFraction}`,
+      ).toBeCloseTo(solverLanding, 4);
+    }
   });
 
   it("solveTurnModel: what a refusal offers stays inside the ratios turnTargets accepts, and says so when nothing does", () => {
@@ -5218,16 +5625,17 @@ describe("turn targets", () => {
       tooNarrow.attainable![0],
       8,
     );
-    // The DEFAULT is out of this shell's reach the same way — a static edge
-    // takes no share of the hold — so it rigs on the nearest ratio a render
-    // CAN show and says so, rather than reporting a cue it quietly missed.
+    // The DEFAULT (held) is fitted the same way: the bangs' own lead carries
+    // the moving edge OUT on this side, so the hold that renders the rest
+    // span sits a little inside the head — and is not reported as cut down.
     const defaulted = solveFor(layers, base, headEdges);
     if (defaulted.unreachable) {
       throw new Error("a default must never refuse to rig");
     }
-    expect(defaulted.clamped).toContain("silhouetteRatio");
-    expect(defaulted.achieved.silhouetteRatio).toBeLessThan(1);
-    expect(defaulted.achieved.silhouetteRatio).toBeGreaterThan(0.97);
+    expect(defaulted.clamped).not.toContain("silhouetteRatio");
+    expect(defaulted.achieved.silhouetteRatio).toBeCloseTo(1, 8);
+    expect(defaulted.holdEdgeAt(30) / defaulted.holdBase).toBeLessThan(1);
+    expect(defaulted.holdEdgeAt(30) / defaulted.holdBase).toBeGreaterThan(0.98);
   });
 
   it("solveTurnModel: an off-centre shell contains the sliding plate on its NARROW side too", () => {
@@ -5337,13 +5745,16 @@ describe("turn targets", () => {
     const [, lower, upper] = /attainable ([\d.]+)…([\d.]+)/.exec(tooNarrow)!;
     const [min, max] = [Number(lower), Number(upper)];
     expect(min).toBeGreaterThan(0.6);
-    expect(max).toBeLessThan(1);
+    // The ceiling is the widest hold the targets accept, rendered: past the
+    // held silhouette, short of the domain's own 1.5.
+    expect(max).toBeGreaterThan(1);
+    expect(max).toBeLessThan(1.5);
     // The bound this names is SAFE, not TIGHT — the ratio sizes the head's
-    // slide as well now (`shellTravelCap`), so a narrower request arrives
-    // with a smaller slide that pulls the plate's own reach in with it, and
-    // some ratios below the advertised floor still hold (on this fixture the
-    // true edge sits between 0.65 and 0.66, under the ≈0.676 it names). What
-    // the refusal promises is that everything it offers rigs...
+    // slide as well (`shellTravelCap`), so a narrower request arrives with a
+    // smaller slide that pulls the plate's own reach in with it, and some
+    // ratios below the advertised floor may still hold (on this fixture it
+    // names ≈0.656). What the refusal promises is that everything it offers
+    // rigs...
     expect(complaintAt(min)).toBe("");
     expect(complaintAt((min + max) / 2)).toBe("");
     expect(complaintAt(max)).toBe("");
@@ -5538,8 +5949,12 @@ const HERO_HEAD = {
 
 /** What the shipped hero's turn solve reached (`turn.achieved`, to 4 decimals)
  *  and which defaulted target it had to cut down (`turn.clamped`) — copied
- *  from iki-char/rewrite/baseline-report.json. */
-const HERO_CUES = { eyeShift: 0.2197, farEyeRatio: 0.67, silhouetteRatio: 1 };
+ *  from iki-char/rewrite/baseline-report.json, except `eyeShift`: the
+ *  baseline's 0.2197 became 0.2167 when the bangs left the face grid (the
+ *  lead sums unscaled now, where the grid's local slope used to scale it, so
+ *  the silhouette centre the eye cue is read against moved by 0.8 px); the
+ *  radius, travel, hold base and eye depth are unchanged. */
+const HERO_CUES = { eyeShift: 0.2167, farEyeRatio: 0.67, silhouetteRatio: 1 };
 const HERO_CLAMPED = ["eyeShift"];
 
 describe("hero golden cues", () => {
