@@ -976,18 +976,22 @@ export function turnSurface(spec: {
 
 /**
  * Bake one group's turn AND nod as a 2D grid warp over AngleX × AngleY, every
- * node of `grid` read off the `surface` at its own rest position: dx is where
- * the turn's column map at that stop sends the node's rest x — shifted first by
- * `shiftAt(deg)`, the group's own turn shift at that stop, 0 for a group with
- * none — and dy is the nod's bend at its rest y. The axes are independent (dx
- * depends only on x and the yaw, dy only on y and the pitch), the same
- * separable convention the playground's 2D bake ships: the row at AngleY = 0
- * is the turn alone and the column at AngleX = 0 the nod alone.
+ * node of `grid` read off the `surface` at its own rest position: the turn's
+ * offset is where `groupNodeLanding` lands the node on that stop's maps — the
+ * family shifted by `shiftAt(deg)`, the group's own turn shift at that stop, 0
+ * for a group with none — less the node's rest position, the same rule the
+ * solve reads these nodes back by; the nod adds its bend at the node's rest y
+ * to dy. The axes are independent (dx depends only on x and the yaw, dy only
+ * on y and the pitch), the same separable convention the playground's 2D bake
+ * ships: the row at AngleY = 0 is the turn alone and the column at AngleX = 0
+ * the nod alone.
  *
- * dx at the AngleX 0 stop and dy at the AngleY 0 stop are written as literal
- * zeros rather than evaluated: at rest each axis is the identity by definition,
- * and `R·sin(asin(l/R)) − l` leaves a ≈3e-14 residue that would otherwise ship
- * — the hero's rest cell used to carry seven of them. That rule discards
+ * Each axis's term at its own rest stop — the landing's at AngleX 0, the
+ * nod's at AngleY 0 — is written as a literal zero rather than evaluated, and
+ * never added to the other axis's term, so a cell with one turned axis carries
+ * exactly that axis's number: at rest each axis is the identity by definition,
+ * and `R·sin(asin(l/R)) − l` leaves a ≈3e-14 residue that would otherwise
+ * ship — the hero's rest cell used to carry seven of them. That rule discards
  * `shiftAt(0)` too, so it assumes `shiftAt(0) = 0` — which every turn shift
  * satisfies by construction, being proportional to the stop's own degrees
  * (`depth · unit · deg / 30`) — and the row's chin swing with it, which rides
@@ -1019,14 +1023,19 @@ export function bakeTurnGroupWarp2D(
   for (const angleY of STOPS) {
     for (const angleX of STOPS) {
       const shift = shiftAt(angleX);
+      const mapAt = (nodeY: number) => surface.mapAt(angleX, nodeY);
       const offsets: number[] = [];
       for (let i = 0; i < pointCount; i++) {
         const x = grid.points[i * 2];
         const y = grid.points[i * 2 + 1];
-        offsets.push(
-          angleX === 0 ? 0 : surface.mapAt(angleX, y).mapX(x + shift) - x,
-          angleY === 0 ? 0 : surface.nodBendAt(y, angleY),
-        );
+        const nodDy = angleY === 0 ? 0 : surface.nodBendAt(y, angleY);
+        if (angleX === 0) {
+          offsets.push(0, nodDy);
+          continue;
+        }
+        const landed = groupNodeLanding(mapAt, shift, x, y);
+        const turnDy = landed.y - y;
+        offsets.push(landed.x - x, angleY === 0 ? turnDy : turnDy + nodDy);
       }
       keyforms2d.push({ offsets });
     }
@@ -1300,6 +1309,23 @@ function carrierLandingX(
     px,
     py,
   );
+}
+
+/** Where a turn-group grid node resting at `(nodeX, nodeY)` lands at one
+ *  stop, whose map for a point resting at `y` is `mapAt(y)`, its family
+ *  shifted by `shift` px (negative toward the far side): the rule the bake
+ *  and the carrier reads share. The bake writes it into the group's keyforms
+ *  (`bakeTurnGroupWarp2D`) and the solve reads the same nodes back through
+ *  it (`landmarkLandingX`, `landingOfRole`), so given the same shift the two
+ *  cannot disagree; `plateLandingOn` reads the plate's nodes by the same rule
+ *  at shift 0. */
+function groupNodeLanding(
+  mapAt: (y: number) => TurnColumnMap,
+  shift: number,
+  nodeX: number,
+  nodeY: number,
+): { x: number; y: number } {
+  return { x: mapAt(nodeY).mapX(nodeX + shift), y: nodeY };
 }
 
 /** `surface.mapAt`, memoised per stop and node row: the map depends on
@@ -1784,10 +1810,11 @@ export function solveTurnDepth(
  * Where a landmark's rest point `(px, py)` lands on x at a stop whose map for
  * a point resting at `y` is `mapAt(y)`, the family shifted by `shift` px
  * (negative toward the far side): through the landmark's carrier when it has
- * one — every node of its grid lands at `mapAt(y_node).mapX(x_node + shift)`,
- * the shift being that grid's own keyform geometry, and the point is read
- * over the part's mesh the way the engine draws it (`carrierLandingX`) — or
- * straight off the map, `mapAt(py).mapX(px + shift)`, without one.
+ * one — every node of its grid lands by `groupNodeLanding`, the rule its
+ * keyforms were baked by, the shift being that grid's own keyform geometry,
+ * and the point is read over the part's mesh the way the engine draws it
+ * (`carrierLandingX`) — or straight off the map,
+ * `mapAt(py).mapX(px + shift)`, without one.
  */
 function landmarkLandingX(
   landmark: TurnLandmark,
@@ -1799,7 +1826,7 @@ function landmarkLandingX(
   if (landmark.carrier === undefined) return mapAt(py).mapX(px + shift);
   return carrierLandingX(
     landmark.carrier,
-    (nodeX, nodeY) => mapAt(nodeY).mapX(nodeX + shift),
+    (nodeX, nodeY) => groupNodeLanding(mapAt, shift, nodeX, nodeY).x,
     px,
     py,
   );
@@ -2225,10 +2252,13 @@ function hairFrontHoldTarget(
  * hold zone's boundary falls between two columns, or the lead's own
  * `u^HAIR_SWAY_CURL` curve bends between two rows.
  *
- * `leadTipShift` is the bangs' full tip lead in px (positive; the −30° keyform
- * carries `0 − tipShift·u^CURL`, see `bakeHairSwayWarp`), which each vertex
- * takes its own row's share of: `u` is its distance from the pinned root as a
- * fraction of the crop's height, the shipped lead warp's own shape.
+ * `leadShift` is the bangs' SIGNED tip lead in px at the stop being read: the
+ * lead warp is keyed at ±30 (`0 − tipShift·u^CURL` at −30, `tipShift·u^CURL`
+ * at +30, see `bakeHairSwayWarp`) and blends linearly between, so at stop d it
+ * is `tipShift·d/30` — `−tipShift` at full far turn. Each vertex lands at its
+ * hold target plus its own row's share of it, `leadShift·u^HAIR_SWAY_CURL`:
+ * `u` is its distance from the pinned root as a fraction of the crop's height,
+ * the shipped lead warp's own shape.
  *
  * The point need not be inside hair_front's own crop at all — past its outer
  * column or row this reads the end column or row, the landing of the nearest
@@ -2239,7 +2269,7 @@ function hairFrontLandingAt(
   y: number,
   hairFront: { x: number; centerY: number; cropW: number; cropH: number },
   holdTargetAt: (restX: number, restY: number) => number,
-  leadTipShift: number,
+  leadShift: number,
 ): number {
   const { cols, rows } = meshCellsFor(hairFront.cropW, hairFront.cropH);
   const top = hairFront.centerY + hairFront.cropH / 2;
@@ -2256,8 +2286,8 @@ function hairFrontLandingAt(
       rotation: 0,
     },
     (vx, vy) =>
-      holdTargetAt(vx, vy) -
-      leadTipShift * Math.pow((top - vy) / hairFront.cropH, HAIR_SWAY_CURL),
+      holdTargetAt(vx, vy) +
+      leadShift * Math.pow((top - vy) / hairFront.cropH, HAIR_SWAY_CURL),
     x,
     y,
   );
@@ -2616,7 +2646,7 @@ function evaluateTurnCandidate(
                 holdBase,
                 holdEdgeAt(-HEAD_TURN_MAX_DEG),
               ),
-            leadTipShift,
+            -leadTipShift,
           );
     // Where a named role's OWN rest x lands after the turn — the mcp measures
     // the union of every layer's opaque pixels, so an edge can belong to any
@@ -2662,7 +2692,7 @@ function evaluateTurnCandidate(
         const shift = role === "face" ? 0 : -depths[turnFamily(role)] * unit;
         return carrierLandingX(
           carrier,
-          (nodeX, nodeY) => mapAt(nodeY).mapX(nodeX + shift),
+          (nodeX, nodeY) => groupNodeLanding(mapAt, shift, nodeX, nodeY).x,
           x,
           ctx.eyeRowY,
         );
