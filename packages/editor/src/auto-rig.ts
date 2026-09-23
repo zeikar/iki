@@ -1981,6 +1981,15 @@ const HOLD_CLEARANCE = 1;
  *  bracketing interval does that. */
 const TURN_HOLD_SAMPLES = 16;
 
+/** Passes `evaluateTurnCandidate` gives the silhouette and the depths it rides
+ *  on to settle on each other before it gives the radius up as a `settle`
+ *  miss (`TurnCandidateMiss`). The passes are
+ *  Aitken-accelerated: a contracting fixed point settles in one to three on
+ *  the fixtures, eleven at the slowest seen (a depth that pins at a bound on
+ *  some passes and not others defeats the extrapolation) — twice that is
+ *  the margin. One that does not contract no count would settle. */
+const TURN_SETTLE_PASSES = 24;
+
 /** A radius that can carry the turn, with everything the fit reads off it. */
 interface TurnCandidate {
   radius: number;
@@ -2000,6 +2009,13 @@ interface TurnCandidate {
   holdBase: number;
   holdEdgeAt: (deg: number) => number;
   eye: TurnDepthSolution;
+  /** The nose's and the mouth's depth on this radius' hold, solved on the
+   *  same terms (`solveFeatureDepths`): the depths their group grids ship
+   *  with, and so the depths a `headEdges` owner in either family is landed
+   *  at. Whether a bound that cut one short is a clamp or a refusal is
+   *  `solveTurnModel`'s call, once a radius is chosen. */
+  nose: TurnDepthSolution;
+  mouth: TurnDepthSolution;
   /** Whether the ratio this radius ships had to be cut to the nearest one a
    *  render of it can show. Only a DEFAULTED target ever gets here cut down —
    *  a caller-measured one the range cannot render is refused instead. */
@@ -2043,6 +2059,14 @@ type TurnCandidateMiss =
       blocked: "eyeShift";
       /** The px interval it offered the eyes instead, ascending. */
       offeredShift: [number, number];
+    }
+  | {
+      /** The silhouette and the depths its `headEdges` owners ride on did
+       *  not settle on each other within TURN_SETTLE_PASSES at this radius
+       *  (see evaluateTurnCandidate): nothing to offer in any target's terms.
+       *  The sweep skips it like any refused radius, and `solveTurnModel`
+       *  refuses the layer set outright when that leaves it nothing. */
+      blocked: "settle";
     };
 
 /** Everything a candidate is evaluated against that does not vary with the
@@ -2101,6 +2125,14 @@ interface TurnSolveContext {
   eyeShift: number;
   /** Whether an eye shift the bounds cut short is a clamp or a rejection. */
   clampEyeShift: boolean;
+  /** The nose's and the mouth's shift MAGNITUDES when the caller measured
+   *  them — `TurnTargets`' "the sign is ignored", taken at the door like
+   *  `eyeShift`'s. Absent when defaulted: the family then takes its share of
+   *  the eyes' ACHIEVED shift, known only per candidate
+   *  (`solveFeatureDepths`), and a bound that cuts it short is a clamp rather
+   *  than a refusal. */
+  noseShift?: number;
+  mouthShift?: number;
   /** Whether the ratio is this generator's own default — carried through as
    *  the hold's own ratio and clamped to what the grid can reach — or a
    *  caller's render measurement, which the hold is fitted to and which is
@@ -2297,9 +2329,11 @@ function shellTravelCap(
 
 /** Everything ONE hold ratio settles inside `evaluateTurnCandidate`: the
  *  travel that ratio leaves the sliding plate, the map that carries it, and
- *  where each side's silhouette lands through that map. The ratio the rig
- *  ships is picked among these — fitted until `renderedSilhouetteRatio` is the
- *  target, whether that target was measured or defaulted. */
+ *  where each side's silhouette lands through that map, every `headEdges`
+ *  owner of the face family at the depths the evaluation was handed. The
+ *  ratio the rig ships is picked among these — fitted until
+ *  `renderedSilhouetteRatio` is the target, whether that target was measured
+ *  or defaulted. */
 interface TurnHoldEval {
   /** The hold's own ratio: where its boundary is sent at full turn, as a
    *  fraction of the rest distance it keeps. */
@@ -2328,6 +2362,21 @@ interface TurnHoldEval {
   restSpan: number;
 }
 
+/** Aitken's Δ² extrapolation of a geometrically contracting sequence from
+ *  three consecutive terms — the fixed point itself when the contraction is
+ *  linear — clamped into [0, cap], the depths a solve can return and so where
+ *  the fixed point lies. The last term as it stands when the sequence has
+ *  stopped moving (a depth pinned at a bound) or its steps do not contract,
+ *  where the formula has nothing to extrapolate from. */
+function aitken(x0: number, x1: number, x2: number, cap: number): number {
+  const d1 = x1 - x0;
+  const d2 = x2 - x1;
+  const denominator = d2 - d1;
+  if (denominator === 0) return x2;
+  const x = x2 - (d2 * d2) / denominator;
+  return Number.isFinite(x) ? Math.min(cap, Math.max(0, x)) : x2;
+}
+
 /**
  * One radius, evaluated against the cues: the candidate it yields, or which
  * target blocked it and what it could have done instead.
@@ -2350,6 +2399,33 @@ interface TurnHoldEval {
  * CALLER-measured one is refused, naming that range, and a DEFAULTED one takes
  * the nearest end of it and is reported in `TurnSolveReport.clamped`. Folding
  * is never acceptable either way.
+ *
+ * The silhouette and the depths are ONE fixed point. A `headEdges` owner of
+ * the face family — a brow, a blush, a white, the nose, a mouth — lands
+ * through its group grid, whose keyforms carry its family's solved depth
+ * (`bakeTurnGroupWarp2D`'s `shiftAt`); the eye depth is solved against the
+ * silhouette's centre, and the nose's and the mouth's against that centre and
+ * the eyes' achieved shift. So each pass fits the hold with every owner landed
+ * at the pass before's depths (none on the first — the read a hold-owned
+ * silhouette gets whatever the depths), solves the three depths on it, and
+ * RE-READS that same hold at the depths it solved: when the re-read moves
+ * neither the centre nor the rendered span by more than TURN_DEPTH_EPS px,
+ * the pass is the fixed point, and the candidate reports the re-read — the
+ * numbers the emitted grids render — with the depths that produced it. A
+ * silhouette owned by the bangs, the back hair, the body or the plate does
+ * not move with a depth, so it settles on the first pass, the single-pass
+ * solve to the bit. Otherwise the passes contract geometrically (an owner's
+ * landing moves by a fraction of the depth it feeds back into), accelerated by
+ * Aitken's Δ² on the three depths every second pass; a radius that has not
+ * settled within TURN_SETTLE_PASSES yields a `settle` miss rather than a
+ * candidate reported off its render, and the sweep moves on to the next
+ * radius — an edge owned on BOTH sides by the family the eye cue slides
+ * leaves that cue nearly independent of the depth, which no pass count
+ * settles, and a layer set no sampled radius settles is refused by
+ * `solveTurnModel`, naming that. The refusals — a caller's silhouette the
+ * range cannot render, an eye shift the bounds cut short — are issued at the
+ * fixed point too, on the range and bounds the shipped depths have, not on a
+ * pass's guess.
  */
 function evaluateTurnCandidate(
   ctx: TurnSolveContext,
@@ -2409,7 +2485,7 @@ function evaluateTurnCandidate(
   const leadTipShift =
     ctx.hairFrontSilhouette === undefined ? 0 : HAIR_FRONT_DEPTH * unit;
 
-  const evaluateHold = (ratio: number): TurnHoldEval => {
+  const evaluateHold = (ratio: number, depths: TurnDepths): TurnHoldEval => {
     // The boundary stays put and its DESTINATION moves: the full ratio at the
     // outer stops, none of it at rest, linear in between.
     const holdEdgeFrom = (base: number) => (deg: number) =>
@@ -2547,18 +2623,14 @@ function evaluateTurnCandidate(
     // role, not just the bangs. `face` and the FEATURE_NOD_DEPTH family (the
     // eye stack, lashes, brows, blush, the nose, both mouths) each ride their
     // own group grid, so each is read through its own carrier — the grid and
-    // mesh it renders with — with a shift of 0: the family's turn depth is
-    // that grid's keyform geometry, and it is not solved yet at this point in
-    // the sweep (the eye's own signed solve below needs
-    // `silhouetteCenterShift`, computed from this, and nose/mouth's are not
-    // solved until `solveFeatureDepths`, after a radius is even chosen). The
-    // omission is harmless not because the magnitude is small but because
-    // none of this family can realistically OWN the eye-row silhouette edge
-    // in the first place: they sit near the face's own centre, well inside
-    // whatever hair, face-plate, or body edge is actually outermost there.
-    // `hair_back` and `body` ride their own rigid deformers, not a group
-    // grid, so neither reads a map at all. Anything not in `ROLE_TABLE` is a
-    // bug, not a role to render as unmoved.
+    // mesh it renders with — at the shift that grid's keyforms carry: its
+    // turn family's depth in `depths` times the unit, toward the far side
+    // (`bakeTurnGroupWarp2D`'s `shiftAt` at this stop), none for the plate,
+    // which IS the surface. Those depths are what this very hold is being
+    // solved for, which is why the candidate is a fixed point (see this
+    // function's doc). `hair_back` and `body` ride their own rigid deformers,
+    // not a group grid, so neither reads a map at all. Anything not in
+    // `ROLE_TABLE` is a bug, not a role to render as unmoved.
     const landingOfRole = (role: string, x: number): number => {
       if (role === "hair_front") return hairFrontAt(x);
       if (role === "hair_back") {
@@ -2587,9 +2659,10 @@ function evaluateTurnCandidate(
             `auto-rig: evaluateTurnCandidate: headEdges names "${role}", which this layer set has no layer for`,
           );
         }
+        const shift = role === "face" ? 0 : -depths[turnFamily(role)] * unit;
         return carrierLandingX(
           carrier,
-          (nodeX, nodeY) => mapAt(nodeY).mapX(nodeX),
+          (nodeX, nodeY) => mapAt(nodeY).mapX(nodeX + shift),
           x,
           ctx.eyeRowY,
         );
@@ -2653,15 +2726,18 @@ function evaluateTurnCandidate(
   // and the real floor is bisected between it and the ceiling, where the
   // slide is largest and the hold furthest out. Undefined when even the
   // ceiling folds: the radius can hold nothing, so it has nothing to offer.
-  const holdRange = (): TurnHoldEval[] | undefined => {
-    const ceiling = evaluateHold(TURN_RATIO_MAX);
+  const holdRange = (depths: TurnDepths): TurnHoldEval[] | undefined => {
+    const ceiling = evaluateHold(TURN_RATIO_MAX, depths);
     if (ceiling.folds) return undefined;
-    let floor = evaluateHold(Math.min(ceiling.foldLowerBound, ceiling.ratio));
+    let floor = evaluateHold(
+      Math.min(ceiling.foldLowerBound, ceiling.ratio),
+      depths,
+    );
     if (floor.folds) {
       let lo = floor;
       let hi = ceiling;
       for (let i = 0; i < TURN_BISECT_STEPS; i++) {
-        const mid = evaluateHold((lo.ratio + hi.ratio) / 2);
+        const mid = evaluateHold((lo.ratio + hi.ratio) / 2, depths);
         if (mid.folds) lo = mid;
         else hi = mid;
       }
@@ -2671,6 +2747,7 @@ function evaluateTurnCandidate(
     for (let i = 1; i < TURN_HOLD_SAMPLES; i++) {
       const sample = evaluateHold(
         floor.ratio + ((ceiling.ratio - floor.ratio) * i) / TURN_HOLD_SAMPLES,
+        depths,
       );
       if (!sample.folds) samples.push(sample);
     }
@@ -2694,27 +2771,44 @@ function evaluateTurnCandidate(
   };
 
   const asked = ctx.silhouetteRatio;
-  // The hold the target names outright, tried first. Where it already renders
-  // the target it IS the answer: a static shell renders its own rest span
-  // whatever the hold does, so every hold there is equally exact, and the one
-  // that leaves the bangs where the target says is the one to ship rather than
-  // an arbitrarily narrower one a search would settle on first.
-  const natural = evaluateHold(asked);
-  // solveTurnDepthSigned's own px slack, on the span the rendered ratio is a
-  // fraction of: the fit stops there, and a caller resubmitting the exact
-  // interval a refusal reported is not refused again by a float ulp of the
-  // division that reported it.
-  const eps = TURN_DEPTH_EPS / natural.restSpan;
-  let hold: TurnHoldEval;
-  let silhouetteClamped = false;
-  if (
-    !natural.folds &&
-    Math.abs(natural.renderedSilhouetteRatio - asked) <= eps
-  ) {
-    hold = natural;
-  } else {
-    const samples = holdRange();
-    if (samples === undefined) return silhouetteMiss();
+
+  /**
+   * The hold fitted to the ask with every `headEdges` owner landed at
+   * `depths`: the hold, whether it had to be cut to the nearest end of the
+   * range this radius renders, and that range when it was — the refusal a
+   * CALLER-measured ask earns for that is issued at the fixed point below,
+   * on the range the shipped depths have, not here on a pass's guess.
+   * Undefined when even the widest hold folds, which no depth changes.
+   */
+  const fitHold = (
+    depths: TurnDepths,
+  ):
+    | {
+        hold: TurnHoldEval;
+        silhouetteClamped: boolean;
+        span?: [number, number];
+      }
+    | undefined => {
+    // The hold the target names outright, tried first. Where it already
+    // renders the target it IS the answer: a static shell renders its own
+    // rest span whatever the hold does, so every hold there is equally
+    // exact, and the one that leaves the bangs where the target says is the
+    // one to ship rather than an arbitrarily narrower one a search would
+    // settle on first.
+    const natural = evaluateHold(asked, depths);
+    // solveTurnDepthSigned's own px slack, on the span the rendered ratio is
+    // a fraction of: the fit stops there, and a caller resubmitting the exact
+    // interval a refusal reported is not refused again by a float ulp of the
+    // division that reported it.
+    const eps = TURN_DEPTH_EPS / natural.restSpan;
+    if (
+      !natural.folds &&
+      Math.abs(natural.renderedSilhouetteRatio - asked) <= eps
+    ) {
+      return { hold: natural, silhouetteClamped: false };
+    }
+    const samples = holdRange(depths);
+    if (samples === undefined) return undefined;
     // Every ratio between the extreme samples is on offer, the rendered ratio
     // being continuous in the hold: the sampled values are all attainable and
     // so is everything they straddle.
@@ -2735,143 +2829,216 @@ function evaluateTurnCandidate(
       return ea <= eb ? a : b;
     };
     if (asked < span[0] - eps || asked > span[1] + eps) {
-      // A CALLER-measured ratio no hold renders is refused in the rendered
-      // range's own terms; a DEFAULTED one takes the nearest end of that range
-      // and says so — see solveTurnModel's report.
-      if (!ctx.clampSilhouetteRatio) return silhouetteMiss(span);
+      // No hold renders the ask: the nearest end of the rendered range stands
+      // in, and says so. A DEFAULTED ask ships it and reports it — see
+      // solveTurnModel's report; a CALLER-measured one is refused in the
+      // range's own terms once the depths have settled.
       const wanted = asked < span[0] ? span[0] : span[1];
-      hold = samples.reduce((a, b) =>
+      const hold = samples.reduce((a, b) =>
         Math.abs(b.renderedSilhouetteRatio - wanted) <
         Math.abs(a.renderedSilhouetteRatio - wanted)
           ? b
           : a,
       );
-      silhouetteClamped = true;
-    } else {
-      // The sampled interval the target actually sits in, bisected on the
-      // HOLD: the rendered ratio is continuous in it, so an interval whose
-      // ends straddle the target contains a hold that renders it — whichever
-      // way round those ends sit, which is why the direction is read off the
-      // interval rather than assumed.
-      let best = samples.reduce(nearer);
-      let lo: TurnHoldEval | undefined;
-      let hi: TurnHoldEval | undefined;
-      for (let i = 0; i + 1 < samples.length; i++) {
-        const a = samples[i].renderedSilhouetteRatio - asked;
-        const b = samples[i + 1].renderedSilhouetteRatio - asked;
-        if (a * b <= 0) {
-          lo = samples[i];
-          hi = samples[i + 1];
-          break;
-        }
-      }
-      for (let i = 0; lo !== undefined && hi !== undefined; i++) {
-        if (
-          i >= TURN_BISECT_STEPS ||
-          Math.abs(best.renderedSilhouetteRatio - asked) <= eps
-        ) {
-          break;
-        }
-        const mid = evaluateHold((lo.ratio + hi.ratio) / 2);
-        if (!mid.folds) best = nearer(best, mid);
-        // Keep the half the target is still inside, in the orientation these
-        // two ends establish.
-        if (
-          (mid.renderedSilhouetteRatio - asked) *
-            (lo.renderedSilhouetteRatio - asked) >
-          0
-        ) {
-          lo = mid;
-        } else {
-          hi = mid;
-        }
-      }
-      hold = best;
+      return { hold, silhouetteClamped: true, span };
     }
-  }
-  // Folding is never acceptable, fitted or clamped: `natural` is only kept
-  // when it does not fold, every `holdRange()` sample is fold-free, and the
-  // fit only ever replaces `best` with a non-folding evaluation — so a folding
-  // hold here is a broken invariant, not a case to handle.
-  if (hold.folds) {
-    throw new Error(
-      "auto-rig: evaluateTurnCandidate: the hold it settled on folds",
+    // The sampled interval the target actually sits in, bisected on the
+    // HOLD: the rendered ratio is continuous in it, so an interval whose
+    // ends straddle the target contains a hold that renders it — whichever
+    // way round those ends sit, which is why the direction is read off the
+    // interval rather than assumed.
+    let best = samples.reduce(nearer);
+    let lo: TurnHoldEval | undefined;
+    let hi: TurnHoldEval | undefined;
+    for (let i = 0; i + 1 < samples.length; i++) {
+      const a = samples[i].renderedSilhouetteRatio - asked;
+      const b = samples[i + 1].renderedSilhouetteRatio - asked;
+      if (a * b <= 0) {
+        lo = samples[i];
+        hi = samples[i + 1];
+        break;
+      }
+    }
+    for (let i = 0; lo !== undefined && hi !== undefined; i++) {
+      if (
+        i >= TURN_BISECT_STEPS ||
+        Math.abs(best.renderedSilhouetteRatio - asked) <= eps
+      ) {
+        break;
+      }
+      const mid = evaluateHold((lo.ratio + hi.ratio) / 2, depths);
+      if (!mid.folds) best = nearer(best, mid);
+      // Keep the half the target is still inside, in the orientation these
+      // two ends establish.
+      if (
+        (mid.renderedSilhouetteRatio - asked) *
+          (lo.renderedSilhouetteRatio - asked) >
+        0
+      ) {
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+    return { hold: best, silhouetteClamped: false };
+  };
+
+  // The fixed point (see this function's doc): the depths every owner is
+  // landed at on this pass, none on the first, and the pass before's when
+  // the pass after next is Aitken-extrapolated from the two.
+  let depths: TurnDepths = { eye: 0, nose: 0, mouth: 0 };
+  let seed: TurnDepths | undefined;
+  for (let pass = 0; ; pass++) {
+    const fitted = fitHold(depths);
+    if (fitted === undefined) return silhouetteMiss();
+    const { hold, silhouetteClamped, span } = fitted;
+    // Folding is never acceptable, fitted or clamped: `natural` is only kept
+    // when it does not fold, every `holdRange()` sample is fold-free, and the
+    // fit only ever replaces `best` with a non-folding evaluation — so a
+    // folding hold here is a broken invariant, not a case to handle.
+    if (hold.folds) {
+      throw new Error(
+        "auto-rig: evaluateTurnCandidate: the hold it settled on folds",
+      );
+    }
+    // measure_turn_reference reads the eye pair against each pose's OWN
+    // silhouette centre, not the face centre — at rest that centre IS the
+    // face centre, but at full turn it has moved by `silhouetteCenterShift`.
+    // The raw landmark slide `solveTurnDepthSigned` solves for is measured
+    // against the face centre, so its target has to be `silhouetteCenterShift`
+    // MINUS the requested magnitude's own px: adding the two back together at
+    // measurement time (solveTurnModel's `achieved.eyeShift`) lands back on
+    // the requested cue.
+    //
+    // That target can legitimately be positive (the centre's own drift
+    // already meets or exceeds the request, so the eyes need to move toward
+    // the NEAR side to land on it) as well as negative, which is exactly why
+    // this calls the SIGNED solver directly: `solveTurnDepth`'s
+    // magnitude-only wrapper would silently flip a negative request back to
+    // positive, quietly hitting a different cue than the one asked for (a
+    // request and its negation must produce the identical rig —
+    // `TurnTargets.eyeShift`'s own "the sign is ignored" contract, taken
+    // here, not by folding an already-negative result back to positive
+    // later).
+    const eye = solveTurnDepthSigned(
+      hold.silhouetteCenterShift - ctx.eyeShift * ctx.hh,
+      ctx.landmarks.eye,
+      unit,
+      hold.mapAt,
+      ctx.plateEdgeX,
     );
-  }
-  const {
-    travel,
-    mapAt,
-    surface,
-    holdBase,
-    holdEdgeAt,
-    silhouetteCenterShift,
-    renderedSilhouetteRatio,
-  } = hold;
-  // measure_turn_reference reads the eye pair against each pose's OWN
-  // silhouette centre, not the face centre — at rest that centre IS the face
-  // centre, but at full turn it has moved by `silhouetteCenterShift`. The raw
-  // landmark slide `solveTurnDepthSigned` solves for is measured against the
-  // face centre, so its target has to be `silhouetteCenterShift` MINUS the
-  // requested magnitude's own px: adding the two back together at measurement
-  // time (`achieved.eyeShift` below) lands back on the requested cue.
-  //
-  // That target can legitimately be positive (the centre's own drift already
-  // meets or exceeds the request, so the eyes need to move toward the NEAR
-  // side to land on it) as well as negative, which is exactly why this calls
-  // the SIGNED solver directly: `solveTurnDepth`'s magnitude-only wrapper
-  // would silently flip a negative request back to positive, quietly hitting
-  // a different cue than the one asked for (a request and its negation must
-  // produce the identical rig — `TurnTargets.eyeShift`'s own "the sign is
-  // ignored" contract, taken here, not by folding an already-negative result
-  // back to positive later).
-  const eye = solveTurnDepthSigned(
-    silhouetteCenterShift - ctx.eyeShift * ctx.hh,
-    ctx.landmarks.eye,
-    unit,
-    mapAt,
-    ctx.plateEdgeX,
-  );
-  // A measured shift this radius cannot produce disqualifies the radius; a
-  // defaulted one takes what the radius offers.
-  if (!eye.reached && !ctx.clampEyeShift) {
+    const features = solveFeatureDepths(
+      ctx,
+      (-eye.achieved + hold.silhouetteCenterShift) / ctx.hh,
+      unit,
+      hold.mapAt,
+      hold.silhouetteCenterShift,
+    );
+    const solved: TurnDepths = {
+      eye: eye.depth,
+      nose: features.nose.depth,
+      mouth: features.mouth.depth,
+    };
+    // The same hold, re-read with every owner at the depths it just solved:
+    // what the emitted grids render. Settled when that read is the one the
+    // hold was fitted on, to the solver's own px slack on the centre and on
+    // the span.
+    const settled = evaluateHold(hold.ratio, solved);
+    if (
+      Math.abs(settled.silhouetteCenterShift - hold.silhouetteCenterShift) >
+        TURN_DEPTH_EPS ||
+      Math.abs(settled.renderedSilhouetteRatio - hold.renderedSilhouetteRatio) *
+        hold.restSpan >
+        TURN_DEPTH_EPS
+    ) {
+      if (pass + 1 >= TURN_SETTLE_PASSES) return { blocked: "settle" };
+      if (seed === undefined) {
+        seed = depths;
+        depths = solved;
+      } else {
+        const capOf = (marks: TurnLandmark[]) =>
+          familyReachPx(marks, ctx.plateEdgeX) / unit;
+        depths = {
+          eye: aitken(
+            seed.eye,
+            depths.eye,
+            solved.eye,
+            capOf(ctx.landmarks.eye),
+          ),
+          nose: aitken(
+            seed.nose,
+            depths.nose,
+            solved.nose,
+            capOf(ctx.landmarks.nose),
+          ),
+          mouth: aitken(
+            seed.mouth,
+            depths.mouth,
+            solved.mouth,
+            capOf(ctx.landmarks.mouth),
+          ),
+        };
+        seed = undefined;
+      }
+      continue;
+    }
+
+    const {
+      travel,
+      mapAt,
+      surface,
+      holdBase,
+      holdEdgeAt,
+      silhouetteCenterShift,
+      renderedSilhouetteRatio,
+    } = settled;
+    if (silhouetteClamped && !ctx.clampSilhouetteRatio) {
+      return silhouetteMiss(span);
+    }
+    // A measured shift this radius cannot produce disqualifies the radius; a
+    // defaulted one takes what the radius offers.
+    if (!eye.reached && !ctx.clampEyeShift) {
+      return {
+        blocked: "eyeShift",
+        // eyeShift is a MAGNITUDE (the sign is ignored — see TurnTargets), so
+        // a negative lower bound here would advertise a value the field's own
+        // contract already rules out; 0 is the true floor.
+        offeredShift: [
+          Math.max(0, (-eye.attainable[1] + silhouetteCenterShift) / ctx.hh),
+          (-eye.attainable[0] + silhouetteCenterShift) / ctx.hh,
+        ],
+      };
+    }
+
+    // Each eye's rest width against its turned width, where the slide put
+    // it: its two edges on its own centre row, read as its mesh renders them.
+    const eyeShiftPx = -eye.depth * unit;
+    const scaleOf = (l: TurnLandmark) =>
+      (landmarkLandingX(l, mapAt, eyeShiftPx, l.x + l.w / 2, l.y ?? 0) -
+        landmarkLandingX(l, mapAt, eyeShiftPx, l.x - l.w / 2, l.y ?? 0)) /
+      l.w;
+    // A −30° turn foreshortens the −x side: that eye is the far one. Dividing
+    // the two rest-normalised scales IS the cue — the reference's own far/near
+    // ratio is already divided by its rest one.
+    const far = ctx.landmarks.eye.reduce((a, b) => (b.x < a.x ? b : a));
+    const near = ctx.landmarks.eye.reduce((a, b) => (b.x > a.x ? b : a));
     return {
-      blocked: "eyeShift",
-      // eyeShift is a MAGNITUDE (the sign is ignored — see TurnTargets), so a
-      // negative lower bound here would advertise a value the field's own
-      // contract already rules out; 0 is the true floor.
-      offeredShift: [
-        Math.max(0, (-eye.attainable[1] + silhouetteCenterShift) / ctx.hh),
-        (-eye.attainable[0] + silhouetteCenterShift) / ctx.hh,
-      ],
+      radius,
+      ratio: scaleOf(far) / scaleOf(near),
+      unit,
+      travel,
+      mapAt,
+      surface,
+      holdBase,
+      holdEdgeAt,
+      eye,
+      nose: features.nose,
+      mouth: features.mouth,
+      silhouetteClamped,
+      silhouetteCenterShift,
+      renderedSilhouetteRatio,
     };
   }
-
-  // Each eye's rest width against its turned width, where the slide put it:
-  // its two edges on its own centre row, read as its mesh renders them.
-  const eyeShiftPx = -eye.depth * unit;
-  const scaleOf = (l: TurnLandmark) =>
-    (landmarkLandingX(l, mapAt, eyeShiftPx, l.x + l.w / 2, l.y ?? 0) -
-      landmarkLandingX(l, mapAt, eyeShiftPx, l.x - l.w / 2, l.y ?? 0)) /
-    l.w;
-  // A −30° turn foreshortens the −x side: that eye is the far one. Dividing the
-  // two rest-normalised scales IS the cue — the reference's own far/near ratio
-  // is already divided by its rest one.
-  const far = ctx.landmarks.eye.reduce((a, b) => (b.x < a.x ? b : a));
-  const near = ctx.landmarks.eye.reduce((a, b) => (b.x > a.x ? b : a));
-  return {
-    radius,
-    ratio: scaleOf(far) / scaleOf(near),
-    unit,
-    travel,
-    mapAt,
-    surface,
-    holdBase,
-    holdEdgeAt,
-    eye,
-    silhouetteClamped,
-    silhouetteCenterShift,
-    renderedSilhouetteRatio,
-  };
 }
 
 /** A swept radius: the candidate it yielded and WHERE in the sweep it sat.
@@ -2897,6 +3064,10 @@ interface TurnSweep {
   /** The widest eye shift the blocked radii offered, in shift units; absent
    *  when the slide blocked none. */
   offeredShift?: [number, number];
+  /** How many radii the fixed point never settled at (`TurnCandidateMiss`'s
+   *  `settle`): skipped like any refused radius, and the cause named when
+   *  the sweep is left empty. */
+  unsettled: number;
 }
 
 /** Log-spaced sweep of the radius: the shape of the head is not known to any
@@ -2909,6 +3080,7 @@ function sweepTurnRadii(ctx: TurnSolveContext): TurnSweep {
   let heldRatioLower = Infinity;
   let heldRatioUpper = -Infinity;
   let offeredShift: [number, number] | undefined;
+  let unsettled = 0;
   for (let i = 0; i < TURN_SWEEP_SAMPLES; i++) {
     const radius =
       minRadius * Math.pow(maxRadius / minRadius, i / (TURN_SWEEP_SAMPLES - 1));
@@ -2918,6 +3090,8 @@ function sweepTurnRadii(ctx: TurnSolveContext): TurnSweep {
     } else if (result.blocked === "silhouetteRatio") {
       heldRatioLower = Math.min(heldRatioLower, result.lower);
       heldRatioUpper = Math.max(heldRatioUpper, result.upper);
+    } else if (result.blocked === "settle") {
+      unsettled++;
     } else {
       offeredShift = offeredShift
         ? [
@@ -2927,7 +3101,13 @@ function sweepTurnRadii(ctx: TurnSolveContext): TurnSweep {
         : result.offeredShift;
     }
   }
-  return { candidates, heldRatioLower, heldRatioUpper, offeredShift };
+  return {
+    candidates,
+    heldRatioLower,
+    heldRatioUpper,
+    offeredShift,
+    unsettled,
+  };
 }
 
 /** One unbroken run of the sweep's feasible radii, and the far/near ratios it
@@ -3020,67 +3200,45 @@ function fitTurnRadius(
 }
 
 /**
- * The nose's and the mouth's depth at the solved radius, on the same terms as
- * the eyes': a measured target must be hit, a derived one takes what it can get.
- *
- * A DERIVED share follows the eyes' actual travel, not the travel they were
- * asked for: the shares are proportions BETWEEN the three features, so against a
+ * The nose's and the mouth's depth on one candidate's hold, on the same terms
+ * as the eyes': a measured target is aimed at exactly, a derived one takes its
+ * family's share of the eyes' ACHIEVED shift — not the shift they were asked
+ * for: the shares are proportions BETWEEN the three features, so against a
  * clamped eye pair the un-scaled ones would send the nose across the far eye.
+ * Both share eyeShift's own head-relative contract (a fraction of `hh`, sign
+ * ignored), so each target gets the SAME silhouette-centre correction the
+ * eye's own solve uses (see evaluateTurnCandidate) — measured against the
+ * pose's own silhouette centre, not the raw landmark slide against the fixed
+ * face centre.
+ *
+ * Solved on every candidate, not once the radius is chosen: a `headEdges`
+ * owner in either family lands through its depth, so the silhouette a
+ * candidate is fitted on needs both. Whether a bound that cut a solution short
+ * is a clamp or a refusal is `solveTurnModel`'s call.
  */
 function solveFeatureDepths(
   ctx: TurnSolveContext,
-  targets: ResolvedTurnTargets,
-  best: TurnCandidate,
+  /** The eyes' achieved shift on this hold, in the cue's own units. */
   eyeShift: number,
-):
-  | { nose: number; mouth: number; clamped: (keyof TurnTargets)[] }
-  | { blocked: "noseShift" | "mouthShift"; attainable: [number, number] } {
-  const clamped: (keyof TurnTargets)[] = [];
-  const solved: Partial<Record<"noseShift" | "mouthShift", number>> = {};
-  const families = [
-    ["noseShift", ctx.landmarks.nose, NOSE_SHIFT_SHARE],
-    ["mouthShift", ctx.landmarks.mouth, MOUTH_SHIFT_SHARE],
-  ] as const;
-  for (const [field, marks, share] of families) {
-    // Both share eyeShift's own head-relative contract (a fraction of `hh`,
-    // sign ignored), so the target gets the SAME silhouette-centre correction
-    // the eye's own solve uses (see evaluateTurnCandidate) — measured against
-    // the pose's own silhouette centre, not the raw landmark slide against the
-    // fixed face centre.
-    const m = Math.abs(
-      targets.defaulted.has(field) ? share * eyeShift : targets[field],
-    );
-    const solution = solveTurnDepthSigned(
-      best.silhouetteCenterShift - m * ctx.hh,
+  unit: number,
+  mapAt: (y: number) => TurnColumnMap,
+  silhouetteCenterShift: number,
+): { nose: TurnDepthSolution; mouth: TurnDepthSolution } {
+  const solve = (
+    measured: number | undefined,
+    marks: TurnLandmark[],
+    share: number,
+  ) =>
+    solveTurnDepthSigned(
+      silhouetteCenterShift - (measured ?? Math.abs(share * eyeShift)) * ctx.hh,
       marks,
-      best.unit,
-      best.mapAt,
+      unit,
+      mapAt,
       ctx.plateEdgeX,
     );
-    if (!solution.reached) {
-      if (!targets.defaulted.has(field)) {
-        return {
-          blocked: field,
-          // noseShift/mouthShift are MAGNITUDES too (see the correction
-          // above), so a negative lower bound here would advertise a value
-          // the field's own contract already rules out; 0 is the true floor.
-          attainable: [
-            Math.max(
-              0,
-              (-solution.attainable[1] + best.silhouetteCenterShift) / ctx.hh,
-            ),
-            (-solution.attainable[0] + best.silhouetteCenterShift) / ctx.hh,
-          ],
-        };
-      }
-      clamped.push(field);
-    }
-    solved[field] = solution.depth;
-  }
   return {
-    nose: solved.noseShift!,
-    mouth: solved.mouthShift!,
-    clamped,
+    nose: solve(ctx.noseShift, ctx.landmarks.nose, NOSE_SHIFT_SHARE),
+    mouth: solve(ctx.mouthShift, ctx.landmarks.mouth, MOUTH_SHIFT_SHARE),
   };
 }
 
@@ -3188,6 +3346,12 @@ export function solveTurnModel(
     // every downstream use already has the magnitude.
     eyeShift: Math.abs(targets.eyeShift),
     clampEyeShift: targets.defaulted.has("eyeShift"),
+    noseShift: targets.defaulted.has("noseShift")
+      ? undefined
+      : Math.abs(targets.noseShift),
+    mouthShift: targets.defaulted.has("mouthShift")
+      ? undefined
+      : Math.abs(targets.mouthShift),
     clampSilhouetteRatio: targets.defaulted.has("silhouetteRatio"),
     hairFrontSilhouette: hairFront,
     // A companion to a MEASURED headHalfWidth only — see its own doc.
@@ -3199,6 +3363,17 @@ export function solveTurnModel(
 
   const pass = sweepTurnRadii(ctx);
   if (pass.candidates.length === 0) {
+    // A radius the fixed point never settled at offered nothing in any
+    // target's terms (see evaluateTurnCandidate), so a sweep one of those
+    // leaves empty is refused as such, naming the cause — the ranges below
+    // are read off the radii the TARGETS refused and would say nothing of
+    // the ones nothing settled at.
+    if (pass.unsettled > 0) {
+      const refused = TURN_SWEEP_SAMPLES - pass.unsettled;
+      throw new TurnTargetError(
+        `auto-rig: headEdges: no sampled radius carries the turn — the silhouette and the depths its headEdges owners ride on did not settle within ${TURN_SETTLE_PASSES} passes at ${pass.unsettled} of the ${TURN_SWEEP_SAMPLES} radii${refused > 0 ? `, and the targets refused the other ${refused}` : ""}`,
+      );
+    }
     // Either gate can empty the sweep, and only a MEASURED target can: the
     // shift, because a defaulted one is clamped per radius rather than gated,
     // and the silhouette, because a defaulted ratio of 1 leaves the hold edge
@@ -3307,14 +3482,33 @@ export function solveTurnModel(
   // centre — not the raw landmark slide against the fixed face centre.
   const eyeShift = (-best.eye.achieved + best.silhouetteCenterShift) / ctx.hh;
 
-  const features = solveFeatureDepths(ctx, targets, best, eyeShift);
-  if ("blocked" in features) {
-    return {
-      unreachable: true,
-      field: features.blocked,
-      value: targets[features.blocked],
-      attainable: features.attainable,
-    };
+  // The nose's and the mouth's depths were solved on this candidate along
+  // with the eyes' (solveFeatureDepths); what is left is the verdict the eye
+  // bound got above — a measured target the bounds cut short is refused, a
+  // derived one is clamped and says so.
+  for (const [field, solution] of [
+    ["noseShift", best.nose],
+    ["mouthShift", best.mouth],
+  ] as const) {
+    if (solution.reached) continue;
+    if (!targets.defaulted.has(field)) {
+      return {
+        unreachable: true,
+        field,
+        value: targets[field],
+        // noseShift/mouthShift are MAGNITUDES too (see solveFeatureDepths),
+        // so a negative lower bound here would advertise a value the field's
+        // own contract already rules out; 0 is the true floor.
+        attainable: [
+          Math.max(
+            0,
+            (-solution.attainable[1] + best.silhouetteCenterShift) / ctx.hh,
+          ),
+          (-solution.attainable[0] + best.silhouetteCenterShift) / ctx.hh,
+        ],
+      };
+    }
+    clamped.push(field);
   }
 
   return {
@@ -3324,13 +3518,17 @@ export function solveTurnModel(
     holdEdgeAt: best.holdEdgeAt,
     travel: best.travel,
     surface: best.surface,
-    depths: { eye: best.eye.depth, nose: features.nose, mouth: features.mouth },
+    depths: {
+      eye: best.eye.depth,
+      nose: best.nose.depth,
+      mouth: best.mouth.depth,
+    },
     achieved: {
       eyeShift,
       farEyeRatio: best.ratio,
       silhouetteRatio: best.renderedSilhouetteRatio,
     },
-    clamped: [...clamped, ...features.clamped],
+    clamped,
   };
 }
 

@@ -6757,6 +6757,148 @@ describe("odd-column golden cues", () => {
   });
 });
 
+// ── Brow-owned edge golden ───────────────────────────────────────────────────
+
+/** hairFrontLayers() + a nose, and a brow painted out past the bangs and the
+ *  back hair on the −x side of the eye row: the outermost opaque pixel there
+ *  is a part that rides the eye family's solved turn depth, not a held
+ *  shell. The plate spans model x ±300, the bangs ±350, the back hair ±400;
+ *  the brow runs −500…−100 on canvas rows 340…360, inside the mcp's ±10 px
+ *  band about the eye row (canvas 350). */
+function browEdgeLayers(): LayerInput[] {
+  return [
+    ...hairFrontLayers(),
+    noseLayer(),
+    layer(canvas1000, "brow_R", 0, 340, 400, 20),
+  ];
+}
+
+describe("brow-owned edge golden cues", () => {
+  /** Every role with an opaque pixel in the eye-row band at its own rest
+   *  extent, per side, as the mcp would list it for `browEdgeLayers()`. */
+  const browEdges = {
+    left: [
+      { role: "brow_R", x: -500 },
+      { role: "hair_back", x: -400 },
+      { role: "hair_front", x: -350 },
+      { role: "face", x: -300 },
+      { role: "eye_L", x: -200 },
+    ],
+    right: [
+      { role: "brow_R", x: -100 },
+      { role: "hair_back", x: 400 },
+      { role: "hair_front", x: 350 },
+      { role: "face", x: 300 },
+      { role: "eye_R", x: 200 },
+    ],
+  };
+  /** The rig for `browEdgeLayers()` at a measured head half-width, with its
+   *  report and the cues the engine renders (`cuesOf`). */
+  const rigAt = (HH: number) => {
+    const layers = browEdgeLayers();
+    let report: TurnSolveReport | undefined;
+    const model = generateIkiFromLayerSet(layers, canvas1000, {
+      turnTargets: { headHalfWidth: HH },
+      headEdges: browEdges,
+      onTurnSolved: (r) => (report = r),
+    });
+    if (!report) throw new Error("the brow-edge layer set must solve a turn");
+    return { model, report, cues: cuesOf(model, layers, HH, browEdges) };
+  };
+  /** Report against render, to the oracle's float32 rounding (see the hero
+   *  golden). */
+  const expectReportEqualsRender = ({
+    report,
+    cues,
+  }: ReturnType<typeof rigAt>) => {
+    expect(cues.farEyeRatio).toBeCloseTo(report.achieved.farEyeRatio, 6);
+    expect(cues.eyeShift).toBeCloseTo(report.achieved.eyeShift, 6);
+    expect(cues.silhouetteRatio).toBeCloseTo(
+      report.achieved.silhouetteRatio,
+      6,
+    );
+  };
+
+  it("reports the cues the engine renders at −30 when a brow owns the far silhouette edge, to float32 rounding", () => {
+    // The union's half-width at the eye row, as the mcp would measure it.
+    const rig = rigAt(450);
+
+    // The brow really owns the rendered far edge: its own grid carries it
+    // further out than every other candidate on that side lands.
+    const { model } = rig;
+    const eyeRowY =
+      (model.parts.find((p) => p.id === "eye_L")!.transform.y +
+        model.parts.find((p) => p.id === "eye_R")!.transform.y) /
+      2;
+    const landingOf = (c: { role: string; x: number }) =>
+      landedXAt(model, c.role, c.x, eyeRowY, turned);
+    const [brow, ...others] = browEdges.left;
+    expect(landingOf(brow)).toBeLessThan(Math.min(...others.map(landingOf)));
+
+    // The brow's landing is read through the depth its group grid ships
+    // with, the one the same solve settled on.
+    expectReportEqualsRender(rig);
+  });
+
+  it("a sampled radius the fixed point never settles is skipped, and the rig fitted among the rest still reports its render", () => {
+    // The same brow under a head measured 50 px wider: the sweep's second
+    // sampled radius (≈ 382.7 px) does not settle the silhouette and the
+    // depths its owners ride on within TURN_SETTLE_PASSES — found by probing
+    // the sweep — while every other one does. It is a `settle` miss the
+    // sweep skips like any refused radius, not an error that aborts the
+    // layer set, and the rig fitted among the radii that settled keeps the
+    // report a promise about the render.
+    expectReportEqualsRender(rigAt(500));
+  });
+
+  it("a layer set no sampled radius carries — unsettled at some, the targets refusing the rest — is refused as such, not as an internal failure", () => {
+    // Brows owning BOTH sides' extremes ride the eye family's depth on both,
+    // which leaves the eye cue nearly independent of that depth: the tighter
+    // radii never settle. The flatter ones still do and would carry the rig
+    // on their own; a caller-measured silhouette they cannot render refuses
+    // them, and the sweep is left with nothing — refused by solveTurnModel
+    // naming both causes, as the TurnTargetError the mcp reports to its
+    // caller, never a bare Error out of the sweep.
+    const layers = [
+      ...hairFrontLayers(),
+      noseLayer(),
+      layer(canvas1000, "brow_R", 0, 340, 400, 20),
+      layer(canvas1000, "brow_L", 600, 340, 400, 20),
+    ];
+    const headEdges = {
+      left: [
+        { role: "brow_R", x: -500 },
+        { role: "brow_L", x: 100 },
+        { role: "hair_back", x: -400 },
+        { role: "hair_front", x: -350 },
+        { role: "face", x: -300 },
+        { role: "eye_L", x: -200 },
+      ],
+      right: [
+        { role: "brow_L", x: 500 },
+        { role: "brow_R", x: -100 },
+        { role: "hair_back", x: 400 },
+        { role: "hair_front", x: 350 },
+        { role: "face", x: 300 },
+        { role: "eye_R", x: 200 },
+      ],
+    };
+    let thrown: unknown;
+    try {
+      generateIkiFromLayerSet(layers, canvas1000, {
+        turnTargets: { headHalfWidth: 500, silhouetteRatio: 0.7 },
+        headEdges,
+      });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(TurnTargetError);
+    expect((thrown as Error).message).toMatch(
+      /^auto-rig: headEdges: no sampled radius carries the turn — the silhouette and the depths its headEdges owners ride on did not settle within \d+ passes at \d+ of the \d+ radii, and the targets refused the other \d+$/,
+    );
+  });
+});
+
 // ── Face row profile (④) ─────────────────────────────────────────────────────
 
 /** Mirror of auto-rig's private CHIN_SWING: the chin's swing toward the near
