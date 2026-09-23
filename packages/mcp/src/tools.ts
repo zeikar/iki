@@ -281,10 +281,12 @@ export type AutoRigResult =
        *  `headHalfWidth`, per side, each with its own rest x there (canvas px)
        *  — present only when `headHalfWidthApplied` is true, since the
        *  fallback path has no measured edge to report at all. Passed to the
-       *  generator so it can land each candidate through its OWN deformation
-       *  (hair_front's, the back hair's, a faceWarp/body role's, or — for
-       *  anything else — rigid with the head) and take the outermost
-       *  LANDING, not just the outermost REST pixel. */
+       *  generator so it can land each candidate through its OWN motion
+       *  (hair_front's silhouette hold, a turn group's grid for the face and
+       *  its features, the body's own turn translate; `hair_back` holds the
+       *  outline and lands where it rests, and a role outside that table is
+       *  refused) and take the outermost LANDING, not just the outermost
+       *  REST pixel. */
       headEdges?: {
         left: { role: string; x: number }[];
         right: { role: string; x: number }[];
@@ -382,7 +384,10 @@ function facePlateHalfOf(layers: LayerInput[]): number {
  *
  * The head turn is fitted to `input.turnTargets`, on the head half-width this
  * measures off the layers themselves; what the solve settled on comes back in
- * `turn`.
+ * `turn`. The face layer alone also gets its per-row painted half-widths
+ * (`LayerInput.rowHalfWidths`), which bend the face plate on a row-dependent
+ * radius: the generator reads no other role's, so measuring any other layer's
+ * would only hand it bytes it discards.
  *
  * Re-host of examples/editor/src/store.ts `importLayerSet` with the three DOM
  * pixel functions swapped for the sharp-backed ./node-images helpers; the pure
@@ -522,7 +527,7 @@ export async function autoRigFromLayers(
       rowSpansByRole.push({ role, rowLeft, rowRight });
       // png.rgba (full-canvas) is dropped at the next iteration — GC reclaims it
       // before the next decode, so peak memory stays ~one canvas + the crops.
-      layerInputs.push({
+      const layer: LayerInput = {
         role,
         fileName,
         canvasW,
@@ -530,7 +535,27 @@ export async function autoRigFromLayers(
         bbox,
         cropW: bbox.w,
         cropH: bbox.h,
-      });
+      };
+      if (role === "face") {
+        // The plate's painted half-width on each of its crop rows — the same
+        // alpha rule and halving as the head's own span, row by row (0 for a
+        // row with no opaque pixel; a single opaque pixel IS a half-px row
+        // here, where the head-span reads below treat a one-column band as
+        // no span) — so the face plate can turn on a radius that tapers with
+        // the jaw. The bbox admits alpha down to 8 while the span counts
+        // alpha >= 128 only, so a row's span sits inside the crop and its
+        // half never exceeds cropW / 2, the generator's bound.
+        const rowHalfWidths: number[] = [];
+        for (let y = bbox.y; y < bbox.y + bbox.h; y++) {
+          rowHalfWidths.push(
+            rowRight[y] >= rowLeft[y]
+              ? headHalfOf({ left: rowLeft[y], right: rowRight[y] })
+              : 0,
+          );
+        }
+        layer.rowHalfWidths = rowHalfWidths;
+      }
+      layerInputs.push(layer);
       crops.push({ id: role, buffer, width: bbox.w, height: bbox.h });
     }
 

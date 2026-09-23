@@ -7,6 +7,8 @@ import {
   IKI_FORMAT_VERSION,
   StandardParameter,
   parseIkiModel,
+  type IkiModel,
+  type IkiWarpGrid,
 } from "@ikijs/format";
 import {
   validateIki,
@@ -688,6 +690,58 @@ describe("autoRigFromLayers", () => {
     ];
   }
 
+  // writeNoseLayers()'s set with the face repainted as a flat-topped jaw: an
+  // SVG polygon 60 wide and 68 tall about the rect's own centre (50, 50), the
+  // full 60 px down to its middle and a straight taper to a 10 px chin below.
+  // Its painted rows narrow DOWNWARD only, on purpose: measured bottom-up by
+  // mistake, its widest row would sit at the bottom and nearly every row would
+  // read the widest width, which the assertions below catch — an ellipse
+  // would not, its rows reading the same either way up. The eyes, nose and
+  // mouth sit well inside it.
+  async function writeJawFaceLayers(dir: string): Promise<string[]> {
+    const paths = await writeNoseLayers(dir);
+    const jaw = Buffer.from(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="60" height="68">` +
+        `<polygon points="0,0 60,0 60,34 35,68 25,68 0,34" ` +
+        `fill="rgb(200,120,60)"/></svg>`,
+    );
+    await sharp({
+      create: {
+        width: CANVAS,
+        height: CANVAS,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .composite([{ input: jaw, left: 20, top: 16 }])
+      .png()
+      .toFile(path.join(dir, "face.png"));
+    return paths;
+  }
+
+  /** One deformer's 2D turn keyform at the −30° stop with AngleY 0, and the
+   *  grid its offsets index. The layout is the format's
+   *  (`packages/format/src/types.ts`, IkiWarpGrid and IkiGrid2DWarp):
+   *  `(cols + 1) · (rows + 1)` nodes row-major with row 0 the TOP, a keyform
+   *  interleaving dx, dy per node, and the one at `(valuesX[i], valuesY[j])`
+   *  filed at `j · valuesX.length + i`. */
+  function turnKeyform(
+    model: IkiModel,
+    deformerId: string,
+  ): { grid: IkiWarpGrid; offsets: number[] } {
+    const deformer = model.deformers!.find((d) => d.id === deformerId)!;
+    if (deformer.kind !== "warp" || deformer.warp2d === undefined) {
+      throw new Error(`${deformerId} rides no 2D warp`);
+    }
+    const { valuesX, valuesY, keyforms2d } = deformer.warp2d;
+    return {
+      grid: deformer.grid,
+      offsets:
+        keyforms2d[valuesY.indexOf(0) * valuesX.length + valuesX.indexOf(-30)]
+          .offsets,
+    };
+  }
+
   /** The eye's turn slide in a written model: the mean dx the nodes of its own
    *  turn grid carry at the −30° stop (AngleY 0) — the family's solved depth
    *  is that grid's keyform geometry, the eye part carrying no AngleX binding
@@ -695,16 +749,23 @@ describe("autoRigFromLayers", () => {
   function eyeSlide(filePath: string): number {
     const model = parseIkiModel(JSON.parse(fs.readFileSync(filePath, "utf8")));
     const eye = model.parts.find((p) => p.id === "eye_L")!;
-    const group = model.deformers!.find((d) => d.id === eye.deformer)!;
-    if (group.kind !== "warp" || group.warp2d === undefined) {
-      throw new Error("eye_L rides no 2D warp");
-    }
-    const { valuesX, valuesY, keyforms2d } = group.warp2d;
-    const at30 =
-      keyforms2d[valuesY.indexOf(0) * valuesX.length + valuesX.indexOf(-30)];
+    const { offsets } = turnKeyform(model, eye.deformer!);
     let sum = 0;
-    for (let i = 0; i < at30.offsets.length; i += 2) sum += at30.offsets[i];
-    return sum / (at30.offsets.length / 2);
+    for (let i = 0; i < offsets.length; i += 2) sum += offsets[i];
+    return sum / (offsets.length / 2);
+  }
+
+  /** The face plate's turn dx at the −30° stop (AngleY 0) down one node
+   *  column of its own grid, top row first. */
+  function faceWarpDxByRow(filePath: string, col: number): number[] {
+    const model = parseIkiModel(JSON.parse(fs.readFileSync(filePath, "utf8")));
+    const { grid, offsets } = turnKeyform(model, "faceWarp");
+    const perRow = grid.cols + 1;
+    const dx: number[] = [];
+    for (let row = 0; row <= grid.rows; row++) {
+      dx.push(offsets[(row * perRow + col) * 2]);
+    }
+    return dx;
   }
 
   it("falls back to the face plate, and still rigs, when the layers are translucent (alpha below the opaque-union threshold)", async () => {
@@ -723,6 +784,12 @@ describe("autoRigFromLayers", () => {
     // reads empty at the eye row, and the tool falls back instead of refusing.
     expect(result.headHalfWidth).toBeUndefined();
     expect(result.headHalfWidthApplied).toBe(false);
+    // The face's per-row half-widths read all-zero under the same rule, which
+    // the generator takes as no profile at all: the plate still turns, on one
+    // radius on every row.
+    const dx = faceWarpDxByRow(path.join(dir, "model.iki"), 2);
+    expect(dx[5]).not.toBe(0);
+    for (const d of dx) expect(d).toBeCloseTo(dx[5], 9);
   });
 
   it("falls back to the face plate on translucent layers with a nose too, and still solves the turn", async () => {
@@ -739,6 +806,60 @@ describe("autoRigFromLayers", () => {
     expect(result.headHalfWidth).toBeUndefined();
     expect(result.headHalfWidthApplied).toBe(false);
     expect(result.turn).toBeDefined();
+  });
+
+  it("a rect face turns its plate on one radius on every row: its measured profile is flat", async () => {
+    const dir = tmpDir();
+    const paths = await writeNoseLayers(dir);
+    const out = path.join(dir, "model.iki");
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: out,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Every PAINTED row of the rect measures the same half-width (30); the
+    // crop's 1 px alpha margin adds an empty row above and below them, each
+    // reading 0, which the profile fills (the top one reads the widest width
+    // like every row above the widest, the bottom one the nearest painted row
+    // above it). So the plate's row profile is flat and the turn's column map
+    // is one map on every row: a node column off the axis (2, three cells left
+    // of the axis column 5) carries a single dx from the top row to the
+    // bottom — the constant-radius bake a face with no profile gets.
+    const dx = faceWarpDxByRow(out, 2);
+    expect(dx).toHaveLength(11);
+    expect(dx[5]).not.toBe(0);
+    for (const d of dx) expect(d).toBeCloseTo(dx[5], 9);
+  });
+
+  it("a face that tapers to its chin turns its plate on a radius that tapers with its own painted rows", async () => {
+    const dir = tmpDir();
+    const paths = await writeJawFaceLayers(dir);
+    const out = path.join(dir, "model.iki");
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: out,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const dx = faceWarpDxByRow(out, 2);
+    expect(dx).toHaveLength(11);
+    // Down to the widest row — the last full-width one, mid-crop — every row
+    // reads the widest half-width (30), so the node rows resting above it
+    // carry one dx: rows 0–4. Row 5 sits at the crop's centre, between the
+    // widest row and the one above it, so its read already mixes in the
+    // taper the smoothing folds into the widest row — not the same dx.
+    for (const d of dx.slice(0, 5)) expect(d).toBeCloseTo(dx[0], 9);
+    expect(dx[5]).not.toBeCloseTo(dx[0], 9);
+    // Below it the measured rows narrow toward the 10 px chin (a 5 px half-width): the bottom node
+    // row (on the grid's margin, reading the crop's last row) bends on a far
+    // smaller radius than the middle row and lands well away from it (2.7 px
+    // on this 60 px face).
+    expect(Math.abs(dx[10] - dx[5])).toBeGreaterThan(1);
   });
 
   it("measures the head half-width off the layers' alpha, ink included", async () => {
