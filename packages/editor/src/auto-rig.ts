@@ -979,12 +979,17 @@ export function turnSurface(spec: {
  * node of `grid` read off the `surface` at its own rest position: the turn's
  * offset is where `groupNodeLanding` lands the node on that stop's maps — the
  * family shifted by `shiftAt(deg)`, the group's own turn shift at that stop, 0
- * for a group with none — less the node's rest position, the same rule the
- * solve reads these nodes back by; the nod adds its bend at the node's rest y
- * to dy. The axes are independent (dx depends only on x and the yaw, dy only
- * on y and the pitch), the same separable convention the playground's 2D bake
+ * for a group with none, and turned about `anchor` when the group has one —
+ * less the node's rest position, the same rule the solve reads these nodes
+ * back by; the nod adds its bend at the node's rest y to dy.
+ *
+ * The turn and the nod add, the same convention the playground's 2D bake
  * ships: the row at AngleY = 0 is the turn alone and the column at AngleX = 0
- * the nod alone.
+ * the nod alone. At a turned stop a node's turn offset may depend on both of
+ * its rest coordinates — dx through the map read on the node's own row (its
+ * radius and chin swing), and an anchored group's dx and dy both through its
+ * tilt — while the nod moves a node on y alone, by an amount set by its rest
+ * y and the pitch.
  *
  * Each axis's term at its own rest stop — the landing's at AngleX 0, the
  * nod's at AngleY 0 — is written as a literal zero rather than evaluated, and
@@ -994,8 +999,9 @@ export function turnSurface(spec: {
  * ship — the hero's rest cell used to carry seven of them. That rule discards
  * `shiftAt(0)` too, so it assumes `shiftAt(0) = 0` — which every turn shift
  * satisfies by construction, being proportional to the stop's own degrees
- * (`depth · unit · deg / 30`) — and the row's chin swing with it, which rides
- * `turnSlide` and is 0 at the 0° stop the same way.
+ * (`depth · unit · deg / 30`) — the row's chin swing with it, which rides
+ * `turnSlide` and is 0 at the 0° stop the same way, and an anchored group's
+ * tilt, which is proportional to the stop too.
  *
  * The surface's `travel` belongs in the grid rather than on a headDeformer
  * translate because a rigid head translate carries the hair shell along with
@@ -1015,6 +1021,7 @@ export function bakeTurnGroupWarp2D(
   parameterY: string,
   surface: TurnSurface,
   shiftAt: (deg: number) => number,
+  anchor?: TurnAnchor,
 ): IkiGrid2DWarp {
   const STOPS = [...HEAD_TURN_STOPS];
   const pointCount = grid.points.length / 2;
@@ -1033,7 +1040,7 @@ export function bakeTurnGroupWarp2D(
           offsets.push(0, nodDy);
           continue;
         }
-        const landed = groupNodeLanding(mapAt, shift, x, y);
+        const landed = groupNodeLanding(anchor, mapAt, angleX, shift, x, y);
         const turnDy = landed.y - y;
         offsets.push(landed.x - x, angleY === 0 ? turnDy : turnDy + nodDy);
       }
@@ -1291,6 +1298,19 @@ function gridChildLandingX(
 export interface TurnCarrier {
   grid: IkiWarpGrid;
   part: RenderedPart;
+  /** The point the group's nodes turn about, when they turn as one feature
+   *  rather than each on its own column (`groupNodeLanding`). Only the mouth
+   *  family's carriers carry one. */
+  anchor?: TurnAnchor;
+}
+
+/** A turn group's anchor: its rest point `(x, y)` — the closed mouth's rest
+ *  centre, which is also the `mouth` landmark — and how far the group tilts
+ *  about it at full turn, degrees (`MOUTH_TURN_TILT_DEG`). */
+interface TurnAnchor {
+  x: number;
+  y: number;
+  tiltDeg: number;
 }
 
 /** Where a rest point of a carried part renders on x: `renderedLandingX` on
@@ -1311,21 +1331,56 @@ function carrierLandingX(
   );
 }
 
-/** Where a turn-group grid node resting at `(nodeX, nodeY)` lands at one
- *  stop, whose map for a point resting at `y` is `mapAt(y)`, its family
- *  shifted by `shift` px (negative toward the far side): the rule the bake
- *  and the carrier reads share. The bake writes it into the group's keyforms
- *  (`bakeTurnGroupWarp2D`) and the solve reads the same nodes back through
- *  it (`landmarkLandingX`, `landingOfRole`), so given the same shift the two
- *  cannot disagree; `plateLandingOn` reads the plate's nodes by the same rule
- *  at shift 0. */
+/**
+ * Where a turn-group grid node resting at `(nodeX, nodeY)` lands at the stop
+ * `deg`, whose map for a point resting at `y` is `mapAt(y)`, its family
+ * shifted by `shift` px (negative toward the far side): the rule the bake and
+ * the carrier reads share. The bake writes it into the group's keyforms
+ * (`bakeTurnGroupWarp2D`) and the solve reads the same nodes back through it
+ * (`landmarkLandingX`, `landingOfRole`), so given the same anchor, stop and
+ * shift the two cannot disagree; `plateLandingOn` reads the plate's nodes by
+ * the unanchored rule at shift 0.
+ *
+ * Without an `anchor` each node reads the map at its own shifted x. With one
+ * the group turns as one feature on the face, about the anchor `a`:
+ *   - the pivot P = M_{a.y}(a.x + shift) is where the unanchored rule puts
+ *     the anchor, so the anchor's landing — and what a family shift means —
+ *     is unchanged;
+ *   - each node takes the surface's own shape about the anchor's REST
+ *     position and slides with it as a whole,
+ *     X = M_{nodeY}(nodeX) + P − M_{a.y}(a.x), so the feature foreshortens
+ *     as the face under it does rather than as the face beside it;
+ *   - (X, nodeY) is then rotated about (P, a.y) by
+ *     φ = tiltDeg · deg / HEAD_TURN_MAX_DEG, counter-clockwise positive in
+ *     model y-up, so the near end goes down at either full turn (the +x end
+ *     at −30, the −x end at +30). This is the only reader of `deg`.
+ *
+ * A rotation is affine, so it passes unchanged through the grid's bilinear
+ * read and the mesh's barycentric read: the rendered tilt is exactly φ, and
+ * every drawing on the grid turns about the same pivot.
+ */
 function groupNodeLanding(
+  anchor: TurnAnchor | undefined,
   mapAt: (y: number) => TurnColumnMap,
+  deg: number,
   shift: number,
   nodeX: number,
   nodeY: number,
 ): { x: number; y: number } {
-  return { x: mapAt(nodeY).mapX(nodeX + shift), y: nodeY };
+  if (anchor === undefined) {
+    return { x: mapAt(nodeY).mapX(nodeX + shift), y: nodeY };
+  }
+  const anchorRow = mapAt(anchor.y);
+  const pivotX = anchorRow.mapX(anchor.x + shift);
+  const dx = mapAt(nodeY).mapX(nodeX) - anchorRow.mapX(anchor.x);
+  const dy = nodeY - anchor.y;
+  const phi = ((anchor.tiltDeg * deg) / HEAD_TURN_MAX_DEG) * (Math.PI / 180);
+  const cos = Math.cos(phi);
+  const sin = Math.sin(phi);
+  return {
+    x: pivotX + cos * dx - sin * dy,
+    y: anchor.y + sin * dx + cos * dy,
+  };
 }
 
 /** `surface.mapAt`, memoised per stop and node row: the map depends on
@@ -1807,26 +1862,29 @@ export function solveTurnDepth(
 }
 
 /**
- * Where a landmark's rest point `(px, py)` lands on x at a stop whose map for
- * a point resting at `y` is `mapAt(y)`, the family shifted by `shift` px
- * (negative toward the far side): through the landmark's carrier when it has
- * one — every node of its grid lands by `groupNodeLanding`, the rule its
- * keyforms were baked by, the shift being that grid's own keyform geometry,
- * and the point is read over the part's mesh the way the engine draws it
- * (`carrierLandingX`) — or straight off the map,
+ * Where a landmark's rest point `(px, py)` lands on x at the stop `deg`, whose
+ * map for a point resting at `y` is `mapAt(y)`, the family shifted by `shift`
+ * px (negative toward the far side): through the landmark's carrier when it
+ * has one — every node of its grid lands by `groupNodeLanding` about the
+ * carrier's anchor, the rule its keyforms were baked by, the shift being that
+ * grid's own keyform geometry, and the point is read over the part's mesh
+ * the way the engine draws it (`carrierLandingX`) — or straight off the map,
  * `mapAt(py).mapX(px + shift)`, without one.
  */
 function landmarkLandingX(
   landmark: TurnLandmark,
   mapAt: (y: number) => TurnColumnMap,
+  deg: number,
   shift: number,
   px: number,
   py: number,
 ): number {
-  if (landmark.carrier === undefined) return mapAt(py).mapX(px + shift);
+  const { carrier } = landmark;
+  if (carrier === undefined) return mapAt(py).mapX(px + shift);
   return carrierLandingX(
-    landmark.carrier,
-    (nodeX, nodeY) => groupNodeLanding(mapAt, shift, nodeX, nodeY).x,
+    carrier,
+    (nodeX, nodeY) =>
+      groupNodeLanding(carrier.anchor, mapAt, deg, shift, nodeX, nodeY).x,
     px,
     py,
   );
@@ -1837,7 +1895,9 @@ function landmarkLandingX(
  *  family that starts past the plate cannot be slid back in by a depth, and a
  *  depth away from the turn is not a depth. The depth solver's own cap, and
  *  what every group grid and the lattice are sized to before the solve
- *  (`turnSetup`), so the two cannot disagree. */
+ *  (`turnSetup`), so the two cannot disagree. For the mouth, whose nodes
+ *  turn about its anchor (`groupNodeLanding`), the cap bounds the anchor's
+ *  slide. */
 function familyReachPx(
   landmarks: readonly TurnLandmark[],
   plateEdgeX: number,
@@ -1856,16 +1916,19 @@ function familyReachPx(
  *
  * The family's grid carries the slide as keyform geometry: each node lands
  * where the map sends its rest x shifted by `depth * unit` toward the far side
- * (`bakeTurnGroupWarp2D`'s `shiftAt`), and the part binds at its rest
- * position, so what a reference measures is the grid's map OF the shifted
- * position, not the shift: `achieved(d) = mean(landing(x, −d·unit) − x)`,
- * each landmark's centre read through its own carrier and mesh
- * (`landmarkLandingX`) — the very keyforms and triangles the engine draws.
- * The map compresses the far side and stretches the near one, so the two are
- * not the same number, and the far side's compression makes `achieved` shrink
- * faster than `d` grows. It is monotone decreasing in `d` because the map is
- * monotone increasing and the two interpolations weight it non-negatively,
- * which is what makes a bisection valid.
+ * (`bakeTurnGroupWarp2D`'s `shiftAt`) — or, for the mouth family, where its
+ * anchor so shifted lands, the group turned about it (`groupNodeLanding`) —
+ * and the part binds at its rest position, so what a reference measures is
+ * the grid's map OF the shifted position, not the shift:
+ * `achieved(d) = mean(landing(x, −d·unit) − x)`, each landmark's centre read
+ * through its own carrier and mesh (`landmarkLandingX`) — the very keyforms
+ * and triangles the engine draws. The map compresses the far side and
+ * stretches the near one, so the two are not the same number, and the far
+ * side's compression makes `achieved` shrink faster than `d` grows. It is
+ * monotone decreasing in `d` because the map is monotone increasing and the
+ * two interpolations weight it non-negatively, which is what makes a
+ * bisection valid; an anchored landmark depends on `d` only through its
+ * pivot, which it rides one for one.
  *
  * The travel's upper bound is the FACE: every landmark's far edge has to stay
  * on the face plate, whose contour the turn only foreshortens. A feature past
@@ -1912,7 +1975,16 @@ function solveTurnDepthSigned(
   const achieved = (d: number) =>
     landmarks.reduce(
       (sum, l) =>
-        sum + (landmarkLandingX(l, mapAt, -d * unit, l.x, l.y ?? 0) - l.x),
+        sum +
+        (landmarkLandingX(
+          l,
+          mapAt,
+          -HEAD_TURN_MAX_DEG,
+          -d * unit,
+          l.x,
+          l.y ?? 0,
+        ) -
+          l.x),
       0,
     ) / landmarks.length;
 
@@ -2692,7 +2764,15 @@ function evaluateTurnCandidate(
         const shift = role === "face" ? 0 : -depths[turnFamily(role)] * unit;
         return carrierLandingX(
           carrier,
-          (nodeX, nodeY) => groupNodeLanding(mapAt, shift, nodeX, nodeY).x,
+          (nodeX, nodeY) =>
+            groupNodeLanding(
+              carrier.anchor,
+              mapAt,
+              -HEAD_TURN_MAX_DEG,
+              shift,
+              nodeX,
+              nodeY,
+            ).x,
           x,
           ctx.eyeRowY,
         );
@@ -3044,8 +3124,22 @@ function evaluateTurnCandidate(
     // it: its two edges on its own centre row, read as its mesh renders them.
     const eyeShiftPx = -eye.depth * unit;
     const scaleOf = (l: TurnLandmark) =>
-      (landmarkLandingX(l, mapAt, eyeShiftPx, l.x + l.w / 2, l.y ?? 0) -
-        landmarkLandingX(l, mapAt, eyeShiftPx, l.x - l.w / 2, l.y ?? 0)) /
+      (landmarkLandingX(
+        l,
+        mapAt,
+        -HEAD_TURN_MAX_DEG,
+        eyeShiftPx,
+        l.x + l.w / 2,
+        l.y ?? 0,
+      ) -
+        landmarkLandingX(
+          l,
+          mapAt,
+          -HEAD_TURN_MAX_DEG,
+          eyeShiftPx,
+          l.x - l.w / 2,
+          l.y ?? 0,
+        )) /
       l.w;
     // A −30° turn foreshortens the −x side: that eye is the far one. Dividing
     // the two rest-normalised scales IS the cue — the reference's own far/near
@@ -3583,6 +3677,13 @@ const EYE_STACK_PREFIXES = ["eye_", "iris_", "pupil_", "highlight_"] as const;
  *  but vanishes. 0.1 is settled with the lead root-pinned: the fringe tips get
  *  it, the crown gets none. */
 const HAIR_FRONT_DEPTH = 0.1;
+
+/** How far the mouth tilts at full turn, degrees, its near end down: the
+ *  mouth family's `TurnAnchor.tiltDeg`. The reference 3/4 portrait's mouth
+ *  line tilts 5.2° near end down, where the rig's, untilted, came out at
+ *  −1.1°. A style prior, not fitted: `measure_turn_reference` reads no
+ *  mouth. */
+const MOUTH_TURN_TILT_DEG = 5;
 
 /** Rigid vertical travel of the head at full nod (px at AngleY = ±30). */
 const NOD_TRAVEL = 30;
@@ -4782,10 +4883,22 @@ function turnSetup(layers: LayerInput[]): TurnSetup {
       ),
     );
   }
+  // The mouth family turns about the closed mouth's rest centre, its source
+  // placement — the one its landmark reads (`turnLandmarks`) — with or
+  // without a nose, the tilt being no slide. validateLayerInputs guarantees
+  // "mouth" is present.
+  const mouthAt = members.find((m) => m.role === "mouth")!.transform;
+  const mouthAnchor: TurnAnchor = {
+    x: mouthAt.x,
+    y: mouthAt.y,
+    tiltDeg: MOUTH_TURN_TILT_DEG,
+  };
   const carriers = new Map<string, TurnCarrier>(
     members.map((m) => [
       m.role,
-      { grid: groupGrids.get(m.group)!, part: m.part },
+      m.group === "mouthWarp"
+        ? { grid: groupGrids.get(m.group)!, part: m.part, anchor: mouthAnchor }
+        : { grid: groupGrids.get(m.group)!, part: m.part },
     ]),
   );
 
@@ -4983,6 +5096,7 @@ export function generateIkiFromLayerSet(
     plateGuardRows,
     members,
     groupGrids,
+    carriers,
     parallaxUnitY,
     hasNose,
     hasMouthOpen,
@@ -5122,12 +5236,14 @@ export function generateIkiFromLayerSet(
   // parts through), every node sampling the surface at its own rest position
   // — shifted, at each turn stop, by the family's solved depth share of the
   // parallax unit, so the depth is the grid's keyform geometry rather than a
-  // translate on the parts (see featureParallaxBindings). The plate has no
-  // depth: it IS the cylinder. Without a solve no depth is known and every
-  // group reads the surface unshifted. One 2D warp carries both the turn and
-  // the nod (a deformer holds either `warps` or `warp2d`, never both).
+  // translate on the parts (see featureParallaxBindings); the mouth's nodes
+  // turn about its carrier's anchor, the one the solve read them by. The plate
+  // has no depth: it IS the cylinder. Without a solve no depth is known and
+  // every group reads the surface unshifted. One 2D warp carries both the turn
+  // and the nod (a deformer holds either `warps` or `warp2d`, never both).
   for (const [group, grid] of groupGrids) {
-    const family = turnFamily(members.find((m) => m.group === group)!.role);
+    const { role } = members.find((m) => m.group === group)!;
+    const family = turnFamily(role);
     const depth = group === "faceWarp" ? 0 : (turn?.depths[family] ?? 0);
     deformers.push({
       kind: "warp" as const,
@@ -5140,6 +5256,7 @@ export function generateIkiFromLayerSet(
         StandardParameter.AngleY,
         surface,
         (deg) => (depth * parallaxUnit * deg) / HEAD_TURN_MAX_DEG,
+        carriers.get(role)!.anchor,
       ),
     });
   }

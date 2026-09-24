@@ -178,7 +178,7 @@ export function deformedGrid(
  * The `createPixelGridMesh` lattice a part's rest mesh is — cols × rows cells
  * over w × h in part-local units, row 0 at the top — read back off its
  * vertices; the implicit quad is a 1 × 1 lattice over the unit square. Anything
- * else throws: the triangle split `landedXAt` interpolates over is only known
+ * else throws: the triangle split `landedAt` interpolates over is only known
  * for this one mesh family.
  */
 function latticeOf(part: IkiPart) {
@@ -227,21 +227,22 @@ function latticeOf(part: IkiPart) {
 }
 
 /**
- * The rendered x of the point that sits at model-space `(restX, restY)` on the
- * part's REST geometry: barycentric over the landed vertices of the mesh
- * triangle containing it (`createPixelGridMesh`'s TL→BR split — the GPU is
- * linear over a triangle, never bilinear over a cell). A point outside the mesh
- * reads the end row / column with its fraction clamped, i.e. the landing of
- * the nearest boundary point, the same answer the solver gives a silhouette
- * point past the bangs' own crop.
+ * Where the point that sits at model-space `(restX, restY)` on the part's REST
+ * geometry renders: barycentric over the landed vertices of the mesh triangle
+ * containing it (`createPixelGridMesh`'s TL→BR split — the GPU is linear over
+ * a triangle, never bilinear over a cell). A point outside the mesh reads the
+ * end row / column with its fraction clamped, i.e. the landing of the nearest
+ * boundary point, the same answer the solver gives a silhouette point past
+ * the bangs' own crop. The one triangle read `landedXAt` and `landedYAt`
+ * share.
  */
-export function landedXAt(
+function landedAt(
   model: IkiModel,
   partId: string,
   restX: number,
   restY: number,
-  params: ParamValues = {},
-): number {
+  params: ParamValues,
+): { x: number; y: number } {
   const part = partOf(model, partId);
   const t = part.transform;
   // The rest point is taken back into the mesh's local frame through the
@@ -252,7 +253,7 @@ export function landedXAt(
     (t.scaleY ?? 1) !== 1
   ) {
     throw new Error(
-      `render-oracle: landedXAt reads a part placed by translate alone; "${partId}" rests rotated or scaled`,
+      `render-oracle: landedXAt / landedYAt read a part placed by translate alone; "${partId}" rests rotated or scaled`,
     );
   }
   const g = latticeOf(part);
@@ -265,17 +266,43 @@ export function landedXAt(
   const fx = Math.max(0, Math.min(1, u - col));
   const fy = Math.max(0, Math.min(1, v - row));
   const landed = landVertices(model, partId, params);
-  const at = (r: number, c: number) => landed[(r * g.stride + c) * 2];
-  const tl = at(row, col);
-  const br = at(row + 1, col + 1);
-  // The cell's diagonal runs TL→BR, so the lower-left triangle [BL, BR, TL]
-  // is the one with fx <= fy.
-  if (fx <= fy) {
-    const bl = at(row + 1, col);
-    return tl + fy * (bl - tl) + fx * (br - bl);
-  }
-  const tr = at(row, col + 1);
-  return tl + fx * (tr - tl) + fy * (br - tr);
+  // One coordinate (0 = x, 1 = y) of the triangle's barycentric read.
+  const read = (axis: 0 | 1): number => {
+    const at = (r: number, c: number) => landed[(r * g.stride + c) * 2 + axis];
+    const tl = at(row, col);
+    const br = at(row + 1, col + 1);
+    // The cell's diagonal runs TL→BR, so the lower-left triangle [BL, BR, TL]
+    // is the one with fx <= fy.
+    if (fx <= fy) {
+      const bl = at(row + 1, col);
+      return tl + fy * (bl - tl) + fx * (br - bl);
+    }
+    const tr = at(row, col + 1);
+    return tl + fx * (tr - tl) + fy * (br - tr);
+  };
+  return { x: read(0), y: read(1) };
+}
+
+/** The rendered x of a part's rest point `(restX, restY)` — see `landedAt`. */
+export function landedXAt(
+  model: IkiModel,
+  partId: string,
+  restX: number,
+  restY: number,
+  params: ParamValues = {},
+): number {
+  return landedAt(model, partId, restX, restY, params).x;
+}
+
+/** The rendered y of a part's rest point `(restX, restY)` — see `landedAt`. */
+export function landedYAt(
+  model: IkiModel,
+  partId: string,
+  restX: number,
+  restY: number,
+  params: ParamValues = {},
+): number {
+  return landedAt(model, partId, restX, restY, params).y;
 }
 
 /** Mean rendered x of a part's vertices. */

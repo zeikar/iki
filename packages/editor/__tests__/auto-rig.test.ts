@@ -45,6 +45,7 @@ import {
   landedCentroidX,
   landedCentroidY,
   landedXAt,
+  landedYAt,
   preBindVertices,
 } from "./helpers/render-oracle";
 
@@ -74,6 +75,10 @@ const HAIR_SWAY_CURL = 1.5;
  *  imported — it isn't exported — so the lead's exact value can be checked
  *  against the unit recovered from the rig's own turn radius. */
 const HAIR_FRONT_DEPTH = 0.1;
+
+/** Mirror of auto-rig's private MOUTH_TURN_TILT_DEG: how far the mouth family
+ *  tilts about its anchor at full turn, degrees, its near end down. */
+const MOUTH_TURN_TILT_DEG = 5;
 
 /** The 1000×1000 canvas every layer fixture in this file is painted on. */
 const canvas1000 = { width: 1000, height: 1000 };
@@ -284,6 +289,35 @@ const gridBilinearX = (
   const top = at(col, row) + (at(col + 1, row) - at(col, row)) * s;
   const bot = at(col, row + 1) + (at(col + 1, row + 1) - at(col, row + 1)) * s;
   return top + (bot - top) * t;
+};
+
+/**
+ * Where the mouth family's anchored rule lands a `mouthWarp` node resting at
+ * `(x, y)` at the stop `deg`, rebuilt off the surface's maps (`mapAt(row)`)
+ * rather than read off the rig: the pivot P is where the family's shifted
+ * map puts the anchor, the node takes the map's own shape about the anchor's
+ * REST position and slides with it, X = M_y(x) + P − M_{a.y}(a.x), and
+ * (X, y) is rotated about (P, a.y) by MOUTH_TURN_TILT_DEG · deg / 30,
+ * counter-clockwise positive in model y-up.
+ */
+const anchoredLanding = (
+  mapAt: (row: number) => { mapX(x: number): number },
+  anchor: { x: number; y: number },
+  deg: number,
+  shift: number,
+  x: number,
+  y: number,
+) => {
+  const pivot = mapAt(anchor.y).mapX(anchor.x + shift);
+  const slid = mapAt(y).mapX(x) + pivot - mapAt(anchor.y).mapX(anchor.x);
+  const phi = ((MOUTH_TURN_TILT_DEG * deg) / 30) * (Math.PI / 180);
+  return {
+    x: pivot + Math.cos(phi) * (slid - pivot) - Math.sin(phi) * (y - anchor.y),
+    y:
+      anchor.y +
+      Math.sin(phi) * (slid - pivot) +
+      Math.cos(phi) * (y - anchor.y),
+  };
 };
 
 /** hair_front's own rest geometry — transform x/y and crop size, the shape
@@ -4635,7 +4669,8 @@ describe("feature depth parallax", () => {
     // A rig with no nose solves no depth, so nothing on the face has a slide
     // of its own: every group's −30° keyform is the surface's own map at its
     // nodes, UNSHIFTED — on the virtual lattice, at the generator's fallback
-    // radius and the slide the plate carries — and every vertex of every part
+    // radius and the slide the plate carries; the mouth family's turned about
+    // its anchor, the tilt being no slide — and every vertex of every part
     // on the face lands where its group grid's bilinear read of those nodes
     // puts its PRE-BIND position. That position, not the rest x: the mouth
     // family binds at scaleX 1.1 (the MouthForm range −0.2 … 0.4 is not
@@ -4651,17 +4686,34 @@ describe("feature depth parallax", () => {
       -30,
       travelOf(model),
     );
+    // The mouth family's anchor: the closed mouth's rest centre.
+    const anchor = model.parts.find((p) => p.id === "mouth")!.transform;
     // The hair is not a feature: the bangs carry warps of their own and the
     // back hair rides the head.
     for (const part of model.parts.filter((p) => !p.id.startsWith("hair_"))) {
       const group = groupWarpOf(model, part.deformer!);
       const keyform = cell(group.warp2d, -30, 0);
+      const nodeLanding = (nx: number, ny: number) =>
+        part.deformer === "mouthWarp"
+          ? anchoredLanding(() => map, anchor, -30, 0, nx, ny).x
+          : map.mapX(nx);
       for (let n = 0; n < group.grid.points.length / 2; n++) {
         const nx = group.grid.points[n * 2];
+        const ny = group.grid.points[n * 2 + 1];
         expect(
           keyform.offsets[n * 2],
           `${part.deformer} node ${n}`,
-        ).toBeCloseTo(map.mapX(nx) - nx, 9);
+        ).toBeCloseTo(nodeLanding(nx, ny) - nx, 9);
+        if (part.deformer === "mouthWarp") {
+          // The tilt turns the mouth's nodes on y too, nose or none.
+          expect(
+            keyform.offsets[n * 2 + 1],
+            `${part.deformer} node ${n}`,
+          ).toBeCloseTo(
+            anchoredLanding(() => map, anchor, -30, 0, nx, ny).y - ny,
+            9,
+          );
+        }
       }
       const preBind = preBindVertices(model, part.id);
       const landed = landVertices(model, part.id, turned);
@@ -4670,12 +4722,7 @@ describe("feature depth parallax", () => {
         // |x| < 512: the two agree to that rounding (under two ulps, a
         // deterministic margin), not to 1e-6.
         expect(landed[i], part.id).toBeCloseTo(
-          gridBilinearX(
-            group.grid,
-            (nx) => map.mapX(nx),
-            preBind[i],
-            preBind[i + 1],
-          ),
+          gridBilinearX(group.grid, nodeLanding, preBind[i], preBind[i + 1]),
           4,
         );
       }
@@ -6601,9 +6648,11 @@ describe("hero golden cues", () => {
     local -
     radius * Math.sin(theta);
 
-  it("every group's −30 keyform is one surface: the lattice map of each node's rest x plus its family's solved shift", () => {
+  it("every group's −30 keyform is one surface: the lattice map of each node's rest x plus its family's solved shift, the mouth's turned about its anchor", () => {
     const { model, report } = heroRig();
     const faceCenterX = model.parts.find((p) => p.id === "face")!.transform.x;
+    // The mouth family's anchor: the closed mouth's rest centre.
+    const anchor = model.parts.find((p) => p.id === "mouth")!.transform;
     const travel = travelOf(model);
     const unit = headTurnParallaxUnit(report.radius);
     // A dense lattice of the test's own: 16 px columns anchored on the face
@@ -6638,6 +6687,21 @@ describe("hero golden cues", () => {
       const k = cell(d.warp2d!, -30, 0);
       for (let n = 0; n < d.grid.points.length / 2; n++) {
         const x = d.grid.points[n * 2];
+        const y = d.grid.points[n * 2 + 1];
+        if (d.id === "mouthWarp") {
+          // The mouth turns as one feature about its anchor, tilted: its dy
+          // on this row is the turn's own.
+          const landed = anchoredLanding(() => map, anchor, -30, shift, x, y);
+          expect(
+            Math.abs(k.offsets[n * 2] - (landed.x - x)),
+            `${d.id} node ${n}`,
+          ).toBeLessThan(0.1);
+          expect(
+            Math.abs(k.offsets[n * 2 + 1] - (landed.y - y)),
+            `${d.id} node ${n}`,
+          ).toBeLessThan(0.1);
+          continue;
+        }
         expect(
           Math.abs(k.offsets[n * 2] - (map.mapX(x + shift) - x)),
           `${d.id} node ${n}`,
@@ -6714,6 +6778,123 @@ describe("hero golden cues", () => {
     const innerHalf = at(x + w / 2) - at(x);
     expect(outerHalf).toBeGreaterThan(0);
     expect(outerHalf).toBeLessThan(innerHalf);
+  });
+});
+
+// ── Mouth turn ───────────────────────────────────────────────────────────────
+
+describe("mouth turn", () => {
+  const layers = heroLikeLayers();
+  /** The hero-like rig, solved once on first use — from inside an `it`, as
+   *  "hero golden cues" does, so a solve that throws fails these tests rather
+   *  than the file's collection. */
+  let solved: ReturnType<typeof generateIkiFromLayerSet> | undefined;
+  const heroRig = () => {
+    solved ??= generateIkiFromLayerSet(layers, canvas1100, {
+      turnTargets: { headHalfWidth: HERO_HEAD.headHalfWidth },
+      headEdges: HERO_HEAD.headEdges,
+    });
+    return solved;
+  };
+  const drawings = ["mouth", "mouth_open"] as const;
+  /** Both drawings rest at MouthForm's default, scaleX 1.1 about their own
+   *  centre. */
+  const REST_SCALE_X = 1.1;
+
+  /** Where a drawing's two rest ends `(x ∓ w/2, y)` on its own centre row
+   *  land at AngleX `deg` and AngleY `nod`, as vectors from the first to the
+   *  second. */
+  const chordOf = (id: (typeof drawings)[number], deg: number, nod = 0) => {
+    const model = heroRig();
+    const { x, y } = model.parts.find((p) => p.id === id)!.transform;
+    const w = layers.find((l) => l.role === id)!.cropW;
+    const params = {
+      [StandardParameter.AngleX]: deg,
+      [StandardParameter.AngleY]: nod,
+    };
+    const end = (px: number) => ({
+      x: landedXAt(model, id, px, y, params),
+      y: landedYAt(model, id, px, y, params),
+    });
+    const a = end(x - w / 2);
+    const b = end(x + w / 2);
+    return { dx: b.x - a.x, dy: b.y - a.y, w };
+  };
+
+  it("tilts each drawing's centre-row chord by the tilt at full turn, near end down: −5° at −30, +5° at +30", () => {
+    for (const id of drawings) {
+      for (const deg of [-30, 30]) {
+        const { dx, dy } = chordOf(id, deg);
+        const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+        expect(
+          Math.abs(angle - (MOUTH_TURN_TILT_DEG * deg) / 30),
+          `${id} ${deg}°`,
+        ).toBeLessThan(1e-4);
+      }
+    }
+  });
+
+  it("keeps that tilt under a full nod: the cells that turn and nod at once carry the turn's dy as well as the nod's", () => {
+    // The nod moves every node on y by an amount set by its rest y alone, so
+    // it lands both ends of a horizontal rest chord by the same dy and leaves
+    // the chord's angle to the turn's own tilt.
+    for (const id of drawings) {
+      for (const deg of [-30, 30]) {
+        for (const nod of [-30, 30]) {
+          const { dx, dy } = chordOf(id, deg, nod);
+          const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+          expect(
+            Math.abs(angle - (MOUTH_TURN_TILT_DEG * deg) / 30),
+            `${id} (${deg}°, ${nod}°)`,
+          ).toBeLessThan(1e-4);
+        }
+      }
+    }
+  });
+
+  it("foreshortens that chord as the face under it: its length over its pre-bind length is cos 30° at either full turn", () => {
+    // The mouth is centred on the face axis, where the surface's own slope at
+    // a full turn is cos 30°; the tilt is a rotation and keeps the length.
+    const faceCenterX = heroRig().parts.find((p) => p.id === "face")!.transform
+      .x;
+    for (const id of drawings) {
+      expect(heroRig().parts.find((p) => p.id === id)!.transform.x).toBe(
+        faceCenterX,
+      );
+      for (const deg of [-30, 30]) {
+        const { dx, dy, w } = chordOf(id, deg);
+        expect(
+          Math.abs(
+            Math.hypot(dx, dy) / (REST_SCALE_X * w) - Math.cos(Math.PI / 6),
+          ),
+          `${id} ${deg}°`,
+        ).toBeLessThan(0.01);
+      }
+    }
+  });
+
+  it("lands the closed and the open mouth as one: a rest point inside both meshes lands at the same (x, y) at every turn stop", () => {
+    const model = heroRig();
+    const [closed, open] = drawings.map(
+      (id) => model.parts.find((p) => p.id === id)!.transform,
+    );
+    // Both rest about one centre x at the same scale, so one rest point is
+    // one pre-bind point on the grid they share.
+    expect(open.x).toBe(closed.x);
+    // Inside both crops (70 × 21 about the closed mouth's centre, 70 × 29
+    // about the open one's, 2 px lower) and off every vertex of either mesh,
+    // so each drawing reads it inside a triangle of its own.
+    const px = closed.x + 13;
+    const py = closed.y + 4;
+    for (const deg of [-30, -15, 15, 30]) {
+      const params = { [StandardParameter.AngleX]: deg };
+      const [a, b] = drawings.map((id) => ({
+        x: landedXAt(model, id, px, py, params),
+        y: landedYAt(model, id, px, py, params),
+      }));
+      expect(Math.abs(a.x - b.x), `${deg}° x`).toBeLessThan(1e-4);
+      expect(Math.abs(a.y - b.y), `${deg}° y`).toBeLessThan(1e-4);
+    }
   });
 });
 
@@ -7299,7 +7480,7 @@ describe("face row profile", () => {
       }
     });
 
-    it("the mouth's grid reads the same surface as the plate: each node the map at its own row, swing and radius included", () => {
+    it("the mouth's grid reads the same surface as the plate: each node the map at its own row, swing and radius included, turned about its anchor", () => {
       const r = rig();
       const unit = headTurnParallaxUnit(r.report.radius);
       const surface = turnSurface({
@@ -7313,6 +7494,8 @@ describe("face row profile", () => {
         eyeRowY: r.eyeRowY,
       });
       const mouth = groupWarpOf(r.model, "mouthWarp");
+      // The mouth family's anchor: the closed mouth's rest centre.
+      const anchor = r.model.parts.find((p) => p.id === "mouth")!.transform;
       const shift = -r.report.depths.mouth * unit;
       const k = cell(mouth.warp2d, -30, 0);
       let nodes = 0;
@@ -7324,10 +7507,16 @@ describe("face row profile", () => {
           -CHIN_SWING * faceHalfWidth * 0.5,
           9,
         );
-        expect(k.offsets[n * 2], `node ${n}`).toBeCloseTo(
-          surface.mapAt(-30, y).mapX(x + shift) - x,
-          6,
+        const landed = anchoredLanding(
+          (row) => surface.mapAt(-30, row),
+          anchor,
+          -30,
+          shift,
+          x,
+          y,
         );
+        expect(k.offsets[n * 2], `node ${n}`).toBeCloseTo(landed.x - x, 6);
+        expect(k.offsets[n * 2 + 1], `node ${n}`).toBeCloseTo(landed.y - y, 6);
         nodes++;
       }
       expect(nodes).toBe(25);
