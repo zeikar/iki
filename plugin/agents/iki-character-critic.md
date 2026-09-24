@@ -162,18 +162,19 @@ The visual questions above stay their own findings, judged against
 both: a rig can pass all three numbers and still score low on what they
 cannot see.
 
-A `strandOverlap` side in `turn-clamped` is an art finding, not an `escalate`
-on `auto-rig.ts`, and its `px` is quoted in MEASUREMENTS. A thin wisp crossing
-the far iris on the turn is intended — the rig's strand measurement skips a `hair_front` run under
-half the iris's painted width as hair detail rather than the strand meant to
-hold the eye clear — and is not itself a finding; only a `strandOverlap` entry
-counts as coverage.
+A `strandOverlap` side in `turn-clamped` is evidence to classify, not by
+itself an `escalate` on `auto-rig.ts`, and its `px` is quoted in MEASUREMENTS.
+A thin wisp crossing the far iris on the turn is intended — the rig's strand
+measurement skips a `hair_front` run under half the iris's painted width as
+hair detail rather than the strand meant to hold the eye clear — and is not
+itself a finding; only a `strandOverlap` entry counts as coverage.
 
-- `held: false`: `retune` the eye or bangs placement in `layout.json`, or
-  `regenerate` `hair_front` with the side strands clear of the irises.
-- `held: true` with `restPx` > 0: the bangs are painted over the iris. Raise
-  that only when the reference shows that eye, as a `regenerate` of
-  `hair_front`.
+- `held: false` is a finding: `retune` the eye or bangs placement in
+  `layout.json`, or `regenerate` `hair_front` with the side strands clear of
+  the irises.
+- `held: true` is a finding only where the reference shows that eye clear —
+  i.e. it disagrees with the reference — as a `regenerate` of `hair_front`;
+  painted coverage that matches the reference (`restPx` > 0) is not.
 
 ## Step 3 — emit typed findings
 

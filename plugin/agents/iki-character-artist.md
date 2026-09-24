@@ -119,12 +119,12 @@ the prompt patterns and the hard-won pitfalls. Then:
    report. A clamp is not a refusal — the rig still built, so keep it.
 
    A rig refused as `INVALID: … turnTargets.<field> … unreachable …` (the reply
-   carries the range that field could have had) means the reference asks for
-   more turn than this art can give — a `farEyeRatio` or `silhouetteRatio` no
-   radius renders, a `noseShift` / `mouthShift` past its room, or an `eyeShift`
-   smaller than the slide the face's own turn already gives the eyes. Re-rig
-   ONCE without `turnTargets` — same layers, same output path — and record the
-   refusal verbatim as an `escalate`:
+   carries the range that field could have had) means the reference asks for a
+   target outside this layer set's attainable range — a `farEyeRatio` or
+   `silhouetteRatio` no radius renders, a `noseShift` / `mouthShift` past its
+   room, or an `eyeShift` smaller than the slide the face's own turn already
+   gives the eyes. Re-rig ONCE without `turnTargets` — same layers, same
+   output path — and record the refusal verbatim as an `escalate`:
    it is a fitting limit for the orchestrator to arbitrate, not something to
    tune around. Never edit `turn-targets.json`, and never soften a target to
    make it fit. If the default rig is refused too, record both errors, state
