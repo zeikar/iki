@@ -411,7 +411,10 @@ export function validateLayerInputs(
  * `bboxToTransform`'s crop edges, and `y` is that row's centre. Every x is the
  * painted edge facing its clear neighbour, read under one opacity rule, so the
  * gap between an iris edge and a run edge is a real distance with no margin to
- * add. "Outer" is toward the head's edge on that side.
+ * add. "Outer" is toward the head's edge on that side. The run is the one a
+ * producer judges a strand: it may skip runs it judges hair detail
+ * (`@ikijs/mcp` treats those narrower than half the iris's painted width on
+ * the row as clear), so an iris under only such a wisp counts as clear.
  *
  * One shape covers three cases:
  *   - an ordinary side strand outward of a clear iris (`runFace` outward of

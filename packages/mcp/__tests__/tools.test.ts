@@ -1321,6 +1321,169 @@ describe("autoRigFromLayers", () => {
     expect(mirror.turn).toBeDefined();
   });
 
+  // The irises paint 6 px on their centre row (columns 33..38, 61..66), so a
+  // run under 3 px there is hair detail, not a strand.
+
+  it("skips a wisp narrower than half the iris between the iris and its strand", async () => {
+    const dir = tmpDir();
+    // 2 px wisps at 29..30 and 69..70, each between its iris and the 18 px
+    // strand further out.
+    const paths = await writeStrandLayers(dir, [
+      [10, 27],
+      [29, 30],
+      [69, 70],
+      [72, 89],
+    ]);
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The strands' own edges, as with no wisp at all: 10..27 is −40…−22.
+    expect(result.strandEdges).toEqual({
+      left: {
+        y: 10.5,
+        irisOuter: -17,
+        irisInner: -11,
+        runOuter: -40,
+        runFace: -22,
+      },
+      right: {
+        y: 10.5,
+        irisOuter: 17,
+        irisInner: 11,
+        runOuter: 40,
+        runFace: 22,
+      },
+    });
+    expect(result.turn).toBeDefined();
+  });
+
+  // The −x side's centre pixel (column 35) is under a 2 px wisp at 34..35,
+  // with an 18 px strand at 10..27 further out; the +x side's centre (64) is
+  // under a 28 px strand at 62..89 that clears on the face side.
+  const wispOnCentreStrands: [number, number][] = [
+    [10, 27],
+    [34, 35],
+    [62, 89],
+  ];
+
+  it("counts an iris centre under a thin wisp as clear and takes the strand further out, and its exact mirror alike", async () => {
+    const dir = tmpDir();
+    const onWisp = await autoRigFromLayers({
+      layers: (await writeStrandLayers(dir, wispOnCentreStrands)).map((p) => ({
+        path: p,
+      })),
+      outputPath: path.join(dir, "on-wisp.iki"),
+    });
+    expect(onWisp.ok).toBe(true);
+    if (!onWisp.ok) return;
+    // −x: the strand at 10..27 is −40…−22. +x: the covering strand clears at
+    // column 61, so its face-side end is 62 − 50 = 12.
+    expect(onWisp.strandEdges).toEqual({
+      left: {
+        y: 10.5,
+        irisOuter: -17,
+        irisInner: -11,
+        runOuter: -40,
+        runFace: -22,
+      },
+      right: {
+        y: 10.5,
+        irisOuter: 17,
+        irisInner: 11,
+        runOuter: 40,
+        runFace: 12,
+      },
+    });
+    expect(onWisp.turn).toBeDefined();
+
+    const mirrorDir = tmpDir();
+    const mirror = await autoRigFromLayers({
+      layers: (
+        await writeStrandLayers(
+          mirrorDir,
+          wispOnCentreStrands.map(
+            ([from, to]) =>
+              [CANVAS - 1 - to, CANVAS - 1 - from] as [number, number],
+          ),
+        )
+      ).map((p) => ({ path: p })),
+      outputPath: path.join(mirrorDir, "mirror.iki"),
+    });
+    expect(mirror.ok).toBe(true);
+    if (!mirror.ok) return;
+    expect(mirror.strandEdges).toEqual({
+      left: mirrored(onWisp.strandEdges!.right!),
+      right: mirrored(onWisp.strandEdges!.left!),
+    });
+    expect(mirror.turn).toBeDefined();
+  });
+
+  it("keeps a run exactly half the iris wide as a strand, and skips one a pixel narrower", async () => {
+    const dir = tmpDir();
+    // −x: a 3 px run at 24..26 inward of an 11 px strand at 10..20. +x: a 2 px
+    // run at 73..74 inward of an 11 px strand at 79..89.
+    const paths = await writeStrandLayers(dir, [
+      [10, 20],
+      [24, 26],
+      [73, 74],
+      [79, 89],
+    ]);
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.strandEdges).toEqual({
+      // The 3 px run itself: 24..26 is −26…−23.
+      left: {
+        y: 10.5,
+        irisOuter: -17,
+        irisInner: -11,
+        runOuter: -26,
+        runFace: -23,
+      },
+      // Past the 2 px run, to the strand at 79..89: 29…40.
+      right: {
+        y: 10.5,
+        irisOuter: 17,
+        irisInner: 11,
+        runOuter: 40,
+        runFace: 29,
+      },
+    });
+  });
+
+  it("measures no side whose row holds only runs narrower than half the iris", async () => {
+    const dir = tmpDir();
+    // −x: 2 px runs at 20..21 and 28..29, nothing wider. +x: the 18 px
+    // strand at 72..89.
+    const paths = await writeStrandLayers(dir, [
+      [20, 21],
+      [28, 29],
+      [72, 89],
+    ]);
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.strandEdges).toEqual({
+      right: {
+        y: 10.5,
+        irisOuter: 17,
+        irisInner: 11,
+        runOuter: 40,
+        runFace: 22,
+      },
+    });
+    expect(result.turn).toBeDefined();
+  });
+
   it("a layer set with no nose still rigs with that strand: its edges are validated, and no turn reads them", async () => {
     const dir = tmpDir();
     const result = await autoRigFromLayers({

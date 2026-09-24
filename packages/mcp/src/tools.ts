@@ -297,8 +297,10 @@ export type AutoRigResult =
        *  model coordinates (`IrisStrand`: canvas x minus half the canvas
        *  width) — measured whenever the layer set has `hair_front`, `iris_L`
        *  and `iris_R`, and passed to the generator as `options.strandEdges`.
-       *  A side is absent only when its iris has no opaque pixel on that row,
-       *  or when no run covers the pixel on that side of the iris's centre or
+       *  A run narrower than half that iris's painted width on the row is
+       *  hair detail, not a strand, and is skipped as if clear. A side is
+       *  absent only when its iris has no opaque pixel on that row, or when no
+       *  run it keeps covers the pixel on that side of the iris's centre or
        *  lies outward of it; the whole field only when neither side has one. */
       strandEdges?: { left?: IrisStrand; right?: IrisStrand };
       /** What the turn solve settled on — the cues the rig reaches, the
@@ -390,6 +392,17 @@ function facePlateHalfOf(layers: LayerInput[]): number {
 }
 
 /**
+ * The narrowest `hair_front` run, as a fraction of an iris's painted width on
+ * its centre row, that the strand scan takes as a strand. A run narrower than
+ * this (strictly `<`; one exactly this wide is a strand) is hair detail and
+ * counts as clear: the far iris may cross it on the turn, as intended. The
+ * hero's row shows why: 5 px inside its 67 px side strand lies an 8 px wisp
+ * the iris is painted 2 px under, and bounding the iris against that wisp cut
+ * the −30 eye shift from ≈ 0.18 to 0.14.
+ */
+const STRAND_MIN_RUN_FRACTION = 0.5;
+
+/**
  * Decode role-named PNG file paths, auto-rig a model from them, atlas + embed
  * the textures (Node sharp), validate, and write the renderable `.iki` to disk.
  * Returns the output path + summary stats (the multi-MB model is never inlined).
@@ -402,7 +415,8 @@ function facePlateHalfOf(layers: LayerInput[]): number {
  * would only hand it bytes it discards. Each iris's opaque span and the bangs'
  * run it would slide under are measured on the iris's own centre row too
  * (`strandEdges`), so the turn keeps the far iris from sliding under the bangs
- * any further than it is painted.
+ * any further than it is painted; a run narrower than half the iris there is
+ * hair detail the iris may cross, and is skipped.
  *
  * Re-host of examples/editor/src/store.ts `importLayerSet` with the three DOM
  * pixel functions swapped for the sharp-backed ./node-images helpers; the pure
@@ -642,7 +656,8 @@ export async function autoRigFromLayers(
 
     // Each iris against the bangs' run it would slide under on the turn, on
     // ONE row — the one holding the iris's centre — under ONE rule (alpha >=
-    // ALPHA_OPAQUE). The iris's alpha-bbox (alpha >= 8, grown by a pixel) only
+    // ALPHA_OPAQUE), a bangs run narrower than STRAND_MIN_RUN_FRACTION of that
+    // iris's row width counting as clear. The iris's alpha-bbox (alpha >= 8, grown by a pixel) only
     // gives that row and where to start scanning, never an edge: every number
     // is the pixel boundary facing the neighbouring clear pixel, less half the
     // canvas, so each is the painted edge the way bboxToTransform's crop edges
@@ -678,16 +693,34 @@ export async function autoRigFromLayers(
         const span = rowSpansByRole.find((s) => s.role === iris.role)!;
         // An iris with no opaque pixel on its own centre row has no edge.
         if (span.rowRight[r] < span.rowLeft[r]) return undefined;
-        const opaqueAt = (x: number) =>
-          x >= 0 && x < canvasW && mask[r * canvasW + x] === 1;
+        // The row's strand pixels: hair_front's opaque runs on it, less every
+        // run narrower than STRAND_MIN_RUN_FRACTION of this iris's painted
+        // width there, which the whole scan below reads as clear. Runs are
+        // judged whole, so the result is the same from either side.
+        const minRun =
+          STRAND_MIN_RUN_FRACTION * (span.rowRight[r] + 1 - span.rowLeft[r]);
+        const strand = new Uint8Array(canvasW);
+        for (let a = 0; a < canvasW; ) {
+          if (mask[r * canvasW + a] !== 1) {
+            a++;
+            continue;
+          }
+          let b = a;
+          while (b < canvasW && mask[r * canvasW + b] === 1) b++;
+          if (b - a >= minRun) strand.fill(1, a, b);
+          a = b;
+        }
+        const strandAt = (x: number) =>
+          x >= 0 && x < canvasW && strand[x] === 1;
         // The boundary between pixel x and its neighbour one step outward.
         const outerBoundary = (x: number) => (side < 0 ? x : x + 1) - half;
         let x = c;
         let runFace: number | null;
-        if (!opaqueAt(c)) {
-          // A clear centre: the first opaque pixel outward starts the run,
-          // and its face-side boundary is runFace.
-          while (x >= 0 && x < canvasW && !opaqueAt(x)) x += side;
+        if (!strandAt(c)) {
+          // A clear centre (or one under a thin run only): the first strand
+          // pixel outward starts the run, and its face-side boundary is
+          // runFace.
+          while (x >= 0 && x < canvasW && !strandAt(x)) x += side;
           if (x < 0 || x >= canvasW) return undefined; // no run outward
           runFace = outerBoundary(x - side);
         } else {
@@ -696,13 +729,13 @@ export async function autoRigFromLayers(
           // iris's centre. A run still opaque there is a fringe spanning the
           // face, which has no face-side end on this side.
           let f = c - side;
-          while (opaqueAt(f)) f -= side;
+          while (strandAt(f)) f -= side;
           const face = outerBoundary(f);
           runFace = side * (face - otherX) > 0 ? face : null;
         }
         // Outward to the run's outer end: its last opaque pixel's boundary
         // with the first clear one after it, or with the crop's edge.
-        while (opaqueAt(x)) x += side;
+        while (strandAt(x)) x += side;
         return {
           y: canvasH / 2 - (r + 0.5),
           irisOuter: (side < 0 ? span.rowLeft[r] : span.rowRight[r] + 1) - half,
