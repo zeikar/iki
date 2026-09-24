@@ -939,7 +939,7 @@ describe("validate", () => {
 
   it("strandEdges: a runOuter inward of its runFace throws naming the side and the field", () => {
     expect(rigWithLeft({ runOuter: -150 })).toThrow(
-      /strandEdges\.left\.runOuter \(-150\) must lie strictly outward of strandEdges\.left\.runFace \(-160\)/,
+      /strandEdges\.left\.runOuter \(-150\) must lie strictly outward of strandEdges\.left\.runFace \(-159\)/,
     );
   });
 
@@ -7148,26 +7148,28 @@ describe("mouth turn", () => {
 
 // ── Iris strand bound ────────────────────────────────────────────────────────
 
-/** Each far iris against the bangs' side strand it slides under, as the
- *  shipped hero's strand diagnosis (iki-char/diag5/strand.mjs) found them,
- *  placed on heroLikeLayers(): the iris's opaque span on its centre row
- *  (image row 475, model y 74.5) and the run outward of it, whose face-side
- *  edge sits 12 px outside the iris's outer edge at rest. A stand-in until
- *  the hero's own measured `strandEdges` replace it. */
+/** Each far iris against the bangs' side strand it slides under, placed on
+ *  heroLikeLayers(): the hero's own `strandEdges` as `auto_rig_from_layers`
+ *  measures them on iki-char/layers-nose (the slice ⑤ hero candidate's
+ *  report, iki-char/rewrite/slice5-report.json). Each is the iris's opaque
+ *  span on its centre row (image row 475, model y 74.5) and the strand
+ *  outward of it, the 8–9 px wisps inside each strand skipped as hair detail:
+ *  its face-side edge sits 11 px outside the −x iris and 22 px outside the
+ *  +x one at rest. */
 const HERO_STRAND: { left: IrisStrand; right: IrisStrand } = {
   left: {
     y: 74.5,
     irisOuter: -148,
     irisInner: -76,
-    runOuter: -200,
-    runFace: -160,
+    runOuter: -226,
+    runFace: -159,
   },
   right: {
     y: 74.5,
     irisOuter: 148,
     irisInner: 76,
-    runOuter: 200,
-    runFace: 160,
+    runOuter: 232,
+    runFace: 170,
   },
 };
 
@@ -7381,6 +7383,17 @@ describe("iris strand bound", () => {
     expectEntryIsRender(model, strandEdges.left, -1, entry);
   });
 
+  it("pinned to the hero's measured strand: the bound clamps the eye shift and leaves no strand overlap", () => {
+    const { report } = boundedRig();
+    // This fixture's own clamped shift. The real hero, rigged from its own
+    // layers against the same edges, reaches 0.1803
+    // (iki-char/rewrite/slice5-report.json); the layer sets differ, so the
+    // two are not expected to agree.
+    expect(report.achieved.eyeShift).toBeCloseTo(0.1834, 3);
+    expect(report.clamped).toEqual(["eyeShift"]);
+    expect(report.strandOverlap).toBeUndefined();
+  });
+
   it("the bound costs the eye shift, not the far/near ratio or the silhouette, and the report is still the render", () => {
     const { model, report } = boundedRig();
     expect(report.clamped).toEqual(["eyeShift"]);
@@ -7426,7 +7439,7 @@ describe("iris strand bound", () => {
 
   // ── A narrowed profile ────────────────────────────────────────────────────
   // Every face row painted at half-width 100 under a measured head of 262
-  // asked to narrow to 0.7: the −x run at −200…F sits in the hold's ramp,
+  // asked to narrow to 0.7: the −x run at −226…F sits in the hold's ramp,
   // which the narrowing pulls inward while the face's own slide carries the
   // iris outward, so whether any eye depth keeps the iris clear depends on
   // the radius. Only the −x side is given.
