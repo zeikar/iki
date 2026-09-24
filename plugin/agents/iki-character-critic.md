@@ -62,9 +62,12 @@ artist agent applies your findings; the orchestrator arbitrates.
 - `scores` — the previous rounds' `SCORES:` lines, so you can compare each axis
   against its best so far (none on round 1).
 - `turn-clamped` — this round's artist's own `TURN:` line, verbatim: its
-  `turn.achieved` and `turn.clamped`, or "none" when no turn was solved. The
-  only way to tell a target the rig already clamped to what this layer set
-  can reach from a new turn defect — see the ±0.05 delta rule below.
+  `turn.achieved`, `turn.clamped` and `turn.strandOverlap`, or "none" when no
+  turn was solved. `turn.clamped` can name the reference's own `eyeShift`,
+  cut down to the room this art leaves the far eye — the face plate's edge, or
+  the bangs' side strand. The only way to tell a target the rig already
+  clamped to what this layer set can reach from a new turn defect — see the
+  ±0.05 delta rule below.
 
 Read both references, `preview.png` and every render before writing anything.
 
@@ -158,6 +161,19 @@ The visual questions above stay their own findings, judged against
 `reference-30.png` on attributes as above, and the `turn` score combines
 both: a rig can pass all three numbers and still score low on what they
 cannot see.
+
+A `strandOverlap` side in `turn-clamped` is an art finding, not an `escalate`
+on `auto-rig.ts`, and its `px` is quoted in MEASUREMENTS. A thin wisp crossing
+the far iris on the turn is intended — the rig's strand measurement skips a `hair_front` run under
+half the iris's painted width as hair detail rather than the strand meant to
+hold the eye clear — and is not itself a finding; only a `strandOverlap` entry
+counts as coverage.
+
+- `held: false`: `retune` the eye or bangs placement in `layout.json`, or
+  `regenerate` `hair_front` with the side strands clear of the irises.
+- `held: true` with `restPx` > 0: the bangs are painted over the iris. Raise
+  that only when the reference shows that eye, as a `regenerate` of
+  `hair_front`.
 
 ## Step 3 — emit typed findings
 

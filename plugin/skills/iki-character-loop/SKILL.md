@@ -249,15 +249,20 @@ them mid-loop or on a restart invalidates every prior score.
    `renders` (the render paths), `turn-pair` (`<workdir>/renders/rest.png` and
    `turn-m30.png`), `turn-targets` (`<workdir>/turn-targets.json`), `round`,
    `scores` (the previous rounds' `SCORES:` lines), and `turn-clamped` (this
-   round's artist's own `TURN:` line, verbatim — its `turn.clamped`, or "none"
-   when no turn was solved) so the critic can tell a clamped fitting limit
+   round's artist's own `TURN:` line, verbatim — its `turn.achieved`,
+   `turn.clamped` and `turn.strandOverlap`, or "none" when no turn was solved)
+   so the critic can tell a clamped fitting limit
    from a new turn defect. It returns scores and
    typed findings.
 4. Route: `regenerate` and `retune` go back to the artist. Handle `escalate`
    yourself — decide whether the package change is warranted, and if it is,
    make it as normal code work with a test and a changeset. Never let the loop
-   edit `packages/`. A turn target the artist's rig refused as unreachable
-   arrives as an escalation like any other: it says this art cannot reach the
+   edit `packages/`. An `eyeShift` past the room the art leaves the far eye —
+   the face plate's edge, or the bangs' side strand — comes back CLAMPED, not
+   refused, so the rig still built; a `strandOverlap` reaches the critic in the
+   same `TURN:` line (`turn-clamped`). Only the remaining refusals — a turn
+   target the artist's rig still refused as
+   unreachable — arrive as an escalation: it says this art cannot reach the
    reference's turn, so the call is yours — accept the defaulted rig, or change
    the art.
 

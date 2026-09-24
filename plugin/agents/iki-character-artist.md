@@ -112,13 +112,19 @@ the prompt patterns and the hard-won pitfalls. Then:
 
    Pass `turnTargets` as well when you were given them — the three fields
    verbatim. The result's `turn` block reports what the turn reaches
-   (`turn.achieved`) and which _defaulted_ targets this layer set could not
-   reach (`turn.clamped`); quote both in your report.
+   (`turn.achieved`), which targets this layer set cut down to what it can do
+   (`turn.clamped`, which can also name an `eyeShift` — yours or the
+   default — past the room the art leaves the far eye), and how much of a far
+   iris the bangs still cover (`turn.strandOverlap`); quote all three in your
+   report. A clamp is not a refusal — the rig still built, so keep it.
 
    A rig refused as `INVALID: … turnTargets.<field> … unreachable …` (the reply
    carries the range that field could have had) means the reference asks for
-   more turn than this art can give. Re-rig ONCE without `turnTargets` — same
-   layers, same output path — and record the refusal verbatim as an `escalate`:
+   more turn than this art can give — a `farEyeRatio` or `silhouetteRatio` no
+   radius renders, a `noseShift` / `mouthShift` past its room, or an `eyeShift`
+   smaller than the slide the face's own turn already gives the eyes. Re-rig
+   ONCE without `turnTargets` — same layers, same output path — and record the
+   refusal verbatim as an `escalate`:
    it is a fitting limit for the orchestrator to arbitrate, not something to
    tune around. Never edit `turn-targets.json`, and never soften a target to
    make it fit. If the default rig is refused too, record both errors, state
@@ -163,7 +169,7 @@ GENERATED: <parts re-drawn this round, or "none">
 RETUNED: <layout.json keys changed, old -> new>
 MEASURE: <"all geometry checks passed", or the remaining warnings and why>
 MODEL: <path to the rigged .iki, or "none" — see BLOCKED>
-TURN: <the result's turn.achieved and turn.clamped, or "none" when no turn was solved>
+TURN: <the result's turn.achieved, turn.clamped and turn.strandOverlap ("none" when absent), or "none" when no turn was solved>
 ESCALATED: <critic findings you did not act on, and any refusal you escalated, verbatim, or "none">
 BLOCKED: <"none", or what stopped the round — for a usage limit, the reset time; for a refused rig, that no model came out>
 NOTES: <anything the orchestrator should know>
