@@ -402,6 +402,199 @@ export function validateLayerInputs(
   }
 }
 
+// ── validateStrandEdges ───────────────────────────────────────────────────────
+
+/**
+ * One side's iris and the bangs' run it would slide under on the turn, as
+ * real pixel boundaries on ONE image row — the row holding that iris's centre
+ * — in model coordinates: x is canvas x minus half the canvas width, like
+ * `bboxToTransform`'s crop edges, and `y` is that row's centre. Every x is the
+ * painted edge facing its clear neighbour, read under one opacity rule, so the
+ * gap between an iris edge and a run edge is a real distance with no margin to
+ * add. "Outer" is toward the head's edge on that side.
+ *
+ * One shape covers three cases:
+ *   - an ordinary side strand outward of a clear iris (`runFace` outward of
+ *     `irisOuter`);
+ *   - a run over the iris centre that clears on the face side (`runFace`
+ *     inward of that centre);
+ *   - a fringe spanning the face: the run still covers the OTHER iris's
+ *     centre, so it has no face-side end on this side and `runFace` is
+ *     `null` — an absent edge, not an invented one.
+ */
+export interface IrisStrand {
+  /** The iris row's centre, model y. */
+  y: number;
+  /** The outer end of that iris layer's opaque span on the row. */
+  irisOuter: number;
+  /** Its inner end, toward the face. */
+  irisInner: number;
+  /** The outer end of the `hair_front` run the iris would slide under. */
+  runOuter: number;
+  /** The run's face-side end, or `null` when it reaches the other iris's
+   *  centre. */
+  runFace: number | null;
+}
+
+/**
+ * Check `options.strandEdges` against the layers it claims to measure — called
+ * right after `validateLayerInputs`, so nothing is derived from an unchecked
+ * edge. Absent or `{}` returns at once, with no layer requirement: the rig is
+ * then the one built without it, byte for byte.
+ *
+ * Otherwise the option has to be a plain object, and each PRESENT side (an
+ * absent one is never checked) has to be a real measurement on these layers:
+ *   - a plain object whose `y`, `irisOuter`, `irisInner` and `runOuter` are
+ *     finite and whose `runFace` is finite or `null`;
+ *   - on a layer set with `hair_front`, `iris_L` and `iris_R` — both irises,
+ *     because a side's iris is whichever has its crop centre on that side,
+ *     paired by x rather than by role name;
+ *   - `y` inside that iris's crop rows and inside `hair_front`'s;
+ *   - both iris edges inside that iris's crop columns and `irisOuter`
+ *     strictly outward of `irisInner` — which ties them to their own iris
+ *     without asking where its span sits against the crop's centre, which a
+ *     row's span need not straddle;
+ *   - `runOuter` and a finite `runFace` inside `hair_front`'s crop columns;
+ *   - `runOuter` strictly outward of that iris's crop centre — a spanning run
+ *     too, so it is still anchored on its own side — and strictly outward of
+ *     a finite `runFace`;
+ *   - a finite `runFace` strictly on this side of the other iris's centre,
+ *     since a run that reaches it has no face-side end on this side.
+ *
+ * Throws a plain `Error` with a path-qualified message on the first violation.
+ */
+function validateStrandEdges(
+  layers: LayerInput[],
+  strandEdges: { left?: IrisStrand; right?: IrisStrand } | undefined,
+): void {
+  if (strandEdges === undefined) return;
+  const where = "auto-rig: validateStrandEdges: strandEdges";
+  const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+    typeof v === "object" && v !== null && !Array.isArray(v);
+  if (!isPlainObject(strandEdges)) {
+    throw new Error(
+      `${where} must be a plain object with optional left / right sides`,
+    );
+  }
+  for (const key of ["left", "right"] as const) {
+    const raw: unknown = strandEdges[key];
+    if (raw === undefined) continue;
+    const path = `${where}.${key}`;
+    if (!isPlainObject(raw)) {
+      throw new Error(`${path} must be a plain object`);
+    }
+    for (const field of ["y", "irisOuter", "irisInner", "runOuter"] as const) {
+      const v = raw[field];
+      if (typeof v !== "number" || !Number.isFinite(v)) {
+        throw new Error(
+          `${path}.${field} is ${String(v)}, not a finite number`,
+        );
+      }
+    }
+    const rawFace = raw.runFace;
+    if (
+      rawFace !== null &&
+      (typeof rawFace !== "number" || !Number.isFinite(rawFace))
+    ) {
+      throw new Error(
+        `${path}.runFace is ${String(rawFace)}, not a finite number or null`,
+      );
+    }
+    const { y, irisOuter, irisInner, runOuter, runFace } =
+      raw as unknown as IrisStrand;
+
+    const cropOf = (role: string) => {
+      const layer = layers.find((l) => l.role === role);
+      if (layer === undefined) {
+        throw new Error(
+          `${path} needs a "${role}" layer to be measured on, and this layer set has none`,
+        );
+      }
+      const t = bboxToTransform(layer.bbox, layer.canvasW, layer.canvasH, role);
+      return {
+        role,
+        x: t.x,
+        left: t.x - layer.cropW / 2,
+        right: t.x + layer.cropW / 2,
+        bottom: t.y - layer.cropH / 2,
+        top: t.y + layer.cropH / 2,
+      };
+    };
+    const hair = cropOf("hair_front");
+    const [lowIris, highIris] = [cropOf("iris_L"), cropOf("iris_R")].sort(
+      (a, b) => a.x - b.x,
+    );
+    // Outward is −x on the left side, +x on the right.
+    const sign = key === "left" ? -1 : 1;
+    const iris = key === "left" ? lowIris : highIris;
+    const other = key === "left" ? highIris : lowIris;
+    const fail = (field: keyof IrisStrand, value: number, why: string) =>
+      new Error(`${path}.${field} (${value}) ${why}`);
+
+    for (const crop of [iris, hair]) {
+      if (y < crop.bottom || y > crop.top) {
+        throw fail(
+          "y",
+          y,
+          `lies outside the "${crop.role}" crop's rows (${crop.bottom}…${crop.top})`,
+        );
+      }
+    }
+    for (const [field, x] of [
+      ["irisOuter", irisOuter],
+      ["irisInner", irisInner],
+    ] as const) {
+      if (x < iris.left || x > iris.right) {
+        throw fail(
+          field,
+          x,
+          `lies outside the "${iris.role}" crop's columns (${iris.left}…${iris.right})`,
+        );
+      }
+    }
+    if (sign * (irisOuter - irisInner) <= 0) {
+      throw fail(
+        "irisOuter",
+        irisOuter,
+        `must lie strictly outward of strandEdges.${key}.irisInner (${irisInner})`,
+      );
+    }
+    for (const [field, x] of [
+      ["runOuter", runOuter],
+      ["runFace", runFace],
+    ] as const) {
+      if (x !== null && (x < hair.left || x > hair.right)) {
+        throw fail(
+          field,
+          x,
+          `lies outside the "hair_front" crop's columns (${hair.left}…${hair.right})`,
+        );
+      }
+    }
+    if (sign * (runOuter - iris.x) <= 0) {
+      throw fail(
+        "runOuter",
+        runOuter,
+        `must lie strictly outward of the "${iris.role}" crop's centre (${iris.x})`,
+      );
+    }
+    if (runFace !== null && sign * (runOuter - runFace) <= 0) {
+      throw fail(
+        "runOuter",
+        runOuter,
+        `must lie strictly outward of strandEdges.${key}.runFace (${runFace})`,
+      );
+    }
+    if (runFace !== null && sign * (runFace - other.x) <= 0) {
+      throw fail(
+        "runFace",
+        runFace,
+        `must lie strictly on this side of the "${other.role}" crop's centre (${other.x}); a run that reaches it has no face-side end here, which is runFace null`,
+      );
+    }
+  }
+}
+
 // ── generateGridPoints ────────────────────────────────────────────────────────
 
 /**
@@ -1547,6 +1740,14 @@ function plateGuardsOf(
  * layer set can do and the rig is built. The alternative is a generator that
  * refuses its own defaults, which would leave a perfectly good layer set with
  * no model at all. `solveTurnModel` reports which fields it clamped.
+ *
+ * One measurement is clamped too: an `eyeShift` past the room the art leaves
+ * the far eye — the face plate's edge, and the bangs' side strand when
+ * `strandEdges` is given — whoever passed it. That room is a fact about this
+ * layer set, not about the reference the shift was measured on, so the rig
+ * takes as much of the shift as the art allows and keeps fitting the other
+ * cues. An `eyeShift` below the slide the face's own turn already gives the
+ * eyes is still refused: no depth reaches it.
  */
 export interface TurnTargets {
   /** How far the eye pair's centre slides toward the far side at full turn, as
@@ -1626,8 +1827,9 @@ export interface ResolvedTurnTargets {
   /** The caller's measured head half-width, checked. Absent when it has none. */
   headHalfWidth?: number;
   /** The fields the caller did NOT supply: filled from DEFAULT_TURN_TARGETS, or
-   *  derived from the eyes. Those are the ones the solver may clamp; see
-   *  TurnTargets. */
+   *  derived from the eyes. Those are the ones the solver clamps wherever the
+   *  layer set cannot reach them; of the caller's own it clamps only an
+   *  `eyeShift` past the art's room (see TurnTargets). */
   defaulted: ReadonlySet<keyof TurnTargets>;
 }
 
@@ -1824,6 +2026,14 @@ export interface TurnDepthSolution {
   achieved: number;
   /** Every shift this family could have had, px, ascending. */
   attainable: [number, number];
+  /** Which end cut the target short, when `reached` is false. `"cap"`: it
+   *  asked for more far-side shift than the art leaves room for — the face
+   *  plate's edge, or the strand bound's depth (0 where that bound cannot
+   *  hold). `"floor"`: it asked for less than the family already has at
+   *  depth 0 — the face's own slide and bend, plus the silhouette centre's
+   *  drift once that is folded into the target — which no depth reaches,
+   *  a depth never being negative. Absent when `reached`. */
+  limit?: "cap" | "floor";
 }
 
 /** Bisection steps for both solvers. The intervals start finite and halve, so
@@ -1897,13 +2107,28 @@ function landmarkLandingX(
  *  what every group grid and the lattice are sized to before the solve
  *  (`turnSetup`), so the two cannot disagree. For the mouth, whose nodes
  *  turn about its anchor (`groupNodeLanding`), the cap bounds the anchor's
- *  slide. */
+ *  slide. The eye family's cap may be tightened per hold by the strand bound
+ *  (`strandDepthCap`) but never loosened, so grids sized to this one cover
+ *  every depth a solve returns. */
 function familyReachPx(
   landmarks: readonly TurnLandmark[],
   plateEdgeX: number,
 ): number {
   const farEdge = Math.min(...landmarks.map((l) => l.x - l.w / 2));
   return Math.max(0, farEdge - plateEdgeX);
+}
+
+/** A family's depth cap at one radius: `familyReachPx` in depth units. The
+ *  one expression every reader of the plate's cap goes through — the depth
+ *  solver's own bound (`solveTurnDepthSigned`), and the strand bound and
+ *  Aitken's clamp in `evaluateTurnCandidate` — so the three cannot drift
+ *  apart, and a rig built without strands keeps its eye depth bit for bit. */
+function familyDepthCap(
+  landmarks: readonly TurnLandmark[],
+  plateEdgeX: number,
+  unit: number,
+): number {
+  return familyReachPx(landmarks, plateEdgeX) / unit;
 }
 
 /**
@@ -1942,6 +2167,14 @@ function familyReachPx(
  * rendered reach at every stop (the fold guard, see `evaluateTurnCandidate`),
  * and that reach bounds every landmark's far edge already.
  *
+ * The eye family can be bounded tighter, by the bangs' side strands
+ * (`maxDepth`, from `strandDepthCap`): the deepest depth at which each far
+ * iris, landed at every far stop, sits no deeper under the run it slides
+ * under than it is painted. That bound is best effort — where no depth holds
+ * it, the cap is 0, the least overlap any depth leaves — and it bounds the
+ * eyes' depth only: the face's own sideways travel, the slide under every
+ * feature, is not capped by it.
+ *
  * Both ends of the interval matter, not just the far one: at `d = 0` a landmark
  * already drifts, because the map carries the face's own sideways slide as well
  * as the bend, and the slide is much the larger of the two — on the assembly
@@ -1950,8 +2183,9 @@ function familyReachPx(
  * That drift therefore runs toward the FAR side, and IS the floor under every
  * shift cue: a target asking for LESS far-side shift than that drift does has
  * no non-negative depth either. Neither end is an error here — the solution is
- * reported with `reached: false` and the bound it stopped at, and whether that
- * is a clamp or a failure is the caller's call (see solveTurnModel).
+ * reported with `reached: false` and the bound it stopped at (`limit`), and
+ * whether that is a clamp or a failure is the caller's call (see
+ * solveTurnModel).
  *
  * `evaluateTurnCandidate`'s eye solve calls this directly instead of going
  * through `solveTurnDepth`'s magnitude wrapper: once the silhouette centre's
@@ -1967,11 +2201,15 @@ function solveTurnDepthSigned(
   unit: number,
   mapAt: (y: number) => TurnColumnMap,
   plateEdgeX: number,
+  /** A tighter depth bound than the plate's, when the art sets one: the eye
+   *  family's strand bound (`strandDepthCap`), 0 where it cannot hold. */
+  maxDepth?: number,
 ): TurnDepthSolution {
   if (landmarks.length === 0) {
     throw new Error("auto-rig: solveTurnDepth: no landmark to slide");
   }
-  const cap = familyReachPx(landmarks, plateEdgeX) / unit;
+  const plateCap = familyDepthCap(landmarks, plateEdgeX, unit);
+  const cap = maxDepth === undefined ? plateCap : Math.min(plateCap, maxDepth);
   const achieved = (d: number) =>
     landmarks.reduce(
       (sum, l) =>
@@ -1991,10 +2229,24 @@ function solveTurnDepthSigned(
   const atCap = achieved(cap);
   const atRest = achieved(0);
   const attainable: [number, number] = [atCap, atRest];
-  if (target > atRest + TURN_DEPTH_EPS)
-    return { reached: false, depth: 0, achieved: atRest, attainable };
-  if (target < atCap - TURN_DEPTH_EPS)
-    return { reached: false, depth: cap, achieved: atCap, attainable };
+  if (target > atRest + TURN_DEPTH_EPS) {
+    return {
+      reached: false,
+      depth: 0,
+      achieved: atRest,
+      attainable,
+      limit: "floor",
+    };
+  }
+  if (target < atCap - TURN_DEPTH_EPS) {
+    return {
+      reached: false,
+      depth: cap,
+      achieved: atCap,
+      attainable,
+      limit: "cap",
+    };
+  }
   // Within EPS of a bound but past it either way (the ulp this guards
   // against) — clamp before bisecting, rather than searching for a target
   // outside the interval `achieved` can actually produce.
@@ -2023,14 +2275,49 @@ export interface TurnSolveReport {
   depths: TurnDepths;
   /** What the rig actually reaches, in the targets' own units. */
   achieved: { eyeShift: number; farEyeRatio: number; silhouetteRatio: number };
-  /** Defaulted fields the layer set could not reach, cut down to what it can.
-   *  Empty when every target was met. */
+  /** The targets the rig fell short of, cut down to what it can reach: every
+   *  defaulted field it could not reach, and an `eyeShift` — the caller's own
+   *  too — past the room the art leaves the far eye (the face plate's edge,
+   *  and the bangs' strand when `strandEdges` was given). Empty when every
+   *  target was met. */
   clamped: (keyof TurnTargets)[];
+  /** Per side whose far iris the bangs' run covers at some far stop at the
+   *  fitted radius and depth (`options.strandEdges`): how much of it. Absent
+   *  when no side has an entry. Never a clamp: `clamped` still names an
+   *  `eyeShift` the strand bound cut short. */
+  strandOverlap?: { left?: StrandOverlap; right?: StrandOverlap };
+}
+
+/**
+ * How much of one side's far iris the bangs' run covers: the length of the
+ * landed iris span `[irisOuter, irisInner]` on its row that lies inside the
+ * landed run `[runOuter, runFace]` — face-ward without end for a run with no
+ * face-side edge (`runFace: null`) — at the far stop where that is largest.
+ * Always read off real landed boundaries (`IrisStrand`).
+ */
+export interface StrandOverlap {
+  /** The far stop the covered width is largest at, degrees. */
+  deg: number;
+  /** That covered width, px. */
+  px: number;
+  /** `px` over the head half-width the shift cues are fractions of. */
+  hh: number;
+  /** The covered width as painted, at rest, px. */
+  restPx: number;
+  /** Whether this side's strand bound held at the fitted depth — the iris
+   *  kept no deeper under the run than it is painted, at every far stop. When
+   *  false the fitted radius could not hold it (always so for `runFace:
+   *  null`), the eyes' turn depth is 0, and `px` is the coverage that is
+   *  left. */
+  held: boolean;
 }
 
 /** The turn the targets ask for, or the first CALLER target this layer set
  *  cannot reach and what it could have had instead (in that target's own
- *  units). Defaults never land in the second branch — they clamp. */
+ *  units). Defaults never land in the second branch — they clamp — and nor
+ *  does a caller `eyeShift` past the room the art leaves the far eye, which
+ *  clamps the same way; one below the slide the face's own turn already
+ *  gives the eyes still does. */
 export type TurnModelSolution =
   | (TurnSolveReport & {
       unreachable: false;
@@ -2133,6 +2420,14 @@ interface TurnCandidate {
    *  against. It is the target itself whenever one was reachable, so it is
    *  what `TurnSolveReport.achieved.silhouetteRatio` reports. */
   renderedSilhouetteRatio: number;
+  /** Whether some eye depth keeps every far iris no deeper under the bangs'
+   *  run than it is painted at this radius (`strandDepthCap`) — `eye` is
+   *  capped to the deepest one — or none does and `eye` has depth 0. True
+   *  without strands. What `solveTurnModel` prefers radii by. */
+  strandFeasible: boolean;
+  /** How much of each far iris the run covers at `eye`'s depth, per side that
+   *  has any (see `TurnSolveReport.strandOverlap`), on the settled pass. */
+  strandOverlap?: { left?: StrandOverlap; right?: StrandOverlap };
 }
 
 /** Why a radius yielded no candidate, in the blocked target's own terms. */
@@ -2155,6 +2450,11 @@ type TurnCandidateMiss =
       upper: number;
     }
   | {
+      /** A CALLER's eye shift below the floor: less far-side slide than the
+       *  eye pair already has at depth 0 on this radius (`limit: "floor"`),
+       *  which no depth reaches. A shift the art's room cuts short is not a
+       *  miss — the candidate keeps the capped depth, and the shift is
+       *  clamped whoever passed it. */
       blocked: "eyeShift";
       /** The px interval it offered the eyes instead, ascending. */
       offeredShift: [number, number];
@@ -2222,7 +2522,10 @@ interface TurnSolveContext {
    *  own "the sign is ignored" contract taken at the door, so a request and
    *  its negation reach identically here. */
   eyeShift: number;
-  /** Whether an eye shift the bounds cut short is a clamp or a rejection. */
+  /** Whether an eye shift below the floor — less than the pair already
+   *  slides at depth 0 on a radius — is a clamp (a default) or refuses that
+   *  radius (the caller's). Only the floor's verdict: a shift the art's room
+   *  cuts short at the cap is clamped whoever passed it. */
   clampEyeShift: boolean;
   /** The nose's and the mouth's shift MAGNITUDES when the caller measured
    *  them — `TurnTargets`' "the sign is ignored", taken at the door like
@@ -2266,6 +2569,14 @@ interface TurnSolveContext {
     left: { role: string; x: number }[];
     right: { role: string; x: number }[];
   };
+  /** The bangs' side strand against each far iris, per side the caller
+   *  measured one (`options.strandEdges`): the side's sign — −1 for the −x
+   *  side, whose far stops are −15 and −30 — the carrier its iris renders on
+   *  (the eye grid of that side, the irises paired to sides by `part.x`, not
+   *  by role name), and its iris and run edges on the iris row. What caps the
+   *  eye family's depth below the plate's (`evaluateTurnCandidate`). Absent
+   *  without the option, when the plate alone caps it. */
+  strands?: (IrisStrand & { side: -1 | 1; carrier: TurnCarrier })[];
 }
 
 /**
@@ -2480,6 +2791,37 @@ function aitken(x0: number, x1: number, x2: number, cap: number): number {
 }
 
 /**
+ * The deepest eye depth in [0, `plateCap`] at which every strand margin holds
+ * — each of `margins` one far stop of one side with a face-side edge, mapping
+ * a depth to that stop's clearance less its allowance (`evaluateTurnCandidate`):
+ *   - `plateCap` itself when every margin is ≥ 0 there — the plate binds
+ *     first, and the rig is the one built without the strand, byte for byte;
+ *   - `undefined` when some margin is < 0 at depth 0 — no depth keeps that
+ *     iris clear, so the bound cannot hold at this radius;
+ *   - otherwise the satisfying end of a TURN_BISECT_STEPS bisection.
+ * The bisection is valid because every margin is non-increasing in the depth:
+ * the iris's landing moves toward the far side with it (`mapX` is monotone,
+ * and both interpolations weight it non-negatively), while within one hold the
+ * run's landing does not depend on the eye depth at all.
+ */
+function strandDepthCap(
+  margins: ((depth: number) => number)[],
+  plateCap: number,
+): number | undefined {
+  const holds = (depth: number) => margins.every((m) => m(depth) >= 0);
+  if (holds(plateCap)) return plateCap;
+  if (!holds(0)) return undefined;
+  let lo = 0;
+  let hi = plateCap;
+  for (let i = 0; i < TURN_BISECT_STEPS; i++) {
+    const mid = (lo + hi) / 2;
+    if (holds(mid)) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/**
  * One radius, evaluated against the cues: the candidate it yields, or which
  * target blocked it and what it could have done instead.
  *
@@ -2525,9 +2867,14 @@ function aitken(x0: number, x1: number, x2: number, cap: number): number {
  * leaves that cue nearly independent of the depth, which no pass count
  * settles, and a layer set no sampled radius settles is refused by
  * `solveTurnModel`, naming that. The refusals — a caller's silhouette the
- * range cannot render, an eye shift the bounds cut short — are issued at the
- * fixed point too, on the range and bounds the shipped depths have, not on a
- * pass's guess.
+ * range cannot render, a caller's eye shift below the floor, less than the
+ * pair already slides at depth 0 — are issued at the fixed point too, on the
+ * range and bounds the shipped depths have, not on a pass's guess. An eye
+ * shift the art's room cuts short at the cap (the plate's edge, or the strand
+ * bound on the far irises, best effort) is no refusal, whoever passed it: the
+ * candidate keeps the capped depth, and says whether the strand bound could
+ * hold here at all (`strandFeasible`) and how much of each far iris the
+ * bangs still cover (`strandOverlap`).
  */
 function evaluateTurnCandidate(
   ctx: TurnSolveContext,
@@ -2572,6 +2919,12 @@ function evaluateTurnCandidate(
       : side * (edge - ctx.faceCenterX);
   };
   const unit = headTurnParallaxUnit(radius);
+  // The eyes' depth cap at this radius (`familyDepthCap`), read once for the
+  // strand bound — which only ever tightens it, and is handed back to the
+  // eye solve — and Aitken's clamp below.
+  const plateCapOf = (marks: TurnLandmark[]) =>
+    familyDepthCap(marks, ctx.plateEdgeX, unit);
+  const eyePlateCap = plateCapOf(ctx.landmarks.eye);
   // The bangs' own root-pinned turn lead (bakeHairSwayWarp, shared with the
   // sway): the shipped warp's own full TIP shift, which each row takes its
   // `u^HAIR_SWAY_CURL` share of. It moves every row toward the far side by
@@ -2586,6 +2939,169 @@ function evaluateTurnCandidate(
   // outside the fit.
   const leadTipShift =
     ctx.hairFrontSilhouette === undefined ? 0 : HAIR_FRONT_DEPTH * unit;
+
+  // Where the bangs render a rest point `(x, y)` at the stop `deg` on one
+  // hold: their own mesh, each vertex holding the outline where the bake
+  // sends it (`hairFrontHoldTarget`, over the plate as it renders on that
+  // hold's slide, `plateLandingAt`) plus its row's share of the SIGNED tip
+  // lead at that stop, `leadShift` (`hairFrontLandingAt`). Read only on a
+  // layer set with bangs: the silhouette's own landing checks for them, and
+  // solveTurnModel builds strands only where they exist.
+  const bangsLandingAt = (
+    hold: { holdBase: number; holdEdgeAt: (deg: number) => number },
+    plateLandingAt: (deg: number, x: number, y: number) => number,
+    deg: number,
+    leadShift: number,
+    x: number,
+    y: number,
+  ): number =>
+    hairFrontLandingAt(
+      x,
+      y,
+      ctx.hairFrontSilhouette!,
+      (vx, vy) =>
+        hairFrontHoldTarget(
+          vx,
+          vy,
+          deg,
+          ctx.faceCenterX,
+          plateLandingAt,
+          ctx.edgeAt,
+          hold.holdBase,
+          hold.holdEdgeAt(deg),
+        ),
+      leadShift,
+    );
+
+  // The strand bound's reads on one hold (`ctx.strands`), at each FAR stop of
+  // each measured side — σ = −1 at −15 and −30, +1 at +15 and +30; depth
+  // carries the near iris away from its own strand, so only the far side is
+  // read. Every edge is a rest point on the iris row, landed exactly as it
+  // renders at that stop with AngleY, gaze, the sway and MouthForm at rest:
+  // the run's two edges on the bangs' own mesh — the hold's target at that
+  // stop plus the lead there, `tipShift·deg/30` (the lead warp is keyed at
+  // ±30 and blends linearly) — neither of which moves with the eye depth; the
+  // iris's through its own carrier on that stop's map, the eye grid's node
+  // rule shifted by the depth's share at that stop, `depth·unit·deg/30`. The
+  // bangs and the iris ride different deformations, so neither is assumed to
+  // follow the other.
+  //
+  // Checking the stops is exact: at AngleY 0 every vertex's landing is linear
+  // in AngleX between two stops — the grid's nodes blend parameter-linearly,
+  // the bangs' hold is keyed at the same stops and their lead at ±30, and a
+  // warp child binds at its rest pose, so the bilinear and the barycentric
+  // weights are fixed — so a clearance that meets its allowance at rest and
+  // at every stop meets it everywhere between them.
+  const strandStopsOn = (hold: TurnHoldEval) => {
+    const rowMaps = rowMapsOf(hold.surface);
+    const plateLandingAt = plateLandingOn(ctx.plate, rowMaps);
+    return (ctx.strands ?? []).map((strand) => {
+      const iris: TurnLandmark = {
+        x: strand.carrier.part.x,
+        w: strand.carrier.part.cropW,
+        carrier: strand.carrier,
+      };
+      const stops = HEAD_TURN_STOPS.filter(
+        (deg) => Math.sign(deg) === strand.side,
+      ).map((deg) => {
+        const runAt = (x: number) =>
+          bangsLandingAt(
+            hold,
+            plateLandingAt,
+            deg,
+            (leadTipShift * deg) / HEAD_TURN_MAX_DEG,
+            x,
+            strand.y,
+          );
+        return {
+          deg,
+          runOuter: runAt(strand.runOuter),
+          runFace: strand.runFace === null ? null : runAt(strand.runFace),
+          irisAt: (depth: number, x: number) =>
+            landmarkLandingX(
+              iris,
+              (y) => rowMaps(deg, y),
+              deg,
+              (depth * unit * deg) / HEAD_TURN_MAX_DEG,
+              x,
+              strand.y,
+            ),
+        };
+      });
+      // Clearance = σ·(landed runFace − landed irisOuter), and the allowance
+      // is the painted clearance capped at 0 (the rest landing is the
+      // identity): an iris painted clear of the run may close to touching,
+      // one painted under it — a covered centre included — keeps its rest
+      // overlap but does not deepen it. No pixel margin: both are pixel
+      // boundaries on one row. Why not the full painted gap: the face's own
+      // foreshortening already closes it at depth 0, so that rule would leave
+      // most characters with no depth at all. Undefined without a face-side
+      // edge, which has nothing to keep the iris clear of.
+      const { runFace } = strand;
+      if (runFace === null) return { strand, stops, margins: undefined };
+      const allowance = Math.min(0, strand.side * (runFace - strand.irisOuter));
+      const margins = stops.map(
+        (stop) => (depth: number) =>
+          strand.side * (stop.runFace! - stop.irisAt(depth, strand.irisOuter)) -
+          allowance,
+      );
+      return { strand, stops, margins };
+    });
+  };
+
+  /** How much of each far iris the run covers at eye depth `depth` — the
+   *  landed iris span inside the landed run, at the far stop where that is
+   *  largest — per side that has any: `TurnSolveReport.strandOverlap`. */
+  const strandOverlapOf = (
+    sides: ReturnType<typeof strandStopsOn>,
+    depth: number,
+  ): TurnCandidate["strandOverlap"] => {
+    const overlap: NonNullable<TurnCandidate["strandOverlap"]> = {};
+    for (const { strand, stops, margins } of sides) {
+      const s = strand.side;
+      // In outward-positive x: the iris spans [s·inner, s·outer], the run
+      // [s·face, s·outer] — face-ward without end when it has no face edge.
+      const covered = (
+        irisOuter: number,
+        irisInner: number,
+        runOuter: number,
+        runFace: number | null,
+      ) =>
+        Math.max(
+          0,
+          Math.min(s * irisOuter, s * runOuter) -
+            Math.max(s * irisInner, runFace === null ? -Infinity : s * runFace),
+        );
+      let worst: { deg: number; px: number } | undefined;
+      for (const stop of stops) {
+        const px = covered(
+          stop.irisAt(depth, strand.irisOuter),
+          stop.irisAt(depth, strand.irisInner),
+          stop.runOuter,
+          stop.runFace,
+        );
+        if (px > 0 && (worst === undefined || px > worst.px)) {
+          worst = { deg: stop.deg, px };
+        }
+      }
+      if (worst === undefined) continue;
+      overlap[s < 0 ? "left" : "right"] = {
+        deg: worst.deg,
+        px: worst.px,
+        hh: worst.px / ctx.hh,
+        restPx: covered(
+          strand.irisOuter,
+          strand.irisInner,
+          strand.runOuter,
+          strand.runFace,
+        ),
+        held: margins !== undefined && margins.every((m) => m(depth) >= 0),
+      };
+    }
+    return overlap.left === undefined && overlap.right === undefined
+      ? undefined
+      : overlap;
+  };
 
   const evaluateHold = (ratio: number, depths: TurnDepths): TurnHoldEval => {
     // The boundary stays put and its DESTINATION moves: the full ratio at the
@@ -2696,29 +3212,18 @@ function evaluateTurnCandidate(
         : ctx.hairFrontSilhouette.x +
             (side * ctx.hairFrontSilhouette.cropW) / 2;
     };
-    // Where the bangs land a point on the eye row at full turn: their own
-    // mesh, each vertex holding the outline as the bake sends it there
-    // (`hairFrontHoldTarget`, on this hold and the rendered plate) plus its
-    // row's lead.
+    // Where the bangs land a point on the eye row at full turn, on this hold
+    // and the rendered plate, with the full far lead.
     const hairFrontAt = (x: number): number =>
       ctx.hairFrontSilhouette === undefined
         ? x
-        : hairFrontLandingAt(
+        : bangsLandingAt(
+            { holdBase, holdEdgeAt },
+            plateLandingAt,
+            -HEAD_TURN_MAX_DEG,
+            -leadTipShift,
             x,
             ctx.eyeRowY,
-            ctx.hairFrontSilhouette,
-            (vx, vy) =>
-              hairFrontHoldTarget(
-                vx,
-                vy,
-                -HEAD_TURN_MAX_DEG,
-                ctx.faceCenterX,
-                plateLandingAt,
-                ctx.edgeAt,
-                holdBase,
-                holdEdgeAt(-HEAD_TURN_MAX_DEG),
-              ),
-            -leadTipShift,
           );
     // Where a named role's OWN rest x lands after the turn — the mcp measures
     // the union of every layer's opaque pixels, so an edge can belong to any
@@ -3030,12 +3535,36 @@ function evaluateTurnCandidate(
     // `TurnTargets.eyeShift`'s own "the sign is ignored" contract, taken
     // here, not by folding an already-negative result back to positive
     // later).
+    //
+    // With strands the eye family's depth is also capped by the strand bound
+    // on this hold, best effort: the deepest depth that keeps every far iris
+    // no deeper under its run than it is painted, or 0 — the least overlap
+    // any depth leaves, each margin being non-increasing in the depth — where
+    // no depth does, a face-spanning run (no face-side edge) included. The
+    // rig is built either way; `strandFeasible` says which, for the fit to
+    // prefer the radii where it holds.
+    const strandSides =
+      ctx.strands === undefined ? undefined : strandStopsOn(hold);
+    let strandFeasible = true;
+    let maxDepth: number | undefined;
+    if (strandSides !== undefined) {
+      const margins = strandSides.map((s) => s.margins);
+      const cap = margins.every((m) => m !== undefined)
+        ? strandDepthCap(
+            margins.flatMap((m) => m!),
+            eyePlateCap,
+          )
+        : undefined;
+      strandFeasible = cap !== undefined;
+      maxDepth = cap ?? 0;
+    }
     const eye = solveTurnDepthSigned(
       hold.silhouetteCenterShift - ctx.eyeShift * ctx.hh,
       ctx.landmarks.eye,
       unit,
       hold.mapAt,
       ctx.plateEdgeX,
+      maxDepth,
     );
     const features = solveFeatureDepths(
       ctx,
@@ -3066,26 +3595,24 @@ function evaluateTurnCandidate(
         seed = depths;
         depths = solved;
       } else {
-        const capOf = (marks: TurnLandmark[]) =>
-          familyReachPx(marks, ctx.plateEdgeX) / unit;
+        // The plate's cap, even for eyes a strand bound caps tighter: an
+        // extrapolated depth only lands the `headEdges` owners the next pass
+        // fits its hold on, and that pass re-solves the eye depth under the
+        // strand cap of its own hold — the solved depth, never this guess, is
+        // what a candidate ships.
         depths = {
-          eye: aitken(
-            seed.eye,
-            depths.eye,
-            solved.eye,
-            capOf(ctx.landmarks.eye),
-          ),
+          eye: aitken(seed.eye, depths.eye, solved.eye, eyePlateCap),
           nose: aitken(
             seed.nose,
             depths.nose,
             solved.nose,
-            capOf(ctx.landmarks.nose),
+            plateCapOf(ctx.landmarks.nose),
           ),
           mouth: aitken(
             seed.mouth,
             depths.mouth,
             solved.mouth,
-            capOf(ctx.landmarks.mouth),
+            plateCapOf(ctx.landmarks.mouth),
           ),
         };
         seed = undefined;
@@ -3105,9 +3632,12 @@ function evaluateTurnCandidate(
     if (silhouetteClamped && !ctx.clampSilhouetteRatio) {
       return silhouetteMiss(span);
     }
-    // A measured shift this radius cannot produce disqualifies the radius; a
-    // defaulted one takes what the radius offers.
-    if (!eye.reached && !ctx.clampEyeShift) {
+    // A measured shift below the floor — less than the pair already slides
+    // at depth 0 here — disqualifies the radius; a defaulted one takes what
+    // the radius offers. A shift the art's room cuts short (the plate's edge,
+    // or the strand bound) keeps the capped depth whoever passed it, and
+    // `solveTurnModel` reports it clamped.
+    if (!eye.reached && eye.limit === "floor" && !ctx.clampEyeShift) {
       return {
         blocked: "eyeShift",
         // eyeShift is a MAGNITUDE (the sign is ignored — see TurnTargets), so
@@ -3146,6 +3676,13 @@ function evaluateTurnCandidate(
     // ratio is already divided by its rest one.
     const far = ctx.landmarks.eye.reduce((a, b) => (b.x < a.x ? b : a));
     const near = ctx.landmarks.eye.reduce((a, b) => (b.x > a.x ? b : a));
+    // Read on this settled pass's hold — the settled re-read differs from it
+    // only in the silhouette, which no strand edge rides — at the depth the
+    // eyes ship with.
+    const strandOverlap =
+      strandSides === undefined
+        ? undefined
+        : strandOverlapOf(strandSides, eye.depth);
     return {
       radius,
       ratio: scaleOf(far) / scaleOf(near),
@@ -3161,6 +3698,8 @@ function evaluateTurnCandidate(
       silhouetteClamped,
       silhouetteCenterShift,
       renderedSilhouetteRatio,
+      strandFeasible,
+      ...(strandOverlap === undefined ? {} : { strandOverlap }),
     };
   }
 }
@@ -3238,10 +3777,22 @@ function sweepTurnRadii(ctx: TurnSolveContext): TurnSweep {
  *  covers: the ratio is continuous in the radius, so a run spans every ratio
  *  between its own extremes, and a target BETWEEN two runs is one no radius in
  *  the sweep produces. */
-interface TurnRatioCluster {
-  candidates: SweptCandidate[];
+interface TurnRatioCluster<
+  C extends { sweepIndex: number; ratio: number } = SweptCandidate,
+> {
+  candidates: C[];
   /** Ascending. */
   ratios: [number, number];
+}
+
+/** Whether a run holds a far/near `ratio`: inside its own range, to the
+ *  solver's own slack read in the ratio's units (see solveTurnModel's miss
+ *  check). */
+function runHolds(run: { ratios: [number, number] }, ratio: number): boolean {
+  return (
+    ratio >= run.ratios[0] - TURN_DEPTH_EPS &&
+    ratio <= run.ratios[1] + TURN_DEPTH_EPS
+  );
 }
 
 /** The sweep's feasible radii, split where it skipped one. A caller-measured
@@ -3249,9 +3800,11 @@ interface TurnRatioCluster {
  *  ratios a radius can be fitted to move with it — and a far/near ratio that
  *  falls in the gap between two runs is attainable on neither, so the two must
  *  not be bracketed across. */
-function ratioClusters(candidates: SweptCandidate[]): TurnRatioCluster[] {
-  const clusters: TurnRatioCluster[] = [];
-  let run: SweptCandidate[] = [];
+function ratioClusters<C extends { sweepIndex: number; ratio: number }>(
+  candidates: C[],
+): TurnRatioCluster<C>[] {
+  const clusters: TurnRatioCluster<C>[] = [];
+  let run: C[] = [];
   const close = () => {
     if (run.length === 0) return;
     const ratios = run.map((c) => c.ratio);
@@ -3293,11 +3846,16 @@ function ratioClusters(candidates: SweptCandidate[]): TurnRatioCluster[] {
  * a pair it cannot see: the bisection stops when it lands on a refused radius,
  * and `solveTurnModel` checks what this actually reached against the target
  * rather than trusting it.
+ *
+ * `accept` is which candidates the caller will ship (`bisectTurnRadius`):
+ * strand feasibility when the cluster is `strandPreferredCandidates`' pool,
+ * every candidate otherwise.
  */
 function fitTurnRadius(
   ctx: TurnSolveContext,
   candidates: SweptCandidate[],
   target: number,
+  accept: (candidate: TurnCandidate) => boolean,
 ): TurnCandidate {
   // The cluster's whole span, narrowed to the bracketing pair — there is one
   // whenever the target sits inside its own ratio range.
@@ -3313,14 +3871,93 @@ function fitTurnRadius(
       break;
     }
   }
+  return bisectTurnRadius(
+    lo,
+    hi,
+    target,
+    (radius) => {
+      const mid = evaluateTurnCandidate(ctx, radius);
+      return "blocked" in mid ? undefined : mid;
+    },
+    accept,
+  );
+}
+
+/**
+ * The geometric bisection inside a bracketing pair of radii: each mid is the
+ * two ends' geometric mean, matching the log-spaced sweep, and replaces the
+ * end on its own side of `target`'s ratio.
+ *
+ * The ratio steers every step, whether or not the caller would ship the mid
+ * (`accept`): a mid it rejects still has a far/near ratio, so it still says
+ * which half holds the target, and a rejected stretch between two accepted
+ * ends cannot end the search early — it converges on the radius whose ratio
+ * IS the target, wherever that lies in the bracket. Only a mid that yields no
+ * candidate at all (`evaluate` returns undefined — a radius the targets
+ * refuse) stops it and keeps the pair it has.
+ *
+ * It returns the nearer of the final two ends when both are accepted — the
+ * whole answer when every candidate is — and otherwise the accepted candidate
+ * it evaluated whose ratio came nearest, ends included; the caller checks
+ * that against the target rather than trusting it. The two ends passed in
+ * have to be accepted.
+ *
+ * Exported at module level for its own test, not from the package: that test
+ * needs a rejected stretch strictly inside an accepted bracket around an
+ * accepted target radius, which no layer fixture can be built to guarantee —
+ * where a strand bound holds along the radius falls out of the whole solve.
+ */
+export function bisectTurnRadius<C extends { radius: number; ratio: number }>(
+  lo: C,
+  hi: C,
+  target: number,
+  evaluate: (radius: number) => C | undefined,
+  accept: (candidate: C) => boolean,
+): C {
+  if (!accept(lo) || !accept(hi)) {
+    throw new Error(
+      "auto-rig: bisectTurnRadius: a bracket end is not accepted",
+    );
+  }
+  const miss = (c: C) => Math.abs(c.ratio - target);
+  let nearest = miss(lo) <= miss(hi) ? lo : hi;
   for (let i = 0; i < TURN_BISECT_STEPS; i++) {
-    const mid = evaluateTurnCandidate(ctx, Math.sqrt(lo.radius * hi.radius));
+    const mid = evaluate(Math.sqrt(lo.radius * hi.radius));
     // A gap in the feasible set inside the bracket: keep the pair we have.
-    if ("blocked" in mid) break;
+    if (mid === undefined) break;
+    if (accept(mid) && miss(mid) < miss(nearest)) nearest = mid;
     if ((mid.ratio - target) * (lo.ratio - target) <= 0) hi = mid;
     else lo = mid;
   }
-  return Math.abs(lo.ratio - target) <= Math.abs(hi.ratio - target) ? lo : hi;
+  if (accept(lo) && accept(hi)) return miss(lo) <= miss(hi) ? lo : hi;
+  return nearest;
+}
+
+/**
+ * The candidates the far/near fit should try first: the strand-feasible ones
+ * (`TurnCandidate.strandFeasible`) when one of their own unbroken sweep runs
+ * (`ratioClusters`) holds `farEyeRatio`, and every candidate otherwise — the
+ * whole array itself when all are feasible, as they are without strands. The
+ * pool only chooses the bracket's two ends; `solveTurnModel` keeps what it
+ * fits only when that meets the ratio, so the preference picks among radii
+ * that render the same far/near ratio and never costs a target.
+ *
+ * Exported at module level for its own test, not from the package: the pool
+ * changes which radius is fitted only when two sweep runs hold the same
+ * far/near ratio, or the ratio turns back on itself inside one — within a run
+ * whose ratio is monotone in the radius both pools bracket the target with
+ * the same two samples — and on every layer fixture probed the ratio rose
+ * monotonically with the radius, so none reaches it through the solver.
+ */
+export function strandPreferredCandidates<
+  C extends { sweepIndex: number; ratio: number; strandFeasible: boolean },
+>(candidates: C[], farEyeRatio: number): C[] {
+  const feasible = candidates.filter((c) => c.strandFeasible);
+  if (feasible.length === candidates.length) return candidates;
+  const holds = ratioClusters(feasible).some((run) =>
+    runHolds(run, farEyeRatio),
+  );
+  return holds ? feasible : candidates;
 }
 
 /**
@@ -3373,9 +4010,10 @@ function solveFeatureDepths(
  * separate: how far the eye pair slides depends on the radius (through the unit
  * and the map), and how much the far eye foreshortens depends on where the
  * slide put it. For a candidate radius the eye depth is whatever hits
- * `eyeShift` on that radius' own map — or, for a DEFAULTED eyeShift the bounds
- * cut short, as much of it as that radius allows — and the far/near width ratio
- * that falls out of it is the residual `fitTurnRadius` drives to `farEyeRatio`.
+ * `eyeShift` on that radius' own map — or, for an eyeShift the art's room cuts
+ * short (and a DEFAULTED one below the floor), as much of it as that radius
+ * allows — and the far/near width ratio that falls out of it is the residual
+ * `fitTurnRadius` drives to `farEyeRatio`.
  *
  * Everything is measured on the SAME surface the rig is baked from — the
  * piecewise-linear map `turnColumnMap` builds from the lattice's own columns
@@ -3385,12 +4023,23 @@ function solveFeatureDepths(
  * evaluates. The solved surface is returned for the bakes to sample.
  *
  * A target that does not fit is clamped when it was a default and refused when
- * the caller measured it; see TurnTargets. Clamping the EYE SHIFT keeps the
- * radius search intact on purpose: the shift is bounded by the art (the far eye
- * has to stay on the plate), so trading the foreshortening cue away to buy the
+ * the caller measured it — except an eye shift the art's room cuts short,
+ * which is clamped whoever passed it; see TurnTargets. Clamping the EYE SHIFT
+ * keeps the radius search intact on purpose: the shift is bounded by the art
+ * (the far eye has to stay on the plate, and with `strandEdges` out from under
+ * the bangs' side strands), so trading the foreshortening cue away to buy the
  * last few pixels of slide would flatten the cylinder — on the reference
  * character, to the sweep's ceiling — and a head that does not foreshorten does
  * not read as turning at all.
+ *
+ * With `strandEdges`, the far/near ratio is fitted among the strand-feasible
+ * radii first — the ones where some eye depth keeps every far iris no deeper
+ * under its run than it is painted — when one of their unbroken runs holds the
+ * ratio (`strandPreferredCandidates`). That fit is kept only when it meets the
+ * ratio; otherwise the fit on every radius stands, where an infeasible radius
+ * ships with the eyes' depth at 0 and `strandOverlap` saying how much of each
+ * far iris the bangs still cover. So the preference never costs a target and
+ * never refuses a rig: it only picks among radii that render the same ratio.
  */
 export function solveTurnModel(
   targets: ResolvedTurnTargets,
@@ -3429,6 +4078,10 @@ export function solveTurnModel(
     left: { role: string; x: number }[];
     right: { role: string; x: number }[];
   },
+  /** Each side's iris and the bangs' run it would slide under, as measured
+   *  pixel edges on the iris row (`IrisStrand`) — what the strand bound caps
+   *  the eye family's depth by. See `TurnSolveContext.strands`. */
+  strandEdges?: { left?: IrisStrand; right?: IrisStrand },
 ): TurnModelSolution {
   // A measured head narrower than the face it is drawn around is not a head the
   // rest of this can make sense of: the hold's whole zone lives outside the
@@ -3443,6 +4096,40 @@ export function solveTurnModel(
   }
 
   const eyeRowY = eyeRowOf(landmarks, faceCenterY);
+
+  // Each measured side on its own iris's carrier, the irises paired to sides
+  // by where they render rather than by role name. The generator validated
+  // the option against the layers first, so a side with no iris to land or a
+  // run with no bangs to land it on is a broken invariant here.
+  let strands: TurnSolveContext["strands"];
+  const strandSides = (["left", "right"] as const).filter(
+    (key) => strandEdges?.[key] !== undefined,
+  );
+  if (strandSides.length > 0) {
+    if (hairFront === undefined) {
+      throw new Error(
+        "auto-rig: solveTurnModel: strandEdges was given, but there is no hair_front to land its runs on",
+      );
+    }
+    const irises = ["iris_L", "iris_R"]
+      .map((role) => carriers.get(role))
+      .filter((c): c is TurnCarrier => c !== undefined)
+      .sort((a, b) => a.part.x - b.part.x);
+    strands = strandSides.map((key) => {
+      const carrier =
+        irises.length === 2 ? irises[key === "left" ? 0 : 1] : undefined;
+      if (carrier === undefined) {
+        throw new Error(
+          `auto-rig: solveTurnModel: strandEdges.${key} has no iris carrier to land`,
+        );
+      }
+      return {
+        ...strandEdges![key]!,
+        side: key === "left" ? -1 : 1,
+        carrier,
+      };
+    });
+  }
 
   const ctx: TurnSolveContext = {
     landmarks,
@@ -3480,8 +4167,8 @@ export function solveTurnModel(
     hairFrontSilhouette: hairFront,
     // A companion to a MEASURED headHalfWidth only — see its own doc.
     headEdges: targets.headHalfWidth === undefined ? undefined : headEdges,
+    strands,
   };
-  const clamped: (keyof TurnTargets)[] = [];
   const clampInto = (value: number, [lo, hi]: [number, number]) =>
     Math.min(Math.max(value, lo), hi);
 
@@ -3498,9 +4185,11 @@ export function solveTurnModel(
         `auto-rig: headEdges: no sampled radius carries the turn — the silhouette and the depths its headEdges owners ride on did not settle within ${TURN_SETTLE_PASSES} passes at ${pass.unsettled} of the ${TURN_SWEEP_SAMPLES} radii${refused > 0 ? `, and the targets refused the other ${refused}` : ""}`,
       );
     }
-    // Either gate can empty the sweep, and only a MEASURED target can: the
-    // shift, because a defaulted one is clamped per radius rather than gated,
-    // and the silhouette, because a defaulted ratio of 1 leaves the hold edge
+    // Either gate can empty the sweep, and only a MEASURED target can. The
+    // shift, only by asking for LESS than the pair's own drift at depth 0
+    // (the floor): a defaulted one is clamped per radius rather than gated,
+    // and one the art's room cuts short at the cap is clamped whoever passed
+    // it. The silhouette, because a defaulted ratio of 1 leaves the hold edge
     // at its own rest distance — without a measured head that distance is the
     // plate's own scanned reach plus a pixel (`plateReach`), which clears every
     // stop by construction, and with one it is the head the slide is capped to
@@ -3534,126 +4223,166 @@ export function solveTurnModel(
         };
   }
 
-  // The radii that survived, in unbroken runs of the sweep: a far/near ratio
-  // between two runs is one no radius produces, so the fit is confined to the
-  // run that covers the target and a target no run covers is out of reach
-  // rather than bisected across the gap. Defaults leave every radius standing
-  // and so leave exactly one run — the gaps are what a CALLER-measured cue
-  // opens (see evaluateTurnCandidate): a silhouette no hold at that radius
-  // renders, or an eye shift the pair's own drift there already overshoots,
-  // neither of which is monotone in the radius.
-  const clusters = ratioClusters(pass.candidates);
-  const distanceTo = (c: TurnRatioCluster) =>
-    Math.max(
-      c.ratios[0] - targets.farEyeRatio,
-      targets.farEyeRatio - c.ratios[1],
-      0,
-    );
-  let farEyeRatio = targets.farEyeRatio;
-  let cluster = clusters.find(
-    (c) =>
-      farEyeRatio >= c.ratios[0] - TURN_DEPTH_EPS &&
-      farEyeRatio <= c.ratios[1] + TURN_DEPTH_EPS,
-  );
-  if (cluster === undefined) {
-    // What a caller could have asked for instead is one run's own range, not
-    // the span across the gaps: every ratio inside it is one this sweep
-    // reaches. The nearest run is the one to name.
-    cluster = clusters.reduce((a, b) =>
-      distanceTo(b) < distanceTo(a) ? b : a,
-    );
-    if (!targets.defaulted.has("farEyeRatio")) {
-      return {
-        unreachable: true,
-        field: "farEyeRatio",
-        value: targets.farEyeRatio,
-        attainable: cluster.ratios,
-      };
+  /** The whole post-sweep fit on one pool of candidates — its runs, the
+   *  radius fitted inside the one that holds the far/near ratio, and every
+   *  verdict on what that radius reached — with `accept` the candidates the
+   *  bisection may ship (`fitTurnRadius`). */
+  const fitFrom = (
+    pool: SweptCandidate[],
+    accept: (candidate: TurnCandidate) => boolean,
+  ): TurnModelSolution => {
+    const clamped: (keyof TurnTargets)[] = [];
+    // The radii that survived, in unbroken runs of the sweep: a far/near
+    // ratio between two runs is one no radius produces, so the fit is
+    // confined to the run that covers the target and a target no run covers
+    // is out of reach rather than bisected across the gap. Defaults leave
+    // every radius standing and so leave exactly one run — the gaps are what
+    // a CALLER-measured cue opens (see evaluateTurnCandidate): a silhouette
+    // no hold at that radius renders, or an eye shift below the pair's own
+    // drift there, neither of which is monotone in the radius. (A caller's
+    // shift the art's room cuts short opens none: it is clamped, so it
+    // leaves the far/near ratio fitted across the same radii a default
+    // does.)
+    const clusters = ratioClusters(pool);
+    const distanceTo = (c: TurnRatioCluster) =>
+      Math.max(
+        c.ratios[0] - targets.farEyeRatio,
+        targets.farEyeRatio - c.ratios[1],
+        0,
+      );
+    let farEyeRatio = targets.farEyeRatio;
+    let cluster = clusters.find((c) => runHolds(c, farEyeRatio));
+    if (cluster === undefined) {
+      // What a caller could have asked for instead is one run's own range,
+      // not the span across the gaps: every ratio inside it is one this
+      // sweep reaches. The nearest run is the one to name.
+      cluster = clusters.reduce((a, b) =>
+        distanceTo(b) < distanceTo(a) ? b : a,
+      );
+      if (!targets.defaulted.has("farEyeRatio")) {
+        return {
+          unreachable: true,
+          field: "farEyeRatio",
+          value: targets.farEyeRatio,
+          attainable: cluster.ratios,
+        };
+      }
+      farEyeRatio = clampInto(farEyeRatio, cluster.ratios);
+      clamped.push("farEyeRatio");
     }
-    farEyeRatio = clampInto(farEyeRatio, cluster.ratios);
-    clamped.push("farEyeRatio");
-  }
 
-  const best = fitTurnRadius(ctx, cluster.candidates, farEyeRatio);
-  // What the fit actually reached, against what it was asked for: inside a run
-  // the ratio is continuous, but the bisection can still stop on a radius the
-  // silhouette gate refuses — a gap finer than the sweep resolves — and land
-  // on a bracket end instead. A miss is refused or reported, never passed off
-  // as met. The tolerance is solveTurnDepthSigned's own slack read in this
-  // cue's own units, which are already dimensionless: the far/near ratio is a
-  // width over a width, so there is no px scale to divide it by.
-  if (Math.abs(best.ratio - farEyeRatio) > TURN_DEPTH_EPS) {
-    if (!targets.defaulted.has("farEyeRatio")) {
-      return {
-        unreachable: true,
-        field: "farEyeRatio",
-        value: targets.farEyeRatio,
-        attainable: cluster.ratios,
-      };
+    const best = fitTurnRadius(ctx, cluster.candidates, farEyeRatio, accept);
+    // What the fit actually reached, against what it was asked for: inside a
+    // run the ratio is continuous, but the bisection can still stop on a
+    // radius the silhouette gate refuses — a gap finer than the sweep
+    // resolves — and land on a bracket end instead, or converge on a radius
+    // `accept` turns down and fall back to the nearest one it accepts. A
+    // miss is refused or reported, never passed off as met. The tolerance is
+    // solveTurnDepthSigned's own slack read in this cue's own units, which
+    // are already dimensionless: the far/near ratio is a width over a width,
+    // so there is no px scale to divide it by.
+    if (Math.abs(best.ratio - farEyeRatio) > TURN_DEPTH_EPS) {
+      if (!targets.defaulted.has("farEyeRatio")) {
+        return {
+          unreachable: true,
+          field: "farEyeRatio",
+          value: targets.farEyeRatio,
+          attainable: cluster.ratios,
+        };
+      }
+      if (!clamped.includes("farEyeRatio")) clamped.push("farEyeRatio");
     }
-    if (!clamped.includes("farEyeRatio")) clamped.push("farEyeRatio");
-  }
-  if (!best.eye.reached) clamped.push("eyeShift");
-  // Only a DEFAULTED silhouette can be here cut down: the fit lands a
-  // caller-measured one or refuses the radius outright (evaluateTurnCandidate),
-  // so a ratio that reached this point was either rendered as asked — nothing
-  // to report — or is this generator's own default, cut to the nearest ratio a
-  // render of this layer set can show.
-  if (best.silhouetteClamped) clamped.push("silhouetteRatio");
-  // Undo the same silhouette-centre correction the depth was solved with (see
-  // evaluateTurnCandidate), so this reports the cue measure_turn_reference
-  // would read off a render — eye position against that pose's OWN silhouette
-  // centre — not the raw landmark slide against the fixed face centre.
-  const eyeShift = (-best.eye.achieved + best.silhouetteCenterShift) / ctx.hh;
+    // Cut short at either end: a default at the floor or the cap, or a
+    // caller's at the cap — the plate's edge or the strand bound, depth 0
+    // where the bound cannot hold (a caller's below the floor never gets
+    // here; its radii were refused).
+    if (!best.eye.reached) clamped.push("eyeShift");
+    // Only a DEFAULTED silhouette can be here cut down: the fit lands a
+    // caller-measured one or refuses the radius outright
+    // (evaluateTurnCandidate), so a ratio that reached this point was either
+    // rendered as asked — nothing to report — or is this generator's own
+    // default, cut to the nearest ratio a render of this layer set can show.
+    if (best.silhouetteClamped) clamped.push("silhouetteRatio");
+    // Undo the same silhouette-centre correction the depth was solved with
+    // (see evaluateTurnCandidate), so this reports the cue
+    // measure_turn_reference would read off a render — eye position against
+    // that pose's OWN silhouette centre — not the raw landmark slide against
+    // the fixed face centre.
+    const eyeShift = (-best.eye.achieved + best.silhouetteCenterShift) / ctx.hh;
 
-  // The nose's and the mouth's depths were solved on this candidate along
-  // with the eyes' (solveFeatureDepths); what is left is the verdict the eye
-  // bound got above — a measured target the bounds cut short is refused, a
-  // derived one is clamped and says so.
-  for (const [field, solution] of [
-    ["noseShift", best.nose],
-    ["mouthShift", best.mouth],
-  ] as const) {
-    if (solution.reached) continue;
-    if (!targets.defaulted.has(field)) {
-      return {
-        unreachable: true,
-        field,
-        value: targets[field],
-        // noseShift/mouthShift are MAGNITUDES too (see solveFeatureDepths),
-        // so a negative lower bound here would advertise a value the field's
-        // own contract already rules out; 0 is the true floor.
-        attainable: [
-          Math.max(
-            0,
-            (-solution.attainable[1] + best.silhouetteCenterShift) / ctx.hh,
-          ),
-          (-solution.attainable[0] + best.silhouetteCenterShift) / ctx.hh,
-        ],
-      };
+    // The nose's and the mouth's depths were solved on this candidate along
+    // with the eyes' (solveFeatureDepths); what is left is their verdict — a
+    // measured target the bounds cut short, at either end, is refused, a
+    // derived one is clamped and says so.
+    for (const [field, solution] of [
+      ["noseShift", best.nose],
+      ["mouthShift", best.mouth],
+    ] as const) {
+      if (solution.reached) continue;
+      if (!targets.defaulted.has(field)) {
+        return {
+          unreachable: true,
+          field,
+          value: targets[field],
+          // noseShift/mouthShift are MAGNITUDES too (see
+          // solveFeatureDepths), so a negative lower bound here would
+          // advertise a value the field's own contract already rules out; 0
+          // is the true floor.
+          attainable: [
+            Math.max(
+              0,
+              (-solution.attainable[1] + best.silhouetteCenterShift) / ctx.hh,
+            ),
+            (-solution.attainable[0] + best.silhouetteCenterShift) / ctx.hh,
+          ],
+        };
+      }
+      clamped.push(field);
     }
-    clamped.push(field);
-  }
 
-  return {
-    unreachable: false,
-    radius: best.radius,
-    holdBase: best.holdBase,
-    holdEdgeAt: best.holdEdgeAt,
-    travel: best.travel,
-    surface: best.surface,
-    depths: {
-      eye: best.eye.depth,
-      nose: best.nose.depth,
-      mouth: best.mouth.depth,
-    },
-    achieved: {
-      eyeShift,
-      farEyeRatio: best.ratio,
-      silhouetteRatio: best.renderedSilhouetteRatio,
-    },
-    clamped,
+    return {
+      unreachable: false,
+      radius: best.radius,
+      holdBase: best.holdBase,
+      holdEdgeAt: best.holdEdgeAt,
+      travel: best.travel,
+      surface: best.surface,
+      depths: {
+        eye: best.eye.depth,
+        nose: best.nose.depth,
+        mouth: best.mouth.depth,
+      },
+      achieved: {
+        eyeShift,
+        farEyeRatio: best.ratio,
+        silhouetteRatio: best.renderedSilhouetteRatio,
+      },
+      clamped,
+      ...(best.strandOverlap === undefined
+        ? {}
+        : { strandOverlap: best.strandOverlap }),
+    };
   };
+
+  // The strand-feasible radii first, when one of their runs holds the
+  // far/near ratio. That pool only chooses the bracket; what it fits is kept
+  // only when it meets the ratio — neither refused nor clamping farEyeRatio,
+  // i.e. the radius that renders the target is itself feasible — and
+  // otherwise the fit on every candidate stands, which is the fit without
+  // the preference. So the preference never costs a target and never
+  // refuses: it only chooses among radii that render the same far/near
+  // ratio. Without strands every candidate is feasible and this is that fit.
+  const preferred = strandPreferredCandidates(
+    pass.candidates,
+    targets.farEyeRatio,
+  );
+  if (preferred !== pass.candidates) {
+    const fitted = fitFrom(preferred, (c) => c.strandFeasible);
+    if (!fitted.unreachable && !fitted.clamped.includes("farEyeRatio")) {
+      return fitted;
+    }
+  }
+  return fitFrom(pass.candidates, () => true);
 }
 
 // ── bindingsForRole ───────────────────────────────────────────────────────────
@@ -5025,9 +5754,17 @@ function solveInputsOf(s: TurnSetup): TurnSolveInputs {
  * `options.turnTargets` is what the head turn is fitted to: the cues a 30°
  * reference measures, defaulting to DEFAULT_TURN_TARGETS. A target the CALLER
  * passed that this layer set cannot reach throws; one that came from the
- * defaults is clamped to what it can do — see TurnTargets for why the two
- * differ, and pass `options.onTurnSolved` to see which ones were clamped and
- * what the turn ended up reaching.
+ * defaults is clamped to what it can do, and so is a caller's `eyeShift` past
+ * the room the art leaves the far eye — see TurnTargets for why, and pass
+ * `options.onTurnSolved` to see which ones were clamped and what the turn
+ * ended up reaching.
+ *
+ * `options.strandEdges` gives each side's iris and the bangs' run it would
+ * slide under as measured pixel edges (`IrisStrand`), and with it the turn
+ * keeps each far iris from sliding under that run any further than it is
+ * painted, best effort: where no radius the fit can use holds that, the rig
+ * is still built, with the eyes' depth at 0, and the report's
+ * `strandOverlap` says how much of the iris the bangs cover.
  */
 export function generateIkiFromLayerSet(
   layers: LayerInput[],
@@ -5045,10 +5782,31 @@ export function generateIkiFromLayerSet(
       left: { role: string; x: number }[];
       right: { role: string; x: number }[];
     };
+    /** Per side (`left` the −x side, `right` the +x side, like `headEdges`),
+     *  that side's iris and the bangs' run it would slide under on the turn,
+     *  as real pixel edges on the row holding the iris's centre — see
+     *  `IrisStrand` for the contract and its three cases (a strand outward of
+     *  a clear iris, a run over the iris centre that clears on the face side,
+     *  a fringe spanning the face). A side's iris is whichever of `iris_L` /
+     *  `iris_R` sits on that side; the sides are independent, so either may
+     *  be absent. With it the turn keeps each far iris from sliding under its
+     *  run any further than it is painted, best effort: never a refusal. The
+     *  report's `strandOverlap` gives, per side whose far iris the run still
+     *  covers at some far stop, the covered width at the stop where it is
+     *  largest, next to the painted one, and whether the bound held — `true`
+     *  for an iris painted under its run that the turn took no deeper,
+     *  `false` where the fitted radius could not hold it and the eyes' turn
+     *  depth is 0. It is always
+     *  validated against the layers first (`validateStrandEdges`), but only
+     *  the turn solve reads it, so like `headEdges` it has no effect on the
+     *  rig without a nose; absent or `{}`, the rig is the one built without
+     *  it. */
+    strandEdges?: { left?: IrisStrand; right?: IrisStrand };
   } = {},
 ): IkiModel {
   // Validate first — never derive anything from unchecked input.
   validateLayerInputs(layers, canvas);
+  validateStrandEdges(layers, options.strandEdges);
 
   // Hair-sway secondary motion is gated on a front-hair layer being present.
   const hasHair = layers.some((l) => l.role === "hair_front");
@@ -5113,6 +5871,7 @@ export function generateIkiFromLayerSet(
         resolveTurnTargets(options.turnTargets),
         ...solveInputsOf(setup),
         options.headEdges,
+        options.strandEdges,
       )
     : undefined;
   if (turn?.unreachable) {
@@ -5132,6 +5891,9 @@ export function generateIkiFromLayerSet(
       depths: turn.depths,
       achieved: turn.achieved,
       clamped: turn.clamped,
+      ...(turn.strandOverlap === undefined
+        ? {}
+        : { strandOverlap: turn.strandOverlap }),
     });
   }
   // The analytic head every bake below samples — every group's grid, the

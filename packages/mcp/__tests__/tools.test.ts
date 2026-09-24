@@ -17,6 +17,7 @@ import {
   autoRigFromLayers,
   type AutoRigTurnTargets,
 } from "../src/tools";
+import type { IrisStrand } from "@ikijs/editor";
 
 // Minimal valid model used across several tests.
 function validModel() {
@@ -1034,22 +1035,315 @@ describe("autoRigFromLayers", () => {
     );
   });
 
-  it("returns { ok:false } for a turn target this layer set cannot reach", async () => {
+  it("clamps a passed eyeShift past the room the face plate leaves the far eye, and still refuses one below the face's own slide", async () => {
     const dir = tmpDir();
-    const paths = await writeTurnLayers(dir);
+    const layers = (await writeTurnLayers(dir)).map((p) => ({ path: p }));
 
+    // Half the head half-width would slide the far eye off the face plate:
+    // the art's room, so the rig is built with the shift cut to it and says
+    // so, as it would for a default.
+    const past = await autoRigFromLayers({
+      layers,
+      outputPath: path.join(dir, "past.iki"),
+      turnTargets: { eyeShift: 0.5 },
+    });
+    expect(past.ok).toBe(true);
+    if (!past.ok) return;
+    expect(past.turn!.clamped).toContain("eyeShift");
+    expect(past.turn!.achieved.eyeShift).toBeLessThan(0.5);
+
+    // Below the slide the face's own turn already gives the eyes (attainable
+    // 0.06609…0.36505 here): no depth reaches it, so it is refused.
+    const below = await autoRigFromLayers({
+      layers,
+      outputPath: path.join(dir, "below.iki"),
+      turnTargets: { eyeShift: 0.01 },
+    });
+    expect(below.ok).toBe(false);
+    if (below.ok) return;
+    expect(below.error).toMatch(/turnTargets\.eyeShift/);
+    expect(below.error).toMatch(/unreachable/);
+    expect(below.error).toMatch(/attainable/);
+  });
+
+  // ── the iris strand ──────────────────────────────────────────────────────
+
+  // A full-canvas transparent PNG with several opaque rects on it — one layer
+  // painted in separate pieces, as bangs with two side strands are.
+  async function writeRectsPng(
+    dir: string,
+    name: string,
+    rects: {
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      rgb?: { r: number; g: number; b: number };
+    }[],
+  ): Promise<string> {
+    const filePath = path.join(dir, name);
+    const overlays = await Promise.all(
+      rects.map(async (rect) => ({
+        input: await sharp({
+          create: {
+            width: rect.w,
+            height: rect.h,
+            channels: 4,
+            background: {
+              ...(rect.rgb ?? { r: 200, g: 120, b: 60 }),
+              alpha: 1,
+            },
+          },
+        })
+          .png()
+          .toBuffer(),
+        left: rect.x,
+        top: rect.y,
+      })),
+    );
+    await sharp({
+      create: {
+        width: CANVAS,
+        height: CANVAS,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .composite(overlays)
+      .png()
+      .toFile(filePath);
+    return filePath;
+  }
+
+  // Opaque irises inside writeRequiredLayers()' whites: columns 33..38 and
+  // 61..66, rows 36..41 — each one's centre row 39 (model y 10.5) and centre
+  // column 36 / 64 (the alpha-bbox grown by a pixel: 32..39, 60..67).
+  async function writeIrises(dir: string): Promise<string[]> {
+    return [
+      await writeLayerPng(dir, "iris_L.png", { x: 33, y: 36, w: 6, h: 6 }),
+      await writeLayerPng(dir, "iris_R.png", { x: 61, y: 36, w: 6, h: 6 }),
+    ];
+  }
+
+  // writeNoseLayers() + those irises, under bangs painted as strands on rows
+  // 25..55 at the given column ranges (inclusive) — or writeRequiredLayers()
+  // + those irises when `nose` is false, a set that solves no turn.
+  async function writeStrandLayers(
+    dir: string,
+    strands: [number, number][],
+    nose = true,
+  ): Promise<string[]> {
+    return [
+      ...(await (nose ? writeNoseLayers(dir) : writeRequiredLayers(dir))),
+      ...(await writeIrises(dir)),
+      await writeRectsPng(
+        dir,
+        "hair_front.png",
+        strands.map(([from, to]) => ({
+          x: from,
+          y: 25,
+          w: to - from + 1,
+          h: 31,
+          rgb: { r: 8, g: 6, b: 10 },
+        })),
+      ),
+    ];
+  }
+
+  it("measures each iris against the side strand outward of it, as pixel edges on the iris's own row", async () => {
+    const dir = tmpDir();
+    const paths = await writeStrandLayers(dir, [
+      [10, 27],
+      [72, 89],
+    ]);
     const result = await autoRigFromLayers({
       layers: paths.map((p) => ({ path: p })),
       outputPath: path.join(dir, "model.iki"),
-      // Half the head half-width would slide the far eye off the face plate.
-      turnTargets: { eyeShift: 0.5 },
     });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Model x is canvas x minus 50: the iris on 33..38 spans −17…−11, the
+    // strand on 10..27 −40…−22, each edge the boundary facing a clear pixel.
+    expect(result.strandEdges).toEqual({
+      left: {
+        y: 10.5,
+        irisOuter: -17,
+        irisInner: -11,
+        runOuter: -40,
+        runFace: -22,
+      },
+      right: {
+        y: 10.5,
+        irisOuter: 17,
+        irisInner: 11,
+        runOuter: 40,
+        runFace: 22,
+      },
+    });
+    expect(result.turn).toBeDefined();
+  });
 
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error).toMatch(/turnTargets\.eyeShift/);
-    expect(result.error).toMatch(/unreachable/);
-    expect(result.error).toMatch(/attainable/);
+  it("measures a run over the iris centre by where it clears on the face side", async () => {
+    const dir = tmpDir();
+    // Each strand covers its iris's centre column (36, 64) and clears before
+    // the other's.
+    const paths = await writeStrandLayers(dir, [
+      [10, 37],
+      [62, 89],
+    ]);
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.strandEdges).toEqual({
+      left: {
+        y: 10.5,
+        irisOuter: -17,
+        irisInner: -11,
+        runOuter: -40,
+        runFace: -12,
+      },
+      right: {
+        y: 10.5,
+        irisOuter: 17,
+        irisInner: 11,
+        runOuter: 40,
+        runFace: 12,
+      },
+    });
+    expect(result.turn).toBeDefined();
+  });
+
+  it("measures a fringe spanning the face as a run with no face-side end, and still rigs, saying how much of each iris it covers", async () => {
+    const dir = tmpDir();
+    // writeTurnLayers()' bangs span columns 10..89, across both iris centres.
+    const paths = [
+      ...(await writeTurnLayers(dir)),
+      ...(await writeIrises(dir)),
+    ];
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.strandEdges).toEqual({
+      left: {
+        y: 10.5,
+        irisOuter: -17,
+        irisInner: -11,
+        runOuter: -40,
+        runFace: null,
+      },
+      right: {
+        y: 10.5,
+        irisOuter: 17,
+        irisInner: 11,
+        runOuter: 40,
+        runFace: null,
+      },
+    });
+    expect(result.headHalfWidth).toBe(40);
+    for (const side of ["left", "right"] as const) {
+      const entry = result.turn!.strandOverlap?.[side];
+      expect(entry?.held, side).toBe(false);
+      // The whole painted iris row, columns 33..38.
+      expect(entry?.restPx, side).toBe(6);
+      expect(entry!.px, side).toBeGreaterThan(0);
+      expect(entry!.hh, side).toBeCloseTo(entry!.px / 40, 12);
+    }
+  });
+
+  // Model x is canvas x minus 50, so the −x iris's crop (32..39) is centred on
+  // −14, and a strand whose outer end is column 36 ends exactly on that
+  // centre. It covers the iris's face-side half only, so the far iris slides
+  // away from it: the run that side's iris would slide under is the strand
+  // further out, on both sides alike.
+  const onCentreStrands: [number, number][] = [
+    [10, 20],
+    [36, 45],
+    [72, 89],
+  ];
+  const mirroredStrands = onCentreStrands.map(
+    ([from, to]) => [CANVAS - 1 - to, CANVAS - 1 - from] as [number, number],
+  );
+  const mirrored = (s: IrisStrand): IrisStrand => ({
+    y: s.y,
+    irisOuter: -s.irisOuter,
+    irisInner: -s.irisInner,
+    runOuter: -s.runOuter,
+    runFace: s.runFace === null ? null : -s.runFace,
+  });
+
+  it("measures past a strand that ends on the iris centre, and its exact mirror alike", async () => {
+    const dir = tmpDir();
+    const onCentre = await autoRigFromLayers({
+      layers: (await writeStrandLayers(dir, onCentreStrands)).map((p) => ({
+        path: p,
+      })),
+      outputPath: path.join(dir, "on-centre.iki"),
+    });
+    expect(onCentre.ok).toBe(true);
+    if (!onCentre.ok) return;
+    expect(onCentre.strandEdges).toEqual({
+      left: {
+        y: 10.5,
+        irisOuter: -17,
+        irisInner: -11,
+        runOuter: -40,
+        runFace: -29,
+      },
+      right: {
+        y: 10.5,
+        irisOuter: 17,
+        irisInner: 11,
+        runOuter: 40,
+        runFace: 22,
+      },
+    });
+    expect(onCentre.turn).toBeDefined();
+
+    const mirrorDir = tmpDir();
+    const mirror = await autoRigFromLayers({
+      layers: (await writeStrandLayers(mirrorDir, mirroredStrands)).map(
+        (p) => ({ path: p }),
+      ),
+      outputPath: path.join(mirrorDir, "mirror.iki"),
+    });
+    expect(mirror.ok).toBe(true);
+    if (!mirror.ok) return;
+    expect(mirror.strandEdges).toEqual({
+      left: mirrored(onCentre.strandEdges!.right!),
+      right: mirrored(onCentre.strandEdges!.left!),
+    });
+    expect(mirror.turn).toBeDefined();
+  });
+
+  it("a layer set with no nose still rigs with that strand: its edges are validated, and no turn reads them", async () => {
+    const dir = tmpDir();
+    const result = await autoRigFromLayers({
+      layers: (await writeStrandLayers(dir, onCentreStrands, false)).map(
+        (p) => ({ path: p }),
+      ),
+      outputPath: path.join(dir, "model.iki"),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.strandEdges?.left?.runOuter).toBe(-40);
+    expect(result.turn).toBeUndefined();
+  });
+
+  it("measures no strand on a layer set without irises", async () => {
+    const dir = tmpDir();
+    const result = await autoRigFromLayers({
+      layers: (await writeTurnLayers(dir)).map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.strandEdges).toBeUndefined();
   });
 
   it("returns { ok:false } for a non-finite turn target, naming the field", async () => {

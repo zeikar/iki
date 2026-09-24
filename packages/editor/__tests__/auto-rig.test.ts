@@ -12,6 +12,7 @@ import {
   bakeTurnGroupWarp2D,
   bboxToTransform,
   bindingsForRole,
+  bisectTurnRadius,
   createPixelGridMesh,
   facePlate,
   faceRowProfile,
@@ -29,12 +30,15 @@ import {
   resolveTurnTargets,
   solveTurnDepth,
   solveTurnModel,
+  strandPreferredCandidates,
   turnColumnMap,
   turnLandmarks,
   turnSolveInputs,
   turnSurface,
   validateLayerInputs,
+  type IrisStrand,
   type LayerInput,
+  type StrandOverlap,
   type TurnSolveReport,
   type TurnTargets,
 } from "../src/auto-rig";
@@ -352,6 +356,11 @@ type HeadEdges = {
   left: { role: string; x: number }[];
   right: { role: string; x: number }[];
 };
+
+/** Mirror of the `strandEdges` shape `generateIkiFromLayerSet`'s options and
+ *  `solveTurnModel` declare inline: each side's iris and the bangs' run it
+ *  would slide under, on the iris row, in model coordinates. */
+type StrandEdges = { left?: IrisStrand; right?: IrisStrand };
 
 /**
  * The cues a generated rig actually renders at full turn, read off the landed
@@ -894,6 +903,118 @@ describe("validate", () => {
     expect(() =>
       validateLayerInputs(withProfile(minimalLayers(), rows), canvas),
     ).toThrow(/role "face" rowHalfWidths\[0\] is NaN/);
+  });
+
+  // ── strandEdges ───────────────────────────────────────────────────────────
+  // heroLikeLayers()' −x iris (iris_R) spans model x −149…−75 about −112 and
+  // rows 38…112 of model y, the other iris is centred on +112, and hair_front
+  // spans −331…331 and model y −486…505.
+
+  /** `generateIkiFromLayerSet` on `layers` with `HERO_STRAND.left` changed by
+   *  `change`, as the only side. */
+  const rigWithLeft =
+    (change: Partial<IrisStrand>, layers: LayerInput[] = heroLikeLayers()) =>
+    () =>
+      generateIkiFromLayerSet(layers, canvas1100, {
+        strandEdges: { left: { ...HERO_STRAND.left, ...change } },
+      });
+
+  it("strandEdges: a non-finite runFace throws naming the side and the field", () => {
+    expect(rigWithLeft({ runFace: Number.NaN })).toThrow(
+      /^auto-rig: validateStrandEdges: strandEdges\.left\.runFace is NaN, not a finite number or null$/,
+    );
+  });
+
+  it("strandEdges: a runFace past the other iris's centre throws naming the side and the field", () => {
+    expect(rigWithLeft({ runFace: 120 })).toThrow(
+      /strandEdges\.left\.runFace \(120\) must lie strictly on this side of the "iris_L" crop's centre \(112\)/,
+    );
+  });
+
+  it("strandEdges: a runFace outside hair_front's crop throws naming the side and the field", () => {
+    expect(rigWithLeft({ runFace: -400 })).toThrow(
+      /strandEdges\.left\.runFace \(-400\) lies outside the "hair_front" crop's columns/,
+    );
+  });
+
+  it("strandEdges: a runOuter inward of its runFace throws naming the side and the field", () => {
+    expect(rigWithLeft({ runOuter: -150 })).toThrow(
+      /strandEdges\.left\.runOuter \(-150\) must lie strictly outward of strandEdges\.left\.runFace \(-160\)/,
+    );
+  });
+
+  it("strandEdges: a spanning run whose runOuter is inward of its own iris's centre throws naming the side and the field", () => {
+    expect(rigWithLeft({ runOuter: -100, runFace: null })).toThrow(
+      /strandEdges\.left\.runOuter \(-100\) must lie strictly outward of the "iris_R" crop's centre \(-112\)/,
+    );
+  });
+
+  it("strandEdges: iris edges off their own iris throw naming the side and the field", () => {
+    expect(rigWithLeft({ irisOuter: -60 })).toThrow(
+      /strandEdges\.left\.irisOuter \(-60\) lies outside the "iris_R" crop's columns/,
+    );
+    expect(rigWithLeft({ irisInner: -150 })).toThrow(
+      /strandEdges\.left\.irisInner \(-150\) lies outside the "iris_R" crop's columns/,
+    );
+  });
+
+  it("strandEdges: iris edges inside their iris but in the wrong order throw naming the side and the field", () => {
+    expect(rigWithLeft({ irisOuter: -140, irisInner: -145 })).toThrow(
+      /strandEdges\.left\.irisOuter \(-140\) must lie strictly outward of strandEdges\.left\.irisInner \(-145\)/,
+    );
+  });
+
+  it("strandEdges: a row outside the iris's or hair_front's crop throws naming the side and the field", () => {
+    expect(rigWithLeft({ y: 200 })).toThrow(
+      /strandEdges\.left\.y \(200\) lies outside the "iris_R" crop's rows/,
+    );
+    // Bangs that end 30 px above the iris row: canvas rows 45…444, model y
+    // 105…505.
+    const shortBangs = heroLikeLayers().map((l) =>
+      l.role === "hair_front"
+        ? { ...l, bbox: { ...l.bbox, h: 400 }, cropH: 400 }
+        : l,
+    );
+    expect(rigWithLeft({}, shortBangs)).toThrow(
+      /strandEdges\.left\.y \(74\.5\) lies outside the "hair_front" crop's rows/,
+    );
+  });
+
+  it("strandEdges: a side on a layer set without hair_front or without iris_L throws naming the missing role", () => {
+    for (const missing of ["hair_front", "iris_L"]) {
+      expect(
+        rigWithLeft(
+          {},
+          heroLikeLayers().filter((l) => l.role !== missing),
+        ),
+        missing,
+      ).toThrow(
+        new RegExp(
+          `strandEdges\\.left needs a "${missing}" layer to be measured on`,
+        ),
+      );
+    }
+  });
+
+  it("strandEdges: a spanning run (runFace null) passes, and {} needs no irises or bangs at all", () => {
+    expect(rigWithLeft({ runFace: null })).not.toThrow();
+    expect(() =>
+      generateIkiFromLayerSet(minimalLayers(), canvas, { strandEdges: {} }),
+    ).not.toThrow();
+  });
+
+  it("strandEdges: an iris span that does not straddle its crop's centre passes, and is checked on a layer set with no nose too", () => {
+    // −100…−80 sits inside the iris's crop but wholly face-ward of its centre
+    // (−112), as a row's opaque span may: the crop columns and the outer/inner
+    // order are what tie the edges to their iris. Without a nose the option
+    // is still validated, though no turn reads it.
+    const noseless = heroLikeLayers().filter((l) => l.role !== "nose");
+    expect(
+      rigWithLeft({ irisOuter: -100, irisInner: -80 }, noseless),
+    ).not.toThrow();
+    expect(rigWithLeft({ runFace: 120 }, noseless)).toThrow(
+      /strandEdges\.left\.runFace \(120\)/,
+    );
   });
 });
 
@@ -4738,6 +4859,120 @@ describe("feature depth parallax", () => {
 
 // ── describe("turn targets") ─────────────────────────────────────────────────
 
+describe("bisectTurnRadius", () => {
+  // A synthetic radius → far/near ratio, r / 100, whose candidates the caller
+  // would ship everywhere but a stretch strictly inside the bracket [2, 4]:
+  // the shape a strand bound that fails at mid radii gives the fit, which no
+  // layer fixture can be built to guarantee.
+  const candidateAt = (radius: number) => ({ radius, ratio: radius / 100 });
+  const accepted = (c: { radius: number }) =>
+    !(c.radius > 2.9 && c.radius < 3.1);
+  const bracket = () => [candidateAt(2), candidateAt(4)] as const;
+
+  it("a rejected mid still steers the bisection, so an accepted target radius past it is reached", () => {
+    const evaluated: number[] = [];
+    const [lo, hi] = bracket();
+    const fitted = bisectTurnRadius(
+      lo,
+      hi,
+      0.033,
+      (radius) => {
+        evaluated.push(radius);
+        return candidateAt(radius);
+      },
+      accepted,
+    );
+    // The third mid, √(√8 · √(4√8)) ≈ 3.08, is inside the rejected stretch;
+    // the search keeps halving past it instead of stopping on the bracket it
+    // held then.
+    expect(evaluated.some((r) => r > 3.05 && r < 3.1)).toBe(true);
+    expect(accepted(fitted)).toBe(true);
+    expect(Math.abs(fitted.ratio - 0.033)).toBeLessThan(1e-6);
+  });
+
+  it("a target inside the rejected stretch returns the nearest-ratio accepted candidate, which misses it", () => {
+    const [lo, hi] = bracket();
+    const fitted = bisectTurnRadius(lo, hi, 0.03, candidateAt, accepted);
+    expect(accepted(fitted)).toBe(true);
+    // The caller checks the miss against its own tolerance and falls back.
+    expect(Math.abs(fitted.ratio - 0.03)).toBeGreaterThan(1e-6);
+    // Nothing it evaluated outside the stretch came nearer: the first mid,
+    // √8 ≈ 2.83.
+    expect(fitted.radius).toBeCloseTo(Math.sqrt(8), 12);
+  });
+
+  it("a mid that yields no candidate at all still stops the search and keeps the pair it has", () => {
+    const evaluated: number[] = [];
+    const [lo, hi] = bracket();
+    const fitted = bisectTurnRadius(
+      lo,
+      hi,
+      0.033,
+      (radius) => {
+        evaluated.push(radius);
+        return radius > 2.5 ? undefined : candidateAt(radius);
+      },
+      accepted,
+    );
+    expect(evaluated).toHaveLength(1);
+    // The nearer end of the pair it held: 4 (0.040) against 2 (0.020).
+    expect(fitted.radius).toBe(4);
+  });
+
+  it("with every candidate accepted it picks what the plain bisection always picked", () => {
+    // The bisection as `fitTurnRadius` ran it before a caller could turn a
+    // candidate down: halve on the ratio and return the nearer of the final
+    // two ends (no mid is blocked here).
+    const plain = (target: number) => {
+      let lo = candidateAt(2);
+      let hi = candidateAt(4);
+      for (let i = 0; i < 40; i++) {
+        const mid = candidateAt(Math.sqrt(lo.radius * hi.radius));
+        if ((mid.ratio - target) * (lo.ratio - target) <= 0) hi = mid;
+        else lo = mid;
+      }
+      return Math.abs(lo.ratio - target) <= Math.abs(hi.ratio - target)
+        ? lo
+        : hi;
+    };
+    for (const target of [0.025, 0.03, 0.033]) {
+      const [lo, hi] = bracket();
+      expect(
+        bisectTurnRadius(lo, hi, target, candidateAt, () => true),
+        `${target}`,
+      ).toEqual(plain(target));
+    }
+  });
+});
+
+describe("strandPreferredCandidates", () => {
+  // Hand-built sweep candidates: two unbroken runs (sweep 0…3 and 5…8, the
+  // radius at 4 refused) whose far/near ratios overlap — the first rising,
+  // the second turning back — so a ratio inside both is held by either, and
+  // only the second keeps the far iris clear of its strand. No layer fixture
+  // probed gives two such runs, its ratio rising monotonically with the
+  // radius (see the function's doc).
+  const run = (from: number, ratios: number[], strandFeasible: boolean) =>
+    ratios.map((ratio, i) => ({ sweepIndex: from + i, ratio, strandFeasible }));
+  const unheld = run(0, [0.6, 0.65, 0.7, 0.75], false);
+  const held = run(5, [0.72, 0.68, 0.64, 0.6], true);
+  const candidates = [...unheld, ...held];
+
+  it("a ratio two runs hold is fitted among the strand-feasible one's radii", () => {
+    expect(strandPreferredCandidates(candidates, 0.66)).toEqual(held);
+  });
+
+  it("a ratio no strand-feasible run holds falls back to every candidate", () => {
+    // 0.74 is inside the unheld run only; the held one tops out at 0.72.
+    expect(strandPreferredCandidates(candidates, 0.74)).toBe(candidates);
+  });
+
+  it("with every candidate feasible — no strands — the sweep is the pool as it stands", () => {
+    const all = run(0, [0.6, 0.65, 0.7], true);
+    expect(strandPreferredCandidates(all, 0.66)).toBe(all);
+  });
+});
+
 describe("turn targets", () => {
   const canvas = { width: 1000, height: 1000 };
   /** The assembly fixture, plus the nose that gates the whole turn solve. */
@@ -4864,6 +5099,8 @@ describe("turn targets", () => {
       FAR_PLATE,
     );
     expect(s.reached).toBe(false);
+    // Cut short by the art's room, not by the face's own drift.
+    expect(s.limit).toBe("cap");
     // Ascending, and the far end is as far as the landmark can travel.
     expect(s.attainable[0]).toBeLessThan(s.attainable[1]);
     expect(s.attainable[0]).toBeGreaterThan(-100_000);
@@ -4889,6 +5126,8 @@ describe("turn targets", () => {
       FAR_PLATE,
     );
     expect(s.reached).toBe(false);
+    // Cut short by the face's own drift: no depth reaches it.
+    expect(s.limit).toBe("floor");
     expect(s.depth).toBe(0);
     expect(s.attainable[1]).toBeCloseTo(drift, 9);
   });
@@ -4917,11 +5156,13 @@ describe("turn targets", () => {
     layers: LayerInput[],
     targets: TurnTargets = {},
     headEdges?: HeadEdges,
+    strandEdges?: StrandEdges,
   ) =>
     solveTurnModel(
       resolveTurnTargets(targets),
       ...turnSolveInputs(layers),
       headEdges,
+      strandEdges,
     );
 
   it("solveTurnModel: a far eye this layer set cannot foreshorten names the range it can", () => {
@@ -4982,32 +5223,26 @@ describe("turn targets", () => {
     within1Percent(s.achieved.farEyeRatio, DEFAULT_TURN_TARGETS.farEyeRatio);
   });
 
-  it("solveTurnModel: a MEASURED shift past what the plate leaves is refused instead of clamped", () => {
+  it("solveTurnModel: a MEASURED shift past what the plate leaves is clamped, and one it leaves room for is met", () => {
     // 0.5 of the head half-width, where the default (0.22) is now reachable on
     // this fixture: the face plate's own slide carries most of the cue, so it
     // takes a bigger ask than the default to run the far eye off the plate.
+    // The plate's edge is the art's room, not a fact about the reference, so
+    // a measured shift past it is cut to it and says so, exactly as a default
+    // is — and the far/near ratio is still fitted.
     const asked = 0.5;
     const s = solveFor(edgeEyes(), { eyeShift: asked });
-    expect(s.unreachable).toBe(true);
-    if (!s.unreachable) return;
-    expect(s.field).toBe("eyeShift");
-    expect(s.value).toBe(asked);
-    expect(s.attainable[1]).toBeLessThan(asked);
+    if (s.unreachable) throw new Error("a shift past the plate must clamp");
+    expect(s.clamped).toContain("eyeShift");
+    expect(s.achieved.eyeShift).toBeLessThan(asked);
+    within1Percent(s.achieved.farEyeRatio, DEFAULT_TURN_TARGETS.farEyeRatio);
     // A measured shift the plate DOES leave room for is met, not clamped.
     // (The default RATIO may still be, which is its own business: a shallower
     // slide puts the far eye somewhere else on the cylinder.)
-    const small = solveFor(edgeEyes(), { eyeShift: s.attainable[1] * 0.8 });
+    const small = solveFor(edgeEyes(), { eyeShift: s.achieved.eyeShift * 0.8 });
     if (small.unreachable) throw new Error("expected a reachable turn");
     expect(small.clamped).not.toContain("eyeShift");
-    within1Percent(small.achieved.eyeShift, s.attainable[1] * 0.8);
-    // What it offers is what the plate leaves: the default is past it too,
-    // which is why the default solve above CLAMPS on this fixture — and the
-    // ceiling it names is the shift that clamp lands on, not a number some
-    // other hold could have reached.
-    expect(s.attainable[1]).toBeLessThan(DEFAULT_TURN_TARGETS.eyeShift);
-    const defaulted = solveFor(edgeEyes());
-    if (defaulted.unreachable) throw new Error("expected a reachable turn");
-    expect(s.attainable[1]).toBeCloseTo(defaulted.achieved.eyeShift, 3);
+    within1Percent(small.achieved.eyeShift, s.achieved.eyeShift * 0.8);
   });
 
   it("solveTurnModel: eyeShift and its negation solve identically", () => {
@@ -5027,28 +5262,14 @@ describe("turn targets", () => {
     expect(JSON.stringify(negative)).toBe(JSON.stringify(positive));
   });
 
-  it("solveTurnModel: an eyeShift beyond what any radius offers is refused as a CALLER value, clamped as a DEFAULT", () => {
+  it("solveTurnModel: a CALLER eyeShift past every radius's room solves exactly as the same DEFAULT does", () => {
     // A very wide measured head makes the silhouette hold's own share of the
     // correction large enough that this request — comfortably inside
     // TurnTargets.eyeShift's own |value| <= 1 range — is beyond every
     // radius's own reach once the correction is included.
     const layers = withNose();
     const targets = { headHalfWidth: 2000, eyeShift: 0.1 };
-    const s = solveFor(layers, targets);
-    expect(s.unreachable).toBe(true);
-    if (!s.unreachable) return;
-    expect(s.field).toBe("eyeShift");
-    expect(s.value).toBe(0.1);
-    // eyeShift is a MAGNITUDE (the sign is ignored), so the lower end of what
-    // it offers is never negative even where the raw silhouette-relative
-    // interval dips below zero.
-    expect(s.attainable[0]).toBeGreaterThanOrEqual(0);
-    // The upper end IS the reachability threshold, not an arbitrary number:
-    // one unit past it still refuses, the value itself does not.
-    const solveWith = (eyeShift: number) =>
-      solveFor(layers, { ...targets, eyeShift });
-    expect(solveWith(s.attainable[1] + 1e-4).unreachable).toBe(true);
-    expect(solveWith(s.attainable[1]).unreachable).toBe(false);
+    const measured = solveFor(layers, targets);
 
     // The identical request, DEFAULTED rather than measured: `solveFor` always
     // resolves eyeShift's absence to DEFAULT_TURN_TARGETS' own 0.22, so the
@@ -5063,15 +5284,42 @@ describe("turn targets", () => {
       },
       ...turnSolveInputs(layers),
     );
-    if (defaulted.unreachable)
-      throw new Error("a default must never refuse to rig");
-    expect(defaulted.clamped).toContain("eyeShift");
-    // Achieved is a genuine, independently-reachable value — not necessarily
-    // AT the caller-scenario's own upper bound, since a defaulted eyeShift
-    // does not exclude any radius (unlike a caller one), so the two pick
-    // different radii — but reachable again if resubmitted as that radius's
-    // own CALLER value.
-    expect(solveWith(defaulted.achieved.eyeShift).unreachable).toBe(false);
+    if (measured.unreachable || defaulted.unreachable) {
+      throw new Error("a shift past the art's room must clamp, not refuse");
+    }
+    expect(measured.clamped).toContain("eyeShift");
+    // A shift the art's room cuts short no longer excludes the radii where it
+    // is cut — only one below the pair's own drift at depth 0 would — so the
+    // caller's leaves the far/near ratio fitted across the same radii the
+    // default does, at the same radius, cut to the same room. toEqual can't
+    // diff the `holdEdgeAt` closures; JSON drops functions.
+    expect(JSON.stringify(measured)).toBe(JSON.stringify(defaulted));
+  });
+
+  it("solveTurnModel: a CALLER eyeShift below the pair's own drift at depth 0 is still refused", () => {
+    // On the hero-like layers the face's own slide carries the eye pair far
+    // further toward the far side than 0.01 of the plate's half-width at
+    // every radius (≈ 0.13 at the least), and no depth is negative: nothing
+    // reaches it, so the measurement is refused naming the shifts on offer,
+    // where a default would be clamped. (withNose() is no such fixture: at
+    // its flattest radius the silhouette centre drifts with the eyes, and
+    // even a shift of 0 is reached there.)
+    const layers = heroLikeLayers();
+    const s = solveFor(layers, { eyeShift: 0.01 });
+    expect(s.unreachable).toBe(true);
+    if (!s.unreachable) return;
+    expect(s.field).toBe("eyeShift");
+    expect(s.value).toBe(0.01);
+    expect(s.attainable![0]).toBeGreaterThan(0.01);
+    expect(() =>
+      generateIkiFromLayerSet(layers, canvas1100, {
+        turnTargets: { eyeShift: 0.01 },
+      }),
+    ).toThrow(
+      new TurnTargetError(
+        `auto-rig: turnTargets.eyeShift 0.01 is unreachable for this layer set (attainable ${s.attainable![0]}…${s.attainable![1]})`,
+      ),
+    );
   });
 
   // ── the generated rig ─────────────────────────────────────────────────────
@@ -6895,6 +7143,343 @@ describe("mouth turn", () => {
       expect(Math.abs(a.x - b.x), `${deg}° x`).toBeLessThan(1e-4);
       expect(Math.abs(a.y - b.y), `${deg}° y`).toBeLessThan(1e-4);
     }
+  });
+});
+
+// ── Iris strand bound ────────────────────────────────────────────────────────
+
+/** Each far iris against the bangs' side strand it slides under, as the
+ *  shipped hero's strand diagnosis (iki-char/diag5/strand.mjs) found them,
+ *  placed on heroLikeLayers(): the iris's opaque span on its centre row
+ *  (image row 475, model y 74.5) and the run outward of it, whose face-side
+ *  edge sits 12 px outside the iris's outer edge at rest. A stand-in until
+ *  the hero's own measured `strandEdges` replace it. */
+const HERO_STRAND: { left: IrisStrand; right: IrisStrand } = {
+  left: {
+    y: 74.5,
+    irisOuter: -148,
+    irisInner: -76,
+    runOuter: -200,
+    runFace: -160,
+  },
+  right: {
+    y: 74.5,
+    irisOuter: 148,
+    irisInner: 76,
+    runOuter: 200,
+    runFace: 160,
+  },
+};
+
+describe("iris strand bound", () => {
+  const layers = heroLikeLayers();
+  const HH = HERO_HEAD.headHalfWidth;
+  type Model = ReturnType<typeof generateIkiFromLayerSet>;
+
+  /** A rig and its report — solved from inside an `it`, as "hero golden
+   *  cues" does, so a solve that throws fails that test rather than the
+   *  file's collection. The hero-like head by default. */
+  const rigOf = (
+    options: Parameters<typeof generateIkiFromLayerSet>[2],
+    rigLayers = layers,
+  ) => {
+    let report: TurnSolveReport | undefined;
+    const model = generateIkiFromLayerSet(rigLayers, canvas1100, {
+      ...options,
+      onTurnSolved: (r) => (report = r),
+    });
+    if (!report) throw new Error("the layer set must solve a turn");
+    return { model, report };
+  };
+  const heroRig = (strandEdges?: StrandEdges) =>
+    rigOf({
+      turnTargets: { headHalfWidth: HH },
+      headEdges: HERO_HEAD.headEdges,
+      ...(strandEdges === undefined ? {} : { strandEdges }),
+    });
+  let plain: ReturnType<typeof heroRig> | undefined;
+  let bounded: ReturnType<typeof heroRig> | undefined;
+  const plainRig = () => (plain ??= heroRig());
+  const boundedRig = () => (bounded ??= heroRig(HERO_STRAND));
+
+  const at = (deg: number) => ({ [StandardParameter.AngleX]: deg });
+  /** The far stops of a side: −15 and −30 for the −x side. */
+  const farStops = (side: -1 | 1) => [15 * side, 30 * side];
+  /** The part id of the iris resting on `side` (−1 the −x side). */
+  const irisOn = (model: Model, side: -1 | 1) =>
+    ["iris_L", "iris_R"]
+      .map((id) => model.parts.find((p) => p.id === id)!)
+      .sort((a, b) => a.transform.x - b.transform.x)[side < 0 ? 0 : 1].id;
+  /** σ·(run's face-side edge − iris's outer edge), each landed where the
+   *  engine renders it at AngleX `deg`: positive while the iris stays clear
+   *  of the run. */
+  const clearanceAt = (
+    model: Model,
+    strand: IrisStrand,
+    side: -1 | 1,
+    deg: number,
+  ) =>
+    side *
+    (landedXAt(model, "hair_front", strand.runFace!, strand.y, at(deg)) -
+      landedXAt(
+        model,
+        irisOn(model, side),
+        strand.irisOuter,
+        strand.y,
+        at(deg),
+      ));
+  /** The rest clearance capped at 0: how far under its run an iris may sit. */
+  const allowanceOf = (strand: IrisStrand, side: -1 | 1) =>
+    Math.min(0, side * (strand.runFace! - strand.irisOuter));
+  /** The landed iris span's length inside the landed run at AngleX `deg`,
+   *  every end read through the oracle — face-ward without end for a run
+   *  with no face-side edge. */
+  const coveredAt = (
+    model: Model,
+    strand: IrisStrand,
+    side: -1 | 1,
+    deg: number,
+  ) => {
+    // Outward-positive x on this side.
+    const land = (id: string, x: number) =>
+      side * landedXAt(model, id, x, strand.y, at(deg));
+    const iris = irisOn(model, side);
+    const runFace =
+      strand.runFace === null ? -Infinity : land("hair_front", strand.runFace);
+    return Math.max(
+      0,
+      Math.min(
+        land(iris, strand.irisOuter),
+        land("hair_front", strand.runOuter),
+      ) - Math.max(land(iris, strand.irisInner), runFace),
+    );
+  };
+  /** A reported entry against the render: its covered width at its stop,
+   *  over the head half-width, is its `hh` to 1e-6 and, in px, its `px` to
+   *  float32 at x ≈ 150 — and no other far stop covers more. */
+  const expectEntryIsRender = (
+    model: Model,
+    strand: IrisStrand,
+    side: -1 | 1,
+    entry: StrandOverlap | undefined,
+  ) => {
+    if (entry === undefined) throw new Error("expected a strandOverlap entry");
+    expect(farStops(side)).toContain(entry.deg);
+    const covered = coveredAt(model, strand, side, entry.deg);
+    expect(Math.abs(covered / HH - entry.hh)).toBeLessThan(1e-6);
+    expect(Math.abs(covered - entry.px)).toBeLessThan(1e-4);
+    for (const deg of farStops(side)) {
+      expect(coveredAt(model, strand, side, deg), `${deg}°`).toBeLessThan(
+        entry.px + 1e-4,
+      );
+    }
+  };
+  const mirrored = (s: IrisStrand): IrisStrand => ({
+    y: s.y,
+    irisOuter: -s.irisOuter,
+    irisInner: -s.irisInner,
+    runOuter: -s.runOuter,
+    runFace: s.runFace === null ? null : -s.runFace,
+  });
+
+  it("an empty option, and a run too far out for the iris to reach, rig exactly the model without it", () => {
+    const farOut: IrisStrand = {
+      y: 74.5,
+      irisOuter: -148,
+      irisInner: -76,
+      runOuter: -320,
+      runFace: -300,
+    };
+    for (const strandEdges of [{}, { left: farOut, right: mirrored(farOut) }]) {
+      const { model, report } = heroRig(strandEdges);
+      expect(report.strandOverlap).toBeUndefined();
+      expect(report).toEqual(plainRig().report);
+      expect(model).toEqual(plainRig().model);
+    }
+  });
+
+  it("premise: without the option, the far iris slides under the strand at full turn", () => {
+    const { model } = plainRig();
+    const under = ([-1, 1] as const).filter((side) => {
+      const strand = side < 0 ? HERO_STRAND.left : HERO_STRAND.right;
+      return (
+        clearanceAt(model, strand, side, 30 * side) < allowanceOf(strand, side)
+      );
+    });
+    expect(under.length).toBeGreaterThan(0);
+  });
+
+  it("keeps each far iris clear of its strand on the render, at every far stop and between them, and touches it where the bound binds", () => {
+    const { model, report } = boundedRig();
+    expect(report.strandOverlap).toBeUndefined();
+    let tightest = Infinity;
+    for (const side of [-1, 1] as const) {
+      const strand = side < 0 ? HERO_STRAND.left : HERO_STRAND.right;
+      for (const deg of [7.5, 15, 22.5, 30].map((d) => d * side)) {
+        const margin =
+          clearanceAt(model, strand, side, deg) - allowanceOf(strand, side);
+        expect(margin, `${deg}°`).toBeGreaterThanOrEqual(-1e-3);
+        tightest = Math.min(tightest, margin);
+      }
+    }
+    expect(tightest).toBeLessThan(1e-3);
+  });
+
+  it("an iris painted 4 px under its run goes no deeper, and says how much of it is covered", () => {
+    const left = { ...HERO_STRAND.left, runFace: -144 };
+    const strandEdges = { left, right: mirrored(left) };
+    const { model, report } = heroRig(strandEdges);
+    for (const side of [-1, 1] as const) {
+      const strand = side < 0 ? strandEdges.left : strandEdges.right;
+      for (const deg of farStops(side)) {
+        expect(
+          clearanceAt(model, strand, side, deg),
+          `${deg}°`,
+        ).toBeGreaterThanOrEqual(-4 - 1e-3);
+      }
+      const entry = report.strandOverlap?.[side < 0 ? "left" : "right"];
+      expect(entry?.held).toBe(true);
+      expect(entry?.restPx).toBe(4);
+      expect(entry!.px).toBeLessThanOrEqual(4 + 1e-3);
+      expectEntryIsRender(model, strand, side, entry);
+    }
+  });
+
+  it("a run over the iris centre that clears on the face side keeps the iris no deeper under it than painted", () => {
+    // The run's face edge at −100 is inside the iris centre (−112), 48 px
+    // face-ward of the iris's outer edge.
+    const strandEdges = {
+      ...HERO_STRAND,
+      left: { ...HERO_STRAND.left, runFace: -100 },
+    };
+    const { model, report } = heroRig(strandEdges);
+    for (const deg of farStops(-1)) {
+      expect(
+        clearanceAt(model, strandEdges.left, -1, deg),
+        `${deg}°`,
+      ).toBeGreaterThanOrEqual(-48 - 1e-3);
+    }
+    const entry = report.strandOverlap?.left;
+    expect(entry?.held).toBe(true);
+    expect(entry?.restPx).toBe(48);
+    expect(entry!.px).toBeLessThanOrEqual(48 + 1e-3);
+    expectEntryIsRender(model, strandEdges.left, -1, entry);
+  });
+
+  it("a fringe spanning the face has no face-side edge to keep clear of: the rig is built with the eyes' depth at 0, and says how much is covered", () => {
+    const strandEdges = {
+      ...HERO_STRAND,
+      left: { ...HERO_STRAND.left, runFace: null },
+    };
+    const { model, report } = heroRig(strandEdges);
+    expect(report.depths.eye).toBe(0);
+    expect(report.clamped).toContain("eyeShift");
+    const entry = report.strandOverlap?.left;
+    expect(entry?.held).toBe(false);
+    // The whole painted iris row, −148…−76.
+    expect(entry?.restPx).toBe(72);
+    expectEntryIsRender(model, strandEdges.left, -1, entry);
+  });
+
+  it("the bound costs the eye shift, not the far/near ratio or the silhouette, and the report is still the render", () => {
+    const { model, report } = boundedRig();
+    expect(report.clamped).toEqual(["eyeShift"]);
+    expect(report.achieved.eyeShift).toBeLessThan(HERO_CUES.eyeShift);
+    expect(report.achieved.farEyeRatio).toBeCloseTo(HERO_CUES.farEyeRatio, 3);
+    expect(report.achieved.silhouetteRatio).toBeCloseTo(
+      HERO_CUES.silhouetteRatio,
+      3,
+    );
+    const cues = cuesOf(model, layers, HH, HERO_HEAD.headEdges);
+    expect(cues.farEyeRatio).toBeCloseTo(report.achieved.farEyeRatio, 6);
+    expect(cues.eyeShift).toBeCloseTo(report.achieved.eyeShift, 6);
+    expect(cues.silhouetteRatio).toBeCloseTo(
+      report.achieved.silhouetteRatio,
+      6,
+    );
+  });
+
+  it("a CALLER eyeShift the strand cuts short solves exactly as the same DEFAULT does", () => {
+    const measured = solveTurnModel(
+      resolveTurnTargets({ headHalfWidth: HH, eyeShift: 0.5 }),
+      ...turnSolveInputs(layers),
+      HERO_HEAD.headEdges,
+      HERO_STRAND,
+    );
+    // The same 0.5 as a default, built by hand as "turn targets" does.
+    const resolved = resolveTurnTargets({ headHalfWidth: HH });
+    const defaulted = solveTurnModel(
+      {
+        ...resolved,
+        eyeShift: 0.5,
+        defaulted: new Set([...resolved.defaulted, "eyeShift"]),
+      },
+      ...turnSolveInputs(layers),
+      HERO_HEAD.headEdges,
+      HERO_STRAND,
+    );
+    if (measured.unreachable) throw new Error("a cut-short shift must clamp");
+    expect(measured.clamped).toEqual(["eyeShift"]);
+    // JSON drops the `holdEdgeAt` closure toEqual cannot diff.
+    expect(JSON.stringify(measured)).toBe(JSON.stringify(defaulted));
+  });
+
+  // ── A narrowed profile ────────────────────────────────────────────────────
+  // Every face row painted at half-width 100 under a measured head of 262
+  // asked to narrow to 0.7: the −x run at −200…F sits in the hold's ramp,
+  // which the narrowing pulls inward while the face's own slide carries the
+  // iris outward, so whether any eye depth keeps the iris clear depends on
+  // the radius. Only the −x side is given.
+  const narrowedRig = (runFace: number, farEyeRatio?: number) =>
+    rigOf(
+      {
+        turnTargets: {
+          headHalfWidth: HH,
+          silhouetteRatio: 0.7,
+          ...(farEyeRatio === undefined ? {} : { farEyeRatio }),
+        },
+        strandEdges: { left: { ...HERO_STRAND.left, runFace } },
+      },
+      withProfile(
+        layers,
+        Array.from(
+          { length: layers.find((l) => l.role === "face")!.cropH },
+          () => 100,
+        ),
+      ),
+    );
+
+  it("a run no radius keeps the iris clear of is still rigged, with the eyes' depth at 0 and the coverage it leaves", () => {
+    // 2 px clear at rest: at every radius the sweep fits, the face's own
+    // slide alone carries the iris under the inward-pulled run.
+    const strand = { ...HERO_STRAND.left, runFace: -150 };
+    const { model, report } = narrowedRig(-150);
+    expect(report.depths.eye).toBe(0);
+    expect(report.clamped).toContain("eyeShift");
+    expect(report.strandOverlap?.right).toBeUndefined();
+    const entry = report.strandOverlap?.left;
+    expect(entry?.held).toBe(false);
+    expect(entry?.restPx).toBe(0);
+    expect(entry!.px).toBeGreaterThan(0);
+    expectEntryIsRender(model, strand, -1, entry);
+  });
+
+  it("at a strand-feasible fitted radius the cap keeps the far iris clear and nothing is reported; at an infeasible one the rig is still built and reports the bound unheld", () => {
+    // Found by probing caller far/near ratios 0.55…0.9 at runFace −170…−190:
+    // at −190 the tighter radii keep the iris clear (0.55–0.67, radius ≤ 341
+    // px) and so does the flattest (0.9), while the radii in between cannot
+    // (0.7–0.85, radius 375–774 px: the eyes' depth is 0 and the run still
+    // covers 0.8–2.4 px of the far iris). A = 0.6 (radius ≈ 284.6) and
+    // B = 0.75 (≈ 452.8) sit well inside each.
+    const F = -190;
+    const A = 0.6;
+    const B = 0.75;
+    const feasible = narrowedRig(F, A).report;
+    expect(feasible.achieved.farEyeRatio).toBeCloseTo(A, 3);
+    expect(feasible.strandOverlap).toBeUndefined();
+    const infeasible = narrowedRig(F, B).report;
+    expect(infeasible.achieved.farEyeRatio).toBeCloseTo(B, 3);
+    expect(infeasible.strandOverlap?.left?.held).toBe(false);
   });
 });
 

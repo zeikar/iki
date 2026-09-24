@@ -14,6 +14,7 @@ import {
   generateIkiFromLayerSet,
   parseLayerRoles,
   TurnTargetError,
+  type IrisStrand,
   type LayerInput,
   type AtlasAssignment,
   type TurnTargets,
@@ -291,9 +292,20 @@ export type AutoRigResult =
         left: { role: string; x: number }[];
         right: { role: string; x: number }[];
       };
-      /** What the turn solve settled on — the cues the rig reaches and the
-       *  defaulted targets it had to cut down. Absent for a layer set with no
-       *  nose, which solves no turn at all. */
+      /** Each side's iris and the `hair_front` run it would slide under on
+       *  the turn, as pixel edges on the row holding that iris's centre, in
+       *  model coordinates (`IrisStrand`: canvas x minus half the canvas
+       *  width) — measured whenever the layer set has `hair_front`, `iris_L`
+       *  and `iris_R`, and passed to the generator as `options.strandEdges`.
+       *  A side is absent only when its iris has no opaque pixel on that row,
+       *  or when no run covers the pixel on that side of the iris's centre or
+       *  lies outward of it; the whole field only when neither side has one. */
+      strandEdges?: { left?: IrisStrand; right?: IrisStrand };
+      /** What the turn solve settled on — the cues the rig reaches, the
+       *  targets it had to cut down (`clamped`) and, per side whose far iris
+       *  the bangs' run still covers at some far stop, how much of it
+       *  (`strandOverlap`). Absent for a layer set with no nose, which solves
+       *  no turn at all. */
       turn?: TurnSolveReport;
     }
   | { ok: false; error: string };
@@ -387,7 +399,10 @@ function facePlateHalfOf(layers: LayerInput[]): number {
  * `turn`. The face layer alone also gets its per-row painted half-widths
  * (`LayerInput.rowHalfWidths`), which bend the face plate on a row-dependent
  * radius: the generator reads no other role's, so measuring any other layer's
- * would only hand it bytes it discards.
+ * would only hand it bytes it discards. Each iris's opaque span and the bangs'
+ * run it would slide under are measured on the iris's own centre row too
+ * (`strandEdges`), so the turn keeps the far iris from sliding under the bangs
+ * any further than it is painted.
  *
  * Re-host of examples/editor/src/store.ts `importLayerSet` with the three DOM
  * pixel functions swapped for the sharp-backed ./node-images helpers; the pure
@@ -467,6 +482,11 @@ export async function autoRigFromLayers(
       rowLeft: Int32Array;
       rowRight: Int32Array;
     }[] = [];
+    // hair_front's own opaque pixels (alpha >= ALPHA_OPAQUE, the union's rule),
+    // kept from its pass for the strand edges below: the run an iris would
+    // slide under is read off it on that iris's own row. The irises need no
+    // mask of their own — their per-row extremes are in rowSpansByRole.
+    let hairFrontMask: Uint8Array | undefined;
     for (let i = 0; i < resolvedLayers.length; i++) {
       const { resolved, fileName } = resolvedLayers[i];
       const png = await decodePng(resolved);
@@ -515,16 +535,20 @@ export async function autoRigFromLayers(
       // while its pixels are still here — one pass over the same pixels.
       const rowLeft = new Int32Array(canvasH).fill(canvasW);
       const rowRight = new Int32Array(canvasH).fill(-1);
+      const ownMask =
+        role === "hair_front" ? new Uint8Array(canvasW * canvasH) : undefined;
       for (let y = 0; y < canvasH; y++) {
         for (let x = 0; x < canvasW; x++) {
           const p = y * canvasW + x;
           if (png.rgba[p * 4 + 3] < ALPHA_OPAQUE) continue;
           opaque[p] = 1;
+          if (ownMask !== undefined) ownMask[p] = 1;
           if (x < rowLeft[y]) rowLeft[y] = x;
           if (x > rowRight[y]) rowRight[y] = x;
         }
       }
       rowSpansByRole.push({ role, rowLeft, rowRight });
+      if (ownMask !== undefined) hairFrontMask = ownMask;
       // png.rgba (full-canvas) is dropped at the next iteration — GC reclaims it
       // before the next decode, so peak memory stays ~one canvas + the crops.
       const layer: LayerInput = {
@@ -616,6 +640,88 @@ export async function autoRigFromLayers(
       headEdges = { left, right };
     }
 
+    // Each iris against the bangs' run it would slide under on the turn, on
+    // ONE row — the one holding the iris's centre — under ONE rule (alpha >=
+    // ALPHA_OPAQUE). The iris's alpha-bbox (alpha >= 8, grown by a pixel) only
+    // gives that row and where to start scanning, never an edge: every number
+    // is the pixel boundary facing the neighbouring clear pixel, less half the
+    // canvas, so each is the painted edge the way bboxToTransform's crop edges
+    // are. The scan decides with the very crop centres the generator validates
+    // these edges against (bboxToTransform's), so what it measures is always
+    // accepted, on either side. A side's iris is whichever sits on that side,
+    // the two paired by x rather than by role name. Measured whether or not
+    // headHalfWidth is applied: the bound it feeds is the far iris against its
+    // own strand, not the head's width.
+    let strandEdges: { left?: IrisStrand; right?: IrisStrand } | undefined;
+    const irisLayers = layerInputs
+      .filter((l) => l.role === "iris_L" || l.role === "iris_R")
+      .sort((a, b) => a.bbox.x + a.bbox.w / 2 - (b.bbox.x + b.bbox.w / 2));
+    if (hairFrontMask !== undefined && irisLayers.length === 2) {
+      const mask = hairFrontMask;
+      const half = canvasW / 2;
+      const strandOn = (
+        iris: LayerInput,
+        other: LayerInput,
+        side: -1 | 1,
+      ): IrisStrand | undefined => {
+        const r = Math.floor(iris.bbox.y + iris.bbox.h / 2);
+        // The iris's crop centre, canvas x (a pixel boundary for an even
+        // width, a pixel's middle for an odd one), and the other's in model
+        // x — bboxToTransform's placement of each.
+        const centre = iris.bbox.x + iris.bbox.w / 2;
+        const otherX = other.bbox.x + other.bbox.w / 2 - half;
+        // The pixel just on THIS side of that centre: a run covering it
+        // reaches outward past the centre, so its outer end is strictly
+        // outward of it on either side, which a pixel chosen by one rounding
+        // for both sides would not give.
+        const c = side < 0 ? Math.ceil(centre) - 1 : Math.floor(centre);
+        const span = rowSpansByRole.find((s) => s.role === iris.role)!;
+        // An iris with no opaque pixel on its own centre row has no edge.
+        if (span.rowRight[r] < span.rowLeft[r]) return undefined;
+        const opaqueAt = (x: number) =>
+          x >= 0 && x < canvasW && mask[r * canvasW + x] === 1;
+        // The boundary between pixel x and its neighbour one step outward.
+        const outerBoundary = (x: number) => (side < 0 ? x : x + 1) - half;
+        let x = c;
+        let runFace: number | null;
+        if (!opaqueAt(c)) {
+          // A clear centre: the first opaque pixel outward starts the run,
+          // and its face-side boundary is runFace.
+          while (x >= 0 && x < canvasW && !opaqueAt(x)) x += side;
+          if (x < 0 || x >= canvasW) return undefined; // no run outward
+          runFace = outerBoundary(x - side);
+        } else {
+          // A covered centre: the run's face-side end is where it clears on
+          // the face side — when that is strictly on this side of the other
+          // iris's centre. A run still opaque there is a fringe spanning the
+          // face, which has no face-side end on this side.
+          let f = c - side;
+          while (opaqueAt(f)) f -= side;
+          const face = outerBoundary(f);
+          runFace = side * (face - otherX) > 0 ? face : null;
+        }
+        // Outward to the run's outer end: its last opaque pixel's boundary
+        // with the first clear one after it, or with the crop's edge.
+        while (opaqueAt(x)) x += side;
+        return {
+          y: canvasH / 2 - (r + 0.5),
+          irisOuter: (side < 0 ? span.rowLeft[r] : span.rowRight[r] + 1) - half,
+          irisInner: (side < 0 ? span.rowRight[r] + 1 : span.rowLeft[r]) - half,
+          runOuter: outerBoundary(x - side),
+          runFace,
+        };
+      };
+      const [low, high] = irisLayers;
+      const left = strandOn(low, high, -1);
+      const right = strandOn(high, low, 1);
+      if (left !== undefined || right !== undefined) {
+        strandEdges = {
+          ...(left === undefined ? {} : { left }),
+          ...(right === undefined ? {} : { right }),
+        };
+      }
+    }
+
     // Internal pipeline — direct calls. By here roles + bboxes are validated, so
     // a throw is an invariant break / bug and must propagate to `isError` —
     // except from the turn solve, the one part of the generator that reads
@@ -648,6 +754,7 @@ export async function autoRigFromLayers(
             turn = report;
           },
           ...(headEdges === undefined ? {} : { headEdges }),
+          ...(strandEdges === undefined ? {} : { strandEdges }),
         },
       );
     } catch (e) {
@@ -704,6 +811,7 @@ export async function autoRigFromLayers(
       ...(headHalfWidth === undefined ? {} : { headHalfWidth }),
       headHalfWidthApplied,
       ...(headEdges === undefined ? {} : { headEdges }),
+      ...(strandEdges === undefined ? {} : { strandEdges }),
       ...(turn === undefined ? {} : { turn }),
     };
   } catch (err) {

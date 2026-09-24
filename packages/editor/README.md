@@ -72,12 +72,29 @@ slides, how much the far eye foreshortens, whether the silhouette holds),
 defaulting to `DEFAULT_TURN_TARGETS`. The features' slide is bounded by the art:
 every feature has to stay on the face plate, because past its contour the far
 eye is drawn over the side hair, which still bends with the plate inside that
-held outline and swallows it. A target you passed that this layer set cannot
-reach **throws**, naming the field and the range it could have had; a target
-that came from the defaults is a style prior, not a measurement of this
-character, so it is **clamped** to what the layer set can do and the rig is
-built. Pass `options.onTurnSolved` to see what the turn settled on and which
-targets were clamped.
+held outline and swallows it. Given `options.strandEdges`, the eyes are also
+kept from sliding the far iris under the bangs' side strand any further than it
+is painted — best effort, never a refusal: the fit prefers radii where some eye
+depth holds that, and where none does (a fringe spanning the face included) the
+rig is still built with the eyes' turn depth at 0. The report's `strandOverlap`
+gives, per side whose far iris the bangs' run still covers at some far stop,
+the covered width: how much of the iris's painted row the run covers at the
+stop where that is largest, in px and head half-widths, next to how much it
+covers at rest, and whether the bound held — `true` for an iris painted under
+its run that the turn took no deeper, `false` where the fitted radius could not
+hold it and the eyes' turn depth is 0.
+
+A target that came from the defaults is a style prior, not a measurement of
+this character, so it is **clamped** to what the layer set can do and the rig is
+built. So is an `eyeShift` you passed that runs past the room the art leaves the
+far eye — the face plate's edge, or the bangs' strand — since that room is a
+fact about these layers, not about the reference. Every other target you passed
+that this layer set cannot reach **throws**, naming the field and the range it
+could have had: a `farEyeRatio` or `silhouetteRatio` no radius renders, a
+`noseShift` / `mouthShift` outside what that feature can reach, or an
+`eyeShift` smaller than the slide the face's own turn already gives the eyes.
+Pass `options.onTurnSolved` to see what the turn settled on and which targets
+were clamped.
 
 `turnTargets.headHalfWidth` is what the shift targets are fractions of, when a
 caller has measured the actual head (the face plate stands in otherwise).
@@ -88,6 +105,17 @@ through its OWN part's deformation (the bangs move with their hold, the back
 hair holds still, a face-plate or body edge slide) rather than assume the head
 is centred on the face plate or that whichever part drew furthest out at rest
 is still the furthest out after it turns.
+
+`options.strandEdges` gives, per side, that side's iris and the `hair_front`
+run it would slide under on the turn, as real pixel edges on the row holding
+the iris's centre (`IrisStrand`: the iris's opaque span, and the run's outer
+and face-side ends). One shape covers a strand outward of a clear iris, a run
+over the iris centre that clears on the face side, and a fringe spanning the
+face, whose `runFace` is `null` because it has no face-side end on that side.
+`@ikijs/mcp` measures it off the pixels it decodes. It is always validated
+against the layers, but like `headEdges` it is only read by the turn solve, so
+it has no effect on the rig without a `nose`; absent or `{}`, the rig is exactly
+the one built without it.
 
 It takes **already-decoded** layer geometry (`LayerInput`), never pixels, which
 is what keeps this package free of any image dependency: the editor app
