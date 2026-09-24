@@ -17,6 +17,9 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
+    // A full auto-rig turn solve inside an async @ikijs/mcp test runs 6–8 s
+    // under CI coverage, past vitest's 5 s default (sync tests are never cut).
+    testTimeout: 30_000,
     coverage: {
       provider: "v8",
       all: true,
