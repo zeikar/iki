@@ -71,7 +71,8 @@ function ellipse(
 }
 
 /** The upper rim of that ellipse: the lash arc, thin enough that its cut-off
- *  bottom row is only the two tips (a filled cap would read as a cropped part). */
+ *  bottom row is only the two tips (a filled cap would read as a cropped part).
+ *  `inked` leaves the columns it rejects bare, the way an eye's tear duct is. */
 function topArc(
   set: SetPixel,
   cx: number,
@@ -80,9 +81,11 @@ function topArc(
   h: number,
   thickness: number,
   rgb: RGB,
+  inked: (x: number) => boolean = () => true,
 ): void {
   for (let y = 0; y < cy; y++) {
     for (let x = 0; x < CANVAS; x++) {
+      if (!inked(x)) continue;
       const u = (x + 0.5 - cx) / (w / 2);
       const v = (y + 0.5 - cy) / (h / 2);
       const inner =
@@ -233,6 +236,86 @@ describe("measureLayers", () => {
 
     const result = await measureOk(dir);
     expect(warned(result.warnings, /lash_L: centre is/)).toBe(false);
+  });
+
+  it("flags an eye drawn facing the other way, reading the nose side per eye", async () => {
+    const dir = tmpDir();
+    // The same drawing on both sides: its lash-free tear duct at the screen
+    // RIGHT end (x > 119 of the 68..131 almond). On eye_R, the screen-left eye,
+    // that end is the nose side, where a tear duct belongs. On eye_L it is
+    // the outer corner, so the lash ink leans in toward the nose.
+    const tearDuctRight = (x: number) => x <= 119;
+    for (const side of ["L", "R"]) {
+      await writeLayer(dir, `eye_${side}.png`, (set) =>
+        ellipse(set, 100, 100, 64, 40, WHITE),
+      );
+      await writeLayer(dir, `lash_${side}.png`, (set) =>
+        topArc(set, 100, 100, 64, 40, 4, DARK, tearDuctRight),
+      );
+    }
+
+    const result = await measureOk(dir);
+    const facing = result.warnings.filter((w) => /facing/.test(w));
+    expect(facing).toHaveLength(1);
+    expect(facing[0]).toMatch(/^eye_L: .*facing the other way/);
+    // The free fix, named so it can be applied as written.
+    expect(facing[0]).toMatch(/mirrorParts: \["eyewhite\.png"\]/);
+  });
+
+  it("reads a long thin wing as the outer corner, whichever end it is on", async () => {
+    // A 1 px wing flicking 40 px out past the almond (68..131), with an 8 px
+    // tear duct bare at the other end of the arc. The sclera is the whole
+    // silhouette, wing included (the split recolours the lash white), so the
+    // wing widens the frame the lash is read in and drags the frame's centre
+    // outward — past the lash's centroid, which so few pixels barely move.
+    const wingedEye = async (side: "L" | "R", wingRight: boolean) => {
+      const wing = (x: number) =>
+        wingRight ? x >= 124 && x < 172 : x >= 28 && x < 76;
+      const inked = (x: number) => (wingRight ? x > 75 : x <= 124);
+      await writeLayer(dir, `eye_${side}.png`, (set) => {
+        ellipse(set, 100, 100, 64, 40, WHITE);
+        for (let x = 0; x < CANVAS; x++) if (wing(x)) set(x, 84, WHITE);
+      });
+      await writeLayer(dir, `lash_${side}.png`, (set) => {
+        topArc(set, 100, 100, 64, 40, 4, DARK, inked);
+        for (let x = 0; x < CANVAS; x++) if (wing(x)) set(x, 84, DARK);
+      });
+    };
+    const dir = tmpDir();
+    // eye_L's outer corner is screen right, eye_R's screen left: each drawn
+    // the right way round, wing out and tear duct in.
+    await wingedEye("L", true);
+    await wingedEye("R", false);
+    const right = await measureOk(dir);
+    expect(warned(right.warnings, /facing/)).toBe(false);
+
+    // The same two drawings swapped: each wing now points at the nose.
+    const reversed = tmpDir();
+    const swap = (from: string, to: string) =>
+      fs.copyFileSync(path.join(dir, from), path.join(reversed, to));
+    swap("eye_L.png", "eye_R.png");
+    swap("lash_L.png", "lash_R.png");
+    swap("eye_R.png", "eye_L.png");
+    swap("lash_R.png", "lash_L.png");
+    const wrong = await measureOk(reversed);
+    expect(
+      wrong.warnings.filter((w) => /facing the other way/.test(w)),
+    ).toHaveLength(2);
+  });
+
+  it("leaves a lash that left its frame to the drift check, not the facing one", async () => {
+    const dir = tmpDir();
+    await writeEyeStack(dir);
+    // 3 px toward the nose (eye_L's nose side is -x): a layout desync, which
+    // puts ink outside the sclera's frame. An eye drawn the other way keeps its
+    // lash inside the frame it was split from.
+    await writeLayer(dir, "lash_L.png", (set) =>
+      topArc(set, 97, 100, 64, 40, 4, DARK),
+    );
+
+    const result = await measureOk(dir);
+    expect(warned(result.warnings, /lash_L: centre is -3\.0 px/)).toBe(true);
+    expect(warned(result.warnings, /facing/)).toBe(false);
   });
 
   it("flags a sclera too flat to hold a round iris", async () => {

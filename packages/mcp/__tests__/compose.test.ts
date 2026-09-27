@@ -14,7 +14,11 @@ import {
 } from "../src/compose";
 import { layerStats, measureLayers } from "../src/measure";
 import { decodePng } from "../src/node-images";
-import { writePartsSet } from "./helpers/parts";
+import {
+  writeEyewhite,
+  writePartsSet,
+  writeTaperedBrow,
+} from "./helpers/parts";
 
 /** Draw order the composer walks, back -> front. */
 const ROLES: Role[] = [
@@ -478,6 +482,74 @@ describe("composeLayersFromParts", () => {
     expect(
       fixed.measure.warnings.filter((w) => /^eye_L: sclera aspect/.test(w)),
     ).toEqual([]);
+  });
+
+  it("clears the facing warning the way its own text prescribes", async () => {
+    // Drawn the other way round: the tear duct at the image's LEFT end, where
+    // the composer reads the lash wing — the way all three eyewhite variants
+    // of one real run came back.
+    const facing = partsDir();
+    await writePartsSet(facing, { omit: ["eyewhite.png"] });
+    await writeEyewhite(facing, "left");
+    const wrong = await composeOk({ partsDir: facing, outDir: outDir() });
+    const warning = wrong.measure.warnings.find((w) =>
+      /^eye_R: .*facing/.test(w),
+    );
+    expect(warning).toBeDefined();
+
+    // Take the mirrorParts the warning names and pass it, as it instructs.
+    const mirrorParts = JSON.parse(
+      /mirrorParts: (\[[^\]]*\])/.exec(warning!)![1],
+    ) as string[];
+    const fixed = await composeOk({
+      partsDir: facing,
+      outDir: outDir(),
+      mirrorParts,
+    });
+    expect(fixed.measure.warnings.filter((w) => /facing/.test(w))).toEqual([]);
+    // Both halves of each pair are cut from the one flipped source, so the
+    // lash still sits inside its sclera's frame and the fold cannot tear.
+    for (const side of ["L", "R"]) {
+      const eye = await statsFor(fixed.outDir, `eye_${side}`);
+      const lash = await statsFor(fixed.outDir, `lash_${side}`);
+      expect(lash.marginLeft).toBeGreaterThanOrEqual(eye.marginLeft);
+      expect(lash.marginRight).toBeGreaterThanOrEqual(eye.marginRight);
+      expect(lash.marginTop).toBe(eye.marginTop);
+    }
+  });
+
+  it("flips a regular part's source under both roles cut from it", async () => {
+    const tapered = partsDir();
+    await writePartsSet(tapered, { omit: ["brow.png"] });
+    await writeTaperedBrow(tapered);
+    const asDrawn = await composeOk({ partsDir: tapered, outDir: outDir() });
+    const flipped = await composeOk({
+      partsDir: tapered,
+      outDir: outDir(),
+      mirrorParts: ["brow.png"],
+    });
+
+    for (const role of ["brow_L", "brow_R"]) {
+      const a = await statsFor(asDrawn.outDir, role);
+      const b = await statsFor(flipped.outDir, role);
+      // The same box, with the thick head at the other end of it.
+      expect(b.bboxCx).toBe(a.bboxCx);
+      expect(Math.sign(b.massCx - b.bboxCx)).toBe(
+        -Math.sign(a.massCx - a.bboxCx),
+      );
+    }
+  });
+
+  it("rejects an unknown part in mirrorParts", async () => {
+    const error = await composeError({
+      partsDir: parts,
+      outDir: outDir(),
+      // A role name is not a part file: eye_L is cut from eyewhite.png.
+      mirrorParts: ["eye_L"],
+    });
+    expect(error).toMatch(
+      /^mirrorParts\[0\]: unknown part "eye_L" — expected one of .*eyewhite\.png/,
+    );
   });
 
   it("rejects an h outside the canvas", async () => {

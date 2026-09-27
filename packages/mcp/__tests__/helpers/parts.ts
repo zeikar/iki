@@ -112,6 +112,47 @@ function rim(
   }
 }
 
+/**
+ * The eyewhite: a white almond with a dark upper lash arc (kept by the split)
+ * and a dark lower rim (dropped by it), so both halves of prepEyeSplit are
+ * exercised. `tearDuct` leaves that end's fifth of the upper arc unlashed, the
+ * way a drawn eye leaves its inner corner, which fixes the way the eye faces;
+ * without it the arc is symmetric and faces neither way.
+ */
+export async function writeEyewhite(
+  dir: string,
+  tearDuct?: "left" | "right",
+): Promise<void> {
+  await writeRgbaPart(dir, "eyewhite.png", 72, 48, (set) => {
+    const bounds = { width: 72, height: 48 };
+    ellipse(set, bounds, 36, 24, 64, 40, WHITE);
+    // The almond spans x 4..67; its end fifth is 13 px.
+    const unlashed = (x: number) =>
+      tearDuct === "left" ? x < 17 : tearDuct === "right" ? x > 54 : false;
+    const setLash: SetPixel = (x, y, rgb) => {
+      if (!unlashed(x)) set(x, y, rgb);
+    };
+    // The split keeps dark pixels down to LASH_KEEP_FRACTION of the content
+    // bbox — row 4 + 0.5*40 = 24. The two rims straddle that line with a gap
+    // on either side, so which one survives is not decided by rounding.
+    rim(setLash, bounds, 36, 24, 64, 40, 4, (y) => y < 22, DARK);
+    rim(set, bounds, 36, 24, 64, 40, 3, (y) => y > 25, DARK);
+  });
+}
+
+/**
+ * A brow.png thick at the image's left end and tapering to a point at its
+ * right, where the stock brow is a symmetric blob: a part whose flip shows.
+ */
+export async function writeTaperedBrow(dir: string): Promise<void> {
+  await writeRgbaPart(dir, "brow.png", 48, 20, (set) => {
+    for (let x = 4; x < 44; x++) {
+      const half = Math.round(((44 - x) / 40) * 8);
+      for (let y = 10 - half; y <= 10 + half; y++) set(x, y, DARK);
+    }
+  });
+}
+
 /** A part that is just one ellipse on its own transparent frame. */
 const blobPart =
   (
@@ -127,27 +168,14 @@ const blobPart =
       ellipse(set, { width, height }, width / 2, height / 2, w, h, rgb),
     );
 
-/**
- * Every part source the layout can consume, keyed by file name. The eyewhite is
- * a white almond with a dark upper lash arc (kept by the split) and a dark lower
- * rim (dropped by it), so the two halves of prepEyeSplit are both exercised.
- */
+/** Every part source the layout can consume, keyed by file name. */
 const PARTS: Record<string, (dir: string) => Promise<void>> = {
   "hair_back.png": blobPart("hair_back.png", 120, 90, 100, 70, HAIR),
   "body.png": blobPart("body.png", 120, 80, 100, 60, DARK),
   "face.png": blobPart("face.png", 100, 120, 80, 100, SKIN),
   // The nose is a part of its own — the rig leads the head turn with it.
   "nose.png": blobPart("nose.png", 24, 34, 20, 30, DARK),
-  "eyewhite.png": (dir) =>
-    writeRgbaPart(dir, "eyewhite.png", 72, 48, (set) => {
-      const bounds = { width: 72, height: 48 };
-      ellipse(set, bounds, 36, 24, 64, 40, WHITE);
-      // The split keeps dark pixels down to LASH_KEEP_FRACTION of the content
-      // bbox — row 4 + 0.5*40 = 24. The two rims straddle that line with a gap
-      // on either side, so which one survives is not decided by rounding.
-      rim(set, bounds, 36, 24, 64, 40, 4, (y) => y < 22, DARK);
-      rim(set, bounds, 36, 24, 64, 40, 3, (y) => y > 25, DARK);
-    }),
+  "eyewhite.png": (dir) => writeEyewhite(dir),
   "iris.png": blobPart("iris.png", 44, 44, 36, 36, BLUE),
   "brow.png": blobPart("brow.png", 48, 20, 40, 10, DARK),
   "hair_front.png": blobPart("hair_front.png", 140, 100, 120, 80, HAIR),

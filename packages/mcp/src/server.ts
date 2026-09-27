@@ -187,6 +187,12 @@ export function createIkiMcpServer(): McpServer {
           .describe(
             "Per-role override merged over the built-in defaults, keyed by role — hair_back, body, face, nose, mouth, mouth_open, eye_L, eye_R, iris_L, iris_R, lash_L, lash_R, brow_L, brow_R, hair_front — e.g. `{ eye_L: { cx: 660 } }`. `w` and `h` are integers in 1..1100; omit `h` to keep the part's own aspect, set it to stretch (set it on a sclera and its lash together, or the blink fold tears).",
           ),
+        mirrorParts: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Part files to flip left-right as they are read, e.g. `[\"eyewhite.png\"]`. The composer reads eyewhite.png as the eye on the screen LEFT (lash wing at the image's left end, lash-free tear duct at its right) and brow.png as the brow on the screen RIGHT (thick head at the image's left end, tail at its right); a part drawn the other way round is fixed here for free. It flips the source, so every role cut from it flips together and an eye's sclera and lash stay in one frame.",
+          ),
       },
     },
     async (args) => {

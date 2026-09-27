@@ -45,6 +45,12 @@ const EDGE_SOLID_MAX = 0.5;
 /** Lash-vs-sclera ink-centre drift tolerated as intrinsic asymmetry, as a
  *  fraction of the eye width. See the check for why it is not zero. */
 const LASH_CENTRE_TOL_FRAC = 0.03;
+/** How much further short of the outer corner than of the nose side an eye's
+ *  lash may stop, as a fraction of the eye width, before the eye reads as
+ *  drawn facing the other way. Three real eyewhites drawn reversed stopped
+ *  4.0-6.1% further short there; one drawn the right way stops short at the
+ *  nose side instead, and one with a wing at each end at neither. */
+const EYE_FACING_TOL_FRAC = 0.02;
 const EDGE_RUN_MIN_PX = 40;
 // Longest straight "art appears out of nothing" run tolerated inside a part, as
 // a fraction of its width. A body generated with hair draped over the shoulders
@@ -350,6 +356,37 @@ export async function measureDir(absDir: string): Promise<MeasureReport> {
         warnings.push(
           `lash_${side}: centre is ${dx.toFixed(1)} px and top edge ${dTop.toFixed(1)} px off eye_${side}. ` +
             `They are split from one source and MUST share cx/cy/w in layout, or the blink fold tears. Retune to match.`,
+        );
+      }
+    }
+
+    // 5b. Which way the eye was drawn. A lash runs out to the outer corner,
+    // wing and all, and stops short of the tear duct at the inner one, so in
+    // the frame it shares with the sclera it is the nose end that the lash
+    // leaves bare. A lash that stops short of the OUTER end instead is an
+    // eyewhite drawn facing the other way: the wings point in, and "left eye"
+    // in a prompt cannot prevent it, since it reads as the viewer's left or
+    // the character's. The ends are read, not the ink's centroid: a thin wing
+    // widens the frame far more than it moves the centroid, which reads a
+    // correctly drawn eye as reversed. Only a lash inside that frame is read —
+    // ink outside it is the layout drift check 5 reports, not the drawing.
+    if (
+      lash &&
+      lash.marginLeft >= eye.marginLeft &&
+      lash.marginRight >= eye.marginRight
+    ) {
+      // eye_R is the screen-left eye: its outer corner is its left end.
+      const bareLeft = lash.marginLeft - eye.marginLeft;
+      const bareRight = lash.marginRight - eye.marginRight;
+      const [bareOuter, bareInner] =
+        side === "R" ? [bareLeft, bareRight] : [bareRight, bareLeft];
+      if ((bareOuter - bareInner) / eye.w > EYE_FACING_TOL_FRAC) {
+        warnings.push(
+          `eye_${side}: its lash stops ${pct(bareOuter / eye.w)} of the eye width short of the outer corner ` +
+            `and ${pct(bareInner / eye.w)} short of the nose side — the eyewhite is drawn facing the other way, ` +
+            `lash wing at the inner corner. The composer reads eyewhite.png as the eye on the screen LEFT: lash ` +
+            `wing at the image's left end, lash-free tear duct at its right. Free fix: compose again with ` +
+            `mirrorParts: ["eyewhite.png"] — no regeneration.`,
         );
       }
     }

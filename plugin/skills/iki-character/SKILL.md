@@ -44,7 +44,7 @@ The hard part is **getting clean role-separated parts out of codex-image** (an e
   pnpm --filter @ikijs/mcp build   # in an iki checkout: produces packages/mcp/dist/cli.js
   ```
   then send JSON-RPC `tools/call` frames to that process (see Step 3). Either way the tools **confine everything they write to the server's cwd** (realpath-checked, atomic rename), so the MCP server's cwd — or the dir you launch the bin from — is where the layers and the model can be written.
-- **A scratch workdir inside that cwd**, `iki-char/`, holding `parts/` (the generated part PNGs), `layers/` (the composed role layers), `layout.json` (the per-role placement overrides, starting as `{}` the first time) and the finished `.iki`. Create it up front — but only seed `layout.json` if it is not already there, so re-running this skill in a workdir you already tuned (Step 2) does not throw that tuning away; the workdir is gitignored, so there is no repository copy to recover it from. Every example below uses these paths.
+- **A scratch workdir inside that cwd**, `iki-char/`, holding `parts/` (the generated part PNGs), `layers/` (the composed role layers), `layout.json` (the per-role placement overrides, starting as `{}` the first time), `mirror-parts.json` once a part has needed flipping (Step 2) and the finished `.iki`. Create it up front — but only seed `layout.json` if it is not already there, so re-running this skill in a workdir you already tuned (Step 2) does not throw that tuning away; the workdir is gitignored, so there is no repository copy to recover it from. Every example below uses these paths.
   ```bash
   mkdir -p iki-char/parts iki-char/layers
   [ -f iki-char/layout.json ] || echo '{}' > iki-char/layout.json
@@ -85,9 +85,9 @@ Prompt skeleton (fill `<STYLE>` consistently, e.g. "flat anime cel-shaded, soft 
 
 - **face.png** — "Front-facing anime character face base, `<STYLE>`. Skin, ears, face shape and a SHORT neck ending just below the jaw. **NO eyes, NO eyebrows, NO nose, NO mouth, NO hair** — bare skin where features go. Transparent background, centered." _(The neck bound is load-bearing: the default layout anchors this part on its bounding-box centre, so a long neck drags the skull up and the eye line lands too low on it. One run came back with 23% neck and needed a `layout.face.cy` retune to put the eyes back at ~53% of skull height.)_
 - **mouth.png** — "A single small closed anime mouth / lips, `<STYLE>`. Transparent background, centered, nothing else."
-- **eyewhite.png** — "A single anime eye, `<STYLE>`: an almond-shaped **white sclera** with **dark upper eyelashes** along the top. **NO iris, NO pupil, NO colored disc** — just the white interior and the dark lash line. Transparent background, one eye only." _(The "NO iris" negation is the flaky part — see Pitfalls. Generate 2–3 variants and pick the cleanest iris-free one.)_
+- **eyewhite.png** — "A single anime eye, `<STYLE>`: an almond-shaped **white sclera** with **dark upper eyelashes** along the top. **NO iris, NO pupil, NO colored disc** — just the white interior and the dark lash line. **The outer corner, where the lash flicks out into a wing, is at the LEFT end of the image; the inner corner, the tear duct with no lash, is at the RIGHT end.** Transparent background, one eye only." _(The "NO iris" negation is the flaky part — see Pitfalls. Generate 2–3 variants and pick the cleanest iris-free one. The direction is in image terms on purpose — see the left/right pitfall.)_
 - **iris.png** — "A single round anime iris disc, `<STYLE>` eye color: radial colored iris with a dark round pupil and a small white highlight glint, top. Transparent background, just the disc, no eyelid, no sclera, no lashes."
-- **brow.png** — "A single anime eyebrow, `<STYLE>`. Transparent background, one brow only, gentle arch."
+- **brow.png** — "A single anime eyebrow, `<STYLE>`. Transparent background, one brow only, gentle arch, **its thick head at the LEFT end of the image, tapering to a thin tail at the RIGHT end**."
 - **nose.png** — "A single small anime nose, `<STYLE>`: the bridge shadow, tip and nostril, nothing else — no face, no skin around it. Transparent background, centered." _(Optional but the whole head-turn depth cue hangs on it; the default layout puts it between the eyes and above the mouth at 40 px wide — retune `layout.nose` like any part.)_
 - **hair_front.png** — "Front hair / bangs for an anime character, `<STYLE>`, framing an empty face from above. Transparent background, front layer only (no back hair, no face)."
 - **hair_back.png** — "Back hair silhouette for an anime character, `<STYLE>`, the mass of hair that falls behind the head and shoulders. Transparent background, no face, no bangs."
@@ -98,8 +98,9 @@ Save each to the parts dir with the **exact filenames above** (`compose_layers_f
 
 ### Step 2 — Compose into canvas role layers
 
-Call `compose_layers_from_parts` with the parts dir, the layers dir, and whatever
-`iki-char/layout.json` holds right now:
+Call `compose_layers_from_parts` with the parts dir, the layers dir, whatever
+`iki-char/layout.json` holds right now, and `iki-char/mirror-parts.json` when it
+exists:
 
 ```jsonc
 {
@@ -107,6 +108,8 @@ Call `compose_layers_from_parts` with the parts dir, the layers dir, and whateve
   "outDir": "iki-char/layers",
   // the contents of iki-char/layout.json — `{}` until you tune something
   "layout": {},
+  // the contents of iki-char/mirror-parts.json — leave it out until a part needs it
+  "mirrorParts": [],
 }
 ```
 
@@ -117,8 +120,15 @@ must already exist, since the tool never creates it. The result carries the
 written layer paths and, inline, the geometry report — which encodes the failure
 modes that each cost a real regeneration round to find by eye
 (iris/sclera ratio, a sclera too flat to hold a round iris, an iris off the
-white's centre of mass, lash/sclera drift, art cut through by its own frame).
+white's centre of mass, lash/sclera drift, an eye drawn facing the other way,
+art cut through by its own frame).
 Iterate until it reports `all geometry checks passed`.
+
+An eye **drawn facing the other way** is fixed before anything else, and never
+by retuning its iris: add `"eyewhite.png"` to `iki-char/mirror-parts.json` (a
+JSON array) and recompose with it as `mirrorParts`. The composer flips the
+source, so both eyes and both lashes flip together — free, no regeneration.
+`brow.png` flips the same way if its head came out on the right.
 
 **Read `preview.png`** to check alignment. The built-in default layout assumes
 the standard framing prompted above; if eyes/mouth/brows are off, edit
@@ -230,6 +240,7 @@ a checkout, the panel slider standalone — to see the root-pinned swing shape.
 ## Pitfalls (hard-won — read before generating)
 
 - **"NO nose" on the face is the same kind of negation.** A leaked nose stays painted on the face plate while the `nose` layer moves, so the two drift apart on the turn. Generate 2 face variants and pick the nose-free one; if both leak, strengthen the negation ("smooth bare skin between the eyes, no nose at all").
+- **"Left" and "right" do not say which way a part faces.** "Draw the left eye" reads as the viewer's left or the character's, and a prompt that names no side leaves it to chance: all three eyewhite variants of one run came back reversed, with the lash wings pointing at the nose. The iris-offset warnings that follow tempt an iris retune, which hides the fault instead of fixing it. So the prompts above name the direction in image terms, and the geometry report flags an eye whose lash stops short of its outer corner instead of its tear duct; the fix is `mirrorParts` (Step 2). The entry describes the part FILE, not the character — when you regenerate that part, take it out of `mirror-parts.json` and let the report say again.
 - **"NO iris" on the eyewhite is the flakiest prompt.** codex-image often paints an iris anyway. Generate **2–3 eyewhite variants** and pick the cleanest iris-free one; a leaked colored iris breaks `prepEyeSplit` (the luminance split would misclassify a dark/saturated iris as lash). If all variants leak, regenerate with a stronger negation ("empty white interior, absolutely no colored circle").
 - **The eyewhite must be a SOLID FILLED white almond, not an outline.** The first generation often comes back as a thin line-art ring with a transparent interior — useless as a clip mask. Demand "SOLID FILLED pure-white almond, the entire interior painted opaque white". The blink-fold also reads best when the **upper lash is the boldest dark element**; a heavy full-almond outline still works (the split keeps only the top fraction as the lash via `LASH_KEEP_FRACTION`), but a clean white with a distinct top lash folds most cleanly.
 - **The face base must have NO eyes and NO mouth.** A face with baked eyes can't blink/gaze (the eye stack would double up). Re-prompt until the eye/mouth sockets are bare skin.

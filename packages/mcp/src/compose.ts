@@ -82,6 +82,13 @@ interface RoleLayout {
 // is cheap and the parts do not need regenerating.
 //
 // eyeSide reminder: eye_L = character's LEFT eye = screen RIGHT (larger cx).
+// Which way a source faces is fixed by the mirror flags below, and "left eye"
+// cannot say it — it reads as the viewer's left or the character's. So in
+// image terms: eyewhite.png is the eye on the SCREEN LEFT, its lash wing (outer
+// corner) at the image's left end and its lash-free tear duct at the right;
+// brow.png is the brow on the SCREEN RIGHT, its thick head at the image's left
+// end and its tail at the right. A part drawn the other way round is flipped
+// for free with `mirrorParts`.
 // eye_*  = clean WHITE sclera (lashes recolored white) = the blink clip mask + fold.
 // iris_* = colored disc on top, clipped to the sclera, drives gaze.
 // lash_* = the dark lashes, a separate layer ABOVE the iris that folds down to
@@ -157,6 +164,19 @@ const ORDER: Role[] = [
   "hair_front",
 ];
 
+/**
+ * The part files a parts dir holds: every source the layout reads from disk,
+ * and the eyewhite the eye pair is split from in memory.
+ */
+const PART_FILES = [
+  ...new Set(
+    Object.values(DEFAULT_LAYOUT)
+      .map((cfg) => cfg.src)
+      .filter((src) => !src.startsWith("eyewhite_")),
+  ),
+  EYEWHITE_SRC,
+];
+
 /** Per-role placement overrides; anything omitted keeps the default above. */
 export type LayoutOverride = Partial<
   Record<Role, { cx?: number; cy?: number; w?: number; h?: number }>
@@ -173,6 +193,13 @@ export interface ComposeInput {
    */
   outDir: string;
   layout?: LayoutOverride;
+  /**
+   * Part files to flip left-right as they are read, e.g. `["eyewhite.png"]`
+   * for an eye drawn facing the other way. It flips the SOURCE, so every role
+   * cut from it flips together — the eye pair's sclera and lash stay in one
+   * frame, which a per-role flag would leave to the caller to keep in sync.
+   */
+  mirrorParts?: string[];
 }
 
 export interface ComposedLayer {
@@ -243,6 +270,23 @@ function resolveLayout(
 }
 
 /**
+ * Input boundary for `mirrorParts`: a name that is not a part file (a typo, or
+ * a role such as `eye_L`) would otherwise flip nothing and read as success.
+ */
+function resolveMirrorParts(names: string[] | undefined): Set<string> {
+  const mirrored = new Set<string>();
+  for (const [i, name] of (names ?? []).entries()) {
+    if (!PART_FILES.includes(name)) {
+      throw new AutoRigInputError(
+        `mirrorParts[${i}]: unknown part ${JSON.stringify(name)} — expected one of ${PART_FILES.join(", ")}`,
+      );
+    }
+    mirrored.add(name);
+  }
+  return mirrored;
+}
+
+/**
  * Some generated parts come back opaque on a white background (no alpha).
  * Key near-white pixels to transparent so they can layer cleanly.
  */
@@ -259,6 +303,7 @@ function keyWhiteToAlpha(rgba: Buffer): Buffer {
 /**
  * Trim/mirror a part and resize it to its layout width. `inMemory` carries the
  * eye pair's two split buffers; every other role is read from the parts dir.
+ * `flipSource` is a `mirrorParts` entry for the file the role is cut from.
  * Missing optional part -> null; missing required part -> AutoRigInputError.
  */
 async function partBuffer(
@@ -266,6 +311,7 @@ async function partBuffer(
   cfg: RoleLayout,
   partsDir: string,
   inMemory: Buffer | undefined,
+  flipSource: boolean,
 ): Promise<{ buf: Buffer; w: number; h: number } | null> {
   let img: sharp.Sharp;
   if (inMemory !== undefined) {
@@ -293,7 +339,9 @@ async function partBuffer(
   // noTrim parts (the eye and lash pairs) keep their shared pre-cropped frame so
   // sclera and lash stay aligned; everything else is alpha-trimmed to its own bbox.
   if (!cfg.noTrim) img = img.trim({ threshold: 12 });
-  if (cfg.mirror) img = img.flop();
+  // A flipped source under a mirrored role cancels out. sharp's flop() sets a
+  // flag rather than toggling it, so the two cannot simply be applied in turn.
+  if ((cfg.mirror ?? false) !== flipSource) img = img.flop();
   // Materialise the trimmed part BEFORE resizing: its size is bounded by the
   // source decode limit, so the height the resize WOULD produce can be checked
   // against the canvas while only the bounded buffer is allocated.
@@ -451,6 +499,7 @@ export async function composeLayersFromParts(
       );
     }
     const layout = resolveLayout(input.layout);
+    const mirrored = resolveMirrorParts(input.mirrorParts);
 
     const split = await prepEyeSplit(partsDir);
     const splitSources = new Map<string, Buffer>([
@@ -463,11 +512,14 @@ export async function composeLayersFromParts(
     const preview: { input: Buffer; left: number; top: number }[] = [];
     for (const role of ORDER) {
       const cfg = layout[role];
+      const inMemory = splitSources.get(cfg.src);
       const part = await partBuffer(
         role,
         cfg,
         partsDir,
-        splitSources.get(cfg.src),
+        inMemory,
+        // The split halves are cut from eyewhite.png, the file a caller names.
+        mirrored.has(inMemory === undefined ? cfg.src : EYEWHITE_SRC),
       );
       if (part === null) {
         skipped.push(role);

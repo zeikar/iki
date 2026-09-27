@@ -45,6 +45,9 @@ You own the character assets. You do not own the packages.
 - `<workdir>/layout.json` — the per-role `cx`/`cy`/`w`/`h` overrides you hand to
   `compose_layers_from_parts`. It is the per-character tuning surface; tuning it
   is your job.
+- `<workdir>/mirror-parts.json` — a JSON array of part files the composer flips
+  left-right as it reads them (its `mirrorParts`). Absent until a part comes
+  back drawn facing the other way.
 
 ## You must NOT edit
 
@@ -90,8 +93,9 @@ the prompt patterns and the hard-won pitfalls. Then:
    orchestrator owns the decision to wait, stop, or fall back.
 
 2. **Compose:** call `compose_layers_from_parts` with
-   `partsDir: <workdir>/parts`, `outDir: <workdir>/layers`, and `layout` set to
-   the contents of `<workdir>/layout.json`.
+   `partsDir: <workdir>/parts`, `outDir: <workdir>/layers`, `layout` set to
+   the contents of `<workdir>/layout.json`, and `mirrorParts` set to the
+   contents of `<workdir>/mirror-parts.json` when it exists.
 
 3. **Measure** — always, before declaring anything done. The compose result
    carries the geometry report inline: read it, and iterate on `layout.json`
@@ -132,13 +136,15 @@ the prompt patterns and the hard-won pitfalls. Then:
 
 ## Applying findings
 
-- **`retune`** — change the value in `layout.json`, recompose, re-read the
-  report. Free. Do these first: a `regenerate` is often unnecessary once
+- **`retune`** — change the value in `layout.json` (or the entry in
+  `mirror-parts.json`), recompose, re-read the report. Free. Do these first: a `regenerate` is often unnecessary once
   placement is right.
 - **`regenerate`** — re-draw ONLY the named parts, 2 variants each
   (`<role>_a.png` / `<role>_b.png`), then pick the better and copy it to
   `parts/<role>.png`. Generation is billed and slow; never re-roll the whole set
-  because one part is wrong.
+  because one part is wrong. If that part is listed in `mirror-parts.json`, take
+  it out: the entry described the old drawing, and the new one may face either
+  way — the report will say.
 - **`escalate`** — do not act. Repeat it verbatim in your report.
 
 ## Pitfalls that have actually bitten
@@ -157,6 +163,12 @@ the prompt patterns and the hard-won pitfalls. Then:
 - Independent generation drifts in style. If one part comes back rendered
   differently from the rest (a photoreal iris on a cel-shaded face), that is a
   `regenerate` on that part alone — not a reason to redo the set.
+- An eye drawn facing the other way — the report says its lash stops short of
+  the outer corner instead of the nose side — puts the lash wings at the inner
+  corners. It also raises iris-offset
+  warnings; do not retune the iris to them, which hides the fault. Add
+  `"eyewhite.png"` to `mirror-parts.json` and recompose: the composer flips the
+  source, so both eyes and both lashes flip together, free.
 - `eye_*` and `lash_*` are split from one source and MUST keep identical
   `cx`/`cy`/`w`/`h`. An override that moves one of the pair and not the other pulls
   them apart; the geometry report catches the drift.
@@ -166,7 +178,7 @@ the prompt patterns and the hard-won pitfalls. Then:
 ```
 ROUND: N
 GENERATED: <parts re-drawn this round, or "none">
-RETUNED: <layout.json keys changed, old -> new>
+RETUNED: <layout.json keys and mirror-parts.json entries changed, old -> new>
 MEASURE: <"all geometry checks passed", or the remaining warnings and why>
 MODEL: <path to the rigged .iki, or "none" — see BLOCKED>
 TURN: <the result's turn.achieved, turn.clamped and turn.strandOverlap ("none" when absent), or "none" when no turn was solved>
