@@ -30,7 +30,7 @@ description: |
   </commentary>
   </example>
 tools: Read, Bash, Glob, Grep, mcp__plugin_iki_iki__measure_layers, mcp__plugin_iki_iki__measure_turn_reference
-model: sonnet
+model: opus
 color: purple
 ---
 

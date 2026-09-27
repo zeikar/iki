@@ -30,7 +30,7 @@ description: |
   </commentary>
   </example>
 tools: Read, Edit, Write, Bash, Glob, Grep, mcp__plugin_iki_iki__compose_layers_from_parts, mcp__plugin_iki_iki__measure_layers, mcp__plugin_iki_iki__auto_rig_from_layers
-model: sonnet
+model: opus
 color: green
 ---
 
