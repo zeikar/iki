@@ -507,9 +507,15 @@ export async function composeLayersFromParts(
       ["eyewhite_lash.png", split.lash],
     ]);
 
-    const layers: ComposedLayer[] = [];
+    // Place every role before writing any: a rejected placement must leave
+    // outDir as the last compose left it, not half overwritten.
+    const placed: {
+      role: Role;
+      part: { buf: Buffer; w: number; h: number };
+      left: number;
+      top: number;
+    }[] = [];
     const skipped: Role[] = [];
-    const preview: { input: Buffer; left: number; top: number }[] = [];
     for (const role of ORDER) {
       const cfg = layout[role];
       const inMemory = splitSources.get(cfg.src);
@@ -523,15 +529,45 @@ export async function composeLayersFromParts(
       );
       if (part === null) {
         skipped.push(role);
-        // Drop this role's layer from an earlier compose into the same dir:
-        // left behind it would contradict `skipped`, since measureDir globs the
-        // directory (the report would still show a body) and the next
-        // auto_rig_from_layers would rig the stale file into the model. Only the
-        // fixed ORDER role names, under the confined outDir, are ever removed.
-        fs.rmSync(path.join(outDir, `${role}.png`), { force: true });
         continue;
       }
       const { left, top } = placement(role, cfg, part.w, part.h);
+      // The eye pair's halves are cut from one eyewhite into one frame. Set
+      // apart, the blink fold tears — and a lash narrowed inside its sclera
+      // still lies on it and inks its top row, so nothing in the composed
+      // layers would show it. Compared as placed, not as set: an h equal to
+      // the one the aspect gives lands on the same frame as leaving it unset.
+      if (role === "lash_L" || role === "lash_R") {
+        const eyeRole = role === "lash_L" ? "eye_L" : "eye_R";
+        const eye = placed.find((p) => p.role === eyeRole);
+        if (
+          eye !== undefined &&
+          (eye.left !== left ||
+            eye.top !== top ||
+            eye.part.w !== part.w ||
+            eye.part.h !== part.h)
+        ) {
+          throw new AutoRigInputError(
+            `layout.${role} places the lash at ${part.w}x${part.h} (${left},${top}), but layout.${eyeRole} ` +
+              `places its sclera at ${eye.part.w}x${eye.part.h} (${eye.left},${eye.top}) — they are cut from one ` +
+              `eyewhite into one frame, and the blink fold tears where they part. Set cx/cy/w/h the same on both.`,
+          );
+        }
+      }
+      placed.push({ role, part, left, top });
+    }
+
+    // Drop each skipped role's layer from an earlier compose into the same
+    // dir: left behind it would contradict `skipped`, since measureDir globs
+    // the directory (the report would still show a body) and the next
+    // auto_rig_from_layers would rig the stale file into the model. Only the
+    // fixed ORDER role names, under the confined outDir, are ever removed.
+    for (const role of skipped) {
+      fs.rmSync(path.join(outDir, `${role}.png`), { force: true });
+    }
+    const layers: ComposedLayer[] = [];
+    const preview: { input: Buffer; left: number; top: number }[] = [];
+    for (const { role, part, left, top } of placed) {
       // role layer: this part alone on a full canvas at its position.
       const layer = await blankCanvas()
         .composite([{ input: part.buf, left, top }])

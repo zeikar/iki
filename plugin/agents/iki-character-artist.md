@@ -170,8 +170,8 @@ the prompt patterns and the hard-won pitfalls. Then:
   `"eyewhite.png"` to `mirror-parts.json` and recompose: the composer flips the
   source, so both eyes and both lashes flip together, free.
 - `eye_*` and `lash_*` are split from one source and MUST keep identical
-  `cx`/`cy`/`w`/`h`. An override that moves one of the pair and not the other pulls
-  them apart; the geometry report catches the drift.
+  `cx`/`cy`/`w`/`h`. An override that moves one of the pair and not the other would
+  pull them apart, so `compose_layers_from_parts` rejects it: set both.
 
 ## Report
 

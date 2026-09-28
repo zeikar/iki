@@ -540,6 +540,63 @@ describe("composeLayersFromParts", () => {
     }
   });
 
+  it("rejects a lash placed apart from its sclera", async () => {
+    // Narrowed alone, the lash still lies on its sclera and inks its top row,
+    // so nothing in the composed layers would show the fold it tears.
+    const narrowed = await composeError({
+      partsDir: parts,
+      outDir: outDir(),
+      layout: { eye_L: { w: 140, h: 86 }, lash_L: { w: 120, h: 86 } },
+    });
+    expect(narrowed).toMatch(
+      /^layout\.lash_L places the lash at 120x86 \(597,432\), but layout\.eye_L places its sclera at 140x86 \(587,432\)/,
+    );
+
+    // An h set on the sclera alone leaves the lash on the part's own aspect.
+    const halfSet = await composeError({
+      partsDir: parts,
+      outDir: outDir(),
+      layout: { eye_R: { h: 90 } },
+    });
+    expect(halfSet).toMatch(
+      /^layout\.lash_R places the lash at 128x80 .* sclera at 128x90/,
+    );
+  });
+
+  it("leaves the output dir as it was when a placement is rejected", async () => {
+    const out = outDir();
+    await composeOk({ partsDir: parts, outDir: out });
+    const before = digest(out);
+
+    // Both are refused only after the roles drawn before them have been
+    // placed — the lash after the eyes, hair_front last of all — while the
+    // moved face would already differ from the layer on disk.
+    for (const layout of [
+      { face: { cx: 560 }, lash_L: { w: 120 } },
+      { face: { cx: 560 }, hair_front: { cx: -1000 } },
+    ] as LayoutOverride[]) {
+      await composeError({ partsDir: parts, outDir: out, layout });
+      expect(digest(out)).toEqual(before);
+    }
+  });
+
+  it("accepts an h that lands the pair on the same frame as its aspect", async () => {
+    // The fixture eyewhite crops to 64x40, so 128 wide it is 80 tall anyway.
+    const r = await composeOk({
+      partsDir: parts,
+      outDir: outDir(),
+      layout: { eye_R: { h: 80 } },
+    });
+    const eye = r.layers.find((l) => l.role === "eye_R")!;
+    const lash = r.layers.find((l) => l.role === "lash_R")!;
+    expect([lash.left, lash.top, lash.width, lash.height]).toEqual([
+      eye.left,
+      eye.top,
+      eye.width,
+      eye.height,
+    ]);
+  });
+
   it("rejects an unknown part in mirrorParts", async () => {
     const error = await composeError({
       partsDir: parts,

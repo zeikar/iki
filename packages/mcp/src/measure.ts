@@ -42,9 +42,11 @@ const IRIS_OFFSET_MAX_Y = 10;
 // high fraction AND real length are required to separate the two. Observed:
 // genuine crops read 60-93%, circle tangents 8-14%.
 const EDGE_SOLID_MAX = 0.5;
-/** Lash-vs-sclera ink-centre drift tolerated as intrinsic asymmetry, as a
- *  fraction of the eye width. See the check for why it is not zero. */
-const LASH_CENTRE_TOL_FRAC = 0.03;
+/** Share of a lash's opaque pixels tolerated off its sclera. In sync there
+ *  are none — the sclera was recoloured from those very pixels. A real eye
+ *  measured 0 of 934 in sync, then 6-12 at a 1 px drift, 45-50 at 2 px and
+ *  104-110 at 4 px, whichever way it drifted. */
+const LASH_STRAY_TOL_FRAC = 0.02;
 /** How much further short of the outer corner than of the nose side an eye's
  *  lash may stop, as a fraction of the eye width, before the eye reads as
  *  drawn facing the other way. Three real eyewhites drawn reversed stopped
@@ -205,6 +207,30 @@ export async function layerStats(filePath: string): Promise<LayerStats | null> {
 const pct = (v: number) => `${(v * 100).toFixed(0)}%`;
 
 /**
+ * Count the lash's opaque pixels, and those of them that land where its
+ * sclera is transparent. Both are canvas-sized layers, so a pixel's position
+ * is the same canvas point in each.
+ */
+async function lashOffSclera(
+  eyePath: string,
+  lashPath: string,
+): Promise<{ opaque: number; off: number }> {
+  const eye = await decodePng(eyePath);
+  const lash = await decodePng(lashPath);
+  let opaque = 0;
+  let off = 0;
+  for (let y = 0; y < lash.height; y++) {
+    for (let x = 0; x < lash.width; x++) {
+      if (lash.rgba[(y * lash.width + x) * 4 + 3] < 128) continue;
+      opaque++;
+      const onEye = x < eye.width && y < eye.height;
+      if (!onEye || eye.rgba[(y * eye.width + x) * 4 + 3] <= 8) off++;
+    }
+  }
+  return { opaque, off };
+}
+
+/**
  * Measure every `*.png` in an already-resolved layers directory (`preview.png`
  * is the composer's contact sheet, not a role) and run the geometry checks.
  */
@@ -339,27 +365,16 @@ export async function measureDir(absDir: string): Promise<MeasureReport> {
     // 5. The lash and the white are split from ONE source and pasted with the
     // same cx/cy/w, so their frames coincide even though the lash only inks the
     // upper part of it (its content sits higher — that is the fold working, not
-    // a fault). What must line up is the horizontal centre and the top edge; a
-    // drift there means the two layout entries fell out of sync and the fold
-    // will tear.
-    if (lash) {
-      const dx = lash.bboxCx - eye.bboxCx;
-      const dTop = lash.marginTop - eye.marginTop;
-      // dx compares INK centres, and the lash's ink is narrower than the frame it
-      // shares with the sclera, so a lash whose flick runs one way sits a pixel or
-      // two off-centre while its layout entry is perfectly in sync — a real run
-      // measured 1.5 px on a 128 px eye and the warning could not be acted on.
-      // Scale the tolerance with the eye so the desync this guards (14 px on a
-      // real character) still trips it. dTop stays strict: the fold seam rides
-      // that edge, and both layers ink the same top row when they are in sync.
-      if (Math.abs(dx) > eye.w * LASH_CENTRE_TOL_FRAC || Math.abs(dTop) > 0.5) {
-        warnings.push(
-          `lash_${side}: centre is ${dx.toFixed(1)} px and top edge ${dTop.toFixed(1)} px off eye_${side}. ` +
-            `They are split from one source and MUST share cx/cy/w in layout, or the blink fold tears. Retune to match.`,
-        );
-      }
-    }
-
+    // a fault). In sync, the lash is ink the sclera was recoloured from, so
+    // every opaque lash pixel lies on the sclera, and both ink the same top
+    // row; a drift moves pixels off it, and a lash scaled down inside it (a w
+    // or h out of sync) drops its top row — the seam the fold rides — either
+    // way tearing the fold. Neither the ink centres nor the frame's sides can
+    // stand in for that: a lash stops short of the tear duct (5b), so a
+    // correctly composed eye's ink sits 3-5% of its width off the sclera's
+    // centre, while a lash drifting in toward that bare end stays inside the
+    // frame.
+    //
     // 5b. Which way the eye was drawn. A lash runs out to the outer corner,
     // wing and all, and stops short of the tear duct at the inner one, so in
     // the frame it shares with the sclera it is the nose end that the lash
@@ -368,26 +383,43 @@ export async function measureDir(absDir: string): Promise<MeasureReport> {
     // in a prompt cannot prevent it, since it reads as the viewer's left or
     // the character's. The ends are read, not the ink's centroid: a thin wing
     // widens the frame far more than it moves the centroid, which reads a
-    // correctly drawn eye as reversed. Only a lash inside that frame is read —
-    // ink outside it is the layout drift check 5 reports, not the drawing.
-    if (
-      lash &&
-      lash.marginLeft >= eye.marginLeft &&
-      lash.marginRight >= eye.marginRight
-    ) {
-      // eye_R is the screen-left eye: its outer corner is its left end.
-      const bareLeft = lash.marginLeft - eye.marginLeft;
-      const bareRight = lash.marginRight - eye.marginRight;
-      const [bareOuter, bareInner] =
-        side === "R" ? [bareLeft, bareRight] : [bareRight, bareLeft];
-      if ((bareOuter - bareInner) / eye.w > EYE_FACING_TOL_FRAC) {
+    // correctly drawn eye as reversed. Only a lash in sync is read — a drift
+    // moves the ends too, and is check 5's to report, not the drawing's.
+    if (lash) {
+      const { opaque, off } = await lashOffSclera(
+        path.join(absDir, `eye_${side}.png`),
+        path.join(absDir, `lash_${side}.png`),
+      );
+      const dTop = lash.marginTop - eye.marginTop;
+      const faults = [
+        ...(off > opaque * LASH_STRAY_TOL_FRAC
+          ? [`${off} of its ${opaque} opaque px lie off eye_${side}'s sclera`]
+          : []),
+        ...(Math.abs(dTop) > 0.5
+          ? [`its top edge is ${dTop.toFixed(1)} px off the sclera's`]
+          : []),
+      ];
+      if (faults.length > 0) {
         warnings.push(
-          `eye_${side}: its lash stops ${pct(bareOuter / eye.w)} of the eye width short of the outer corner ` +
-            `and ${pct(bareInner / eye.w)} short of the nose side — the eyewhite is drawn facing the other way, ` +
-            `lash wing at the inner corner. The composer reads eyewhite.png as the eye on the screen LEFT: lash ` +
-            `wing at the image's left end, lash-free tear duct at its right. Free fix: compose again with ` +
-            `mirrorParts: ["eyewhite.png"] — no regeneration.`,
+          `lash_${side}: ${faults.join(" and ")} — they are split from one source and MUST share ` +
+            `cx/cy/w/h in layout, or the blink fold tears. Retune to match.`,
         );
+      } else {
+        // How far short of each side of the frame the lash stops.
+        const bareLeft = lash.marginLeft - eye.marginLeft;
+        const bareRight = lash.marginRight - eye.marginRight;
+        // eye_R is the screen-left eye: its outer corner is its left end.
+        const [bareOuter, bareInner] =
+          side === "R" ? [bareLeft, bareRight] : [bareRight, bareLeft];
+        if ((bareOuter - bareInner) / eye.w > EYE_FACING_TOL_FRAC) {
+          warnings.push(
+            `eye_${side}: its lash stops ${pct(bareOuter / eye.w)} of the eye width short of the outer corner ` +
+              `and ${pct(bareInner / eye.w)} short of the nose side — the eyewhite is drawn facing the other way, ` +
+              `lash wing at the inner corner. The composer reads eyewhite.png as the eye on the screen LEFT: lash ` +
+              `wing at the image's left end, lash-free tear duct at its right. Free fix: compose again with ` +
+              `mirrorParts: ["eyewhite.png"] — no regeneration.`,
+          );
+        }
       }
     }
   }

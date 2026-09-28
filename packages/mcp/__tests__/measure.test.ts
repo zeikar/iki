@@ -196,7 +196,7 @@ describe("measureLayers", () => {
     ).toBe(true);
   });
 
-  it("flags a lash whose centre drifted off its sclera", async () => {
+  it("flags a lash that drifted off its sclera", async () => {
     const dir = tmpDir();
     await writeEyeStack(dir);
     await writeLayer(dir, "lash_L.png", (set) =>
@@ -204,7 +204,12 @@ describe("measureLayers", () => {
     );
 
     const result = await measureOk(dir);
-    expect(warned(result.warnings, /lash_L: centre is 3\.0 px/)).toBe(true);
+    expect(
+      warned(
+        result.warnings,
+        /^lash_L: \d+ of its \d+ opaque px lie off eye_L's sclera/,
+      ),
+    ).toBe(true);
   });
 
   it("names the free move for a flush edge and the redraw for a cropped one", async () => {
@@ -228,14 +233,35 @@ describe("measureLayers", () => {
   it("tolerates a lash whose ink is asymmetric inside a shared frame", async () => {
     const dir = tmpDir();
     await writeEyeStack(dir);
-    // 1 px: what a flick that runs one way costs on a 64 px eye. The layout
-    // entries are in sync; there is nothing an artist could retune.
+    // The layout entries are in sync, but the lash stops short of the tear
+    // duct: its bare inner 12 px (eye_L's nose side is -x) put its ink centre
+    // 6 px off the sclera's — what every eye drawn the right way does, and
+    // nothing an artist could retune.
     await writeLayer(dir, "lash_L.png", (set) =>
-      topArc(set, 101, 100, 64, 40, 4, DARK),
+      topArc(set, 100, 100, 64, 40, 4, DARK, (x) => x >= 80),
     );
 
     const result = await measureOk(dir);
-    expect(warned(result.warnings, /lash_L: centre is/)).toBe(false);
+    expect(warned(result.warnings, /^lash_L:/)).toBe(false);
+  });
+
+  it("flags a lash that drifted in toward its bare tear duct", async () => {
+    const dir = tmpDir();
+    await writeEyeStack(dir);
+    // The same lash moved 4 px toward the nose. Its bare end leaves it room,
+    // so its ink stays inside the sclera's frame on both sides and still inks
+    // its top row — but it no longer lies on the sclera it was cut from.
+    await writeLayer(dir, "lash_L.png", (set) =>
+      topArc(set, 96, 100, 64, 40, 4, DARK, (x) => x >= 76),
+    );
+
+    const result = await measureOk(dir);
+    expect(
+      warned(
+        result.warnings,
+        /^lash_L: \d+ of its \d+ opaque px lie off eye_L's sclera/,
+      ),
+    ).toBe(true);
   });
 
   it("flags an eye drawn facing the other way, reading the nose side per eye", async () => {
@@ -303,18 +329,40 @@ describe("measureLayers", () => {
     ).toHaveLength(2);
   });
 
-  it("leaves a lash that left its frame to the drift check, not the facing one", async () => {
+  it("flags a lash scaled down inside its sclera", async () => {
+    const dir = tmpDir();
+    await writeEyeStack(dir);
+    // A lash whose w fell out of sync with its sclera's: centred and smaller,
+    // every pixel still lies on the sclera, but its top row no longer meets
+    // the sclera's, which is the seam the fold rides.
+    await writeLayer(dir, "lash_L.png", (set) =>
+      topArc(set, 100, 100, 56, 34, 4, DARK),
+    );
+
+    const result = await measureOk(dir);
+    const drift = result.warnings.find((w) => /^lash_L:/.test(w));
+    expect(drift).toMatch(/top edge is 3\.0 px off the sclera's/);
+    // Only the fault that fired is named.
+    expect(drift).not.toMatch(/opaque px lie off/);
+  });
+
+  it("leaves a drifted lash to the drift check, not the facing one", async () => {
     const dir = tmpDir();
     await writeEyeStack(dir);
     // 3 px toward the nose (eye_L's nose side is -x): a layout desync, which
-    // puts ink outside the sclera's frame. An eye drawn the other way keeps its
-    // lash inside the frame it was split from.
+    // also bares the lash's outer end. An eye drawn the other way still lies
+    // on the sclera it was split from.
     await writeLayer(dir, "lash_L.png", (set) =>
       topArc(set, 97, 100, 64, 40, 4, DARK),
     );
 
     const result = await measureOk(dir);
-    expect(warned(result.warnings, /lash_L: centre is -3\.0 px/)).toBe(true);
+    expect(
+      warned(
+        result.warnings,
+        /^lash_L: \d+ of its \d+ opaque px lie off eye_L's sclera/,
+      ),
+    ).toBe(true);
     expect(warned(result.warnings, /facing/)).toBe(false);
   });
 
