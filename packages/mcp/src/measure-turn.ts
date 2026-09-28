@@ -118,6 +118,37 @@ const BG_SAT_MAX = 0.2;
 const BG_V_MIN = 0.55;
 const BG_V_BLACK = 0.03;
 
+/**
+ * A layer's dense core: the tight box of its pixels at alpha ≥ ALPHA_OPAQUE,
+ * not grown. A soft-alpha part (a nose drawn as a shaded bump) is mostly
+ * feather, and the core is the drawing a viewer reads inside it — the composer
+ * sizes and places the nose by it. It is not the crop: that stays the alpha ≥ 8
+ * box grown by 1 px (`detectAlphaBbox`). `null` when no pixel reaches the
+ * threshold, a part painted wholly translucent.
+ */
+export function denseCoreOf(
+  rgba: ArrayLike<number>,
+  width: number,
+  height: number,
+): { x: number; y: number; w: number; h: number } | null {
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (rgba[(y * width + x) * 4 + 3] >= ALPHA_OPAQUE) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return null;
+  return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+}
+
 /** Connected blob of iris-coloured pixels, in image px. */
 export interface IrisBlob {
   x0: number;

@@ -2,7 +2,8 @@
  * Compose AI-generated part PNGs into canvas-aligned, role-named layers for the
  * Iki auto-rig (`auto_rig_from_layers` / `@ikijs/editor` generateIkiFromLayerSet).
  * Each part is alpha-trimmed, resized to a target width, optionally mirrored,
- * and pasted at a chosen center on a shared transparent CANVAS x CANVAS canvas.
+ * and pasted at a chosen center on a shared transparent CANVAS x CANVAS canvas
+ * — the nose by its dense core, the drawing inside a soft nose's feather.
  *
  * Ports the composer that shipped as a script in the Claude Code plugin, so a
  * plugin user gets it from the MCP server instead of an ad-hoc `sharp` install.
@@ -18,6 +19,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { cropToBuffer, decodePng } from "./node-images";
 import { measureDir, type MeasureReport } from "./measure";
+import { denseCoreOf } from "./measure-turn";
 import {
   AutoRigInputError,
   resolveInputDir,
@@ -75,6 +77,34 @@ interface RoleLayout {
   noTrim?: boolean;
 }
 
+/**
+ * The nose's layout. Its `w`, `h` and `cx` size and place its dense core
+ * (`denseCoreOf`), not its whole trimmed part: a soft nose is mostly feather,
+ * and sized by its extent it renders as a dot. Unlike every other role's, its
+ * `cy` is optional. Set, it is the core's centre row; absent, the core's bottom
+ * row — the tip — lands NOSE_TIP_AT of the way from the eye row down to the
+ * mouth's.
+ */
+interface NoseLayout extends Omit<RoleLayout, "cy"> {
+  cy?: number;
+}
+
+/** A box in a part's own px, origin top-left. */
+interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * Where a nose with no `cy` puts its tip, as a fraction of the way from the
+ * eye row down to the mouth's. Tuned on the hero's medium nose: tip row 611
+ * between eye row 475 and mouth row 633 (136/158 ≈ 0.86). Centring that nose
+ * on the old default row 586 put its tip into the mouth.
+ */
+const NOSE_TIP_AT = 0.86;
+
 // ── DEFAULT LAYOUT (tune per character through `layout`) ──────────────────────
 // These defaults assume the standard framing the character skill prompts for
 // (a front-facing face centered on the canvas). If the rendered model is
@@ -105,9 +135,11 @@ const DEFAULT_LAYOUT = {
   face: { src: "face.png", cx: 550, cy: 475, w: 400 },
   // The nose, drawn on its own (the face is drawn without one): the auto-rig
   // leads the head turn with it and keys the other features' slide on its
-  // presence, so without it the features stay on the face plate. Sits between
-  // the eyes and above the mouth. OPTIONAL: a parts dir without it composes.
-  nose: { src: "nose.png", cx: 550, cy: 586, w: 40, optional: true },
+  // presence, so without it the features stay on the face plate. `w` is the
+  // width of its dense core, and it has no `cy`: its row comes from the tip
+  // rule (NOSE_TIP_AT), between the eyes and the mouth, so it follows them
+  // when they are retuned. OPTIONAL: a parts dir without it composes.
+  nose: { src: "nose.png", cx: 550, w: 40, optional: true },
   mouth: { src: "mouth.png", cx: 550, cy: 619, w: 68 },
   // Cross-fades with `mouth` on ParamMouthOpenY (opacity, not scaleY) once the
   // auto-rig sees both roles. Same cx/w as `mouth` so the lip width matches;
@@ -141,9 +173,17 @@ const DEFAULT_LAYOUT = {
   brow_L: { src: "brow.png", cx: 645, cy: 405, w: 135, mirror: false },
   brow_R: { src: "brow.png", cx: 455, cy: 405, w: 135, mirror: true },
   hair_front: { src: "hair_front.png", cx: 550, cy: 425, w: 660 },
-} satisfies Record<string, RoleLayout>;
+} satisfies Record<string, RoleLayout | NoseLayout>;
 
 export type Role = keyof typeof DEFAULT_LAYOUT;
+
+/**
+ * The merged layout, typed so a non-nose default that drops its `cy` fails to
+ * compile: `resolveLayout` builds it from DEFAULT_LAYOUT.
+ */
+type ResolvedLayout = Record<Exclude<Role, "nose">, RoleLayout> & {
+  nose: NoseLayout;
+};
 
 /** Draw order (back -> front), mirrors @ikijs/editor ROLE_TABLE order. */
 const ORDER: Role[] = [
@@ -227,14 +267,13 @@ export type ComposeResult =
 /**
  * Merge caller overrides onto the defaults. Input boundary: an unknown role, a
  * non-finite centre or an out-of-range width fails fast, path-qualified, before
- * any decode. `w` is capped at CANVAS so a resized part can never exceed the
- * canvas width; `cx`/`cy` are unbounded here because a part may legitimately
- * hang off an edge — placement() rejects the one that lands nowhere on it.
+ * any decode. `w` is capped at CANVAS so a part sized whole can never exceed
+ * the canvas width (a nose, sized by its core, is checked in partBuffer);
+ * `cx`/`cy` are unbounded here because a part may legitimately hang off an
+ * edge — assertOnCanvas() rejects the one that lands nowhere on it.
  */
-function resolveLayout(
-  overrides: LayoutOverride | undefined,
-): Record<Role, RoleLayout> {
-  const resolved: Record<Role, RoleLayout> = { ...DEFAULT_LAYOUT };
+function resolveLayout(overrides: LayoutOverride | undefined): ResolvedLayout {
+  const resolved: ResolvedLayout = { ...DEFAULT_LAYOUT };
   if (overrides === undefined) return resolved;
   for (const [role, override] of Object.entries(overrides)) {
     if (!Object.prototype.hasOwnProperty.call(DEFAULT_LAYOUT, role)) {
@@ -243,7 +282,9 @@ function resolveLayout(
       );
     }
     if (override === undefined) continue;
-    const next = { ...resolved[role as Role] };
+    // Only the fields the override sets: spread over the entry, an explicit
+    // undefined would erase the default it leaves alone.
+    const set: { cx?: number; cy?: number; w?: number; h?: number } = {};
     for (const field of ["cx", "cy"] as const) {
       const value = override[field];
       if (value === undefined) continue;
@@ -252,7 +293,7 @@ function resolveLayout(
           `layout.${role}.${field} must be a finite number, got ${String(value)}`,
         );
       }
-      next[field] = value;
+      set[field] = value;
     }
     for (const field of ["w", "h"] as const) {
       const value = override[field];
@@ -262,9 +303,13 @@ function resolveLayout(
           `layout.${role}.${field} must be an integer in 1..${CANVAS}, got ${String(value)}`,
         );
       }
-      next[field] = value;
+      set[field] = value;
     }
-    resolved[role as Role] = next;
+    // The nose's entry may lack a cy, so it merges on its own; every other
+    // role's stays a RoleLayout.
+    const key = role as Role;
+    if (key === "nose") resolved.nose = { ...resolved.nose, ...set };
+    else resolved[key] = { ...resolved[key], ...set };
   }
   return resolved;
 }
@@ -301,14 +346,36 @@ function keyWhiteToAlpha(rgba: Buffer): Buffer {
 }
 
 /**
- * Trim/mirror a part and resize it to its layout width. `inMemory` carries the
- * eye pair's two split buffers; every other role is read from the parts dir.
- * `flipSource` is a `mirrorParts` entry for the file the role is cut from.
+ * A PNG part's dense core, in its own px — or, when no pixel reaches the core's
+ * alpha (a nose painted wholly translucent), the part's own bounds, so it is
+ * sized and placed whole.
+ */
+async function coreOf(png: Buffer): Promise<Box> {
+  const { data, info } = await sharp(png)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return (
+    denseCoreOf(data, info.width, info.height) ?? {
+      x: 0,
+      y: 0,
+      w: info.width,
+      h: info.height,
+    }
+  );
+}
+
+/**
+ * Trim/mirror a part and resize it to its layout width. The nose is resized so
+ * its dense core, not its whole part, comes out `w` wide (and `h` tall when
+ * set). `inMemory` carries the eye pair's two split buffers; every other role
+ * is read from the parts dir. `flipSource` is a `mirrorParts` entry for the
+ * file the role is cut from.
  * Missing optional part -> null; missing required part -> AutoRigInputError.
  */
 async function partBuffer(
   role: Role,
-  cfg: RoleLayout,
+  cfg: Omit<RoleLayout, "cy">,
   partsDir: string,
   inMemory: Buffer | undefined,
   flipSource: boolean,
@@ -343,31 +410,37 @@ async function partBuffer(
   // flag rather than toggling it, so the two cannot simply be applied in turn.
   if ((cfg.mirror ?? false) !== flipSource) img = img.flop();
   // Materialise the trimmed part BEFORE resizing: its size is bounded by the
-  // source decode limit, so the height the resize WOULD produce can be checked
+  // source decode limit, so the size the resize WOULD produce can be checked
   // against the canvas while only the bounded buffer is allocated.
   const trimmed = await img.png().toBuffer({ resolveWithObject: true });
-  // An explicit h is already bounded by resolveLayout; only the aspect-derived
-  // height can run past the canvas.
-  if (cfg.h === undefined) {
-    const scaledH = Math.round(
-      (trimmed.info.height * cfg.w) / trimmed.info.width,
+  const { width: trimmedW, height: trimmedH } = trimmed.info;
+  // What `w`/`h` size: the nose's dense core, measured on the trimmed, flipped
+  // part — the whole part scales with it, feather and all — and every other
+  // role's whole part.
+  const sized =
+    role === "nose"
+      ? await coreOf(trimmed.data)
+      : { x: 0, y: 0, w: trimmedW, h: trimmedH };
+  const width = Math.round((trimmedW * cfg.w) / sized.w);
+  const height =
+    cfg.h === undefined
+      ? Math.round((trimmedH * width) / trimmedW)
+      : Math.round((trimmedH * cfg.h) / sized.h);
+  // resolveLayout bounds w and an explicit h, so for a part sized whole only
+  // the aspect-derived height can run past the canvas; a nose sized by its
+  // core can overrun either dimension.
+  if (width > CANVAS || height > CANVAS) {
+    const field = width > CANVAS || cfg.h === undefined ? "w" : "h";
+    throw new AutoRigInputError(
+      `layout.${role}.${field}: resized part ${width}x${height} exceeds the ${CANVAS} canvas`,
     );
-    if (scaledH > CANVAS) {
-      throw new AutoRigInputError(
-        `layout.${role}.w: resized part ${cfg.w}x${scaledH} exceeds the ${CANVAS} canvas`,
-      );
-    }
   }
   const resized = await sharp(trimmed.data)
     // Width alone keeps the source aspect. With h, fit:"fill" is the point —
     // stretch to the given box instead. Both options stay off the width-only
     // path: passing height:undefined alongside fit:"fill" makes sharp drop the
     // aspect it would otherwise preserve.
-    .resize(
-      cfg.h === undefined
-        ? { width: cfg.w }
-        : { width: cfg.w, height: cfg.h, fit: "fill" },
-    )
+    .resize(cfg.h === undefined ? { width } : { width, height, fit: "fill" })
     .png()
     .toBuffer({ resolveWithObject: true });
   return {
@@ -378,21 +451,75 @@ async function partBuffer(
 }
 
 /**
- * Where the part lands, centred on its layout cx/cy. Running off an edge is
+ * Refuse a placed part that lands nowhere on the canvas. Running off an edge is
  * legitimate — `body` is meant to be cut off by the canvas bottom — so the test
  * is INTERSECTION, not containment. A part that misses the canvas entirely
  * composes to a fully transparent layer that nothing downstream flags
  * (measureDir warns per measured layer, and an empty one has no geometry), so a
  * sign-flipped centre would otherwise read as success.
  */
-function placement(role: Role, cfg: RoleLayout, w: number, h: number) {
-  const left = Math.round(cfg.cx - w / 2);
-  const top = Math.round(cfg.cy - h / 2);
+function assertOnCanvas(
+  source: string,
+  w: number,
+  h: number,
+  left: number,
+  top: number,
+): void {
   if (left + w <= 0 || top + h <= 0 || left >= CANVAS || top >= CANVAS) {
     throw new AutoRigInputError(
-      `layout.${role}.cx/cy: the placed part (${w}x${h} at ${left},${top}) falls entirely outside the ${CANVAS} canvas`,
+      `${source}: the placed part (${w}x${h} at ${left},${top}) falls entirely outside the ${CANVAS} canvas`,
     );
   }
+}
+
+/** Where a part lands, centred on its layout cx/cy. The nose has its own. */
+function placement(
+  role: Exclude<Role, "nose">,
+  cfg: RoleLayout,
+  w: number,
+  h: number,
+) {
+  const left = Math.round(cfg.cx - w / 2);
+  const top = Math.round(cfg.cy - h / 2);
+  assertOnCanvas(`layout.${role}.cx/cy`, w, h, left, top);
+  return { left, top };
+}
+
+/**
+ * Where the nose lands: by its dense core (`core`, in the resized part's px),
+ * not its whole part. `cx` centres the core's columns. A set `cy` centres its
+ * rows; absent, its bottom row — the tip, the last row index at alpha ≥ 128 —
+ * lands on round(E + NOSE_TIP_AT·(M − E)), E the eyes' mean row and M the
+ * mouth's. A box's centre is `x + w/2`, as placement() takes it: pixel x
+ * covers [x, x + 1).
+ */
+function nosePlacement(
+  layout: ResolvedLayout,
+  core: Box,
+  w: number,
+  h: number,
+) {
+  const { cx, cy } = layout.nose;
+  const left = Math.round(cx - (core.x + core.w / 2));
+  let top: number;
+  if (cy !== undefined) {
+    top = Math.round(cy - (core.y + core.h / 2));
+  } else {
+    const eyeRow = (layout.eye_L.cy + layout.eye_R.cy) / 2;
+    const tipRow = Math.round(
+      eyeRow + NOSE_TIP_AT * (layout.mouth.cy - eyeRow),
+    );
+    top = tipRow - (core.y + core.h - 1);
+  }
+  assertOnCanvas(
+    cy !== undefined
+      ? "layout.nose.cx/cy"
+      : "layout.nose.cx/cy (cy unset: its tip row comes from layout.eye_L/eye_R/mouth.cy)",
+    w,
+    h,
+    left,
+    top,
+  );
   return { left, top };
 }
 
@@ -531,7 +658,13 @@ export async function composeLayersFromParts(
         skipped.push(role);
         continue;
       }
-      const { left, top } = placement(role, cfg, part.w, part.h);
+      // The nose is placed by its core, measured again on the resized part
+      // rather than scaled: resampling moves its edges, and the tip rule lands
+      // its exact bottom row.
+      const { left, top } =
+        role === "nose"
+          ? nosePlacement(layout, await coreOf(part.buf), part.w, part.h)
+          : placement(role, layout[role], part.w, part.h);
       // The eye pair's halves are cut from one eyewhite into one frame. Set
       // apart, the blink fold tears — and a lash narrowed inside its sclera
       // still lies on it and inks its top row, so nothing in the composed

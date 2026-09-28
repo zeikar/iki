@@ -1,7 +1,11 @@
 import { afterAll, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { formatTurnReport, measureTurnReference } from "../src/measure-turn";
+import {
+  denseCoreOf,
+  formatTurnReport,
+  measureTurnReference,
+} from "../src/measure-turn";
 import {
   AMBER_IRIS,
   FAR_IRIS_W,
@@ -298,5 +302,33 @@ describe("formatTurnReport", () => {
     expect(text).toContain(`# front  ${front}  400x400  mask: keyed`);
     expect(text).toContain(`# turned  ${turned}  400x400  mask: keyed`);
     expect(text).toContain(`head ${PLAIN_HEAD.left}..${PLAIN_HEAD.right}`);
+  });
+});
+
+describe("denseCoreOf", () => {
+  /** A 10x8 transparent RGBA buffer with the given pixels' alpha set. */
+  function alphaBuffer(pixels: [x: number, y: number, alpha: number][]) {
+    const rgba = new Uint8Array(10 * 8 * 4);
+    for (const [x, y, alpha] of pixels) rgba[(y * 10 + x) * 4 + 3] = alpha;
+    return rgba;
+  }
+
+  it("is the tight box of the pixels at alpha 128 and above, not grown", () => {
+    const rgba = alphaBuffer([
+      [3, 2, 128],
+      [6, 5, 255],
+      [4, 4, 200],
+      // A feather pixel just below the threshold, outside that box.
+      [8, 7, 127],
+    ]);
+    expect(denseCoreOf(rgba, 10, 8)).toEqual({ x: 3, y: 2, w: 4, h: 4 });
+  });
+
+  it("is null when no pixel reaches 128", () => {
+    const rgba = alphaBuffer([
+      [1, 1, 127],
+      [5, 5, 80],
+    ]);
+    expect(denseCoreOf(rgba, 10, 8)).toBeNull();
   });
 });

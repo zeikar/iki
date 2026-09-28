@@ -13,10 +13,12 @@ import {
   type Role,
 } from "../src/compose";
 import { layerStats, measureLayers } from "../src/measure";
+import { denseCoreOf } from "../src/measure-turn";
 import { decodePng } from "../src/node-images";
 import {
   writeEyewhite,
   writePartsSet,
+  writeSoftNose,
   writeTaperedBrow,
 } from "./helpers/parts";
 
@@ -97,6 +99,31 @@ async function statsFor(dir: string, role: string) {
   const stats = await layerStats(path.join(dir, `${role}.png`));
   if (stats === null) throw new Error(`${role} is fully transparent`);
   return stats;
+}
+
+/**
+ * The composed nose's dense core, in canvas px, read the way the composer
+ * places it: a box's centre is `x + w/2` (pixel x covers [x, x+1)), and its
+ * bottom row — the nose's tip — is the last row index it covers.
+ */
+async function noseCoreIn(dir: string) {
+  const png = await decodePng(path.join(dir, "nose.png"));
+  const core = denseCoreOf(png.rgba, png.width, png.height);
+  if (core === null) throw new Error("the composed nose has no dense core");
+  return {
+    ...core,
+    cx: core.x + core.w / 2,
+    cy: core.y + core.h / 2,
+    bottom: core.y + core.h - 1,
+  };
+}
+
+/** The full parts set with its nose.png swapped for the soft one. */
+async function softNoseParts(opts?: { core?: boolean }): Promise<string> {
+  const dir = partsDir();
+  await writePartsSet(dir, { omit: ["nose.png"] });
+  await writeSoftNose(dir, opts);
+  return dir;
 }
 
 describe("composeLayersFromParts", () => {
@@ -217,16 +244,125 @@ describe("composeLayersFromParts", () => {
     expect(fs.existsSync(path.join(dir, "body.png"))).toBe(false);
   });
 
-  it("places the nose as a part of its own, under the face and over the mouth", () => {
+  it("places the nose as a part of its own, under the face and over the mouth", async () => {
     // The rig leads the head turn with the nose, so it is a part like the eyes
     // and the mouth, not something cut out of the face.
     const roles = full.layers.map((l) => l.role);
     expect(roles.indexOf("nose")).toBe(roles.indexOf("face") + 1);
     expect(roles.indexOf("nose")).toBeLessThan(roles.indexOf("mouth"));
-    expect(full.layers.find((l) => l.role === "nose")).toMatchObject({
-      width: 40,
-      left: 530,
+    // Its dense core is w wide and centred on cx; with no cy its tip lands
+    // 0.86 of the way from the eye row (475) to the mouth's (619): row 599.
+    // The fixture nose is opaque, so its core is the whole part, exactly w.
+    const core = await noseCoreIn(out);
+    expect(core.w).toBe(40);
+    expect(Math.abs(core.cx - 550)).toBeLessThanOrEqual(0.5);
+    expect(core.bottom).toBe(599);
+  });
+
+  it("sizes and places a soft nose by its dense core, not its feather", async () => {
+    const dir = outDir();
+    await composeOk({ partsDir: await softNoseParts(), outDir: dir });
+
+    // ±1 on a soft core: resampling the feather lifts a column next to it over
+    // 128 (41 wide for w 40, 51 for w 50).
+    const core = await noseCoreIn(dir);
+    expect(Math.abs(core.w - 40)).toBeLessThanOrEqual(1);
+    expect(Math.abs(core.cx - 550)).toBeLessThanOrEqual(0.5);
+    expect(core.bottom).toBe(599);
+    // Sized by its trimmed extent, the whole feather would have been 40 wide
+    // and the core a dot inside it.
+    const extent = await statsFor(dir, "nose");
+    expect(extent.w).toBeGreaterThan(core.w);
+    expect(extent.h).toBeGreaterThan(core.h);
+  });
+
+  it("follows the mouth with the nose's tip when its cy is left out", async () => {
+    const dir = outDir();
+    await composeOk({
+      partsDir: await softNoseParts(),
+      outDir: dir,
+      layout: { mouth: { cy: 633 } },
     });
+    // 475 + 0.86 * (633 - 475) = 610.88: the hero's tip row.
+    expect((await noseCoreIn(dir)).bottom).toBe(611);
+  });
+
+  it("centres the nose's dense core on a given cy", async () => {
+    const dir = outDir();
+    await composeOk({
+      partsDir: await softNoseParts(),
+      outDir: dir,
+      layout: { nose: { cy: 586 } },
+    });
+    expect(Math.abs((await noseCoreIn(dir)).cy - 586)).toBeLessThanOrEqual(0.5);
+  });
+
+  it("sizes the nose's dense core to a given w", async () => {
+    const dir = outDir();
+    await composeOk({
+      partsDir: await softNoseParts(),
+      outDir: dir,
+      layout: { nose: { w: 50 } },
+    });
+    expect(Math.abs((await noseCoreIn(dir)).w - 50)).toBeLessThanOrEqual(1);
+  });
+
+  it("stretches the nose's dense core to a given h and keeps its tip", async () => {
+    const dir = outDir();
+    await composeOk({
+      partsDir: await softNoseParts(),
+      outDir: dir,
+      layout: { nose: { h: 70 } },
+    });
+    const core = await noseCoreIn(dir);
+    expect(Math.abs(core.h - 70)).toBeLessThanOrEqual(1);
+    expect(Math.abs(core.w - 40)).toBeLessThanOrEqual(1);
+    expect(core.bottom).toBe(599);
+  });
+
+  it.each([
+    // The feather scales with the core, so a nose's w or h can run the whole
+    // part past the canvas although resolveLayout caps both at it.
+    [{ h: 1100 }, "h", "72x1760"],
+    [{ w: 1100 }, "w", "1980x2640"],
+  ])(
+    "rejects a nose core %o whose part would overflow the canvas",
+    async (nose, field, size) => {
+      const error = await composeError({
+        partsDir: await softNoseParts(),
+        outDir: outDir(),
+        layout: { nose },
+      });
+      expect(error).toBe(
+        `layout.nose.${field}: resized part ${size} exceeds the ${CANVAS} canvas`,
+      );
+    },
+  );
+
+  it("names the eye and mouth rows when the tip rule puts the nose off the canvas", async () => {
+    const error = await composeError({
+      partsDir: await softNoseParts(),
+      outDir: outDir(),
+      layout: { mouth: { cy: 5e6 } },
+    });
+    // The nose draws before the mouth, so it is the first part refused.
+    expect(error).toBe(
+      "layout.nose.cx/cy (cy unset: its tip row comes from layout.eye_L/eye_R/mouth.cy): " +
+        `the placed part (72x96 at 514,4299977) falls entirely outside the ${CANVAS} canvas`,
+    );
+  });
+
+  it("sizes a nose painted wholly under alpha 128 by its whole extent", async () => {
+    // No pixel reaches the core's threshold, so the part is its own core:
+    // today's sizing, placed by the same tip rule.
+    const dir = outDir();
+    await composeOk({
+      partsDir: await softNoseParts({ core: false }),
+      outDir: dir,
+    });
+    const extent = await statsFor(dir, "nose");
+    expect(extent.w).toBe(40);
+    expect(CANVAS - 1 - extent.marginBottom).toBe(599);
   });
 
   // brow.png feeds two roles, so the message has to name the role, not the file.

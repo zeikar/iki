@@ -185,7 +185,7 @@ export function createIkiMcpServer(): McpServer {
           )
           .optional()
           .describe(
-            "Per-role override merged over the built-in defaults, keyed by role — hair_back, body, face, nose, mouth, mouth_open, eye_L, eye_R, iris_L, iris_R, lash_L, lash_R, brow_L, brow_R, hair_front — e.g. `{ eye_L: { cx: 660 } }`. `w` and `h` are integers in 1..1100; omit `h` to keep the part's own aspect, set it to stretch. eye_L/lash_L and eye_R/lash_R are cut from one eyewhite into one frame, so each pair must land on the same frame — a pair set to land apart is rejected.",
+            "Per-role override merged over the built-in defaults, keyed by role — hair_back, body, face, nose, mouth, mouth_open, eye_L, eye_R, iris_L, iris_R, lash_L, lash_R, brow_L, brow_R, hair_front — e.g. `{ eye_L: { cx: 660 } }`. `w` and `h` are integers in 1..1100; omit `h` to keep the part's own aspect, set it to stretch. The nose is sized and placed by its dense core (its pixels at alpha >= 128, the drawing inside a soft nose's feather), not its whole part: `w`/`h` size the core, `cx` centres it, and a set `cy` centres its rows. Its `cy` defaults to unset, which lands the core's bottom row (the tip) 0.86 of the way from the eye row down to the mouth's, so the nose follows a retuned eye or mouth row. eye_L/lash_L and eye_R/lash_R are cut from one eyewhite into one frame, so each pair must land on the same frame — a pair set to land apart is rejected.",
           ),
         mirrorParts: z
           .array(z.string())

@@ -16,7 +16,7 @@ import sharp from "sharp";
  */
 
 type RGB = [number, number, number];
-type SetPixel = (x: number, y: number, rgb: RGB) => void;
+type SetPixel = (x: number, y: number, rgb: RGB, alpha?: number) => void;
 
 const WHITE: RGB = [255, 255, 255];
 const DARK: RGB = [20, 20, 30];
@@ -34,12 +34,12 @@ async function writeRgbaPart(
   paint: (set: SetPixel) => void,
 ): Promise<void> {
   const buf = Buffer.alloc(width * height * 4); // all transparent (alpha 0)
-  const set: SetPixel = (x, y, rgb) => {
+  const set: SetPixel = (x, y, rgb, alpha = 255) => {
     const i = (y * width + x) * 4;
     buf[i] = rgb[0];
     buf[i + 1] = rgb[1];
     buf[i + 2] = rgb[2];
-    buf[i + 3] = 255;
+    buf[i + 3] = alpha;
   };
   paint(set);
   await sharp(buf, { raw: { width, height, channels: 4 } })
@@ -150,6 +150,28 @@ export async function writeTaperedBrow(dir: string): Promise<void> {
       const half = Math.round(((44 - x) / 40) * 8);
       for (let y = 10 - half; y <= 10 + half; y++) set(x, y, DARK);
     }
+  });
+}
+
+/** Alpha of the soft nose's feather: visible, but under the dense core's 128. */
+const SOFT_NOSE_FEATHER_ALPHA = 80;
+
+/**
+ * A nose.png drawn the way a shaded bump comes back: an opaque 20x30 core
+ * inside a 36x48 feather painted at SOFT_NOSE_FEATHER_ALPHA, the core low in it
+ * the way a nose's tip sits low in its shading. `{ core: false }` paints the
+ * feather alone, a nose with no pixel at alpha 128.
+ */
+export async function writeSoftNose(
+  dir: string,
+  { core = true }: { core?: boolean } = {},
+): Promise<void> {
+  await writeRgbaPart(dir, "nose.png", 44, 56, (set) => {
+    const bounds = { width: 44, height: 56 };
+    const feather: SetPixel = (x, y, rgb) =>
+      set(x, y, rgb, SOFT_NOSE_FEATHER_ALPHA);
+    ellipse(feather, bounds, 22, 28, 36, 48, DARK);
+    if (core) ellipse(set, bounds, 22, 34, 20, 30, DARK);
   });
 }
 
