@@ -17,6 +17,7 @@ import {
   type IrisStrand,
   type LayerInput,
   type AtlasAssignment,
+  type AtlasLayout,
   type TurnTargets,
   type TurnSolveReport,
 } from "@ikijs/editor";
@@ -250,7 +251,9 @@ export interface AutoRigInput {
   /** Output `.iki` path (relative paths resolve against the process cwd). */
   outputPath?: string;
   /** Palette-quantize the atlas PNG to this many colours (integer, 2..256).
-   *  Omitted = lossless. See renderAtlasToDataUri for the size/quality trade. */
+   *  Omitted = lossless. See renderAtlasToDataUri for the size/quality trade.
+   *  A `nose` layer is left out of the quantized page, on a second, lossless
+   *  page of its own, because the palette rims a soft-shaded nose's feather. */
   quantizeColors?: number;
   /** Head-turn cues to fit the rig to, as `measure_turn_reference` reports
    *  them. */
@@ -268,6 +271,8 @@ export type AutoRigResult =
       path: string;
       canvas: { width: number; height: number };
       partCount: number;
+      /** The atlas's embedded size: its data URI's length, summed over both
+       *  pages when a quantized rig puts the nose on a page of its own. */
       atlasBytes: number;
       /** The head's half-width at the eye row, measured off the layers.
        *  Absent when the opaque (alpha >= 128) union has no span there — a
@@ -410,6 +415,34 @@ function facePlateHalfOf(layers: LayerInput[]): number {
 const STRAND_MIN_RUN_FRACTION = 0.5;
 
 /**
+ * The role that keeps a lossless atlas page of its own under `quantizeColors`.
+ * At 256 colours a soft nose's feather took the hair edge's lavender palette
+ * entries and drew a rim around the nose; changing the dither, the effort, the
+ * alpha floor or the alpha curve did not fix it. A lossless page for the nose
+ * alone did, and the hero's model came to about 1.28 MB, against 3.18 MB with
+ * the whole atlas lossless.
+ */
+const LOSSLESS_PAGE_ROLE = "nose";
+
+/** Pack `crops` onto one atlas page, refused over MAX_ATLAS_AREA, and render
+ *  it — palette-quantized to `quantizeColors` when that is set. */
+async function renderAtlasPage(
+  crops: AtlasCrop[],
+  quantizeColors: number | undefined,
+): Promise<{ crops: AtlasCrop[]; layout: AtlasLayout; dataUri: string }> {
+  const layout = packAtlas(
+    crops.map((c) => ({ id: c.id, width: c.width, height: c.height })),
+  );
+  if (layout.pageWidth * layout.pageHeight > MAX_ATLAS_AREA) {
+    throw new AutoRigInputError(
+      `atlas page ${layout.pageWidth}x${layout.pageHeight} exceeds max area ${MAX_ATLAS_AREA}`,
+    );
+  }
+  const dataUri = await renderAtlasToDataUri(crops, layout, quantizeColors);
+  return { crops, layout, dataUri };
+}
+
+/**
  * Decode role-named PNG file paths, auto-rig a model from them, atlas + embed
  * the textures (Node sharp), validate, and write the renderable `.iki` to disk.
  * Returns the output path + summary stats (the multi-MB model is never inlined).
@@ -426,7 +459,9 @@ const STRAND_MIN_RUN_FRACTION = 0.5;
  * hair detail the iris may cross, and is skipped. The nose layer alone also
  * gets its dense core measured (`LayerInput.denseCore`, returned as
  * `noseCore`), so a shaded nose is fitted and tilted by the drawing inside its
- * feather rather than by the feather itself.
+ * feather rather than by the feather itself. Under `quantizeColors` that nose
+ * is atlased alone on a second, lossless page, which the palette would
+ * otherwise rim; `atlasBytes` sums both pages.
  *
  * Re-host of examples/editor/src/store.ts `importLayerSet` with the three DOM
  * pixel functions swapped for the sharp-backed ./node-images helpers; the pure
@@ -818,39 +853,63 @@ export async function autoRigFromLayers(
     }
     const doc = new EditorDocument(model);
 
-    const layout = packAtlas(
-      crops.map((c) => ({ id: c.id, width: c.width, height: c.height })),
-    );
-    if (layout.pageWidth * layout.pageHeight > MAX_ATLAS_AREA) {
+    // Under quantizeColors the nose is page 1, alone and lossless (see
+    // LOSSLESS_PAGE_ROLE), and page 0 every other crop; otherwise one page.
+    const losslessCrop =
+      quantizeColors === undefined
+        ? undefined
+        : crops.find((c) => c.id === LOSSLESS_PAGE_ROLE);
+    const pages =
+      losslessCrop === undefined
+        ? [await renderAtlasPage(crops, quantizeColors)]
+        : [
+            await renderAtlasPage(
+              crops.filter((c) => c !== losslessCrop),
+              quantizeColors,
+            ),
+            await renderAtlasPage([losslessCrop], undefined),
+          ];
+    const atlasBytes = pages.reduce((sum, p) => sum + p.dataUri.length, 0);
+    if (atlasBytes > MAX_OUTPUT_BYTES) {
       throw new AutoRigInputError(
-        `atlas page ${layout.pageWidth}x${layout.pageHeight} exceeds max area ${MAX_ATLAS_AREA}`,
+        `atlas data URI ${atlasBytes} bytes exceeds ${MAX_OUTPUT_BYTES}`,
       );
     }
 
-    const dataUri = await renderAtlasToDataUri(crops, layout, quantizeColors);
-    if (dataUri.length > MAX_OUTPUT_BYTES) {
-      throw new AutoRigInputError(
-        `atlas data URI ${dataUri.length} bytes exceeds ${MAX_OUTPUT_BYTES}`,
-      );
-    }
-
-    const partTextureAssignments: AtlasAssignment[] = crops.map((crop) => {
-      const placement = layout.placements.find((p) => p.id === crop.id);
-      if (placement === undefined) {
-        throw new Error(`auto-rig: no atlas placement for "${crop.id}"`);
-      }
-      return {
-        partId: crop.id,
-        uv: uvRectFor(placement, {
-          width: layout.pageWidth,
-          height: layout.pageHeight,
+    // Each crop's uv is on its own page, normalised to that page's size.
+    const partTextureAssignments: AtlasAssignment[] = pages.flatMap(
+      ({ crops: pageCrops, layout }) =>
+        pageCrops.map((crop) => {
+          const placement = layout.placements.find((p) => p.id === crop.id);
+          if (placement === undefined) {
+            throw new Error(`auto-rig: no atlas placement for "${crop.id}"`);
+          }
+          return {
+            partId: crop.id,
+            uv: uvRectFor(placement, {
+              width: layout.pageWidth,
+              height: layout.pageHeight,
+            }),
+          };
         }),
-      };
-    });
+    );
 
-    doc.applyAtlas({ textures: [{ source: dataUri }], partTextureAssignments });
+    // applyAtlas takes a single page: it sets every part's index to 0 and
+    // remaps each mesh's uvs into its rect, which for the nose is already in
+    // page 1's space — so the nose only needs its index, set on a clone
+    // because getModel() hands back the document's live model, read-only.
+    doc.applyAtlas({
+      textures: [{ source: pages[0].dataUri }],
+      partTextureAssignments,
+    });
+    let patched = doc.getModel();
+    if (losslessCrop !== undefined) {
+      patched = structuredClone(patched);
+      patched.textures = pages.map((p) => ({ source: p.dataUri }));
+      patched.parts.find((p) => p.id === losslessCrop.id)!.texture!.index = 1;
+    }
     // Validate the patched model before writing — never persist an invalid model.
-    const finalModel = parseIkiModel(doc.getModel());
+    const finalModel = parseIkiModel(patched);
 
     // Write to a fresh temp file in the verified directory, then atomically
     // rename over the target — see writeFileAtomic for why an existing `.iki`
@@ -862,7 +921,7 @@ export async function autoRigFromLayers(
       path: outPath,
       canvas: { width: canvasW, height: canvasH },
       partCount: finalModel.parts.length,
-      atlasBytes: dataUri.length,
+      atlasBytes,
       ...(headHalfWidth === undefined ? {} : { headHalfWidth }),
       headHalfWidthApplied,
       ...(headEdges === undefined ? {} : { headEdges }),

@@ -17,7 +17,12 @@ import {
   autoRigFromLayers,
   type AutoRigTurnTargets,
 } from "../src/tools";
-import type { IrisStrand } from "@ikijs/editor";
+import {
+  ATLAS_PADDING,
+  UV_INSET_PX,
+  detectAlphaBbox,
+  type IrisStrand,
+} from "@ikijs/editor";
 
 // Minimal valid model used across several tests.
 function validModel() {
@@ -383,6 +388,14 @@ describe("autoRigFromLayers", () => {
     ];
   }
 
+  /** A texture's PNG bytes, out of its base64 data URI. */
+  function pngOf(texture: { source: string }): Buffer {
+    return Buffer.from(
+      texture.source.slice("data:image/png;base64,".length),
+      "base64",
+    );
+  }
+
   it("quantizeColors shrinks the atlas and still writes a valid PNG-textured model", async () => {
     const dir = tmpDir();
     const paths = await writeNoisyLayers(dir);
@@ -405,12 +418,12 @@ describe("autoRigFromLayers", () => {
       fs.readFileSync(path.join(dir, "quantized.iki"), "utf8"),
     );
     const model = parseIkiModel(written);
+    // No nose in this set, so no page of its own: one page, quantized.
+    expect(model.textures).toHaveLength(1);
     const source = model.textures[0].source;
     expect(source.startsWith("data:image/png;base64,")).toBe(true);
     // It decodes as a palette PNG with at most the requested colours.
-    const meta = await sharp(
-      Buffer.from(source.slice("data:image/png;base64,".length), "base64"),
-    ).metadata();
+    const meta = await sharp(pngOf(model.textures[0])).metadata();
     expect(meta.format).toBe("png");
     expect(meta.paletteBitDepth).toBeDefined();
     expect(meta.paletteBitDepth!).toBeLessThanOrEqual(4);
@@ -1133,6 +1146,125 @@ describe("autoRigFromLayers", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.noseCore).toBeUndefined();
+  });
+
+  // ── the nose's atlas page ────────────────────────────────────────────────
+
+  it("puts a quantized rig's nose on a lossless page of its own", async () => {
+    const dir = tmpDir();
+    const paths = await writeSoftNoseLayers(dir);
+    const outPath = path.join(dir, "model.iki");
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: outPath,
+      quantizeColors: 16,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const model = parseIkiModel(JSON.parse(fs.readFileSync(outPath, "utf8")));
+    const textures = model.textures!;
+    expect(textures).toHaveLength(2);
+    expect(result.atlasBytes).toBe(
+      textures[0].source.length + textures[1].source.length,
+    );
+
+    // Page 0 is quantized; page 1 is not, and keeps the feather's alpha.
+    const page0 = await sharp(pngOf(textures[0])).metadata();
+    expect(page0.paletteBitDepth).toBeDefined();
+    const page1 = await sharp(pngOf(textures[1]))
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const page1Meta = await sharp(pngOf(textures[1])).metadata();
+    expect(page1Meta.paletteBitDepth).toBeUndefined();
+    expect(page1Meta.hasAlpha).toBe(true);
+    expect(page1.info.channels).toBe(4);
+
+    // Page 1 is the nose's crop — its layer's alpha bbox — alone, plus the
+    // packer's gutter.
+    const layer = await sharp(
+      paths.find((p) => path.basename(p) === "nose.png")!,
+    )
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const bbox = detectAlphaBbox(
+      layer.data,
+      layer.info.width,
+      layer.info.height,
+    )!;
+    expect(page1.info.width).toBe(bbox.w + ATLAS_PADDING);
+    expect(page1.info.height).toBe(bbox.h + ATLAS_PADDING);
+
+    for (const part of model.parts) {
+      expect(part.texture?.index).toBe(part.id === "nose" ? 1 : 0);
+    }
+
+    // The nose's uv is in page 1's space: undo uvRectFor's inset and it is the
+    // crop's own pixel rect there.
+    const nose = model.parts.find((p) => p.id === "nose")!;
+    const uv = nose.texture!.uv;
+    const x0 = uv.x * page1.info.width - UV_INSET_PX;
+    const y0 = uv.y * page1.info.height - UV_INSET_PX;
+    expect(x0).toBeCloseTo(Math.round(x0), 9);
+    expect(y0).toBeCloseTo(Math.round(y0), 9);
+    expect(uv.width * page1.info.width + 2 * UV_INSET_PX).toBeCloseTo(
+      bbox.w,
+      9,
+    );
+    expect(uv.height * page1.info.height + 2 * UV_INSET_PX).toBeCloseTo(
+      bbox.h,
+      9,
+    );
+
+    // ...and every mesh uv samples inside it.
+    const uvs = nose.mesh!.uvs;
+    for (let i = 0; i < uvs.length; i += 2) {
+      expect(uvs[i]).toBeGreaterThanOrEqual(uv.x - 1e-9);
+      expect(uvs[i]).toBeLessThanOrEqual(uv.x + uv.width + 1e-9);
+      expect(uvs[i + 1]).toBeGreaterThanOrEqual(uv.y - 1e-9);
+      expect(uvs[i + 1]).toBeLessThanOrEqual(uv.y + uv.height + 1e-9);
+    }
+
+    // A placement check: that rect on page 1 holds the nose's crop, pixel for
+    // pixel. (That the page is lossless is the paletteBitDepth check above.)
+    const px = Math.round(x0);
+    const py = Math.round(y0);
+    let worst = 0;
+    for (let y = 0; y < bbox.h; y++) {
+      for (let x = 0; x < bbox.w; x++) {
+        const a = ((py + y) * page1.info.width + px + x) * 4;
+        const b = ((bbox.y + y) * layer.info.width + bbox.x + x) * 4;
+        for (let c = 0; c < 4; c++) {
+          worst = Math.max(
+            worst,
+            Math.abs(page1.data[a + c] - layer.data[b + c]),
+          );
+        }
+      }
+    }
+    expect(worst).toBe(0);
+  });
+
+  it("keeps an unquantized rig's nose on the one shared page", async () => {
+    const dir = tmpDir();
+    const paths = await writeSoftNoseLayers(dir);
+    const outPath = path.join(dir, "model.iki");
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: outPath,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const model = parseIkiModel(JSON.parse(fs.readFileSync(outPath, "utf8")));
+    expect(model.textures).toHaveLength(1);
+    expect(result.atlasBytes).toBe(model.textures![0].source.length);
+    for (const part of model.parts) {
+      expect(part.texture?.index).toBe(0);
+    }
   });
 
   // ── the iris strand ──────────────────────────────────────────────────────

@@ -137,7 +137,10 @@ export interface AtlasCrop {
  * Flat-shaded character art keeps its look at 256 colours while the atlas
  * drops to roughly a quarter of its lossless size — the hero demo went from
  * 3.5MB to 0.9MB at a mean channel delta of 1.5/255 — which is what makes a
- * generated model shippable on a page. Omitted = lossless, as before.
+ * generated model shippable on a page. Omitted = lossless, as before. Soft
+ * alpha is where it fails: a shaded nose's feather rims in borrowed palette
+ * entries, so the auto-rig renders the nose on its own page without it, and a
+ * model with a nose lands nearer 40% of its lossless size.
  */
 export async function renderAtlasToDataUri(
   crops: AtlasCrop[],

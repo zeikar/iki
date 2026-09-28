@@ -19,14 +19,15 @@ export const MAX_LAYERS = 64;
 export const MAX_LAYER_DIM = 4096;
 /** Max per-side dimension (px) of the derived canvas. */
 export const MAX_CANVAS_DIM = 4096;
-/** Max area (px²) of the packed atlas page. */
+/** Max area (px²) of each packed atlas page. */
 export const MAX_ATLAS_AREA = 4096 * 4096;
 /** Decoded-pixel ceiling per input PNG, passed to sharp `limitInputPixels`. */
 export const MAX_INPUT_PIXELS = 4096 * 4096;
 /** Aggregate decoded-pixel budget across ALL layers in one request, so a set of
  *  many large PNGs cannot exhaust memory even though each passes MAX_LAYER_DIM. */
 export const MAX_TOTAL_PIXELS = 64 * 1024 * 1024;
-/** Max length (bytes) of the base64 atlas data URI embedded in the model. */
+/** Max length (bytes) of the base64 atlas data URI embedded in the model,
+ *  summed over its pages. */
 export const MAX_OUTPUT_BYTES = 5 * 1024 * 1024;
 
 /**
