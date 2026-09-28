@@ -112,7 +112,7 @@ the prompt patterns and the hard-won pitfalls. Then:
    `<workdir>/iki-character.iki`, since the default drops the model in the
    server's cwd, outside the ignored workdir; and `"quantizeColors": 256` so
    the model the orchestrator loads in the playground is the compact one (a
-   lossless atlas is ~4× larger).
+   lossless model is ~2.5× larger: 3.18MB against 1.28MB on the hero).
 
    Pass `turnTargets` as well when you were given them — the three fields
    verbatim. The result's `turn` block reports what the turn reaches
