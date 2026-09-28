@@ -123,7 +123,7 @@ export function createIkiMcpServer(): McpServer {
           .max(256)
           .optional()
           .describe(
-            "Palette-quantize the atlas PNG to this many colours (2..256). Flat-shaded art keeps its look at 256 and the model shrinks to about a quarter (nearer 40% with a `nose`, whose page stays lossless); omit for lossless. A `nose` layer stays lossless on a second atlas page of its own, since the palette rims a soft-shaded nose's feather; the result's `atlasBytes` sums both pages.",
+            "Palette-quantize the atlas PNG to this many colours (2..256). Flat-shaded art keeps its look at 256 and the model shrinks to about a quarter; omit for lossless. A `nose` layer stays lossless on a second atlas page of its own, since the palette rims a soft-shaded nose's feather; the nose's own lossless page adds a content-dependent amount, since splitting it off also changes how page 0 re-quantizes without it; the result's `atlasBytes` sums both pages.",
           ),
         turnTargets: z
           .object({

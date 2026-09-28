@@ -25,10 +25,13 @@ NOSE.
 `auto_rig_from_layers` hands the nose's dense core to the rig and reports it
 as `noseCore`. With `quantizeColors`, the nose lands on a second, lossless
 atlas page instead of the shared quantized one: the model carries two
-`textures`, and `atlasBytes` counts both. A quantized model with a nose
-therefore lands nearer 40% of its lossless size rather than about a quarter,
-and because the 256-colour page is now chosen without the nose, the other
-parts' edge pixels can shift slightly against a 0.10 rig of the same layers.
+`textures`, and `atlasBytes` counts both. The nose's own lossless page adds a
+content-dependent amount to the model's size, since removing the nose from
+page 0 also changes how that page re-quantizes — on the playground hero the
+split model came to 1.28MB, about the same as the all-quantized 1.29MB and
+well under the 3.18MB lossless model. Because the 256-colour page is now
+chosen without the nose, the other parts' edge pixels can shift slightly
+against a 0.10 rig of the same layers.
 
 On the playground hero (before → after): the nose depth moves 0.1679 →
 0.1442, with `noseCore` measuring {x 530, y 549, w 39, h 63}; the tilt against

@@ -139,8 +139,11 @@ export interface AtlasCrop {
  * 3.5MB to 0.9MB at a mean channel delta of 1.5/255 — which is what makes a
  * generated model shippable on a page. Omitted = lossless, as before. Soft
  * alpha is where it fails: a shaded nose's feather rims in borrowed palette
- * entries, so the auto-rig renders the nose on its own page without it, and a
- * model with a nose lands nearer 40% of its lossless size.
+ * entries, so the auto-rig renders the nose on its own page without it.
+ * Splitting it off also changes how page 0 re-quantizes, so the size effect
+ * is content-dependent — on the playground hero the split model came to
+ * 1.28MB, about the same as the all-quantized 1.29MB and well under the
+ * 3.18MB lossless model.
  */
 export async function renderAtlasToDataUri(
   crops: AtlasCrop[],
