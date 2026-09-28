@@ -810,7 +810,14 @@ uniform mat3 u_matrix;
 uniform vec2 u_uvOffset;
 uniform vec2 u_uvScale;
 uniform bool u_useMeshUv;
-out vec2 v_uv;
+// centroid: the context is multisampled (antialias defaults on), and a pixel
+// that a triangle only partly covers is otherwise shaded at its centre even
+// when that lies outside the triangle — v_uv then extrapolates past the
+// part's inset atlas rect into the neighbouring region's gutter, which holds
+// ANOTHER part's extruded edge. One real model drew a 1 px cream line along
+// its back hair's top edge from the body packed above it. Centroid moves the
+// evaluation inside the covered samples, so v_uv stays inside the rect.
+centroid out vec2 v_uv;
 void main() {
   if (u_useMeshUv) {
     // Mesh path: UVs are already top-left atlas-space; pass straight through,
@@ -835,7 +842,7 @@ uniform vec4 u_color;
 uniform bool u_useTexture;
 uniform sampler2D u_tex;
 uniform float u_alphaCutoff;
-in vec2 v_uv;
+centroid in vec2 v_uv;
 out vec4 outColor;
 void main() {
   // Texels are premultiplied (see the upload); the untextured fill is opaque
