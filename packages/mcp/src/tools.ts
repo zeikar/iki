@@ -30,6 +30,7 @@ import {
 import {
   ALPHA_OPAQUE,
   HEAD_BAND,
+  denseCoreOf,
   foregroundSpan,
   headHalfOf,
 } from "./measure-turn";
@@ -303,6 +304,12 @@ export type AutoRigResult =
        *  run it keeps covers the pixel on that side of the iris's centre or
        *  lies outward of it; the whole field only when neither side has one. */
       strandEdges?: { left?: IrisStrand; right?: IrisStrand };
+      /** The nose's dense core, canvas px — its pixels at alpha >= 128, not
+       *  grown — the box handed to the generator as the nose layer's
+       *  `denseCore` and, there, its turn landmark. Absent without a `nose`
+       *  layer, or when the nose has no pixel at that threshold (painted
+       *  wholly translucent). */
+      noseCore?: { x: number; y: number; w: number; h: number };
       /** What the turn solve settled on — the cues the rig reaches, the
        *  targets it had to cut down (`clamped`) and, per side whose far iris
        *  the bangs' run still covers at some far stop, how much of it
@@ -416,7 +423,10 @@ const STRAND_MIN_RUN_FRACTION = 0.5;
  * run it would slide under are measured on the iris's own centre row too
  * (`strandEdges`), so the turn keeps the far iris from sliding under the bangs
  * any further than it is painted; a run narrower than half the iris there is
- * hair detail the iris may cross, and is skipped.
+ * hair detail the iris may cross, and is skipped. The nose layer alone also
+ * gets its dense core measured (`LayerInput.denseCore`, returned as
+ * `noseCore`), so a shaded nose is fitted and tilted by the drawing inside its
+ * feather rather than by the feather itself.
  *
  * Re-host of examples/editor/src/store.ts `importLayerSet` with the three DOM
  * pixel functions swapped for the sharp-backed ./node-images helpers; the pure
@@ -592,10 +602,22 @@ export async function autoRigFromLayers(
           );
         }
         layer.rowHalfWidths = rowHalfWidths;
+      } else if (role === "nose") {
+        // The drawing inside a soft nose's feather, canvas px like `bbox` —
+        // `png` is still this layer's full-canvas buffer, so the core comes
+        // out in the same coordinates as `bbox` and every other measurement
+        // here. `null` (wholly translucent) leaves `denseCore` unset, the
+        // generator falling back to the crop.
+        const core = denseCoreOf(png.rgba, canvasW, canvasH);
+        if (core !== null) layer.denseCore = core;
       }
       layerInputs.push(layer);
       crops.push({ id: role, buffer, width: bbox.w, height: bbox.h });
     }
+
+    // The nose layer's own denseCore, for the result — undefined without a
+    // `nose` layer, or when denseCoreOf found no pixel at ALPHA_OPAQUE above.
+    const noseCore = layerInputs.find((l) => l.role === "nose")?.denseCore;
 
     // The head's own half-width at the eye row, in canvas px, taken off the
     // layers' opaque union the way measure_turn_reference takes it off a render
@@ -845,6 +867,7 @@ export async function autoRigFromLayers(
       headHalfWidthApplied,
       ...(headEdges === undefined ? {} : { headEdges }),
       ...(strandEdges === undefined ? {} : { strandEdges }),
+      ...(noseCore === undefined ? {} : { noseCore }),
       ...(turn === undefined ? {} : { turn }),
     };
   } catch (err) {

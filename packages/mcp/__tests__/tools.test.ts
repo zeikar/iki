@@ -675,6 +675,20 @@ describe("autoRigFromLayers", () => {
     ];
   }
 
+  // writeNoseLayers()'s nose replaced by a soft-alpha bump: a feathered rect at
+  // alpha 0.3 on columns 40..57 / rows 40..57, under an opaque 8x8 core at
+  // (46, 44) — inset 6 px from the feather's left edge but only 4 px from its
+  // right, so the feather reaches further left than right.
+  async function writeSoftNoseLayers(dir: string): Promise<string[]> {
+    return [
+      ...(await writeRequiredLayers(dir)),
+      await writeRectsPng(dir, "nose.png", [
+        { x: 40, y: 40, w: 18, h: 18, alpha: 0.3 },
+        { x: 46, y: 44, w: 8, h: 8 },
+      ]),
+    ];
+  }
+
   // The same set under near-black bangs wider than that plate: the head the
   // turn's shifts are fractions of is the one the hair draws, and its ink only
   // counts as silhouette under the alpha rule.
@@ -1066,6 +1080,61 @@ describe("autoRigFromLayers", () => {
     expect(below.error).toMatch(/attainable/);
   });
 
+  // ── the nose's dense core ────────────────────────────────────────────────
+
+  it("rigs a soft-alpha nose with noseCore as its dense core, and still solves a turn", async () => {
+    const dir = tmpDir();
+    const paths = await writeSoftNoseLayers(dir);
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.noseCore).toEqual({ x: 46, y: 44, w: 8, h: 8 });
+    expect(result.turn).toBeDefined();
+  });
+
+  it("has no noseCore for a nose painted wholly at alpha 0.3, and still solves a turn", async () => {
+    const dir = tmpDir();
+    const paths = [
+      ...(await writeRequiredLayers(dir)),
+      await writeLayerPng(dir, "nose.png", {
+        x: 46,
+        y: 44,
+        w: 8,
+        h: 8,
+        alpha: 0.3,
+      }),
+    ];
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.noseCore).toBeUndefined();
+    expect(result.turn).toBeDefined();
+  });
+
+  it("has no noseCore for writeRequiredLayers, which has no nose", async () => {
+    const dir = tmpDir();
+    const paths = await writeRequiredLayers(dir);
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.noseCore).toBeUndefined();
+  });
+
   // ── the iris strand ──────────────────────────────────────────────────────
 
   // A full-canvas transparent PNG with several opaque rects on it — one layer
@@ -1079,6 +1148,8 @@ describe("autoRigFromLayers", () => {
       w: number;
       h: number;
       rgb?: { r: number; g: number; b: number };
+      /** Fraction 0..1; defaults to fully opaque. */
+      alpha?: number;
     }[],
   ): Promise<string> {
     const filePath = path.join(dir, name);
@@ -1091,7 +1162,7 @@ describe("autoRigFromLayers", () => {
             channels: 4,
             background: {
               ...(rect.rgb ?? { r: 200, g: 120, b: 60 }),
-              alpha: 1,
+              alpha: rect.alpha ?? 1,
             },
           },
         })

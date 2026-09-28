@@ -122,9 +122,10 @@ const BG_V_BLACK = 0.03;
  * A layer's dense core: the tight box of its pixels at alpha ≥ ALPHA_OPAQUE,
  * not grown. A soft-alpha part (a nose drawn as a shaded bump) is mostly
  * feather, and the core is the drawing a viewer reads inside it — the composer
- * sizes and places the nose by it. It is not the crop: that stays the alpha ≥ 8
- * box grown by 1 px (`detectAlphaBbox`). `null` when no pixel reaches the
- * threshold, a part painted wholly translucent.
+ * sizes and places the nose by it, and `auto_rig_from_layers` reads the same
+ * core as the nose's `LayerInput.denseCore`, its turn landmark. It is not the
+ * crop: that stays the alpha ≥ 8 box grown by 1 px (`detectAlphaBbox`). `null`
+ * when no pixel reaches the threshold, a part painted wholly translucent.
  */
 export function denseCoreOf(
   rgba: ArrayLike<number>,
