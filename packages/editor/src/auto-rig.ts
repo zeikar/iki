@@ -111,9 +111,11 @@ export interface LayerInput {
    * which the crop's alpha ≥ 8 rule takes in whole. Optional, and only the
    * NOSE's is read: its centre and width are the nose's turn landmark
    * (`turnLandmarks`), so a shaded nose is fitted by the drawing rather than
-   * by its feather. Absent — as the editor's own import leaves it — the crop
-   * stands in. Validated before anything reads it: a plain object whose x, y,
-   * w and h are finite, w and h positive, and the box inside `bbox`.
+   * by its feather, and its top edge at its centre x is the bridge top the
+   * nose tilts about on the turn (`NOSE_TURN_TILT_DEG`). Absent — as the
+   * editor's own import leaves it — the crop stands in for both. Validated
+   * before anything reads it: a plain object whose x, y, w and h are finite,
+   * w and h positive, and the box inside `bbox`.
    */
   denseCore?: { x: number; y: number; w: number; h: number };
 }
@@ -1550,13 +1552,16 @@ export interface TurnCarrier {
   part: RenderedPart;
   /** The point the group's nodes turn about, when they turn as one feature
    *  rather than each on its own column (`groupNodeLanding`). Only the mouth
-   *  family's carriers carry one. */
+   *  family's carriers and the nose's carry one. */
   anchor?: TurnAnchor;
 }
 
-/** A turn group's anchor: its rest point `(x, y)` — the closed mouth's rest
- *  centre, which is also the `mouth` landmark — and how far the group tilts
- *  about it at full turn, degrees (`MOUTH_TURN_TILT_DEG`). */
+/** A turn group's anchor: its rest point `(x, y)` and how far the group tilts
+ *  about it at full turn, degrees. The mouth family's is the closed mouth's
+ *  rest centre, which is also the `mouth` landmark, tilting
+ *  `MOUTH_TURN_TILT_DEG`; the nose's is its bridge top, the top edge of its
+ *  `denseCore` (else its crop) at that box's centre x, tilting
+ *  `NOSE_TURN_TILT_DEG`. */
 interface TurnAnchor {
   x: number;
   y: number;
@@ -1604,6 +1609,12 @@ function carrierLandingX(
  *     φ = tiltDeg · deg / HEAD_TURN_MAX_DEG, counter-clockwise positive in
  *     model y-up, so the near end goes down at either full turn (the +x end
  *     at −30, the −x end at +30). This is the only reader of `deg`.
+ *
+ * The mouth reads φ on its width: its anchor is its centre, so the near end
+ * goes down. The nose reads the same φ on its height: its anchor is its
+ * bridge top, so the tip, below the pivot, swings toward the far side (−x at
+ * −30, where φ is negative and clockwise; +x at +30). One sign serves both —
+ * the one that puts the mouth's near end down.
  *
  * A rotation is affine, so it passes unchanged through the grid's bilinear
  * read and the mesh's barycentric read: the rendered tilt is exactly φ, and
@@ -2014,6 +2025,18 @@ export interface TurnLandmarkSet {
   mouth: TurnLandmark[];
 }
 
+/** The box a nose's turn reads, its landmark (`turnLandmarks`) and its pivot
+ *  (`turnSetup`) alike, so the two cannot part: its `denseCore` when the
+ *  layer carries one, else its crop. */
+function noseDrawnBox(layer: LayerInput): {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+} {
+  return layer.denseCore ?? layer.bbox;
+}
+
 /**
  * Pick the parts the turn cues are measured on out of a layer set, in absolute
  * model x.
@@ -2039,14 +2062,11 @@ export function turnLandmarks(
   const markOf = (role: string): TurnLandmark | undefined => {
     const layer = layers.find((l) => l.role === role);
     if (!layer) return undefined;
-    const core = role === "nose" ? layer.denseCore : undefined;
-    const t = bboxToTransform(
-      core ?? layer.bbox,
-      layer.canvasW,
-      layer.canvasH,
-      role,
-    );
-    const mark: TurnLandmark = { x: t.x, y: t.y, w: core?.w ?? layer.cropW };
+    const drawn = role === "nose" ? noseDrawnBox(layer) : layer.bbox;
+    const t = bboxToTransform(drawn, layer.canvasW, layer.canvasH, role);
+    // A crop's width is its `cropW`; a dense core's, its own.
+    const w = drawn === layer.bbox ? layer.cropW : drawn.w;
+    const mark: TurnLandmark = { x: t.x, y: t.y, w };
     const carrier = carriers?.get(role);
     if (carrier !== undefined) mark.carrier = carrier;
     return mark;
@@ -2171,11 +2191,11 @@ function landmarkLandingX(
  *  family that starts past the plate cannot be slid back in by a depth, and a
  *  depth away from the turn is not a depth. The depth solver's own cap, and
  *  what every group grid and the lattice are sized to before the solve
- *  (`turnSetup`), so the two cannot disagree. For the mouth, whose nodes
- *  turn about its anchor (`groupNodeLanding`), the cap bounds the anchor's
- *  slide. The eye family's cap may be tightened per hold by the strand bound
- *  (`strandDepthCap`) but never loosened, so grids sized to this one cover
- *  every depth a solve returns. */
+ *  (`turnSetup`), so the two cannot disagree. For the mouth and the nose,
+ *  whose nodes turn about their anchors (`groupNodeLanding`), the cap bounds
+ *  the anchor's slide. The eye family's cap may be tightened per hold by the
+ *  strand bound (`strandDepthCap`) but never loosened, so grids sized to this
+ *  one cover every depth a solve returns. */
 function familyReachPx(
   landmarks: readonly TurnLandmark[],
   plateEdgeX: number,
@@ -2207,10 +2227,10 @@ function familyDepthCap(
  *
  * The family's grid carries the slide as keyform geometry: each node lands
  * where the map sends its rest x shifted by `depth * unit` toward the far side
- * (`bakeTurnGroupWarp2D`'s `shiftAt`) — or, for the mouth family, where its
- * anchor so shifted lands, the group turned about it (`groupNodeLanding`) —
- * and the part binds at its rest position, so what a reference measures is
- * the grid's map OF the shifted position, not the shift:
+ * (`bakeTurnGroupWarp2D`'s `shiftAt`) — or, for the mouth and nose families,
+ * where their anchor so shifted lands, the group turned about it
+ * (`groupNodeLanding`) — and the part binds at its rest position, so what a
+ * reference measures is the grid's map OF the shifted position, not the shift:
  * `achieved(d) = mean(landing(x, −d·unit) − x)`, each landmark's centre read
  * through its own carrier and mesh (`landmarkLandingX`) — the very keyforms
  * and triangles the engine draws. The map compresses the far side and
@@ -4480,6 +4500,14 @@ const HAIR_FRONT_DEPTH = 0.1;
  *  mouth. */
 const MOUTH_TURN_TILT_DEG = 5;
 
+/** How far the nose tilts at full turn, degrees, its tip toward the far side:
+ *  the nose's `TurnAnchor.tiltDeg`. A ladder of tilts rendered on the hero
+ *  read: 3° only cancels the lean-back the chin swing gives the nose, 10°
+ *  reads as a nose leaning over, and the reverse sign is plainly wrong, while
+ *  6° echoes the "<" the reference 3/4 portrait's nose draws. A style prior,
+ *  not fitted: `measure_turn_reference` reads no nose. */
+const NOSE_TURN_TILT_DEG = 6;
+
 /** Rigid vertical travel of the head at full nod (px at AngleY = ±30). */
 const NOD_TRAVEL = 30;
 /** Geometric pitch per degree of ParamAngleY: a full ±30 nod bends the face
@@ -5688,13 +5716,42 @@ function turnSetup(layers: LayerInput[]): TurnSetup {
     y: mouthAt.y,
     tiltDeg: MOUTH_TURN_TILT_DEG,
   };
+  // The nose turns about its bridge top — the top edge of the box its
+  // landmark reads (`noseDrawnBox`), at that box's centre x — so the bridge
+  // rides the slide and the tip, the end furthest from the pivot, carries the
+  // tilt.
+  const noseLayer = layers.find((l) => l.role === "nose");
+  let noseAnchor: TurnAnchor | undefined;
+  if (noseLayer) {
+    const drawn = noseDrawnBox(noseLayer);
+    const at = bboxToTransform(
+      drawn,
+      noseLayer.canvasW,
+      noseLayer.canvasH,
+      "nose",
+    );
+    noseAnchor = {
+      x: at.x,
+      y: at.y + drawn.h / 2,
+      tiltDeg: NOSE_TURN_TILT_DEG,
+    };
+  }
   const carriers = new Map<string, TurnCarrier>(
-    members.map((m) => [
-      m.role,
-      m.group === "mouthWarp"
-        ? { grid: groupGrids.get(m.group)!, part: m.part, anchor: mouthAnchor }
-        : { grid: groupGrids.get(m.group)!, part: m.part },
-    ]),
+    members.map((m) => {
+      const grid = groupGrids.get(m.group)!;
+      const anchor =
+        m.group === "mouthWarp"
+          ? mouthAnchor
+          : m.group === "noseWarp"
+            ? noseAnchor
+            : undefined;
+      return [
+        m.role,
+        anchor === undefined
+          ? { grid, part: m.part }
+          : { grid, part: m.part, anchor },
+      ];
+    }),
   );
 
   // ── The lattice ───────────────────────────────────────────────────────────
@@ -6064,11 +6121,12 @@ export function generateIkiFromLayerSet(
   // parts through), every node sampling the surface at its own rest position
   // — shifted, at each turn stop, by the family's solved depth share of the
   // parallax unit, so the depth is the grid's keyform geometry rather than a
-  // translate on the parts (see featureParallaxBindings); the mouth's nodes
-  // turn about its carrier's anchor, the one the solve read them by. The plate
-  // has no depth: it IS the cylinder. Without a solve no depth is known and
-  // every group reads the surface unshifted. One 2D warp carries both the turn
-  // and the nod (a deformer holds either `warps` or `warp2d`, never both).
+  // translate on the parts (see featureParallaxBindings); the mouth's and the
+  // nose's nodes turn about their carrier's anchor, the one the solve read
+  // them by. The plate has no depth: it IS the cylinder. Without a solve no
+  // depth is known and every group reads the surface unshifted. One 2D warp
+  // carries both the turn and the nod (a deformer holds either `warps` or
+  // `warp2d`, never both).
   for (const [group, grid] of groupGrids) {
     const { role } = members.find((m) => m.group === group)!;
     const family = turnFamily(role);

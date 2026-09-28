@@ -84,6 +84,10 @@ const HAIR_FRONT_DEPTH = 0.1;
  *  tilts about its anchor at full turn, degrees, its near end down. */
 const MOUTH_TURN_TILT_DEG = 5;
 
+/** Mirror of auto-rig's private NOSE_TURN_TILT_DEG: how far the nose tilts
+ *  about its bridge top at full turn, degrees, its tip toward the far side. */
+const NOSE_TURN_TILT_DEG = 6;
+
 /** The 1000×1000 canvas every layer fixture in this file is painted on. */
 const canvas1000 = { width: 1000, height: 1000 };
 
@@ -296,17 +300,17 @@ const gridBilinearX = (
 };
 
 /**
- * Where the mouth family's anchored rule lands a `mouthWarp` node resting at
- * `(x, y)` at the stop `deg`, rebuilt off the surface's maps (`mapAt(row)`)
- * rather than read off the rig: the pivot P is where the family's shifted
- * map puts the anchor, the node takes the map's own shape about the anchor's
- * REST position and slides with it, X = M_y(x) + P − M_{a.y}(a.x), and
- * (X, y) is rotated about (P, a.y) by MOUTH_TURN_TILT_DEG · deg / 30,
- * counter-clockwise positive in model y-up.
+ * Where an anchored group's rule — the mouth family's or the nose's — lands a
+ * node of its grid resting at `(x, y)` at the stop `deg`, rebuilt off the
+ * surface's maps (`mapAt(row)`) rather than read off the rig: the pivot P is
+ * where the family's shifted map puts the anchor, the node takes the map's
+ * own shape about the anchor's REST position and slides with it,
+ * X = M_y(x) + P − M_{a.y}(a.x), and (X, y) is rotated about (P, a.y) by
+ * the anchor's `tiltDeg` · deg / 30, counter-clockwise positive in model y-up.
  */
 const anchoredLanding = (
   mapAt: (row: number) => { mapX(x: number): number },
-  anchor: { x: number; y: number },
+  anchor: { x: number; y: number; tiltDeg: number },
   deg: number,
   shift: number,
   x: number,
@@ -314,7 +318,7 @@ const anchoredLanding = (
 ) => {
   const pivot = mapAt(anchor.y).mapX(anchor.x + shift);
   const slid = mapAt(y).mapX(x) + pivot - mapAt(anchor.y).mapX(anchor.x);
-  const phi = ((MOUTH_TURN_TILT_DEG * deg) / 30) * (Math.PI / 180);
+  const phi = ((anchor.tiltDeg * deg) / 30) * (Math.PI / 180);
   return {
     x: pivot + Math.cos(phi) * (slid - pivot) - Math.sin(phi) * (y - anchor.y),
     y:
@@ -4893,7 +4897,10 @@ describe("feature depth parallax", () => {
       travelOf(model),
     );
     // The mouth family's anchor: the closed mouth's rest centre.
-    const anchor = model.parts.find((p) => p.id === "mouth")!.transform;
+    const anchor = {
+      ...model.parts.find((p) => p.id === "mouth")!.transform,
+      tiltDeg: MOUTH_TURN_TILT_DEG,
+    };
     // The hair is not a feature: the bangs carry warps of their own and the
     // back hair rides the head.
     for (const part of model.parts.filter((p) => !p.id.startsWith("hair_"))) {
@@ -6999,11 +7006,29 @@ describe("hero golden cues", () => {
     local -
     radius * Math.sin(theta);
 
-  it("every group's −30 keyform is one surface: the lattice map of each node's rest x plus its family's solved shift, the mouth's turned about its anchor", () => {
+  it("every group's −30 keyform is one surface: the lattice map of each node's rest x plus its family's solved shift, the mouth's and the nose's turned about their anchors", () => {
     const { model, report } = heroRig();
     const faceCenterX = model.parts.find((p) => p.id === "face")!.transform.x;
     // The mouth family's anchor: the closed mouth's rest centre.
-    const anchor = model.parts.find((p) => p.id === "mouth")!.transform;
+    const mouthAnchor = {
+      ...model.parts.find((p) => p.id === "mouth")!.transform,
+      tiltDeg: MOUTH_TURN_TILT_DEG,
+    };
+    // The nose's: its bridge top. heroLikeLayers() carries no core, so that
+    // is the crop's top edge at the crop's centre x, and the nose part rests
+    // on the crop's centre.
+    const noseAt = model.parts.find((p) => p.id === "nose")!.transform;
+    const noseAnchor = {
+      x: noseAt.x,
+      y: noseAt.y + layers.find((l) => l.role === "nose")!.cropH / 2,
+      tiltDeg: NOSE_TURN_TILT_DEG,
+    };
+    const anchorOf = (group: string) =>
+      group === "mouthWarp"
+        ? mouthAnchor
+        : group === "noseWarp"
+          ? noseAnchor
+          : undefined;
     const travel = travelOf(model);
     const unit = headTurnParallaxUnit(report.radius);
     // A dense lattice of the test's own: 16 px columns anchored on the face
@@ -7039,9 +7064,10 @@ describe("hero golden cues", () => {
       for (let n = 0; n < d.grid.points.length / 2; n++) {
         const x = d.grid.points[n * 2];
         const y = d.grid.points[n * 2 + 1];
-        if (d.id === "mouthWarp") {
-          // The mouth turns as one feature about its anchor, tilted: its dy
-          // on this row is the turn's own.
+        const anchor = anchorOf(d.id);
+        if (anchor !== undefined) {
+          // The mouth and the nose each turn as one feature about their
+          // anchor, tilted: their dy on this row is the turn's own.
           const landed = anchoredLanding(() => map, anchor, -30, shift, x, y);
           expect(
             Math.abs(k.offsets[n * 2] - (landed.x - x)),
@@ -7304,6 +7330,57 @@ describe("nose turn", () => {
     expect(turnLandmarks(withMouthCore).mouth).toEqual(
       turnLandmarks(heroLikeLayers()).mouth,
     );
+  });
+
+  it("turns the nose about the top centre of its dense core, else of its crop", () => {
+    const anchorOf = (layers: LayerInput[]) =>
+      turnSolveInputs(layers)[6].get("nose")!.anchor;
+    // The core {530, 549, 39, 63}: x 530 + 19.5 − 550, y 550 − 549.
+    expect(anchorOf(heroNoseLayers())).toEqual({
+      x: -0.5,
+      y: 1,
+      tiltDeg: NOSE_TURN_TILT_DEG,
+    });
+    // Without one, the crop's: heroLikeLayers()' nose {533, 561, 35, 50}.
+    expect(anchorOf(heroLikeLayers())).toEqual({
+      x: 0.5,
+      y: -11,
+      tiltDeg: NOSE_TURN_TILT_DEG,
+    });
+  });
+
+  it("tilts the nose's top-to-tip line, its tip toward the far side: −6° at −30, +6° at +30", () => {
+    const model = generateIkiFromLayerSet(heroNoseLayers(), canvas1100, {
+      turnTargets: { headHalfWidth: HERO_HEAD.headHalfWidth },
+      headEdges: HERO_HEAD.headEdges,
+    });
+    // The core {530, 549, 39, 63} in bboxToTransform's model coords: its top
+    // edge at its centre x, the bridge top the nose turns about, and its
+    // bottom edge there, the tip.
+    const top = { x: -0.5, y: 1 };
+    const tip = { x: -0.5, y: -62 };
+    for (const deg of [-30, 0, 30]) {
+      const params = { [StandardParameter.AngleX]: deg };
+      const land = ({ x, y }: { x: number; y: number }) => ({
+        x: landedXAt(model, "nose", x, y, params),
+        y: landedYAt(model, "nose", x, y, params),
+      });
+      const a = land(top);
+      const b = land(tip);
+      // Model y is up and the tilt counter-clockwise positive, so the angle
+      // of the tip-from-top vector from straight down, atan2(dx, −dy), is the
+      // tilt: negative at −30, whose far side is −x, and positive at +30. The
+      // fixture's face carries no row profile, so every row reads one map:
+      // the top and the tip, one above the other at rest, slide and
+      // foreshorten alike, and the tilt is the whole angle.
+      const angle = (Math.atan2(b.x - a.x, -(b.y - a.y)) * 180) / Math.PI;
+      expect(
+        Math.abs(angle - (NOSE_TURN_TILT_DEG * deg) / 30),
+        `${deg}°`,
+      ).toBeLessThan(1e-4);
+      if (deg === -30) expect(b.x).toBeLessThan(a.x);
+      if (deg === 30) expect(b.x).toBeGreaterThan(a.x);
+    }
   });
 });
 
@@ -8254,7 +8331,10 @@ describe("face row profile", () => {
       });
       const mouth = groupWarpOf(r.model, "mouthWarp");
       // The mouth family's anchor: the closed mouth's rest centre.
-      const anchor = r.model.parts.find((p) => p.id === "mouth")!.transform;
+      const anchor = {
+        ...r.model.parts.find((p) => p.id === "mouth")!.transform,
+        tiltDeg: MOUTH_TURN_TILT_DEG,
+      };
       const shift = -r.report.depths.mouth * unit;
       const k = cell(mouth.warp2d, -30, 0);
       let nodes = 0;

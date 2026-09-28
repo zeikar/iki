@@ -126,8 +126,9 @@ face so the plate turns on a radius that varies by row; absent, it turns on one
 constant radius. It also takes the optional `denseCore`, the tight box of a
 layer's alpha ≥ 128 pixels in image coords, not grown, which `@ikijs/mcp`
 measures for the nose: its centre and width are the nose's turn landmark, so a
-shaded nose is fitted by its drawing rather than its soft feather; absent, the
-crop stands in.
+shaded nose is fitted by its drawing rather than its soft feather, and its top
+edge at its centre x is the bridge top the nose tilts 6° about on the turn, its
+tip toward the far side; absent, the crop stands in for both.
 
 `*_L` / `*_R` are the **character's** sides — `eye_L` is the character's left
 eye, which appears on the viewer's right.
