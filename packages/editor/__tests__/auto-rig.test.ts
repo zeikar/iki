@@ -905,6 +905,91 @@ describe("validate", () => {
     ).toThrow(/role "face" rowHalfWidths\[0\] is NaN/);
   });
 
+  // ── denseCore ─────────────────────────────────────────────────────────────
+  // HERO_NOSE's crop spans image x 523…577 and y 537…620; its core, x 530…569
+  // and y 549…612, sits inside it.
+
+  /** heroNoseLayers() with the nose's `denseCore` replaced by `core`. */
+  const withNoseCore = (core: unknown): LayerInput[] =>
+    heroNoseLayers().map((l) =>
+      l.role === "nose"
+        ? { ...l, denseCore: core as LayerInput["denseCore"] }
+        : l,
+    );
+
+  it("a denseCore of width 0 throws naming the role and the field", () => {
+    expect(() =>
+      validateLayerInputs(
+        withNoseCore({ ...HERO_NOSE.denseCore, w: 0 }),
+        canvas1100,
+      ),
+    ).toThrow(/role "nose" denseCore\.w is 0/);
+  });
+
+  it("a NaN denseCore.x throws naming the role and the field", () => {
+    expect(() =>
+      validateLayerInputs(
+        withNoseCore({ ...HERO_NOSE.denseCore, x: Number.NaN }),
+        canvas1100,
+      ),
+    ).toThrow(/role "nose" denseCore\.x is NaN/);
+  });
+
+  it.each([
+    {
+      edge: "left",
+      change: { x: 522 },
+      message: /role "nose" denseCore\.x \(522\) lies left.*\(523\)/,
+    },
+    {
+      edge: "top",
+      change: { y: 536 },
+      message:
+        /role "nose" denseCore\.y \(536\) lies above the bbox's top edge \(537\)/,
+    },
+    // 530 + 48 = 578, one past the crop's 523 + 54 = 577.
+    {
+      edge: "right",
+      change: { w: 48 },
+      message: /role "nose" denseCore\.w .*578.*right edge \(577\)/,
+    },
+    // 549 + 72 = 621, one past the crop's 537 + 83 = 620.
+    {
+      edge: "bottom",
+      change: { h: 72 },
+      message: /role "nose" denseCore\.h .*621.*bottom edge \(620\)/,
+    },
+  ])(
+    "a denseCore running 1 px past the bbox's $edge edge throws naming the role and the edge",
+    ({ change, message }) => {
+      expect(() =>
+        validateLayerInputs(
+          withNoseCore({ ...HERO_NOSE.denseCore, ...change }),
+          canvas1100,
+        ),
+      ).toThrow(message);
+    },
+  );
+
+  it("a denseCore that is not a plain object throws naming the role", () => {
+    for (const core of ["530,549,39,63", null, [530, 549, 39, 63]]) {
+      expect(
+        () => validateLayerInputs(withNoseCore(core), canvas1100),
+        JSON.stringify(core),
+      ).toThrow(/role "nose" denseCore must be a plain object/);
+    }
+  });
+
+  it("a denseCore inside the bbox of a non-nose layer is accepted", () => {
+    // The mouth's crop spans image x 515…585 and y 623…644.
+    const layers = heroLikeLayers().map((l) =>
+      l.role === "mouth"
+        ? { ...l, denseCore: { x: 520, y: 626, w: 60, h: 15 } }
+        : l,
+    );
+    expect(() => validateLayerInputs(layers, canvas1100)).not.toThrow();
+  });
+
   // ── strandEdges ───────────────────────────────────────────────────────────
   // heroLikeLayers()' −x iris (iris_R) spans model x −149…−75 about −112 and
   // rows 38…112 of model y, the other iris is centred on +112, and hair_front
@@ -6764,6 +6849,24 @@ function heroLikeLayers(): LayerInput[] {
   ];
 }
 
+/**
+ * The spike's placed v2 medium nose, iki-char/layers-nose6/nose.png: a shaded
+ * bump whose soft feather reaches well past the drawing. Its crop is the box
+ * every layer gets, `detectAlphaBbox`'s alpha ≥ 8 extent {524, 538, 52, 81}
+ * grown by 1 px; its `denseCore` is the tight box of its alpha ≥ 128 pixels,
+ * not grown. In model coords the crop is centred on (0, −28.5), the core on
+ * (−0.5, −30.5).
+ */
+const HERO_NOSE = {
+  ...layer(canvas1100, "nose", 523, 537, 54, 83),
+  denseCore: { x: 530, y: 549, w: 39, h: 63 },
+};
+
+/** heroLikeLayers() with its nose swapped for HERO_NOSE. */
+function heroNoseLayers(): LayerInput[] {
+  return heroLikeLayers().map((l) => (l.role === "nose" ? HERO_NOSE : l));
+}
+
 /** The head `auto_rig_from_layers` measured off those layers' opaque union at
  *  the eye row (`headHalfWidth`, canvas px) and every role's own extent in
  *  that band, per side (`headEdges`, model x) — copied from
@@ -7143,6 +7246,64 @@ describe("mouth turn", () => {
       expect(Math.abs(a.x - b.x), `${deg}° x`).toBeLessThan(1e-4);
       expect(Math.abs(a.y - b.y), `${deg}° y`).toBeLessThan(1e-4);
     }
+  });
+});
+
+// ── Nose turn ────────────────────────────────────────────────────────────────
+
+describe("nose turn", () => {
+  it("reads the nose's turn landmark off its dense core: a caller noseShift is reached at the core's centre, not the crop's", () => {
+    const layers = heroNoseLayers();
+    // Any caller value this layer set can reach would do; this one is 1.36
+    // times the hero's eye cue.
+    const noseShift = 1.36 * HERO_CUES.eyeShift;
+    // A caller's noseShift is reached or refused, never clamped; the render
+    // check below is the proof.
+    const model = generateIkiFromLayerSet(layers, canvas1100, {
+      turnTargets: { headHalfWidth: HERO_HEAD.headHalfWidth, noseShift },
+      headEdges: HERO_HEAD.headEdges,
+    });
+
+    // bboxToTransform's model coords: the core's centre, and the crop's, which
+    // is where the nose part rests.
+    const core = bboxToTransform(HERO_NOSE.denseCore, 1100, 1100);
+    const crop = model.parts.find((p) => p.id === "nose")!.transform;
+    expect(core).toEqual({ x: -0.5, y: -30.5 });
+    expect({ x: crop.x, y: crop.y }).toEqual({ x: 0, y: -28.5 });
+
+    // The head-relative cue of "the nose and mouth report a head-relative
+    // shift too, agreeing with the engine" — where a point on the nose lands
+    // at −30 against its rest x, against the silhouette centre's landing —
+    // read at either centre.
+    const { silhouetteCenterShift } = cuesOf(
+      model,
+      layers,
+      HERO_HEAD.headHalfWidth,
+      HERO_HEAD.headEdges,
+    );
+    const cueAt = (x: number, y: number) =>
+      (-(landedXAt(model, "nose", x, y, turned) - x) + silhouetteCenterShift) /
+      HERO_HEAD.headHalfWidth;
+    // The render agrees with the caller's number to the oracle's float32
+    // rounding at the core's centre, the landmark the solve fitted…
+    expect(cueAt(core.x, core.y)).toBeCloseTo(noseShift, 6);
+    // …and not at the crop's, which today's landmark would have been.
+    expect(Math.abs(cueAt(crop.x, crop.y) - noseShift)).toBeGreaterThan(1e-4);
+  });
+
+  it("turnLandmarks takes the nose's centre and width from its dense core, and ignores any other role's", () => {
+    // The core {530, 549, 39, 63} centred in bboxToTransform's model coords.
+    expect(turnLandmarks(heroNoseLayers()).nose).toEqual([
+      { x: -0.5, y: -30.5, w: 39 },
+    ]);
+    const withMouthCore = heroLikeLayers().map((l) =>
+      l.role === "mouth"
+        ? { ...l, denseCore: { x: 520, y: 626, w: 60, h: 15 } }
+        : l,
+    );
+    expect(turnLandmarks(withMouthCore).mouth).toEqual(
+      turnLandmarks(heroLikeLayers()).mouth,
+    );
   });
 });
 

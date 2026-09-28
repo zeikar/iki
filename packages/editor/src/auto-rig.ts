@@ -105,6 +105,17 @@ export interface LayerInput {
    * [0, cropW / 2], the most an inclusive span inside the crop can be.
    */
   rowHalfWidths?: number[];
+  /**
+   * The tight box of the layer's alpha ≥ 128 pixels, in image coords like
+   * `bbox` and NOT grown: the drawing a viewer reads inside a soft feather,
+   * which the crop's alpha ≥ 8 rule takes in whole. Optional, and only the
+   * NOSE's is read: its centre and width are the nose's turn landmark
+   * (`turnLandmarks`), so a shaded nose is fitted by the drawing rather than
+   * by its feather. Absent — as the editor's own import leaves it — the crop
+   * stands in. Validated before anything reads it: a plain object whose x, y,
+   * w and h are finite, w and h positive, and the box inside `bbox`.
+   */
+  denseCore?: { x: number; y: number; w: number; h: number };
 }
 
 // ── Role table ───────────────────────────────────────────────────────────────
@@ -326,6 +337,8 @@ export function bboxToTransform(
  *      agree with each other — no separate peer-comparison loop is needed.
  *   5. `rowHalfWidths`, when present: an array of `cropH` finite numbers in
  *      [0, cropW / 2] — checked before anything reads its length or entries.
+ *   6. `denseCore`, when present on any layer: a plain object whose x, y, w
+ *      and h are finite, with w and h > 0 and the box inside `bbox`.
  *
  * Validates `layer.role` DIRECTLY (not via fileName). A caller could supply
  * `fileName:"face.png"` with `role:"bad_role"` — a filename check would miss it.
@@ -397,6 +410,47 @@ export function validateLayerInputs(
             `auto-rig: validateLayerInputs: role "${role}" rowHalfWidths[${i}] is ${String(a)}, not a finite number in [0, ${cropW / 2}] (half the crop's width)`,
           );
         }
+      }
+    }
+    // Checked on every layer that carries one, though only the nose's is read,
+    // so a malformed box is refused rather than silently ignored.
+    if (layer.denseCore !== undefined) {
+      const where = `auto-rig: validateLayerInputs: role "${role}" denseCore`;
+      const core: unknown = layer.denseCore;
+      if (typeof core !== "object" || core === null || Array.isArray(core)) {
+        throw new Error(`${where} must be a plain object { x, y, w, h }`);
+      }
+      for (const field of ["x", "y", "w", "h"] as const) {
+        const v = (core as Record<string, unknown>)[field];
+        const size = field === "w" || field === "h";
+        if (typeof v !== "number" || !Number.isFinite(v) || (size && v <= 0)) {
+          throw new Error(
+            `${where}.${field} is ${String(v)}, not a finite number${size ? " > 0" : ""}`,
+          );
+        }
+      }
+      const { x, y, w, h } = layer.denseCore;
+      const right = bbox.x + bbox.w;
+      const bottom = bbox.y + bbox.h;
+      if (x < bbox.x) {
+        throw new Error(
+          `${where}.x (${x}) lies left of the bbox's left edge (${bbox.x})`,
+        );
+      }
+      if (y < bbox.y) {
+        throw new Error(
+          `${where}.y (${y}) lies above the bbox's top edge (${bbox.y})`,
+        );
+      }
+      if (x + w > right) {
+        throw new Error(
+          `${where}.w (${w}) puts its right edge at ${x + w}, past the bbox's right edge (${right})`,
+        );
+      }
+      if (y + h > bottom) {
+        throw new Error(
+          `${where}.h (${h}) puts its bottom edge at ${y + h}, past the bbox's bottom edge (${bottom})`,
+        );
       }
     }
   }
@@ -1972,6 +2026,9 @@ export interface TurnLandmarkSet {
  * 0.01. Bounding the slide by the narrower iris instead would put the white's
  * outer edge over the side hair, where the render loses it.
  *
+ * The nose is its `denseCore` when the layer carries one — the drawing, not
+ * the soft feather its crop takes in — and its crop otherwise.
+ *
  * With `carriers` (by role — what `turnSetup` builds) each landmark is read
  * through its own part's grid and mesh; without, straight off the map.
  */
@@ -1982,8 +2039,14 @@ export function turnLandmarks(
   const markOf = (role: string): TurnLandmark | undefined => {
     const layer = layers.find((l) => l.role === role);
     if (!layer) return undefined;
-    const t = bboxToTransform(layer.bbox, layer.canvasW, layer.canvasH, role);
-    const mark: TurnLandmark = { x: t.x, y: t.y, w: layer.cropW };
+    const core = role === "nose" ? layer.denseCore : undefined;
+    const t = bboxToTransform(
+      core ?? layer.bbox,
+      layer.canvasW,
+      layer.canvasH,
+      role,
+    );
+    const mark: TurnLandmark = { x: t.x, y: t.y, w: core?.w ?? layer.cropW };
     const carrier = carriers?.get(role);
     if (carrier !== undefined) mark.carrier = carrier;
     return mark;
