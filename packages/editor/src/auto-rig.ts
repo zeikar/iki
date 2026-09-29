@@ -4028,12 +4028,15 @@ export function bisectTurnRadius<C extends { radius: number; ratio: number }>(
  * fits only when that meets the ratio, so the preference picks among radii
  * that render the same far/near ratio and never costs a target.
  *
- * Exported at module level for its own test, not from the package: the pool
- * changes which radius is fitted only when two sweep runs hold the same
- * far/near ratio, or the ratio turns back on itself inside one — within a run
- * whose ratio is monotone in the radius both pools bracket the target with
- * the same two samples — and on every layer fixture probed the ratio rose
- * monotonically with the radius, so none reaches it through the solver.
+ * Exported at module level for its own test, not from the package: across the
+ * probed layer family — a constant-width face profile, one side strand, no
+ * measured `headEdges` — the far/near ratio rises monotonically with the
+ * radius, so the preferred pool always brackets the target with the same
+ * pair, and the preference never changed the fitted radius (24 narrowed
+ * pools, 0 changed radii). It is kept as a guard for a non-monotone sweep,
+ * which a tapering profile, a measured `headEdges` near its silhouette
+ * limit, or strands on both sides might produce, and is covered by its unit
+ * tests.
  */
 export function strandPreferredCandidates<
   C extends { sweepIndex: number; ratio: number; strandFeasible: boolean },

@@ -5041,9 +5041,9 @@ describe("strandPreferredCandidates", () => {
   // Hand-built sweep candidates: two unbroken runs (sweep 0…3 and 5…8, the
   // radius at 4 refused) whose far/near ratios overlap — the first rising,
   // the second turning back — so a ratio inside both is held by either, and
-  // only the second keeps the far iris clear of its strand. No layer fixture
-  // probed gives two such runs, its ratio rising monotonically with the
-  // radius (see the function's doc).
+  // only the second keeps the far iris clear of its strand. A 297-point layer
+  // probe (see the function's doc) found no such case — every sweep's ratio
+  // rose monotonically with the radius — which is why these are unit tests.
   const run = (from: number, ratios: number[], strandFeasible: boolean) =>
     ratios.map((ratio, i) => ({ sweepIndex: from + i, ratio, strandFeasible }));
   const unheld = run(0, [0.6, 0.65, 0.7, 0.75], false);
