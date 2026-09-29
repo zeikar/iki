@@ -8324,8 +8324,9 @@ describe("face row profile", () => {
       expect(travel).toBeCloseTo(0.25 * faceHalfWidth, 9);
     });
 
-    it("keeps the bangs' join on the rendered plate and puts the strands between a row's painted edge and the plate's crop on the ramp", () => {
+    it("keeps the bangs' join on the rendered plate and holds every strand below the widest row as that row does: on the plate within its painted edge, on the ramp between it and the plate's crop", () => {
       const r = rig();
+      const p = r.profile!;
       const hair = r.model.parts.find((p) => p.id === "hair_front")!;
       const hairLayer = r.layers.find((l) => l.role === "hair_front")!;
       const { cols, rows } = meshCellsFor(hairLayer.cropW, hairLayer.cropH);
@@ -8335,16 +8336,22 @@ describe("face row profile", () => {
       const restY = (v: number) =>
         hair.transform.y + hair.mesh!.vertices[v * 2 + 1];
       const unit = headTurnParallaxUnit(r.report.radius);
+      // The widest row's painted half-width: its 31-row smoothing window
+      // holds 16 rows of 192 and 15 of 96, so it reads 4512/31 ≈ 145.55 and
+      // the ±165.5 column sits past it.
+      const widest = p.at(p.widestY);
+      expect(widest).toBeCloseTo(4512 / 31, 9);
       for (const deg of stops) {
         const params = { [StandardParameter.AngleX]: deg };
         const landed = landVertices(r.model, "hair_front", params);
         let onPlate = 0;
+        let heldOnPlate = 0;
         let onRamp = 0;
         for (let v = 0; v < (cols + 1) * (rows + 1); v++) {
           const x = restX(v);
           const y = restY(v);
           const dist = Math.abs(x - r.faceCenterX);
-          const a = r.profile!.at(y);
+          const a = p.at(y);
           const row = Math.floor(v / stride);
           // The root row (lead 0) over the painted plate lands where the
           // RENDERED plate lands that point — float32, 3e-5 at |x| < 512.
@@ -8355,35 +8362,46 @@ describe("face row profile", () => {
             );
             onPlate++;
           }
-          // On the 96 band a strand drawn over the plate's crop but past its
-          // painted edge is on the ramp: its hold target (the landing less
-          // the row's own lead) lies strictly between the painted edge's
-          // rendered landing and the hold edge.
-          if (a === 96 && dist > a && dist <= faceHalfWidth) {
-            const side = Math.sign(x - r.faceCenterX);
-            const lead =
-              (deg / 30) *
-              HAIR_FRONT_DEPTH *
-              unit *
-              Math.pow(row / rows, HAIR_SWAY_CURL);
-            const hold = landed[v * 2] - lead;
-            const inner = landedXAt(
-              r.model,
-              "face",
-              r.faceCenterX + side * a,
-              y,
-              params,
+          if (y >= p.widestY || dist > faceHalfWidth) continue;
+          // Below the widest row a strand holds as the widest row holds its
+          // column: its hold target (the landing less the row's own lead)
+          // is where the rendered plate lands that x on the widest row when
+          // it is within that row's painted edge, and strictly between that
+          // edge's rendered landing and the hold edge when it is past it.
+          const side = Math.sign(x - r.faceCenterX);
+          const lead =
+            (deg / 30) *
+            HAIR_FRONT_DEPTH *
+            unit *
+            Math.pow(row / rows, HAIR_SWAY_CURL);
+          const hold = landed[v * 2] - lead;
+          if (dist <= widest) {
+            expect(hold, `${deg}° vertex ${v}`).toBeCloseTo(
+              landedXAt(r.model, "face", x, p.widestY, params),
+              4,
             );
-            const outer = r.faceCenterX + side * r.holdEdgeAt(deg);
-            expect(
-              (hold - inner) * (outer - hold),
-              `${deg}° vertex ${v}`,
-            ).toBeGreaterThan(0);
-            onRamp++;
+            heldOnPlate++;
+            continue;
           }
+          const inner = landedXAt(
+            r.model,
+            "face",
+            r.faceCenterX + side * widest,
+            p.widestY,
+            params,
+          );
+          const outer = r.faceCenterX + side * r.holdEdgeAt(deg);
+          expect(
+            (hold - inner) * (outer - hold),
+            `${deg}° vertex ${v}`,
+          ).toBeGreaterThan(0);
+          onRamp++;
         }
+        // Rows 5–8 of the 8 × 8 mesh rest below the widest row: the axis and
+        // ±82.75 columns on the plate there, the ±165.5 ones on the ramp.
         expect(onPlate).toBe(5);
-        expect(onRamp).toBeGreaterThan(0);
+        expect(heldOnPlate).toBe(4 * 3);
+        expect(onRamp).toBe(4 * 2);
       }
     });
 
@@ -8566,6 +8584,7 @@ describe("face row profile", () => {
       const guardRows = plateGuardRowsFor(
         carriers.get("face")!.part,
         hairFront,
+        p.widestY,
       );
       let furthest = 0;
       for (const deg of stops) {
@@ -8760,6 +8779,113 @@ describe("face row profile", () => {
         }
         expect(worst, `${deg}° ${at}`).toBeLessThanOrEqual(0.6);
       }
+    });
+
+    /** hair_front's mesh on this rig: its columns and rows, and each vertex's
+     *  rest position in model space. */
+    const bangsMesh = (r: Profiled) => {
+      const hair = r.model.parts.find((p) => p.id === "hair_front")!;
+      const hairLayer = r.layers.find((l) => l.role === "hair_front")!;
+      const { cols, rows } = meshCellsFor(hairLayer.cropW, hairLayer.cropH);
+      return {
+        cols,
+        rows,
+        restX: (v: number) => hair.transform.x + hair.mesh!.vertices[v * 2],
+        restY: (v: number) => hair.transform.y + hair.mesh!.vertices[v * 2 + 1],
+      };
+    };
+
+    it("every bangs vertex resting below the widest face row holds as its column does on that row", () => {
+      const r = rig();
+      const p = r.profile!;
+      const { cols, rows, restX, restY } = bangsMesh(r);
+      const stride = cols + 1;
+      const unit = headTurnParallaxUnit(r.report.radius);
+      let held = 0;
+      let onPlate = 0;
+      for (const deg of stops) {
+        const params = { [StandardParameter.AngleX]: deg };
+        const landed = landVertices(r.model, "hair_front", params);
+        for (let c = 0; c <= cols; c++) {
+          const x = restX(c);
+          let first: number | undefined;
+          for (let row = 0; row <= rows; row++) {
+            const v = row * stride + c;
+            if (restY(v) >= p.widestY) continue;
+            // The hold: the landing less the row's own share of the lead.
+            // Float32 landings: 3e-5 at |x| < 512.
+            const lead =
+              (deg / 30) *
+              HAIR_FRONT_DEPTH *
+              unit *
+              Math.pow(row / rows, HAIR_SWAY_CURL);
+            const hold = landed[v * 2] - lead;
+            first ??= hold;
+            expect(hold, `${deg}° column ${c} row ${row}`).toBeCloseTo(
+              first,
+              4,
+            );
+            held++;
+            if (Math.abs(x - r.faceCenterX) <= p.at(p.widestY)) {
+              expect(hold, `${deg}° column ${c} row ${row}`).toBeCloseTo(
+                landedXAt(r.model, "face", x, p.widestY, params),
+                4,
+              );
+              onPlate++;
+            }
+          }
+        }
+      }
+      // Rows 5–8 of the 8 × 8 mesh rest below the widest row (y −24.5), and
+      // the five middle columns sit on the plate there.
+      expect(held).toBe(4 * (cols + 1) * stops.length);
+      expect(onPlate).toBe(4 * 5 * stops.length);
+    });
+
+    it("the side locks carry no crease at the jaw", () => {
+      // Each column segment's turn lean — its angle from the vertical posed
+      // less at rest — per row interval; a crease is the lean changing from
+      // one interval to the next across an interior mesh row. Held on their
+      // own rows, the ±165.5 columns crossed from the plate onto the ramp
+      // between the rows at 9.5 and −114.4 as the jaw tapered in past them,
+      // and creased ≈ 14° there at ±30 (≈ 5° at ±15). Held at the widest row
+      // the worst left is ≈ 2.7°, at −30 on that row pair: the upper row still
+      // reads the plate on its own row, inside the plate cell whose lower
+      // node row sits on the taper.
+      const r = rig();
+      const { cols, rows } = bangsMesh(r);
+      const stride = cols + 1;
+      const rest = landVertices(r.model, "hair_front", {});
+      const angle = (V: Float32Array, c: number, row: number) => {
+        const a = row * stride + c;
+        const b = (row + 1) * stride + c;
+        return (
+          (Math.atan2(V[b * 2] - V[a * 2], -(V[b * 2 + 1] - V[a * 2 + 1])) *
+            180) /
+          Math.PI
+        );
+      };
+      let worst = 0;
+      let at = "";
+      for (const deg of stops) {
+        const posed = landVertices(r.model, "hair_front", {
+          [StandardParameter.AngleX]: deg,
+        });
+        for (let c = 0; c <= cols; c++) {
+          const lean = Array.from(
+            { length: rows },
+            (_, row) => angle(posed, c, row) - angle(rest, c, row),
+          );
+          for (let row = 1; row < rows; row++) {
+            const crease = Math.abs(lean[row] - lean[row - 1]);
+            if (crease > worst) {
+              worst = crease;
+              at = `${deg}° column ${c} row ${row}`;
+            }
+          }
+        }
+      }
+      expect(worst, at).toBeLessThanOrEqual(3);
     });
   });
 });

@@ -964,7 +964,8 @@ export interface FaceRowProfile {
   aMax: number;
   /** Model y of the widest row (the lowest of them when several tie): rows
    *  ABOVE it — greater y, model y running up — read `aMax`; rows at and
-   *  below it are the measured ones, and they alone taper and swing. */
+   *  below it are the measured ones, and they alone taper and swing. The
+   *  bangs hanging below it hold as it does (`hairFrontHoldTarget`). */
   widestY: number;
   /** The crop's own half-width, px: the bound every entry respects and the
    *  width the chin swing is a fraction of. */
@@ -1666,17 +1667,22 @@ export function plateLandingOn(
  * The rows the plate's rendered painted edge is read at by every guard that
  * keeps the bangs' hold fold-free: the face mesh's own vertex rows — between
  * two of them the edge column renders linear, so its extremes sit on them —
- * plus every hair_front mesh row's rest y clamped into the face mesh's span,
- * the rows the bangs' join actually samples the plate at (the face rows alone
- * without bangs). ONE list for the solver's `plateReachAt` and
- * `shellTravelCap` and for the bake's per-row guard, so the two cannot
- * disagree: a radius the solver accepts is one the bake can hold.
+ * plus every hair_front mesh row's hold row clamped into the face mesh's
+ * span, the rows the bangs' join actually samples the plate at (the face rows
+ * alone without bangs). A bangs row's hold row is its rest y, or `widestY`
+ * for a row resting below the face's widest row — the row
+ * `hairFrontHoldTarget` reads every lower vertex's ramp at — so the guard
+ * reads the plate exactly where every ramp's inner end is read. ONE list for
+ * the solver's `plateReachAt` and `shellTravelCap` and for the bake's per-row
+ * guard, so the two cannot disagree: a radius the solver accepts is one the
+ * bake can hold.
  *
  * Exported at module level for the tests, not from the package.
  */
 export function plateGuardRowsFor(
   face: { y: number; cropW: number; cropH: number },
   hairFront?: { centerY: number; cropW: number; cropH: number },
+  widestY = -Infinity,
 ): number[] {
   // Each mesh row's absolute rest y, exactly as the bakes read a vertex's:
   // the part's y plus createPixelGridMesh's own row y.
@@ -1694,7 +1700,7 @@ export function plateGuardRowsFor(
   return [
     ...faceRows,
     ...rowsOf(hairFront, hairFront.centerY).map((y) =>
-      Math.max(bottom, Math.min(top, y)),
+      Math.max(bottom, Math.min(top, Math.max(y, widestY))),
     ),
   ];
 }
@@ -1702,13 +1708,14 @@ export function plateGuardRowsFor(
 /**
  * The face plate as every guard reads it: its carrier — the `face` member's
  * grid and mesh — the painted half-width on each row, and the rows the
- * rendered edge is read at (`plateGuardRowsFor`). `edgeAt` is the profile's
- * own row when the face layer measured one (`faceRowProfile`), and the crop's
- * half-width on every row otherwise: the hold's join ends there and both
- * fold guards read the plate's edge there. Derived HERE and nowhere else —
- * `turnSetup` hands the generator these and `solveTurnModel` builds its
- * context from the same call on the same inputs — so the hold the solve fits
- * is the hold the bake builds.
+ * rendered edge is read at (`plateGuardRowsFor`, the bangs' rows below the
+ * profile's widest row read at it, as the hold reads them). `edgeAt` is the
+ * profile's own row when the face layer measured one (`faceRowProfile`), and
+ * the crop's half-width on every row otherwise: the hold's join ends there
+ * and both fold guards read the plate's edge there. Derived HERE and nowhere
+ * else — `turnSetup` hands the generator these and `solveTurnModel` builds
+ * its context from the same call on the same inputs — so the hold the solve
+ * fits is the hold the bake builds.
  */
 function plateGuardsOf(
   carriers: ReadonlyMap<string, TurnCarrier>,
@@ -1727,7 +1734,7 @@ function plateGuardsOf(
   return {
     plate,
     edgeAt: profile === undefined ? () => faceHalfWidth : profile.at,
-    plateGuardRows: plateGuardRowsFor(plate.part, hairFront),
+    plateGuardRows: plateGuardRowsFor(plate.part, hairFront, profile?.widestY),
   };
 }
 
@@ -2621,15 +2628,35 @@ interface TurnSolveContext {
  * from the face centre, so they do not move with the stop; only the
  * destinations do:
  *
- *   - within the plate's painted half-width on this row, `edgeAt(y)`: where
- *     the RENDERED plate lands that very point (`plateLandingAt` — the face's
- *     own mesh and grid, not the bare surface), so the bangs sit on the face
+ *   - within the plate's painted half-width on the hold row, `edgeAt(row)`:
+ *     where the RENDERED plate lands that very x on that row
+ *     (`plateLandingAt` — the face's own mesh and grid, not the bare
+ *     surface), so on rows at and above the widest the bangs sit on the face
  *     they cover through the whole turn;
  *   - out to `holdBase`: a straight ramp from the painted edge's rendered
- *     landing onto `holdEdge`, the hold's own destination at this stop;
+ *     landing on the hold row onto `holdEdge`, the hold's own destination at
+ *     this stop;
  *   - beyond `holdBase`: `holdEdge`'s own displacement, slope 1 in REST x, so
  *     the outer strands carry whatever silhouette change was asked for and
  *     keep their spacing.
+ *
+ * The hold row is the vertex's own row, except below the face's widest row
+ * (`widestY`, when the face measured a row profile): a vertex resting lower
+ * holds exactly as one at the same x on the widest row does. Read on its own
+ * row, a side lock's column crossed from the plate zone onto the ramp
+ * wherever the jaw's painted edge tapered in past it between two mesh rows,
+ * and the lock creased there at every turned stop. Held at the widest row,
+ * every hanging row of a column carries the same hold, and what varies down
+ * the lock is the root-pinned lead alone: the lock follows its root. Hair
+ * hanging below the chin and over the chest therefore follows the head as
+ * the widest row does, and below that row the bangs no longer ride the jaw
+ * they overlap: at ±30 the painted jaw and chin slip under them by up to
+ * 11.6 px on the hero-like test fixture (its chin row, on the axis). A
+ * near-side lock hugging the jaw lets the jaw slide under it, and a far-side
+ * lock overlapping the far jaw by less than ≈ 11 px opens a gap — what a
+ * lock hanging straight down does; the playground hero's lock columns keep
+ * ≥ 72 px of margin, so nothing shows there. Without a profile `widestY` is
+ * −∞ and every vertex holds on its own row.
  *
  * A vertex exactly on the axis never leaves the first zone, so its zero
  * `side` is never read.
@@ -2643,14 +2670,16 @@ function hairFrontHoldTarget(
   edgeAt: (y: number) => number,
   holdBase: number,
   holdEdge: number,
+  widestY = -Infinity,
 ): number {
   const local = x - faceCenterX;
   const dist = Math.abs(local);
   const side = Math.sign(local);
-  const painted = edgeAt(y);
-  if (dist <= painted) return plateLandingAt(deg, x, y);
+  const row = Math.max(y, widestY);
+  const painted = edgeAt(row);
+  if (dist <= painted) return plateLandingAt(deg, x, row);
   if (dist <= holdBase) {
-    const inner = plateLandingAt(deg, faceCenterX + side * painted, y);
+    const inner = plateLandingAt(deg, faceCenterX + side * painted, row);
     const u = (dist - painted) / (holdBase - painted);
     return inner + (faceCenterX + side * holdEdge - inner) * u;
   }
@@ -2977,10 +3006,11 @@ function evaluateTurnCandidate(
   // Where the bangs render a rest point `(x, y)` at the stop `deg` on one
   // hold: their own mesh, each vertex holding the outline where the bake
   // sends it (`hairFrontHoldTarget`, over the plate as it renders on that
-  // hold's slide, `plateLandingAt`) plus its row's share of the SIGNED tip
-  // lead at that stop, `leadShift` (`hairFrontLandingAt`). Read only on a
-  // layer set with bangs: the silhouette's own landing checks for them, and
-  // solveTurnModel builds strands only where they exist.
+  // hold's slide, `plateLandingAt`, a vertex below the profile's widest row
+  // held as that row is) plus its row's share of the SIGNED tip lead at that
+  // stop, `leadShift` (`hairFrontLandingAt`). Read only on a layer set with
+  // bangs: the silhouette's own landing checks for them, and solveTurnModel
+  // builds strands only where they exist.
   const bangsLandingAt = (
     hold: { holdBase: number; holdEdgeAt: (deg: number) => number },
     plateLandingAt: (deg: number, x: number, y: number) => number,
@@ -3003,6 +3033,7 @@ function evaluateTurnCandidate(
           ctx.edgeAt,
           hold.holdBase,
           hold.holdEdgeAt(deg),
+          ctx.profile?.widestY,
         ),
       leadShift,
     );
@@ -4980,12 +5011,14 @@ export function plateReachAt(
  *
  * The destination is `hairFrontHoldTarget`'s MONOTONE three-zone function of
  * the vertex's REST distance from the face centre, so the warp can never fold
- * a hair cell: over the painted plate (within `edgeAt(y)` on the vertex's own
- * row) a vertex lands where the RENDERED plate lands that point —
- * `plateLandingAt`, the face's own mesh and grid, so the bangs sit on the face
- * they cover through the whole turn — from there out to `holdBase` a straight
- * ramp onto the hold edge's destination `holdEdgeAt(deg)`, and beyond it the
- * hold edge's own displacement, slope 1, so the outer strands carry whatever
+ * a hair cell: over the painted plate (within `edgeAt` on the vertex's hold
+ * row — its own, or `widestY` for a vertex resting below the face's widest
+ * row, see `hairFrontHoldTarget`) a vertex lands where the RENDERED plate
+ * lands that x on that row — `plateLandingAt`, the face's own mesh and grid,
+ * so on rows at and above the widest the bangs sit on the face they cover
+ * through the whole turn — from there out to `holdBase` a straight ramp onto
+ * the hold edge's destination `holdEdgeAt(deg)`, and beyond it the hold
+ * edge's own displacement, slope 1, so the outer strands carry whatever
  * silhouette change the caller asked for. The zone boundaries are REST
  * distances and do not move with the stop — only the destinations do, which
  * is what keeps the ramp and the outer zone continuous at every stop. A
@@ -5000,9 +5033,10 @@ export function plateReachAt(
  * The fold guard: at every stop, on both sides, the hold edge has to sit
  * outside the plate's rendered painted edge on EVERY row of `plateGuardRows`
  * — the same list, through the same `plateLandingAt`, that
- * `evaluateTurnCandidate` fitted the hold against, so a hold the solver ships
- * is one this bake can build. A vertex exactly on the axis never leaves the
- * first zone, so its zero `side` is never read.
+ * `evaluateTurnCandidate` fitted the hold against, built on the same
+ * `widestY` (`plateGuardRowsFor`), so a hold the solver ships is one this
+ * bake can build. A vertex exactly on the axis never leaves the first zone,
+ * so its zero `side` is never read.
  */
 export function bakeHairFrontSilhouetteWarp(
   mesh: IkiMesh,
@@ -5014,6 +5048,7 @@ export function bakeHairFrontSilhouetteWarp(
   holdBase: number,
   holdEdgeAt: (deg: number) => number,
   plateGuardRows: number[],
+  widestY = -Infinity,
 ): IkiWarp {
   if (holdEdgeAt(0) !== holdBase) {
     throw new Error(
@@ -5061,6 +5096,7 @@ export function bakeHairFrontSilhouetteWarp(
               edgeAt,
               holdBase,
               holdEdge,
+              widestY,
             ) - x,
         0,
       );
@@ -6265,6 +6301,7 @@ export function generateIkiFromLayerSet(
               holdBase,
               turn?.holdEdgeAt ?? (() => holdBase),
               plateGuardRows,
+              profile?.widestY,
             ),
           );
           // On the nod the bangs slide with the brows they hang over — only
