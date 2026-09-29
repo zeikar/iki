@@ -18,8 +18,8 @@ import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 import { cropToBuffer, decodePng } from "./node-images";
-import { measureDir, type MeasureReport } from "./measure";
-import { denseCoreOf } from "./measure-turn";
+import { measureDir, type MeasureReport, type NoseSpeck } from "./measure";
+import { denseCoreOf, isSpeckCore } from "./measure-turn";
 import {
   AutoRigInputError,
   resolveInputDir,
@@ -80,9 +80,12 @@ interface RoleLayout {
 /**
  * The nose's layout. Its `w`, `h` and `cx` size and place its dense core
  * (`denseCoreOf`), not its whole trimmed part: a soft nose is mostly feather,
- * and sized by its extent it renders as a dot. Unlike every other role's, its
- * `cy` is optional. Set, it is the core's centre row; absent, the core's bottom
- * row — the tip — lands NOSE_TIP_AT of the way from the eye row down to the
+ * and sized by its extent it renders as a dot. A part with no core, or whose
+ * core is a speck of it (`isSpeckCore`: a lone nostril mark or highlight,
+ * which sized to `w` would blow the whole nose up), is sized and placed whole
+ * instead, and the speck is warned about. Unlike every other role's, its `cy`
+ * is optional. Set, it is the core's centre row; absent, the core's bottom row
+ * — the tip — lands NOSE_TIP_AT of the way from the eye row down to the
  * mouth's.
  */
 interface NoseLayout extends Omit<RoleLayout, "cy"> {
@@ -345,32 +348,62 @@ function keyWhiteToAlpha(rgba: Buffer): Buffer {
   return keyed;
 }
 
-/**
- * A PNG part's dense core, in its own px — or, when no pixel reaches the core's
- * alpha (a nose painted wholly translucent), the part's own bounds, so it is
- * sized and placed whole.
- */
-async function coreOf(png: Buffer): Promise<Box> {
+/** A PNG part's dense core (`null` when no pixel reaches the core's alpha)
+ *  and its own bounds, both in its own px. */
+async function coreAndBoundsOf(
+  png: Buffer,
+): Promise<{ core: Box | null; bounds: Box }> {
   const { data, info } = await sharp(png)
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
-  return (
-    denseCoreOf(data, info.width, info.height) ?? {
-      x: 0,
-      y: 0,
-      w: info.width,
-      h: info.height,
-    }
-  );
+  return {
+    core: denseCoreOf(data, info.width, info.height),
+    bounds: { x: 0, y: 0, w: info.width, h: info.height },
+  };
+}
+
+/** What a nose part's layout sizes, decided on the trimmed source part. */
+interface NoseSizing {
+  /** The box layout `w`/`h` size, in the trimmed source part's px (not the
+   *  resized part's). */
+  box: Box;
+  /** The whole part stood in for the core: it has none, or it is a speck. */
+  whole: boolean;
+  /** The core's and the part's sizes when a speck was the reason. */
+  speck?: NoseSpeck;
+}
+
+/**
+ * What a nose part's layout sizes: its dense core, in its own px — or its own
+ * bounds, so it is sized and placed whole, when no pixel reaches the core's
+ * alpha (a nose painted wholly translucent) or the core is a speck of those
+ * bounds (`isSpeckCore`).
+ */
+async function noseSizingOf(png: Buffer): Promise<NoseSizing> {
+  const { core, bounds } = await coreAndBoundsOf(png);
+  if (core === null) return { box: bounds, whole: true };
+  if (isSpeckCore(core, bounds)) {
+    return {
+      box: bounds,
+      whole: true,
+      speck: {
+        core: { w: core.w, h: core.h },
+        part: { w: bounds.w, h: bounds.h },
+      },
+    };
+  }
+  return { box: core, whole: false };
 }
 
 /**
  * Trim/mirror a part and resize it to its layout width. The nose is resized so
  * its dense core, not its whole part, comes out `w` wide (and `h` tall when
- * set). `inMemory` carries the eye pair's two split buffers; every other role
- * is read from the parts dir. `flipSource` is a `mirrorParts` entry for the
- * file the role is cut from.
+ * set), unless its whole part stood in for the core. Either way the nose's
+ * sizing decision (`noseSizingOf`) always comes back as `nose`, and no other
+ * role has one. `inMemory` carries the eye pair's two split buffers; every
+ * other role is read from the parts dir. `flipSource` is a `mirrorParts` entry
+ * for the file the role is cut from.
  * Missing optional part -> null; missing required part -> AutoRigInputError.
  */
 async function partBuffer(
@@ -379,7 +412,7 @@ async function partBuffer(
   partsDir: string,
   inMemory: Buffer | undefined,
   flipSource: boolean,
-): Promise<{ buf: Buffer; w: number; h: number } | null> {
+): Promise<{ buf: Buffer; w: number; h: number; nose?: NoseSizing } | null> {
   let img: sharp.Sharp;
   if (inMemory !== undefined) {
     img = sharp(inMemory);
@@ -415,12 +448,11 @@ async function partBuffer(
   const trimmed = await img.png().toBuffer({ resolveWithObject: true });
   const { width: trimmedW, height: trimmedH } = trimmed.info;
   // What `w`/`h` size: the nose's dense core, measured on the trimmed, flipped
-  // part — the whole part scales with it, feather and all — and every other
-  // role's whole part.
-  const sized =
-    role === "nose"
-      ? await coreOf(trimmed.data)
-      : { x: 0, y: 0, w: trimmedW, h: trimmedH };
+  // part — the whole part scales with it, feather and all — or that whole
+  // part when it has no core or the core is a speck, and every other role's
+  // whole part.
+  const nose = role === "nose" ? await noseSizingOf(trimmed.data) : undefined;
+  const sized = nose?.box ?? { x: 0, y: 0, w: trimmedW, h: trimmedH };
   const width = Math.round((trimmedW * cfg.w) / sized.w);
   const height =
     cfg.h === undefined
@@ -447,6 +479,7 @@ async function partBuffer(
     buf: resized.data,
     w: resized.info.width,
     h: resized.info.height,
+    nose,
   };
 }
 
@@ -486,30 +519,26 @@ function placement(
 }
 
 /**
- * Where the nose lands: by its dense core (`core`, in the resized part's px),
- * not its whole part. `cx` centres the core's columns. A set `cy` centres its
- * rows; absent, its bottom row — the tip, the last row index at alpha ≥ 128 —
- * lands on round(E + NOSE_TIP_AT·(M − E)), E the eyes' mean row and M the
- * mouth's. A box's centre is `x + w/2`, as placement() takes it: pixel x
- * covers [x, x + 1).
+ * Where the nose lands: by the box it was sized by (`noseSizingOf`), in the
+ * resized part's px — its dense core, or its whole bounds when those stood in.
+ * `cx` centres the box's columns. A set `cy` centres its rows; absent, its
+ * bottom row — the tip, the last row index at alpha ≥ 128 — lands on
+ * round(E + NOSE_TIP_AT·(M − E)), E the eyes' mean row and M the mouth's. A
+ * box's centre is `x + w/2`, as placement() takes it: pixel x covers
+ * [x, x + 1).
  */
-function nosePlacement(
-  layout: ResolvedLayout,
-  core: Box,
-  w: number,
-  h: number,
-) {
+function nosePlacement(layout: ResolvedLayout, box: Box, w: number, h: number) {
   const { cx, cy } = layout.nose;
-  const left = Math.round(cx - (core.x + core.w / 2));
+  const left = Math.round(cx - (box.x + box.w / 2));
   let top: number;
   if (cy !== undefined) {
-    top = Math.round(cy - (core.y + core.h / 2));
+    top = Math.round(cy - (box.y + box.h / 2));
   } else {
     const eyeRow = (layout.eye_L.cy + layout.eye_R.cy) / 2;
     const tipRow = Math.round(
       eyeRow + NOSE_TIP_AT * (layout.mouth.cy - eyeRow),
     );
-    top = tipRow - (core.y + core.h - 1);
+    top = tipRow - (box.y + box.h - 1);
   }
   assertOnCanvas(
     cy !== undefined
@@ -643,6 +672,9 @@ export async function composeLayersFromParts(
       top: number;
     }[] = [];
     const skipped: Role[] = [];
+    // Compose's verdict on the nose's source part when its core was a speck,
+    // for the report; otherwise the report judges the composed nose layer.
+    let noseSpeck: NoseSpeck | undefined;
     for (const role of ORDER) {
       const cfg = layout[role];
       const inMemory = splitSources.get(cfg.src);
@@ -658,13 +690,21 @@ export async function composeLayersFromParts(
         skipped.push(role);
         continue;
       }
-      // The nose is placed by its core, measured again on the resized part
-      // rather than scaled: resampling moves its edges, and the tip rule lands
-      // its exact bottom row.
-      const { left, top } =
-        role === "nose"
-          ? nosePlacement(layout, await coreOf(part.buf), part.w, part.h)
-          : placement(role, layout[role], part.w, part.h);
+      // The nose is placed by the box it was sized by. A whole part that stood
+      // in is placed by the resized part's own bounds. A core is measured
+      // again on the resized part rather than scaled, since resampling moves
+      // its edges and the tip rule lands its exact bottom row — and is not
+      // judged again here: the source part's verdict decided how it was sized.
+      let left: number;
+      let top: number;
+      if (role === "nose") {
+        noseSpeck = part.nose?.speck;
+        const { core, bounds } = await coreAndBoundsOf(part.buf);
+        const box = part.nose?.whole ? bounds : (core ?? bounds);
+        ({ left, top } = nosePlacement(layout, box, part.w, part.h));
+      } else {
+        ({ left, top } = placement(role, layout[role], part.w, part.h));
+      }
       // The eye pair's halves are cut from one eyewhite into one frame. Set
       // apart, the blink fold tears — and a lash narrowed inside its sclera
       // still lies on it and inks its top row, so nothing in the composed
@@ -740,7 +780,7 @@ export async function composeLayersFromParts(
       layers,
       skipped,
       preview: previewPath,
-      measure: await measureDir(outDir),
+      measure: await measureDir(outDir, noseSpeck),
     };
   } catch (err) {
     if (err instanceof AutoRigInputError)

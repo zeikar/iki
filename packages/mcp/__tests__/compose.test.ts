@@ -119,7 +119,9 @@ async function noseCoreIn(dir: string) {
 }
 
 /** The full parts set with its nose.png swapped for the soft one. */
-async function softNoseParts(opts?: { core?: boolean }): Promise<string> {
+async function softNoseParts(
+  opts?: Parameters<typeof writeSoftNose>[1],
+): Promise<string> {
   const dir = partsDir();
   await writePartsSet(dir, { omit: ["nose.png"] });
   await writeSoftNose(dir, opts);
@@ -261,7 +263,10 @@ describe("composeLayersFromParts", () => {
 
   it("sizes and places a soft nose by its dense core, not its feather", async () => {
     const dir = outDir();
-    await composeOk({ partsDir: await softNoseParts(), outDir: dir });
+    const result = await composeOk({
+      partsDir: await softNoseParts(),
+      outDir: dir,
+    });
 
     // ±1 on a soft core: resampling the feather lifts a column next to it over
     // 128 (41 wide for w 40, 51 for w 50).
@@ -274,6 +279,10 @@ describe("composeLayersFromParts", () => {
     const extent = await statsFor(dir, "nose");
     expect(extent.w).toBeGreaterThan(core.w);
     expect(extent.h).toBeGreaterThan(core.h);
+    // A core over half the feather's size is the drawing, not a speck.
+    expect(
+      result.measure.warnings.filter((w) => w.startsWith("nose:")),
+    ).toEqual([]);
   });
 
   it("follows the mouth with the nose's tip when its cy is left out", async () => {
@@ -363,6 +372,69 @@ describe("composeLayersFromParts", () => {
     const extent = await statsFor(dir, "nose");
     expect(extent.w).toBe(40);
     expect(CANVAS - 1 - extent.marginBottom).toBe(599);
+  });
+
+  it("sizes and places a nose whose dense core is a speck by its whole part, and warns", async () => {
+    // Its only pixels at alpha 128 are a 4x3 nostril mark: sized by that, the
+    // 36 px part would have come out 360 px wide. The whole part stands in, as
+    // for a nose with no core, placed by the same tip rule.
+    const dir = outDir();
+    const result = await composeOk({
+      partsDir: await softNoseParts({ core: "speck" }),
+      outDir: dir,
+    });
+    const extent = await statsFor(dir, "nose");
+    expect(extent.w).toBe(40);
+    expect(CANVAS - 1 - extent.marginBottom).toBe(599);
+    const nose = result.measure.warnings.filter((w) => w.startsWith("nose:"));
+    expect(nose).toHaveLength(1);
+    expect(nose[0]).toMatch(
+      /^nose: the source part's dense core is 4x3 in its 36x48 trimmed part .* speck/,
+    );
+  });
+
+  it("reports compose's own verdict on a speck that resampling erased from the layer", async () => {
+    const dir = outDir();
+    const result = await composeOk({
+      partsDir: await softNoseParts({ core: "dot" }),
+      outDir: dir,
+      layout: { nose: { w: 20 } },
+    });
+    // The premise: shrunk to 20 of its 36 px, the 1x1 dot blurs under alpha
+    // 128, so the composed layer has no dense core left to judge.
+    const png = await decodePng(path.join(dir, "nose.png"));
+    expect(denseCoreOf(png.rgba, png.width, png.height)).toBeNull();
+    // Compose judged the source part, so its report still warns...
+    const nose = result.measure.warnings.filter((w) => w.startsWith("nose:"));
+    expect(nose).toHaveLength(1);
+    expect(nose[0]).toMatch(/^nose: the source part's dense core is 1x1 /);
+    // ...where measure_layers, reading only the file, has nothing to flag.
+    const direct = await measureLayers({ layersDir: dir });
+    if (!direct.ok) throw new Error(`expected ok, got: ${direct.error}`);
+    expect(direct.warnings.filter((w) => w.startsWith("nose:"))).toEqual([]);
+  });
+
+  it("warns from the composed layer when only resampling made its core a speck", async () => {
+    const dir = outDir();
+    const result = await composeOk({
+      partsDir: await softNoseParts({ core: "scatter" }),
+      outDir: dir,
+      layout: { nose: { w: 12 } },
+    });
+    // The source part's core, stretched by two far-apart dots to 25 of its
+    // 36 px, is no speck, so it is what w sizes: round(36·12/25) = 17 wide.
+    expect((await statsFor(dir, "nose")).w).toBe(17);
+    // Shrunk that far, the dots blur under alpha 128 and leave the mark a
+    // speck of the layer's crop, which the rig will not hand on. The report
+    // says so from the layer, as measure_layers does on the same file.
+    const nose = result.measure.warnings.filter((w) => w.startsWith("nose:"));
+    expect(nose).toHaveLength(1);
+    expect(nose[0]).toMatch(
+      /^nose: the layer's dense core is 3x3 in its 19x25 crop .* speck/,
+    );
+    const direct = await measureLayers({ layersDir: dir });
+    if (!direct.ok) throw new Error(`expected ok, got: ${direct.error}`);
+    expect(direct.warnings.filter((w) => w.startsWith("nose:"))).toEqual(nose);
   });
 
   // brow.png feeds two roles, so the message has to name the role, not the file.

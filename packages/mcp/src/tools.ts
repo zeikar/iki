@@ -34,6 +34,7 @@ import {
   denseCoreOf,
   foregroundSpan,
   headHalfOf,
+  isSpeckCore,
 } from "./measure-turn";
 import {
   AutoRigInputError,
@@ -312,8 +313,10 @@ export type AutoRigResult =
       /** The nose's dense core, canvas px — its pixels at alpha >= 128, not
        *  grown — the box handed to the generator as the nose layer's
        *  `denseCore` and, there, its turn landmark. Absent without a `nose`
-       *  layer, or when the nose has no pixel at that threshold (painted
-       *  wholly translucent). */
+       *  layer, when the nose has no pixel at that threshold (painted wholly
+       *  translucent), or when its core is a speck of its crop
+       *  (`isSpeckCore`: a lone nostril mark or highlight); the crop stands
+       *  in for it in both cases. */
       noseCore?: { x: number; y: number; w: number; h: number };
       /** What the turn solve settled on — the cues the rig reaches, the
        *  targets it had to cut down (`clamped`) and, per side whose far iris
@@ -459,7 +462,9 @@ async function renderAtlasPage(
  * hair detail the iris may cross, and is skipped. The nose layer alone also
  * gets its dense core measured (`LayerInput.denseCore`, returned as
  * `noseCore`), so a shaded nose is fitted and tilted by the drawing inside its
- * feather rather than by the feather itself. Under `quantizeColors` that nose
+ * feather rather than by the feather itself — unless that core is a speck of
+ * the nose's crop (`isSpeckCore`), which is not handed over: the crop stands
+ * in, as it does for a nose with no core. Under `quantizeColors` that nose
  * is atlased alone on a second, lossless page, which the palette would
  * otherwise rim; `atlasBytes` sums both pages.
  *
@@ -641,17 +646,20 @@ export async function autoRigFromLayers(
         // The drawing inside a soft nose's feather, canvas px like `bbox` —
         // `png` is still this layer's full-canvas buffer, so the core comes
         // out in the same coordinates as `bbox` and every other measurement
-        // here. `null` (wholly translucent) leaves `denseCore` unset, the
-        // generator falling back to the crop.
+        // here. `null` (wholly translucent) or a speck of the crop (a lone
+        // nostril mark, which measure_layers flags on this same file and
+        // crop) leaves `denseCore` unset, the generator falling back to the
+        // crop.
         const core = denseCoreOf(png.rgba, canvasW, canvasH);
-        if (core !== null) layer.denseCore = core;
+        if (core !== null && !isSpeckCore(core, bbox)) layer.denseCore = core;
       }
       layerInputs.push(layer);
       crops.push({ id: role, buffer, width: bbox.w, height: bbox.h });
     }
 
     // The nose layer's own denseCore, for the result — undefined without a
-    // `nose` layer, or when denseCoreOf found no pixel at ALPHA_OPAQUE above.
+    // `nose` layer, or when denseCoreOf found no pixel at ALPHA_OPAQUE above
+    // or a speck of the crop.
     const noseCore = layerInputs.find((l) => l.role === "nose")?.denseCore;
 
     // The head's own half-width at the eye row, in canvas px, taken off the

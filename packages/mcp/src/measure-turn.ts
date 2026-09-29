@@ -125,7 +125,9 @@ const BG_V_BLACK = 0.03;
  * sizes and places the nose by it, and `auto_rig_from_layers` reads the same
  * core as the nose's `LayerInput.denseCore`, its turn landmark. It is not the
  * crop: that stays the alpha ≥ 8 box grown by 1 px (`detectAlphaBbox`). `null`
- * when no pixel reaches the threshold, a part painted wholly translucent.
+ * when no pixel reaches the threshold, a part painted wholly translucent. A
+ * core that is a speck of its part (`isSpeckCore`) is not the drawing either,
+ * and both readers fall back to the whole part, as they do for `null`.
  */
 export function denseCoreOf(
   rgba: ArrayLike<number>,
@@ -148,6 +150,48 @@ export function denseCoreOf(
   }
   if (maxX < 0) return null;
   return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+}
+
+/**
+ * The fraction of its part's width, or of its height, under which a dense core
+ * is a speck (`isSpeckCore`). Measured core/part ratios, width / height: the
+ * hero's composed nose 0.72 / 0.76 (core 39×63 in a 54×83 crop), three
+ * generated shaded-bump noses (the 0.11 prompt) 0.75–0.85 / 0.79–0.91, the
+ * `writeSoftNose` test fixture 0.56 / 0.63 and `writeSoftNoseLayers`
+ * 0.40 / 0.40, a nostril mark ≤ 0.1. So the line sits at least 1.6× under
+ * every real nose and fixture, and 2.5× over a speck. At the line, sizing by
+ * the core would scale the whole part to 4× its layout width, the largest
+ * blow-up the composer still accepts.
+ */
+export const SPECK_CORE_FRACTION = 0.25;
+
+/**
+ * Whether a dense core is a speck of its part: narrower than
+ * SPECK_CORE_FRACTION of the part's width, or shorter than that fraction of
+ * its height (strictly `<`). Either dimension counts, because the core does
+ * more than size a nose: its bottom row is the tip the composer places, and
+ * its top-centre the rig's tilt pivot, so a sliver misplaces the nose as
+ * surely as a speck mis-sizes it. A speck is a lone nostril mark or highlight,
+ * not the drawing, and every reader falls back to the whole part: compose
+ * sizes and places its trimmed source part whole, and `auto_rig_from_layers`
+ * hands the rig no core, so the crop stands in.
+ *
+ * The two apply it to different pixels — compose to the source part before
+ * resampling, the rig and `measure_layers` to the composed layer against its
+ * crop — so their verdicts can part, but only for a core within about a
+ * resampled pixel of the line, or one resampling pushes across ALPHA_OPAQUE.
+ * Compose's report carries its source verdict when that was a speck, and
+ * otherwise what the composed layer shows, so it warns of a parting either
+ * way; `measure_layers` reports the layer alone.
+ */
+export function isSpeckCore(
+  core: { w: number; h: number },
+  part: { w: number; h: number },
+): boolean {
+  return (
+    core.w < SPECK_CORE_FRACTION * part.w ||
+    core.h < SPECK_CORE_FRACTION * part.h
+  );
 }
 
 /** Connected blob of iris-coloured pixels, in image px. */

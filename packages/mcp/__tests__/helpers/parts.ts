@@ -160,18 +160,37 @@ const SOFT_NOSE_FEATHER_ALPHA = 80;
  * A nose.png drawn the way a shaded bump comes back: an opaque 20x30 core
  * inside a 36x48 feather painted at SOFT_NOSE_FEATHER_ALPHA, the core low in it
  * the way a nose's tip sits low in its shading. `{ core: false }` paints the
- * feather alone, a nose with no pixel at alpha 128.
+ * feather alone, a nose with no pixel at alpha 128. `"speck"` and `"dot"`
+ * paint the feather with only an opaque nostril mark low in it, 4x3 and 1x1:
+ * a dense core that is a speck of the part. `"scatter"` paints an opaque 6x6
+ * mark plus two opaque 1x1 dots far apart in the feather, which stretch the
+ * core to 25x31 of the part's 36x48 until a downscale blurs them away.
  */
 export async function writeSoftNose(
   dir: string,
-  { core = true }: { core?: boolean } = {},
+  { core = true }: { core?: boolean | "speck" | "dot" | "scatter" } = {},
 ): Promise<void> {
   await writeRgbaPart(dir, "nose.png", 44, 56, (set) => {
     const bounds = { width: 44, height: 56 };
     const feather: SetPixel = (x, y, rgb) =>
       set(x, y, rgb, SOFT_NOSE_FEATHER_ALPHA);
     ellipse(feather, bounds, 22, 28, 36, 48, DARK);
-    if (core) ellipse(set, bounds, 22, 34, 20, 30, DARK);
+    if (core === true) ellipse(set, bounds, 22, 34, 20, 30, DARK);
+    if (core === "speck" || core === "dot") {
+      // Inside the feather's rows and columns, so the trimmed part stays the
+      // feather's 36x48, which the compose tests' warning text asserts. Row
+      // 43 also keeps the 1x1 dot under alpha 128 once resized to w 20 (row
+      // 42 lands at 129).
+      const [markW, markH] = core === "speck" ? [4, 3] : [1, 1];
+      for (let y = 43; y < 43 + markH; y++)
+        for (let x = 21; x < 21 + markW; x++) set(x, y, DARK);
+    }
+    if (core === "scatter") {
+      for (let y = 38; y < 44; y++)
+        for (let x = 19; x < 25; x++) set(x, y, DARK);
+      set(10, 14, DARK);
+      set(34, 44, DARK);
+    }
   });
 }
 

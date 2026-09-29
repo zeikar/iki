@@ -1134,6 +1134,38 @@ describe("autoRigFromLayers", () => {
     expect(result.turn).toBeDefined();
   });
 
+  it("rigs a nose whose dense core is a speck of its crop as one with no core", async () => {
+    // writeSoftNoseLayers' alpha-0.3 18x18 feather at (40, 40) — with a 2x2
+    // opaque nostril dot at (49, 52), inside it so its crop is unchanged, and
+    // without. The dot is its only core, a speck of the 20x20 crop.
+    const rig = async (dot: boolean) => {
+      const dir = tmpDir();
+      const outPath = path.join(dir, "model.iki");
+      const paths = [
+        ...(await writeRequiredLayers(dir)),
+        await writeRectsPng(dir, "nose.png", [
+          { x: 40, y: 40, w: 18, h: 18, alpha: 0.3 },
+          ...(dot ? [{ x: 49, y: 52, w: 2, h: 2 }] : []),
+        ]),
+      ];
+      const result = await autoRigFromLayers({
+        layers: paths.map((p) => ({ path: p })),
+        outputPath: outPath,
+      });
+      if (!result.ok) throw new Error(`expected ok, got: ${result.error}`);
+      const model = parseIkiModel(JSON.parse(fs.readFileSync(outPath, "utf8")));
+      return { result, model };
+    };
+    const speck = await rig(true);
+    const none = await rig(false);
+
+    // The crop stands in for the landmark and the pivot, as with no core.
+    expect(speck.result.noseCore).toBeUndefined();
+    expect(speck.result.turn).toBeDefined();
+    expect(speck.result.turn).toEqual(none.result.turn);
+    expect(speck.model.deformers).toEqual(none.model.deformers);
+  });
+
   it("has no noseCore for writeRequiredLayers, which has no nose", async () => {
     const dir = tmpDir();
     const paths = await writeRequiredLayers(dir);

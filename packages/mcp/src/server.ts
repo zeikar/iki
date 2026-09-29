@@ -159,7 +159,7 @@ export function createIkiMcpServer(): McpServer {
     "compose_layers_from_parts",
     {
       description:
-        "Composes AI-generated part PNGs into canvas-aligned, role-named PNG layers on disk, ready for auto_rig_from_layers (the eyewhite split, alpha-trim/white-key, and placement pipeline the character-generation skill needs), with the same geometry report measure_layers returns standalone included inline. face, mouth, eyewhite, iris, brow, hair_front are required; hair_back, body, mouth_open, nose are optional — without a nose layer the rig does not slide the features on the head turn.",
+        "Composes AI-generated part PNGs into canvas-aligned, role-named PNG layers on disk, ready for auto_rig_from_layers (the eyewhite split, alpha-trim/white-key, and placement pipeline the character-generation skill needs), with the same geometry report measure_layers returns standalone included inline. face, mouth, eyewhite, iris, brow, hair_front are required; hair_back, body, mouth_open, nose are optional — without a nose layer the rig does not slide the features on the head turn. A nose whose dense core is a speck — under a quarter of its trimmed part's width or height, such as a lone nostril mark or highlight — is sized and placed whole, and the inline report warns of it.",
       inputSchema: {
         partsDir: z
           .string()
@@ -185,7 +185,7 @@ export function createIkiMcpServer(): McpServer {
           )
           .optional()
           .describe(
-            "Per-role override merged over the built-in defaults, keyed by role — hair_back, body, face, nose, mouth, mouth_open, eye_L, eye_R, iris_L, iris_R, lash_L, lash_R, brow_L, brow_R, hair_front — e.g. `{ eye_L: { cx: 660 } }`. `w` and `h` are integers in 1..1100; omit `h` to keep the part's own aspect, set it to stretch. The nose is sized and placed by its dense core (its pixels at alpha >= 128, the drawing inside a soft nose's feather), not its whole part: `w`/`h` size the core, `cx` centres it, and a set `cy` centres its rows. Its `cy` defaults to unset, which lands the core's bottom row (the tip) 0.86 of the way from the eye row down to the mouth's, so the nose follows a retuned eye or mouth row. eye_L/lash_L and eye_R/lash_R are cut from one eyewhite into one frame, so each pair must land on the same frame — a pair set to land apart is rejected.",
+            "Per-role override merged over the built-in defaults, keyed by role — hair_back, body, face, nose, mouth, mouth_open, eye_L, eye_R, iris_L, iris_R, lash_L, lash_R, brow_L, brow_R, hair_front — e.g. `{ eye_L: { cx: 660 } }`. `w` and `h` are integers in 1..1100; omit `h` to keep the part's own aspect, set it to stretch. The nose is sized and placed by its dense core (its pixels at alpha >= 128, the drawing inside a soft nose's feather), not its whole part: `w`/`h` size the core, `cx` centres it, and a set `cy` centres its rows. A nose whose core is a speck — under a quarter of the trimmed part's width or height, such as a lone nostril mark or highlight — is sized and placed whole instead, and the report warns of it. Its `cy` defaults to unset, which lands the core's bottom row (the tip) 0.86 of the way from the eye row down to the mouth's, so the nose follows a retuned eye or mouth row. eye_L/lash_L and eye_R/lash_R are cut from one eyewhite into one frame, so each pair must land on the same frame — a pair set to land apart is rejected.",
           ),
         mirrorParts: z
           .array(z.string())
@@ -220,7 +220,7 @@ export function createIkiMcpServer(): McpServer {
     "measure_layers",
     {
       description:
-        "Reports read-only geometry checks over an already-composed layers directory — the same checks compose_layers_from_parts returns inline (iris ratio/offset, eye aspect, cropped/cut edges, missing optional roles). Use to re-check a layers dir without recomposing.",
+        "Reports read-only geometry checks over an already-composed layers directory — the same checks compose_layers_from_parts returns inline (iris ratio/offset, eye aspect, cropped/cut edges, a nose whose dense core is a speck of its crop, missing optional roles). Use to re-check a layers dir without recomposing. Its nose check reads the composed file against its crop, which is what auto_rig_from_layers acts on. Compose's inline report does the same unless the composer found the source part's core a speck, which it reports instead — so a speck that resampling erased from the layer shows there and not here.",
       inputSchema: {
         layersDir: z
           .string()

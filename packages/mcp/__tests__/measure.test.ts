@@ -19,7 +19,7 @@ const DARK: RGB = [20, 20, 30];
 const BLUE: RGB = [40, 90, 200];
 
 type RGB = [number, number, number];
-type SetPixel = (x: number, y: number, rgb: RGB) => void;
+type SetPixel = (x: number, y: number, rgb: RGB, alpha?: number) => void;
 
 const createdDirs: string[] = [];
 function tmpDir(): string {
@@ -38,12 +38,12 @@ async function writeLayer(
   paint: (set: SetPixel) => void,
 ): Promise<void> {
   const buf = Buffer.alloc(CANVAS * CANVAS * 4); // all transparent (alpha 0)
-  const set: SetPixel = (x, y, rgb) => {
+  const set: SetPixel = (x, y, rgb, alpha = 255) => {
     const i = (y * CANVAS + x) * 4;
     buf[i] = rgb[0];
     buf[i + 1] = rgb[1];
     buf[i + 2] = rgb[2];
-    buf[i + 3] = 255;
+    buf[i + 3] = alpha;
   };
   paint(set);
   await sharp(buf, { raw: { width: CANVAS, height: CANVAS, channels: 4 } })
@@ -166,6 +166,35 @@ describe("measureLayers", () => {
     ]);
     expect(result.layers.eye_L.w).toBe(64);
     expect(result.layers.iris_L.w).toBe(36);
+  });
+
+  it("flags a nose whose dense core is a speck of its crop, and not one half its width", async () => {
+    // A soft nose's feather, 40x50 at alpha 80 (under the core's 128): its
+    // crop is that ellipse grown by 1 px, 42x52.
+    const feather = (set: SetPixel) =>
+      ellipse((x, y, rgb) => set(x, y, rgb, 80), 100, 100, 40, 50, DARK);
+
+    // A 3x3 opaque nostril dot low in it: a speck of that crop.
+    const speck = tmpDir();
+    await writeLayer(speck, "nose.png", (set) => {
+      feather(set);
+      rect(set, 99, 110, 3, 3, DARK);
+    });
+    const dotted = (await measureOk(speck)).warnings.filter((w) =>
+      w.startsWith("nose:"),
+    );
+    expect(dotted).toHaveLength(1);
+    expect(dotted[0]).toMatch(
+      /^nose: the layer's dense core is 3x3 in its 42x52 crop .* speck/,
+    );
+
+    // An opaque core half the feather's width is the drawing, not a speck.
+    const drawn = tmpDir();
+    await writeLayer(drawn, "nose.png", (set) => {
+      feather(set);
+      ellipse(set, 100, 108, 20, 26, DARK);
+    });
+    expect(warned((await measureOk(drawn)).warnings, /^nose:/)).toBe(false);
   });
 
   it("flags an iris that reads as a bead floating in white", async () => {

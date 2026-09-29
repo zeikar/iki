@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   denseCoreOf,
   formatTurnReport,
+  isSpeckCore,
   measureTurnReference,
 } from "../src/measure-turn";
 import {
@@ -330,5 +331,20 @@ describe("denseCoreOf", () => {
       [5, 5, 80],
     ]);
     expect(denseCoreOf(rgba, 10, 8)).toBeNull();
+  });
+});
+
+describe("isSpeckCore", () => {
+  it("is not a speck at exactly a quarter of each dimension", () => {
+    expect(isSpeckCore({ w: 10, h: 20 }, { w: 40, h: 80 })).toBe(false);
+  });
+
+  it("is a speck a px under a quarter in either dimension alone", () => {
+    expect(isSpeckCore({ w: 9, h: 20 }, { w: 40, h: 80 })).toBe(true);
+    expect(isSpeckCore({ w: 10, h: 19 }, { w: 40, h: 80 })).toBe(true);
+  });
+
+  it("is not a speck for the hero's nose, a 39x63 core in a 54x83 crop", () => {
+    expect(isSpeckCore({ w: 39, h: 63 }, { w: 54, h: 83 })).toBe(false);
   });
 });

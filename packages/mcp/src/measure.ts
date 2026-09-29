@@ -14,8 +14,9 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { decodePng } from "./node-images";
+import { decodePng, detectAlphaBbox } from "./node-images";
 import { AutoRigInputError, MAX_LAYERS, resolveInputDir } from "./limits";
+import { SPECK_CORE_FRACTION, denseCoreOf, isSpeckCore } from "./measure-turn";
 
 // Iris width as a fraction of sclera width. Below the floor the eye reads as a
 // bead floating in white — that is the failure this check was written for, and
@@ -206,6 +207,41 @@ export async function layerStats(filePath: string): Promise<LayerStats | null> {
 
 const pct = (v: number) => `${(v * 100).toFixed(0)}%`;
 
+/** A nose's dense core that `isSpeckCore` judged a speck of its part, as sizes
+ *  in px: compose's verdict on the trimmed source part, or the composed
+ *  layer's against its crop. */
+export interface NoseSpeck {
+  core: { w: number; h: number };
+  part: { w: number; h: number };
+}
+
+/**
+ * The nose-speck warning. Each source says only what its own reader did:
+ * `"compose"` judged the trimmed source part, before resampling, and composed
+ * it whole; `"layer"` judged the layer file against its crop, which is what
+ * `auto_rig_from_layers` reads. The remedy is the same either way.
+ */
+function noseSpeckWarning(
+  { core, part }: NoseSpeck,
+  source: "compose" | "layer",
+): string {
+  const [found, consequence] =
+    source === "compose"
+      ? [
+          `the source part's dense core is ${core.w}x${core.h} in its ${part.w}x${part.h} trimmed part`,
+          `compose_layers_from_parts sized and placed the whole part instead — layout.nose's w and h now size it, feather included`,
+        ]
+      : [
+          `the layer's dense core is ${core.w}x${core.h} in its ${part.w}x${part.h} crop`,
+          `auto_rig_from_layers turns and tilts the nose about its whole crop instead`,
+        ];
+  return (
+    `nose: ${found} — under ${SPECK_CORE_FRACTION} of its width or height, a speck: a lone nostril ` +
+    `mark or highlight at alpha >= 128, not the drawing, so ${consequence}. Regenerate the nose with ` +
+    `its shading painted denser, so the drawing itself reaches alpha 128. Billed.`
+  );
+}
+
 /**
  * Count the lash's opaque pixels, and those of them that land where its
  * sclera is transparent. Both are canvas-sized layers, so a pixel's position
@@ -233,8 +269,15 @@ async function lashOffSclera(
 /**
  * Measure every `*.png` in an already-resolved layers directory (`preview.png`
  * is the composer's contact sheet, not a role) and run the geometry checks.
+ * `noseSpeck` is compose's own verdict on the nose's source part when that
+ * part's core was a speck, and the nose check reports it as given. Left out —
+ * compose found no speck, or `measure_layers` — that check judges the `nose`
+ * layer file against its crop instead, as `auto_rig_from_layers` does.
  */
-export async function measureDir(absDir: string): Promise<MeasureReport> {
+export async function measureDir(
+  absDir: string,
+  noseSpeck?: NoseSpeck,
+): Promise<MeasureReport> {
   const files = fs
     .readdirSync(absDir)
     .filter((f) => f.endsWith(".png") && f !== "preview.png")
@@ -424,7 +467,24 @@ export async function measureDir(absDir: string): Promise<MeasureReport> {
     }
   }
 
-  // 6. Optional roles that change how finished the character reads.
+  // 6. A nose whose dense core is a speck of its part (`isSpeckCore`). A
+  //    speck compose found in the source part, before resampling, is reported
+  //    as given: a dot blurred under alpha 128 no longer shows in the file.
+  //    Otherwise the file is judged against its crop — what the rig reads —
+  //    which also catches a core that only resampling made a speck.
+  if (noseSpeck !== undefined) {
+    warnings.push(noseSpeckWarning(noseSpeck, "compose"));
+  } else if (layers.nose !== undefined) {
+    const nose = await decodePng(path.join(absDir, "nose.png"));
+    const core = denseCoreOf(nose.rgba, nose.width, nose.height);
+    if (core !== null) {
+      const crop = detectAlphaBbox(nose.rgba, nose.width, nose.height);
+      if (isSpeckCore(core, crop))
+        warnings.push(noseSpeckWarning({ core, part: crop }, "layer"));
+    }
+  }
+
+  // 7. Optional roles that change how finished the character reads.
   for (const [role, why] of [
     ["body", "without it the character reads as a floating head on head-turn"],
     ["hair_back", "without it the silhouette is flat behind the face"],
