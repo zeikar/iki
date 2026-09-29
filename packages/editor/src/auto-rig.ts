@@ -13,7 +13,6 @@ import {
   type IkiBinding,
   type IkiDeformer,
   type IkiGrid2DWarp,
-  type IkiGridWarp,
   type IkiMesh,
   type IkiModel,
   type IkiParameter,
@@ -861,68 +860,6 @@ export function headTurnParallaxUnit(radius: number): number {
   return radius * Math.sin(HEAD_TURN_MAX_DEG * (Math.PI / 180));
 }
 
-// ── bakeHeadTurnGridWarpCentered ──────────────────────────────────────────────
-
-/**
- * Bake a cylinder head-turn grid warp for ParamAngleX, center-relative.
- *
- * WHY a cylinder: rotating a flat face mesh looks right head-on but the
- * silhouette doesn't narrow at the sides; projecting each point onto a
- * cylinder and rotating makes the face foreshorten naturally as it turns.
- *
- * HOW (center-relative): the cylinder axis sits at `centerX` (the face center
- * in model space). Each grid point at absolute x has local x = x - centerX,
- * which maps onto the cylinder. After rotating by theta, the new absolute x is:
- *   xPrime = centerX + radiusX * sin(asin(localX/radiusX) + theta)
- *   dx = xPrime - x,  dy = 0
- *
- * At theta=0 the center keyform is all-zero (xPrime === x by identity).
- *
- * The axis column is pinned: the bulk sideways slide a cylinder rotation
- * produces is subtracted out, leaving only the foreshortening. See the comment
- * at the subtraction for why.
- *
- * `radiusX` is the caller's: how round the head reads is a modelling choice,
- * not a property of how far the grid happens to reach. Columns beyond what the
- * radius can carry ride along rigidly — see `boundedCylinderBend`.
- *
- * No production caller since faceWarp moved to the 2D bake
- * (`bakeTurnGroupWarp2D`); kept as the PURE BEND reference that bake's tests
- * compare their AngleY = 0 row against, keyed on the same `HEAD_TURN_STOPS`.
- * That row equals this bake only at `travel = 0`: the bend is all the shipped
- * row has once its uniform sideways slide is taken back out.
- */
-export function bakeHeadTurnGridWarpCentered(
-  grid: IkiWarpGrid,
-  parameter: string,
-  centerX: number,
-  radiusX: number,
-): IkiGridWarp {
-  // Keyform stops (degrees), matching ParamAngleX's −30..30 range.
-  const ANGLES = HEAD_TURN_STOPS;
-
-  const pointCount = grid.points.length / 2;
-  const DEG_TO_RAD = Math.PI / 180;
-
-  const keyforms = ANGLES.map((angleDeg) => {
-    const theta = angleDeg * DEG_TO_RAD;
-    const offsets: number[] = [];
-    for (let i = 0; i < pointCount; i++) {
-      const dx = boundedCylinderBend(
-        grid.points[i * 2] - centerX,
-        radiusX,
-        theta,
-      );
-      // dy is zero — cylinder bend only deforms horizontal position.
-      offsets.push(dx, 0);
-    }
-    return { value: angleDeg, offsets };
-  });
-
-  // keyforms are sorted ascending by construction (HEAD_TURN_STOPS).
-  return { parameter, keyforms };
-}
-
 /**
  * Displacement of a point at signed distance `local` from the cylinder axis
  * after the cylinder rotates by `theta`, with the axis column pinned.
@@ -1311,7 +1248,7 @@ export function bakeTurnGroupWarp2D(
 
 // ── turnColumnMap ─────────────────────────────────────────────────────────────
 
-/** Where the head turn sends each column of a lattice, and back. */
+/** Where the head turn sends each column of a lattice. */
 export interface TurnColumnMap {
   /** Rest x of every lattice column, ascending — row 0 of `grid.points`. */
   restX: number[];
@@ -1320,8 +1257,6 @@ export interface TurnColumnMap {
   warpedX: number[];
   /** Rest x → turned x, for anything reading the lattice. */
   mapX(x: number): number;
-  /** The inverse: which rest x lands on `X`. */
-  invertX(X: number): number;
 }
 
 /**
@@ -1348,17 +1283,11 @@ export interface TurnColumnMap {
  * cylinder would put it — and the virtual lattice is sized so nothing a bake
  * reads ever sits outside its columns (`turnSetup`).
  *
- * `invertX` answers the other direction — "which rest x has to be here for the
- * turn to land it there". No bake reads it any more: the bangs hold the
- * outline directly (`bakeHairFrontSilhouetteWarp`) rather than cancelling this
- * map on themselves. It clamps `X` to the warped column range, the only place
- * the inverse is defined.
- *
- * Both directions need the warped columns to stay ordered, which holds while
- * asin(1/HEAD_CYLINDER_RADIUS_FACTOR) + |theta| < 90°, i.e. |angleX| ≲ 33.6°.
- * Past that the outer columns fold and the cell search would silently pick
- * the wrong cell, so the range is capped at the parameter's own
- * HEAD_TURN_MAX_DEG rather than left to produce a quiet wrong answer.
+ * `warpedX` stays ordered while asin(1/HEAD_CYLINDER_RADIUS_FACTOR) + |theta|
+ * < 90°, i.e. |angleX| ≲ 33.6°. Past that the outer columns fold — a column
+ * further out lands nearer the axis, so `mapX` would silently hand back a turn
+ * that crosses itself — and the range is capped at the parameter's own
+ * HEAD_TURN_MAX_DEG rather than returning a folded map.
  */
 export function turnColumnMap(
   grid: IkiWarpGrid,
@@ -1385,37 +1314,36 @@ export function turnColumnMap(
   }
 
   // Same cell as bindPointToRestGrid picks: the first whose right edge is past
-  // v, else the last one — found by bisection, the edges being ascending.
-  const cellFor = (v: number, edges: number[]) => {
+  // x, else the last one — found by bisection, the rest columns being
+  // ascending.
+  const cellFor = (x: number) => {
     let lo = 0;
     let hi = grid.cols - 1;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      if (v < edges[mid + 1]) hi = mid;
+      if (x < restX[mid + 1]) hi = mid;
       else lo = mid + 1;
     }
     return lo;
-  };
-  // Piecewise-linear read of `values` over `edges` at `v`, the within-cell
-  // fraction clamped to [0,1] as sampleWarpGrid clamps (s, t). A node reads
-  // its own value: `values[c] + Δ·1` is `values[c + 1]` only to an ulp, and
-  // the columns a bake reads are nodes.
-  const sample = (edges: number[], values: number[], v: number): number => {
-    const c = cellFor(v, edges);
-    const s = Math.max(
-      0,
-      Math.min(1, (v - edges[c]) / (edges[c + 1] - edges[c])),
-    );
-    if (s === 0) return values[c];
-    if (s === 1) return values[c + 1];
-    return values[c] + (values[c + 1] - values[c]) * s;
   };
 
   return {
     restX,
     warpedX,
-    mapX: (x) => sample(restX, warpedX, x),
-    invertX: (X) => sample(warpedX, restX, X),
+    // Piecewise-linear read of `warpedX` over `restX`, the within-cell
+    // fraction clamped to [0,1] as sampleWarpGrid clamps (s, t). A node reads
+    // its own warped x: `warpedX[c] + Δ·1` is `warpedX[c + 1]` only to an
+    // ulp, and the columns a bake reads are nodes.
+    mapX: (x) => {
+      const c = cellFor(x);
+      const s = Math.max(
+        0,
+        Math.min(1, (x - restX[c]) / (restX[c + 1] - restX[c])),
+      );
+      if (s === 0) return warpedX[c];
+      if (s === 1) return warpedX[c + 1];
+      return warpedX[c] + (warpedX[c + 1] - warpedX[c]) * s;
+    },
   };
 }
 

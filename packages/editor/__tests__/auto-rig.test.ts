@@ -7,7 +7,6 @@ import {
   bakeEyelidFoldWarp,
   bakeHairFrontSilhouetteWarp,
   bakeHairSwayWarp,
-  bakeHeadTurnGridWarpCentered,
   bakeNodWarp,
   bakeTurnGroupWarp2D,
   bboxToTransform,
@@ -103,6 +102,16 @@ const axisGrid = {
 /** The turn radius the rig would pick for `axisGrid`: its own x-reach about
  *  centerX = 0 with the no-fold margin. */
 const axisGridRadiusX = 400 * RADIUS_FACTOR;
+
+/** The analytic pinned cylinder bend on `axisGrid`: the dx a point resting at
+ *  `x` takes when the turn cylinder of radius `axisGridRadiusX` about x = 0
+ *  rotates by `theta`, the axis column's own slide subtracted. Written out
+ *  here rather than read off the bake, so it checks the bake independently. */
+const axisPinnedBendDx = (x: number, theta: number) => {
+  const R = axisGridRadiusX;
+  const alpha = Math.asin(Math.max(-1, Math.min(1, x / R)));
+  return R * Math.sin(alpha + theta) - x - R * Math.sin(theta);
+};
 
 /** A surface to bake `grid` from: `radiusX` and `travel` the caller's, the
  *  nod radius the grid's own y reach about `centre` with the no-fold margin
@@ -1271,10 +1280,12 @@ describe("head nod (AngleY)", () => {
     }
   });
 
-  it("the AngleY=0 row IS the 1D turn bake once the slide is out of it", () => {
-    // The 1D bake is the pure-bend reference, so the row matches it at travel
-    // 0 and only there — what a shipped row adds on top is the uniform slide,
-    // checked column by column in describe("head turn slide").
+  it("the AngleY=0 row IS the analytic pinned bend once the slide is out of it", () => {
+    // The pinned cylinder bend is the pure-bend reference, so the row matches
+    // it at travel 0 and only there — what a shipped row adds on top is the
+    // uniform slide, checked column by column in describe("head turn slide").
+    // Every axisGrid column sits inside the bound, so the bounded bend the
+    // bake reads is the unbounded formula here.
     const w = bakeTurnGroupWarp2D(
       axisGrid,
       "ax",
@@ -1282,17 +1293,15 @@ describe("head nod (AngleY)", () => {
       surfaceOn(axisGrid, axisGridRadiusX, 0),
       () => 0,
     );
-    const turn = bakeHeadTurnGridWarpCentered(
-      axisGrid,
-      "ax",
-      0,
-      axisGridRadiusX,
-    );
     for (const angle of w.valuesX) {
-      const k1d = turn.keyforms.find((k) => k.value === angle)!;
+      const theta = angle * (Math.PI / 180);
       const k2d = cell(w, angle, 0);
-      for (let n = 0; n < k1d.offsets.length; n++) {
-        expect(k2d.offsets[n]).toBeCloseTo(k1d.offsets[n], 9);
+      for (let i = 0; i < axisGrid.points.length / 2; i++) {
+        expect(k2d.offsets[i * 2]).toBeCloseTo(
+          axisPinnedBendDx(axisGrid.points[i * 2], theta),
+          9,
+        );
+        expect(k2d.offsets[i * 2 + 1]).toBe(0);
       }
     }
   });
@@ -1305,15 +1314,13 @@ describe("head nod (AngleY)", () => {
       surfaceOn(axisGrid, axisGridRadiusX, 0),
       () => 0,
     );
-    const R = axisGridRadiusX;
     const theta15 = 15 * (Math.PI / 180);
     const mid = cell(w, 15, 0);
     for (let i = 0; i < axisGrid.points.length / 2; i++) {
-      const x = axisGrid.points[i * 2];
-      const alpha = Math.asin(Math.max(-1, Math.min(1, x / R)));
-      const expectedDx =
-        R * Math.sin(alpha + theta15) - x - R * Math.sin(theta15);
-      expect(mid.offsets[i * 2]).toBeCloseTo(expectedDx, 8);
+      expect(mid.offsets[i * 2]).toBeCloseTo(
+        axisPinnedBendDx(axisGrid.points[i * 2], theta15),
+        8,
+      );
     }
     // Guard against a lattice built by linear interpolation between ±30 and 0:
     // the analytic bend at the outer column differs from the chord's midpoint.
@@ -1356,16 +1363,6 @@ describe("head nod (AngleY)", () => {
         }
       }
     }
-    const w1 = bakeHeadTurnGridWarpCentered(lopsided, "ax", 0, lopsidedRadius);
-    for (const k of w1.keyforms) {
-      let prev = -Infinity;
-      for (let col = 0; col <= 4; col++) {
-        const p = 2 * stride + col;
-        const x = lopsided.points[p * 2] + k.offsets[p * 2];
-        expect(x).toBeGreaterThan(prev);
-        prev = x;
-      }
-    }
   });
 
   it("does not fold on a grid wider than the radius can carry", () => {
@@ -1405,10 +1402,6 @@ describe("head nod (AngleY)", () => {
       surfaceOn(wide, tight, 0),
       () => 0,
     ).keyforms2d) {
-      ordered(k.offsets);
-    }
-    for (const k of bakeHeadTurnGridWarpCentered(wide, "ax", 0, tight)
-      .keyforms) {
       ordered(k.offsets);
     }
   });
@@ -1598,11 +1591,11 @@ describe("turnColumnMap", () => {
     // The bake reads each node's dx as `mapAt(deg).mapX(x) − x` off this very
     // map, so "the map describes the turn the model ships" holds by
     // construction; the independent check that the map IS the cylinder bend
-    // is the 1D-bake comparison in describe("head nod (AngleY)"). What this
-    // still proves: row 0 of the grid is the map's columns, `mapX` at a node
-    // is that node's own `warpedX` (to an ulp of the `− x` round trip), and
-    // the literal-zero AngleX 0 stop agrees with `warpedX` at 0 — the bend on
-    // its own, and the bend with the head's sideways travel summed into it.
+    // is the analytic-bend comparison in describe("head nod (AngleY)"). What
+    // this still proves: row 0 of the grid is the map's columns, `mapX` at a
+    // node is that node's own `warpedX` (to an ulp of the `− x` round trip),
+    // and the literal-zero AngleX 0 stop agrees with `warpedX` at 0 — the bend
+    // on its own, and the bend with the head's sideways travel summed into it.
     for (const travel of [0, 60]) {
       const w = bakeTurnGroupWarp2D(
         grid,
@@ -1641,19 +1634,9 @@ describe("turnColumnMap", () => {
     expect(map.mapX(map.restX[grid.cols] + 500)).toBe(map.warpedX[grid.cols]);
   });
 
-  it("invertX round-trips mapX inside the grid and clamps outside", () => {
-    const map = turnColumnMap(grid, faceCenterX, radiusX, -30, 0);
-    for (const x of [-398, -350, -249, -100, 0, 123.5, 198]) {
-      expect(map.invertX(map.mapX(x))).toBeCloseTo(x, 9);
-    }
-    const last = grid.cols;
-    expect(map.invertX(map.warpedX[0] - 500)).toBe(map.restX[0]);
-    expect(map.invertX(map.warpedX[last] + 500)).toBe(map.restX[last]);
-  });
-
   it("refuses an angle past the turn's range, where the columns fold", () => {
-    // Beyond ~33.6° the warped columns stop being ordered and invertX's cell
-    // scan would answer confidently and wrongly.
+    // Beyond ~33.6° the warped columns stop being ordered: the outer ones fold
+    // back, and the map would describe a turn that crosses itself.
     expect(() => turnColumnMap(grid, faceCenterX, radiusX, 45, 0)).toThrow(
       /auto-rig: turnColumnMap/,
     );
@@ -1704,21 +1687,23 @@ describe("head turn slide", () => {
       surfaceOn(axisGrid, axisGridRadiusX, TRAVEL),
       () => 0,
     );
-    // bakeHeadTurnGridWarpCentered is the pure-bend reference: the shipped row
-    // is it plus a slide uniform across the whole grid, so the turn still
-    // foreshortens exactly as it did — it just travels while doing it.
-    const bend = bakeHeadTurnGridWarpCentered(
+    // The same bake at travel 0 is the pure-bend reference (the analytic bend,
+    // checked in describe("head nod (AngleY)")): the shipped row is it plus a
+    // slide uniform across the whole grid, so the turn still foreshortens
+    // exactly as it did — it just travels while doing it.
+    const bend = bakeTurnGroupWarp2D(
       axisGrid,
       "ax",
-      0,
-      axisGridRadiusX,
+      "ay",
+      surfaceOn(axisGrid, axisGridRadiusX, 0),
+      () => 0,
     );
     for (const angleX of slid.valuesX) {
       const slide = (TRAVEL * angleX) / 30;
-      const k1d = bend.keyforms.find((k) => k.value === angleX)!;
+      const k0 = cell(bend, angleX, 0);
       const k2d = cell(slid, angleX, 0);
       for (let i = 0; i < axisGrid.points.length / 2; i++) {
-        expect(k2d.offsets[i * 2]).toBeCloseTo(k1d.offsets[i * 2] + slide, 9);
+        expect(k2d.offsets[i * 2]).toBeCloseTo(k0.offsets[i * 2] + slide, 9);
         // dy is the nod's alone — untouched at this row.
         expect(k2d.offsets[i * 2 + 1]).toBeCloseTo(0, 10);
       }
@@ -2212,13 +2197,14 @@ describe("head-turn depth parallax", () => {
       rows: 4,
       points: generateGridPoints(4, 4, -halfW, halfW, -300, 300),
     };
-    const baked = bakeHeadTurnGridWarpCentered(
+    const baked = bakeTurnGroupWarp2D(
       grid,
       StandardParameter.AngleX,
-      0,
-      radius,
+      StandardParameter.AngleY,
+      surfaceOn(grid, radius, 0),
+      () => 0,
     );
-    const at30 = baked.keyforms.find((k) => k.value === 30)!;
+    const at30 = cell(baked, 30, 0);
 
     const theta = (30 * Math.PI) / 180;
     // Re-derive the rightmost grid column's pinned dx from that radius.
@@ -3463,13 +3449,14 @@ describe("warp", () => {
     const halfWidth = (grid.points[grid.cols * 2] - grid.points[0]) / 2; // (198-(-398))/2 = 298
     const RADIUS = halfWidth * RADIUS_FACTOR; // 357.6
 
-    const warp = bakeHeadTurnGridWarpCentered(
+    const warp = bakeTurnGroupWarp2D(
       grid,
       "ParamAngleX",
-      faceCenterX,
-      RADIUS,
+      "ParamAngleY",
+      surfaceOn(grid, RADIUS, 0, { x: faceCenterX, y: 200 }),
+      () => 0,
     );
-    const kf30 = warp.keyforms.find((k) => k.value === 30)!;
+    const kf30 = cell(warp, 30, 0);
 
     // Point i=0: x = faceGridMinX = -398
     const x = grid.points[0]; // -398
@@ -3500,16 +3487,18 @@ describe("warp", () => {
       rows: 4,
       points: generateGridPoints(4, 4, -200, 200, -100, 300),
     };
-    const warp = bakeHeadTurnGridWarpCentered(
+    const warp = bakeTurnGroupWarp2D(
       grid,
       "ParamAngleX",
-      0,
-      200 * RADIUS_FACTOR,
+      "ParamAngleY",
+      surfaceOn(grid, 200 * RADIUS_FACTOR, 0),
+      () => 0,
     );
-    for (const kf of warp.keyforms) {
+    for (const value of warp.valuesX) {
+      const kf = cell(warp, value, 0);
       for (let i = 0; i < grid.points.length / 2; i++) {
         if (Math.abs(grid.points[i * 2] - 0) < 1e-9) {
-          expect(kf.offsets[i * 2], `value=${kf.value} point ${i}`).toBeCloseTo(
+          expect(kf.offsets[i * 2], `value=${value} point ${i}`).toBeCloseTo(
             0,
             8,
           );
@@ -3524,20 +3513,20 @@ describe("warp", () => {
       rows: 4,
       points: generateGridPoints(4, 4, -200, 200, -100, 300),
     };
-    const warp = bakeHeadTurnGridWarpCentered(
+    const warp = bakeTurnGroupWarp2D(
       grid,
       "ParamAngleX",
-      0,
-      200 * RADIUS_FACTOR,
+      "ParamAngleY",
+      surfaceOn(grid, 200 * RADIUS_FACTOR, 0),
+      () => 0,
     );
     const cols = grid.cols + 1;
-    for (const kf of warp.keyforms) {
+    for (const value of warp.valuesX) {
+      const kf = cell(warp, value, 0);
       let previous = -Infinity;
       for (let c = 0; c < cols; c++) {
         const warped = grid.points[c * 2] + kf.offsets[c * 2];
-        expect(warped, `value=${kf.value} column ${c}`).toBeGreaterThan(
-          previous,
-        );
+        expect(warped, `value=${value} column ${c}`).toBeGreaterThan(previous);
         previous = warped;
       }
     }
