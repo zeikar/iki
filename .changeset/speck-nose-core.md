@@ -20,12 +20,3 @@ The `turnTargets` description now states when a `silhouetteRatio` refusal
 offers no range: when no ratio in [0.5, 1.5] renders on the layer set, the
 refusal names the whole range rather than a narrower one, so leave the field
 out — a defaulted one clamps.
-
-The ~1-level edge difference a nose sees from sampling its own lossless atlas
-page (engine texture sampling that depends on a texture's position on its
-page, measured at ≤ 1.2 premultiplied levels on a few feather pixels) is
-deferred by the user's ruling; no change ships for it here.
-
-The playground hero is unchanged: re-rigged on this release it is
-byte-identical, with `noseCore` still measuring {x 530, y 549, w 39, h 63} —
-the guard does not fire on it.
