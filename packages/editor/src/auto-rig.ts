@@ -798,11 +798,25 @@ export function meshCellsFor(
 const FACE_PLATE_CELLS = 10;
 /** Cells per axis of every feature group's turn grid. A feature grid spans a
  *  part a few tens of px across plus its bindings' reach and its turn shift,
- *  so 4 cells are 20–60 px chords — under 0.2 px of sag — and the hero's six
- *  feature groups at 25 nodes each add ≈7 500 keyform numbers: with the
- *  plate's, ≈0.2 MB over the shared grid they replace, which took the hero
- *  from 1.09 MB to ≈1.3 MB. */
+ *  so on the eyes and brows 4 cells are ≈60 px chords — under 0.2 px of sag;
+ *  a grid its family's depth cap widens has far wider cells, which the mouth
+ *  refines over its own drawings (MOUTH_GRID_CELL_PX) — and the hero's six
+ *  feature groups, five at 25 nodes and the mouth's at 45
+ *  (MOUTH_GRID_CELL_PX), add ≈8 500 keyform numbers: with the plate's,
+ *  ≈0.2 MB over the shared grid they replace, which took the hero from
+ *  1.09 MB to ≈1.3 MB. */
 const FEATURE_GRID_CELLS = 4;
+/** The widest cell the mouth's turn grid keeps over its own drawings. A
+ *  feature grid is sized by its family's depth cap (`familyReachPx`), and the
+ *  mouth's — 166 px on the hero — is about 7× the 24 px it actually shifts,
+ *  so its FEATURE_GRID_CELLS cells come out 133.8 px wide and a 77 px mouth
+ *  spans two of them. A cell's chord misses the bend in proportion to its
+ *  width² over the row's radius, and the jaw's taper cuts the mouth row's to 220 px on the
+ *  hero: 133.8 px cells missed the turn surface by up to 5.3 model px at
+ *  ±30, 45.7 px cells by 0.63, so 32 px bounds it near 0.3 and the hero's
+ *  24.5 px cells predict ≈0.2. `groupGridFor` adds columns over the members
+ *  alone, so the grid keeps the depth cap's reach. */
+const MOUTH_GRID_CELL_PX = 32;
 /** Column pitch of the turn's VIRTUAL lattice — the one row of columns
  *  `TurnSurface.mapAt` is piecewise-linear between, anchored on the face
  *  centre (`faceCenterX ± k·16`) so the axis is a node and its dx the slide
@@ -5353,7 +5367,17 @@ export interface TurnGroupMember {
  * binds their vertices to it (`applyWarpToChild`: part warps, then the TRS
  * the bindings give) — grown by the family's turn and nod shifts and then by
  * GRID_MARGIN of its span per axis plus a pixel, over `cells` × `cells`
- * uniform cells (the format allows uneven columns; nothing here needs them).
+ * uniform cells.
+ *
+ * With a `cellPx`, every uniform cell wider than it that overlaps the
+ * members' pre-bind x extent — before the shifts and the margin — also gets
+ * columns across that overlap: at its ends, where an end falls inside the
+ * cell, and at equal steps between them no wider than `cellPx`. Every uniform
+ * column and row is kept bit for bit, so the grid's reach and any node a
+ * reader sits on are unchanged; the new nodes only shorten the chords under
+ * the members. Only the mouth takes it (MOUTH_GRID_CELL_PX): the widest
+ * drawing on a grid sized by a depth cap several times its solved shift, on
+ * the rows the jaw's taper bends hardest.
  *
  * The extent is the union, over every member, of its mesh under each part
  * warp's keyforms — the rest mesh, and the mesh with each keyform's offsets
@@ -5383,6 +5407,7 @@ export function groupGridFor(
   cells: number,
   turnShiftPx: number,
   nodShiftPx: number,
+  cellPx?: number,
 ): IkiWarpGrid {
   let minX = Infinity;
   let maxX = -Infinity;
@@ -5419,24 +5444,53 @@ export function groupGridFor(
       }
     }
   }
+  const extentMinX = minX;
+  const extentMaxX = maxX;
   minX -= turnShiftPx;
   maxX += turnShiftPx;
   minY -= nodShiftPx;
   maxY += nodShiftPx;
   const marginX = (maxX - minX) * GRID_MARGIN + 1;
   const marginY = (maxY - minY) * GRID_MARGIN + 1;
-  return {
-    cols: cells,
-    rows: cells,
-    points: generateGridPoints(
-      cells,
-      cells,
-      minX - marginX,
-      maxX + marginX,
-      minY - marginY,
-      maxY + marginY,
-    ),
-  };
+  const points = generateGridPoints(
+    cells,
+    cells,
+    minX - marginX,
+    maxX + marginX,
+    minY - marginY,
+    maxY + marginY,
+  );
+  if (cellPx === undefined) return { cols: cells, rows: cells, points };
+
+  // The uniform grid's own columns and rows, read back off it so every one is
+  // kept bit for bit, with the new columns merged in between.
+  const stride = cells + 1;
+  const uniformXs = Array.from({ length: stride }, (_, c) => points[c * 2]);
+  const ys = Array.from(
+    { length: stride },
+    (_, r) => points[r * stride * 2 + 1],
+  );
+  const xs = [uniformXs[0]];
+  for (let c = 0; c < cells; c++) {
+    const left = uniformXs[c];
+    const right = uniformXs[c + 1];
+    const from = Math.max(left, extentMinX);
+    const to = Math.min(right, extentMaxX);
+    if (right - left > cellPx && from < to) {
+      const steps = Math.ceil((to - from) / cellPx);
+      if (from > left) xs.push(from);
+      for (let k = 1; k < steps; k++) {
+        xs.push(from + (k * (to - from)) / steps);
+      }
+      if (to < right) xs.push(to);
+    }
+    xs.push(right);
+  }
+  const merged: number[] = [];
+  for (const y of ys) {
+    for (const x of xs) merged.push(x, y);
+  }
+  return { cols: xs.length - 1, rows: cells, points: merged };
 }
 
 /** The eyelid fold of an eye white or a lash, or undefined for any other
@@ -5633,6 +5687,12 @@ function turnSetup(layers: LayerInput[]): TurnSetup {
           ...own.map((m) => FEATURE_NOD_DEPTH[roleFamily(m.role)] ?? 0),
         ) * parallaxUnitY
       : 0;
+    // The mouth's grid gains columns over its drawings (MOUTH_GRID_CELL_PX).
+    // Every uniform column is kept, so the reach the lattice reads off the
+    // end columns below is unchanged, and so is the mouth landmark wherever
+    // the two mouth drawings share a centre x (its vertex then rests on the
+    // kept centre column; otherwise it sits inside a cell and the mouth's
+    // depth may re-settle by the chord that cell no longer carries).
     groupGrids.set(
       group,
       groupGridFor(
@@ -5640,6 +5700,7 @@ function turnSetup(layers: LayerInput[]): TurnSetup {
         isPlate ? FACE_PLATE_CELLS : FEATURE_GRID_CELLS,
         isPlate ? 0 : turnShift[turnFamily(role)],
         nodShiftPx,
+        group === "mouthWarp" ? MOUTH_GRID_CELL_PX : undefined,
       ),
     );
   }

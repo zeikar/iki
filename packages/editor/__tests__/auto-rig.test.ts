@@ -3803,6 +3803,73 @@ describe("turn groups", () => {
       }
     }
   });
+
+  it("mouthWarp alone gains columns over its members' extent", () => {
+    /** A grid's row-0 xs, after checking it is a lattice: every row repeats
+     *  them and keeps one y. */
+    const columnsOf = (
+      label: string,
+      grid: { cols: number; rows: number; points: number[] },
+    ) => {
+      const stride = grid.cols + 1;
+      const xs = Array.from({ length: stride }, (_, c) => grid.points[c * 2]);
+      for (let r = 0; r <= grid.rows; r++) {
+        for (let c = 0; c <= grid.cols; c++) {
+          const n = (r * stride + c) * 2;
+          expect(grid.points[n], `${label} (${r}, ${c})`).toBe(xs[c]);
+          expect(grid.points[n + 1], `${label} (${r}, ${c})`).toBe(
+            grid.points[r * stride * 2 + 1],
+          );
+        }
+      }
+      return xs;
+    };
+    const expectUniform = (
+      label: string,
+      grid: { cols: number; rows: number; points: number[] },
+      cells: number,
+    ) => {
+      expect(grid.cols, label).toBe(cells);
+      expect(grid.rows, label).toBe(cells);
+      const xs = columnsOf(label, grid);
+      const pitch = (xs[cells] - xs[0]) / cells;
+      xs.forEach((x, c) =>
+        expect(x, `${label} column ${c}`).toBeCloseTo(xs[0] + c * pitch, 9),
+      );
+    };
+
+    const model = generateIkiFromLayerSet(heroLikeLayers(), canvas1100);
+    const mouth = groupWarpOf(model, "mouthWarp");
+    // The members' pre-bind extent is ±49 — MouthForm 1 is scaleX 1.4 on
+    // both 70 px crops, centred on the face axis — and the shift the mouth
+    // family can reach is 166 px, its far edge (−35) to the plate's (−201):
+    // ±215, grown by GRID_MARGIN · 430 + 1 = 52.6 to ±267.6, over four
+    // 133.8 px cells. The two centre cells are wider than 32 px and overlap
+    // the extent on [−49, 0] and [0, 49]: −49 and 49 fall inside them, 0 is
+    // their shared column, and 49 px over 32 px steps is two of 24.5.
+    expect(mouth.grid.cols).toBe(8);
+    expect(mouth.grid.rows).toBe(4);
+    const expected = [-267.6, -133.8, -49, -24.5, 0, 24.5, 49, 133.8, 267.6];
+    columnsOf("mouthWarp", mouth.grid).forEach((x, c) =>
+      expect(x, `mouthWarp column ${c}`).toBeCloseTo(expected[c], 9),
+    );
+    for (const d of model.deformers!) {
+      if (d.kind !== "warp" || d.id === "mouthWarp") continue;
+      expectUniform(d.id, d.grid, d.id === "faceWarp" ? 10 : 4);
+    }
+
+    // Without a nose there is no turn shift: ±49 grown by 12.76 is four
+    // 30.9 px cells, already under the width, so the grid stays uniform.
+    const noseless = generateIkiFromLayerSet(
+      heroLikeLayers().filter((l) => l.role !== "nose"),
+      canvas1100,
+    );
+    expectUniform(
+      "noseless mouthWarp",
+      groupWarpOf(noseless, "mouthWarp").grid,
+      4,
+    );
+  });
 });
 
 // ── describe("bindings") ─────────────────────────────────────────────────────
@@ -8032,6 +8099,21 @@ describe("face row profile", () => {
     };
   };
 
+  /** A hero-like profile: the top 30 crop rows at 0.06 of the max (the
+   *  hairline under the bangs), ramping to the max by row 60, the max down
+   *  to row 340, a taper to 0.06 of it by row 471, and the last 120 rows
+   *  empty (sub-threshold neck shading). */
+  const heroLike = Array.from({ length: cropH }, (_, i) => {
+    if (i < 30) return 0.06 * faceHalfWidth;
+    if (i < 60) return faceHalfWidth * (0.06 + (0.94 * (i - 30)) / 30);
+    if (i <= 340) return faceHalfWidth;
+    if (i < cropH - 120)
+      return faceHalfWidth * (1 - (0.94 * (i - 340)) / (cropH - 120 - 341));
+    return 0;
+  });
+  /** Model y of crop row `i`'s centre. */
+  const rowY = (i: number) => 20 + cropH / 2 - i - 0.5;
+
   it("builds the profile by the rule: aMax above the widest row, the measurement filled, smoothed and floored at and below it, linear between rows, the end rows beyond", () => {
     // Ten rows on a 20 px-wide face centred at y = 0: rows rest at 4.5, 3.5,
     // … −4.5. The widest is row 2 (10); rows 0–1 read it however little they
@@ -8347,7 +8429,8 @@ describe("face row profile", () => {
         expect(k.offsets[n * 2 + 1], `node ${n}`).toBeCloseTo(landed.y - y, 6);
         nodes++;
       }
-      expect(nodes).toBe(25);
+      // 9 × 5: the mouth's grid gains columns over its drawings.
+      expect(nodes).toBe(45);
     });
 
     it("reports the cues the engine renders at −30 with the profile in play, to float32 rounding", () => {
@@ -8521,21 +8604,7 @@ describe("face row profile", () => {
   });
 
   describe("occlusion", () => {
-    /** A hero-like profile: the top 30 crop rows at 0.06 of the max (the
-     *  hairline under the bangs), ramping to the max by row 60, the max down
-     *  to row 340, a taper to 0.06 of it by row 471, and the last 120 rows
-     *  empty (sub-threshold neck shading). */
-    const heroLike = Array.from({ length: cropH }, (_, i) => {
-      if (i < 30) return 0.06 * faceHalfWidth;
-      if (i < 60) return faceHalfWidth * (0.06 + (0.94 * (i - 30)) / 30);
-      if (i <= 340) return faceHalfWidth;
-      if (i < cropH - 120)
-        return faceHalfWidth * (1 - (0.94 * (i - 340)) / (cropH - 120 - 341));
-      return 0;
-    });
     const rig = () => profiled("heroLike", heroLike);
-    /** Model y of crop row `i`'s centre. */
-    const rowY = (i: number) => 20 + cropH / 2 - i - 0.5;
     const lastPainted = cropH - 120 - 1;
 
     it("reads the cranium as wide as the cheeks: rows above the widest row land their far edge where the eye row does, though the layer paints little there", () => {
@@ -8615,6 +8684,82 @@ describe("face row profile", () => {
       const zero = profiled("allZero", new Array(cropH).fill(0));
       expect(zero.profile).toBeUndefined();
       expect(zero.model).toEqual(bare.model);
+    });
+  });
+
+  describe("hero-like jaw", () => {
+    const rig = () => profiled("heroLike", heroLike);
+
+    it("lands every mouth and mouth_open vertex on the anchored turn surface", () => {
+      // The mouth rows sit on the taper, where the radius is cut well under
+      // the eye row's, so a coarse mouth cell's chord misses the bend by
+      // several px. At a stop the miss is the grid's chord alone. Between
+      // stops the engine blends the stops' keyforms parameter-linearly, so
+      // the landing is held to that blend of the analytic stop landings —
+      // the grid's part. HEAD_TURN_STOPS' own parameter-linear chord (1.45 px
+      // at ±22.5 on this fixture) is not the grid's, and no grid change
+      // removes it, so the total is not asserted there.
+      const r = rig();
+      const unit = headTurnParallaxUnit(r.report.radius);
+      const surface = turnSurface({
+        faceCenterX: r.faceCenterX,
+        faceCenterY: r.faceCenterY,
+        radius: r.report.radius,
+        travel: travelOf(r.model),
+        nodRadius: headNodRadiusOf(r.layers),
+        lattice: denseLattice(r.faceCenterX),
+        profile: r.profile,
+        eyeRowY: r.eyeRowY,
+      });
+      // The mouth family's anchor: the closed mouth's rest centre.
+      const anchor = {
+        ...r.model.parts.find((p) => p.id === "mouth")!.transform,
+        tiltDeg: MOUTH_TURN_TILT_DEG,
+      };
+      /** Where the surface lands a pre-bind point at a stop: the rest stop is
+       *  the identity, the literal zeros the bake writes there. */
+      const atStop = (stop: number, x: number, y: number) =>
+        stop === 0
+          ? { x, y }
+          : anchoredLanding(
+              (row) => surface.mapAt(stop, row),
+              anchor,
+              stop,
+              (r.report.depths.mouth * unit * stop) / 30,
+              x,
+              y,
+            );
+      for (const deg of [-30, -22.5, -15, -7.5, 7.5, 15, 22.5, 30]) {
+        // The stops either side of `deg`: itself at a stop.
+        const lo = Math.trunc(deg / 15) * 15;
+        const hi = deg === lo ? lo : lo + Math.sign(deg) * 15;
+        const f = deg === lo ? 0 : (deg - lo) / (hi - lo);
+        let worst = 0;
+        let at = "";
+        for (const id of ["mouth", "mouth_open"]) {
+          for (const form of [-1, 0, 1]) {
+            const params = {
+              [StandardParameter.AngleX]: deg,
+              [StandardParameter.MouthForm]: form,
+            };
+            const pre = preBindVertices(r.model, id, params);
+            const landed = landVertices(r.model, id, params);
+            for (let v = 0; v < pre.length / 2; v++) {
+              const a = atStop(lo, pre[v * 2], pre[v * 2 + 1]);
+              const b = atStop(hi, pre[v * 2], pre[v * 2 + 1]);
+              const miss = Math.hypot(
+                landed[v * 2] - (a.x + (b.x - a.x) * f),
+                landed[v * 2 + 1] - (a.y + (b.y - a.y) * f),
+              );
+              if (miss > worst) {
+                worst = miss;
+                at = `${id} form ${form} vertex ${v}`;
+              }
+            }
+          }
+        }
+        expect(worst, `${deg}° ${at}`).toBeLessThanOrEqual(0.6);
+      }
     });
   });
 });
