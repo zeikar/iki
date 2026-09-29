@@ -2647,16 +2647,11 @@ interface TurnSolveContext {
  * wherever the jaw's painted edge tapered in past it between two mesh rows,
  * and the lock creased there at every turned stop. Held at the widest row,
  * every hanging row of a column carries the same hold, and what varies down
- * the lock is the root-pinned lead alone: the lock follows its root. Hair
- * hanging below the chin and over the chest therefore follows the head as
- * the widest row does, and below that row the bangs no longer ride the jaw
- * they overlap: at ±30 the painted jaw and chin slip under them by up to
- * 11.6 px on the hero-like test fixture (its chin row, on the axis). A
- * near-side lock hugging the jaw lets the jaw slide under it, and a far-side
- * lock overlapping the far jaw by less than ≈ 11 px opens a gap — what a
- * lock hanging straight down does; the playground hero's lock columns keep
- * ≥ 72 px of margin, so nothing shows there. Without a profile `widestY` is
- * −∞ and every vertex holds on its own row.
+ * the lock is the root-pinned lead alone: the lock follows its root, as a
+ * lock hanging straight down does. So below that row the bangs no longer
+ * ride the jaw they overlap — the jaw slides under a near-side lock and away
+ * from a far-side one. Without a profile `widestY` is −∞ and every vertex
+ * holds on its own row.
  *
  * A vertex exactly on the axis never leaves the first zone, so its zero
  * `side` is never read.
