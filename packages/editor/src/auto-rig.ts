@@ -1730,12 +1730,18 @@ function plateGuardsOf(
  *
  * What happens when the layer set cannot reach a target depends on where the
  * target came from. A number the CALLER passed is a measurement, so an
- * unreachable one throws, naming the field and what was on offer. A number this
- * module filled in — a default, or a nose/mouth derived from the eyes — is a
- * style prior, not a promise about this character: it is CLAMPED to what the
- * layer set can do and the rig is built. The alternative is a generator that
- * refuses its own defaults, which would leave a perfectly good layer set with
- * no model at all. `solveTurnModel` reports which fields it clamped.
+ * unreachable one throws, naming the field and what was on offer — except a
+ * `silhouetteRatio` when no ratio in its own [0.5, 1.5] range renders on this
+ * layer set: that throw names the field and the whole range instead of an
+ * offer, since there is none narrower. Leaving the field out still rigs,
+ * because a defaulted one clamps.
+ *
+ * A number this module filled in — a default, or a nose/mouth derived from the
+ * eyes — is a style prior, not a promise about this character: it is CLAMPED
+ * to what the layer set can do and the rig is built. The alternative is a
+ * generator that refuses its own defaults, which would leave a perfectly good
+ * layer set with no model at all. `solveTurnModel` reports which fields it
+ * clamped.
  *
  * One measurement is clamped too: an `eyeShift` past the room the art leaves
  * the far eye — the face plate's edge, and the bangs' side strand when
