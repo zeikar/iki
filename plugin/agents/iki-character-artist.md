@@ -123,7 +123,10 @@ the prompt patterns and the hard-won pitfalls. Then:
    report. A clamp is not a refusal — the rig still built, so keep it.
 
    A rig refused as `INVALID: … turnTargets.<field> … unreachable …` (the reply
-   carries the range that field could have had) means the reference asks for a
+   carries the range that field could have had, except a `silhouetteRatio` for
+   which no ratio in [0.5, 1.5] renders on the layer set: that reply says so
+   and carries no range — leave the field out instead of narrowing it) means
+   the reference asks for a
    target outside this layer set's attainable range — a `farEyeRatio` or
    `silhouetteRatio` no radius renders, a `noseShift` / `mouthShift` past its
    room, or an `eyeShift` smaller than the slide the face's own turn already
