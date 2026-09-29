@@ -35,6 +35,19 @@ export {
   detectAlphaBbox,
   type AlphaBbox,
 } from "./alpha-bbox";
+export {
+  ALPHA_OPAQUE,
+  HEAD_BAND,
+  SPECK_CORE_FRACTION,
+  createLayerSetMeasurer,
+  denseCoreOf,
+  foregroundSpan,
+  headHalfOf,
+  isSpeckCore,
+  type LayerSetMeasurement,
+  type LayerSetMeasurer,
+  type RgbaLayer,
+} from "./layer-measure";
 export { captureBindingEndpoint } from "./binding-capture";
 export {
   computeGridOffsets,

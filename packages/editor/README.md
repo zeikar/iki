@@ -38,19 +38,19 @@ leaves the document untouched.
 
 ## API
 
-| Area               | Exports                                                                                                                                                           |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document           | `EditorDocument`, `EditCommand`                                                                                                                                   |
-| Part edits         | `AddPart`, `DeletePart`, `SetPartColor`, `SetPartWidth`, `SetPartHeight`, `SetPartOrder`, `SetPartTransform`, `SetPartBindings`, `SetPartMesh`, `SetPartDeformer` |
-| Deformer edits     | `AddDeformer`, `DeleteDeformer`, `SetDeformerParent`, `SetDeformerTransform`, `SetDeformerBindings`, `SetDeformerPivot` (+ `X`/`Y`), `CaptureGridKeyform`         |
-| Physics edits      | `AddPhysicsRig`, `SetPhysicsRig`, `DeletePhysicsRig`                                                                                                              |
-| Referential guards | `validateDeformerReparent`, `validateDeformerDelete`, `validatePartAttach`                                                                                        |
-| Atlas              | `packAtlas`, `uvRectFor`, `ATLAS_PADDING`, `UV_INSET_PX`                                                                                                          |
-| Grid keyforms      | `computeGridOffsets`, `interpolateGridOffsets`, `upsertGridKeyform`                                                                                               |
-| Factories          | `createDefaultPart`, `createDefaultMatrixDeformer`, `createDefaultWarpDeformer`, `createGridMesh`                                                                 |
-| Pixels             | `detectAlphaBbox`, `ALPHA_BBOX_THRESHOLD`, `AlphaBbox`                                                                                                            |
-| Auto-rig           | `generateIkiFromLayerSet`, `parseLayerRoles`, `TurnTargets`, `DEFAULT_TURN_TARGETS`, `TurnSolveReport`                                                            |
-| Bindings           | `captureBindingEndpoint`                                                                                                                                          |
+| Area               | Exports                                                                                                                                                                  |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Document           | `EditorDocument`, `EditCommand`                                                                                                                                          |
+| Part edits         | `AddPart`, `DeletePart`, `SetPartColor`, `SetPartWidth`, `SetPartHeight`, `SetPartOrder`, `SetPartTransform`, `SetPartBindings`, `SetPartMesh`, `SetPartDeformer`        |
+| Deformer edits     | `AddDeformer`, `DeleteDeformer`, `SetDeformerParent`, `SetDeformerTransform`, `SetDeformerBindings`, `SetDeformerPivot` (+ `X`/`Y`), `CaptureGridKeyform`                |
+| Physics edits      | `AddPhysicsRig`, `SetPhysicsRig`, `DeletePhysicsRig`                                                                                                                     |
+| Referential guards | `validateDeformerReparent`, `validateDeformerDelete`, `validatePartAttach`                                                                                               |
+| Atlas              | `packAtlas`, `uvRectFor`, `ATLAS_PADDING`, `UV_INSET_PX`                                                                                                                 |
+| Grid keyforms      | `computeGridOffsets`, `interpolateGridOffsets`, `upsertGridKeyform`                                                                                                      |
+| Factories          | `createDefaultPart`, `createDefaultMatrixDeformer`, `createDefaultWarpDeformer`, `createGridMesh`                                                                        |
+| Pixels             | `detectAlphaBbox`, `ALPHA_BBOX_THRESHOLD`, `AlphaBbox`, `ALPHA_OPAQUE`, `HEAD_BAND`, `SPECK_CORE_FRACTION`, `denseCoreOf`, `isSpeckCore`, `foregroundSpan`, `headHalfOf` |
+| Auto-rig           | `generateIkiFromLayerSet`, `parseLayerRoles`, `createLayerSetMeasurer`, `TurnTargets`, `DEFAULT_TURN_TARGETS`, `TurnSolveReport`                                         |
+| Bindings           | `captureBindingEndpoint`                                                                                                                                                 |
 
 ## Auto-rig
 
@@ -112,23 +112,31 @@ the iris's centre (`IrisStrand`: the iris's opaque span, and the run's outer
 and face-side ends). One shape covers a strand outward of a clear iris, a run
 over the iris centre that clears on the face side, and a fringe spanning the
 face, whose `runFace` is `null` because it has no face-side end on that side.
-`@ikijs/mcp` measures it off the pixels it decodes. It is always validated
-against the layers, but like `headEdges` it is only read by the turn solve, so
-it has no effect on the rig without a `nose`; absent or `{}`, the rig is exactly
-the one built without it.
+`createLayerSetMeasurer` measures it off the RGBA a host decoded. It is always
+validated against the layers, but like `headEdges` it is only read by the turn
+solve, so it has no effect on the rig without a `nose`; absent or `{}`, the rig
+is exactly the one built without it.
 
 It takes **already-decoded** layer geometry (`LayerInput`), never pixels, which
 is what keeps this package free of any image dependency: the editor app
 decodes with canvas, `@ikijs/mcp` decodes with `sharp`, and both feed the same
 pure function — including the optional `rowHalfWidths` (one entry per crop row,
-half that row's opaque span in canvas px), which `@ikijs/mcp` measures for the
-face so the plate turns on a radius that varies by row; absent, it turns on one
-constant radius. It also takes the optional `denseCore`, the tight box of a
-layer's alpha ≥ 128 pixels in image coords, not grown, which `@ikijs/mcp`
-measures for the nose: its centre and width are the nose's turn landmark, so a
-shaded nose is fitted by its drawing rather than its soft feather, and its top
-edge at its centre x is the bridge top the nose tilts 6° about on the turn, its
-tip toward the far side; absent, the crop stands in for both.
+half that row's opaque span in canvas px), measured for the face so the plate
+turns on a radius that varies by row; absent, it turns on one constant radius.
+It also takes the optional `denseCore`, the tight box of a layer's alpha ≥ 128
+pixels in image coords, not grown, measured for the nose: its centre and width
+are the nose's turn landmark, so a shaded nose is fitted by its drawing rather
+than its soft feather, and its top edge at its centre x is the bridge top the
+nose tilts 6° about on the turn, its tip toward the far side; absent, the crop
+stands in for both.
+
+`createLayerSetMeasurer(canvas)` measures all of it — `rowHalfWidths`,
+`denseCore`, `headHalfWidth`, `headEdges` and `strandEdges` — off the RGBA a
+host decoded, one layer at a time: `add` each layer while its pixels are in
+memory (it keeps no reference to them), then `finish` for the `LayerInput`s and
+the `turnOptions` to pass the generator. A caller's own `turnTargets` go
+underneath `turnOptions.turnTargets`: spread the caller's targets first, then
+the measured ones. `@ikijs/mcp` calls it.
 
 `*_L` / `*_R` are the **character's** sides — `eye_L` is the character's left
 eye, which appears on the viewer's right.

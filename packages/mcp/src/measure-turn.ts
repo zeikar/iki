@@ -28,6 +28,12 @@
  */
 
 import path from "node:path";
+import {
+  ALPHA_OPAQUE,
+  HEAD_BAND,
+  foregroundSpan,
+  headHalfOf,
+} from "@ikijs/editor";
 import { decodePng, encodeOverlayPng } from "./node-images";
 import {
   AutoRigInputError,
@@ -35,6 +41,14 @@ import {
   resolveOutputDir,
   writeFileAtomic,
 } from "./limits";
+
+// Re-exported so compose.ts, measure.ts and the tests keep their imports.
+export {
+  SPECK_CORE_FRACTION,
+  denseCoreOf,
+  headHalfOf,
+  isSpeckCore,
+} from "@ikijs/editor";
 
 /**
  * Hue/saturation window that selects the iris. Anime irises are a saturated
@@ -89,12 +103,6 @@ const PAIR_DX_MAX_FRAC = 0.35;
 const PAIR_DY_MAX_FRAC = 0.05;
 /** Blobs kept as pair candidates, largest first — the pair search is O(n²). */
 const MAX_CANDIDATES = 12;
-/** Half-height of the row band the head span is taken over, in px. Fixed at
- *  ±10 rows rather than scaled to the image, and that is the convention: any
- *  other measurement of head width meant to be compared with these — one taken
- *  off layer alpha, a hand script — has to span the same band. Exported so the
- *  auto-rig's own head measurement spans it too. */
-export const HEAD_BAND = 10;
 
 // --- Foreground (silhouette) rule -----------------------------------------
 // Two modes, chosen per image, because the two kinds of image this compares
@@ -109,90 +117,11 @@ export const HEAD_BAND = 10;
 //   "keyed"  a fully opaque REFERENCE: no alpha to read, so the flat
 //            lavender-grey backdrop is keyed out by colour instead, along with
 //            a near-black frame/letterbox border.
-/** Exported for the layer-alpha silhouette the auto-rig measures its head on,
- *  which has to follow the "alpha" rule above to be comparable with a render. */
-export const ALPHA_OPAQUE = 128;
 const BG_HUE_MIN = 220;
 const BG_HUE_MAX = 260;
 const BG_SAT_MAX = 0.2;
 const BG_V_MIN = 0.55;
 const BG_V_BLACK = 0.03;
-
-/**
- * A layer's dense core: the tight box of its pixels at alpha ≥ ALPHA_OPAQUE,
- * not grown. A soft-alpha part (a nose drawn as a shaded bump) is mostly
- * feather, and the core is the drawing a viewer reads inside it — the composer
- * sizes and places the nose by it, and `auto_rig_from_layers` reads the same
- * core as the nose's `LayerInput.denseCore`, its turn landmark. It is not the
- * crop: that stays the alpha ≥ 8 box grown by 1 px (`detectAlphaBbox`). `null`
- * when no pixel reaches the threshold, a part painted wholly translucent. A
- * core that is a speck of its part (`isSpeckCore`) is not the drawing either,
- * and both readers fall back to the whole part, as they do for `null`.
- */
-export function denseCoreOf(
-  rgba: ArrayLike<number>,
-  width: number,
-  height: number,
-): { x: number; y: number; w: number; h: number } | null {
-  let minX = width;
-  let minY = height;
-  let maxX = -1;
-  let maxY = -1;
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if (rgba[(y * width + x) * 4 + 3] >= ALPHA_OPAQUE) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-  }
-  if (maxX < 0) return null;
-  return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
-}
-
-/**
- * The fraction of its part's width, or of its height, under which a dense core
- * is a speck (`isSpeckCore`). Measured core/part ratios, width / height: the
- * hero's composed nose 0.72 / 0.76 (core 39×63 in a 54×83 crop), three
- * generated shaded-bump noses (the 0.11 prompt) 0.75–0.85 / 0.79–0.91, the
- * `writeSoftNose` test fixture 0.56 / 0.63 and `writeSoftNoseLayers`
- * 0.40 / 0.40, a nostril mark ≤ 0.1. So the line sits at least 1.6× under
- * every real nose and fixture, and 2.5× over a speck. At the line, sizing by
- * the core would scale the whole part to 4× its layout width, the largest
- * blow-up the composer still accepts.
- */
-export const SPECK_CORE_FRACTION = 0.25;
-
-/**
- * Whether a dense core is a speck of its part: narrower than
- * SPECK_CORE_FRACTION of the part's width, or shorter than that fraction of
- * its height (strictly `<`). Either dimension counts, because the core does
- * more than size a nose: its bottom row is the tip the composer places, and
- * its top-centre the rig's tilt pivot, so a sliver misplaces the nose as
- * surely as a speck mis-sizes it. A speck is a lone nostril mark or highlight,
- * not the drawing, and every reader falls back to the whole part: compose
- * sizes and places its trimmed source part whole, and `auto_rig_from_layers`
- * hands the rig no core, so the crop stands in.
- *
- * The two apply it to different pixels — compose to the source part before
- * resampling, the rig and `measure_layers` to the composed layer against its
- * crop — so their verdicts can part, but only for a core within about a
- * resampled pixel of the line, or one resampling pushes across ALPHA_OPAQUE.
- * Compose's report carries its source verdict when that was a speck, and
- * otherwise what the composed layer shows, so it warns of a parting either
- * way; `measure_layers` reports the layer alone.
- */
-export function isSpeckCore(
-  core: { w: number; h: number },
-  part: { w: number; h: number },
-): boolean {
-  return (
-    core.w < SPECK_CORE_FRACTION * part.w ||
-    core.h < SPECK_CORE_FRACTION * part.h
-  );
-}
 
 /** Connected blob of iris-coloured pixels, in image px. */
 export interface IrisBlob {
@@ -400,43 +329,6 @@ function components(
     }
   }
   return out.sort((a, b) => b.area - a.area);
-}
-
-/**
- * Outermost set pixels of `mask` across the row band `rowLo..rowHi` (clamped
- * to the image) — the silhouette span at that height. An empty band returns
- * `left > right`; every caller here treats that as an error.
- *
- * Exported for the head measured off the layer PNGs' alpha union, which has to
- * span the head the same way this does or the two cannot be compared.
- */
-export function foregroundSpan(
-  mask: Uint8Array,
-  width: number,
-  height: number,
-  rowLo: number,
-  rowHi: number,
-): { left: number; right: number } {
-  let left = width;
-  let right = -1;
-  for (let y = Math.max(0, rowLo); y <= Math.min(height - 1, rowHi); y++) {
-    for (let x = 0; x < width; x++) {
-      if (!mask[y * width + x]) continue;
-      if (x < left) left = x;
-      if (x > right) right = x;
-    }
-  }
-  return { left, right };
-}
-
-/**
- * Half of a silhouette span, in px. The span is INCLUSIVE — `left` and `right`
- * are both foreground columns — so the head is `right - left + 1` px wide.
- * Shared with the auto-rig's own layer measurement: the two head half-widths
- * are compared against each other, so they cannot be halved differently.
- */
-export function headHalfOf(span: { left: number; right: number }): number {
-  return (span.right - span.left + 1) / 2;
 }
 
 /** Merge a caller's partial iris window over the default, rejecting nonsense. */

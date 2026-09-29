@@ -95,7 +95,7 @@ export interface LayerInput {
    * The layer's painted half-width on every CROP row, top → bottom, one entry
    * per row (`cropH` of them): half the row's opaque span in canvas px under
    * the same alpha ≥ 128 rule the head's `headEdges` are measured with
-   * (`@ikijs/mcp`'s `measure-turn`), 0 for a row with no opaque pixel.
+   * (`createLayerSetMeasurer`), 0 for a row with no opaque pixel.
    * Optional, and only the FACE's is read: it gives the face plate a
    * row-dependent turn radius and a chin swing (`faceRowProfile`,
    * `turnSurface`); absent — as the editor's own import leaves it — the plate
@@ -468,8 +468,9 @@ export function validateLayerInputs(
  * gap between an iris edge and a run edge is a real distance with no margin to
  * add. "Outer" is toward the head's edge on that side. The run is the one a
  * producer judges a strand: it may skip runs it judges hair detail
- * (`@ikijs/mcp` treats those narrower than half the iris's painted width on
- * the row as clear), so an iris under only such a wisp counts as clear.
+ * (`createLayerSetMeasurer` treats those narrower than half the iris's
+ * painted width on the row as clear), so an iris under only such a wisp counts
+ * as clear.
  *
  * One shape covers three cases:
  *   - an ordinary side strand outward of a clear iris (`runFace` outward of
@@ -2597,8 +2598,8 @@ interface TurnSolveContext {
     cropH: number;
   };
   /** Every role with an opaque pixel in the eye-row band, per side, each
-   *  with its OWN rest x there — as the mcp layer measures it (`rowSpansByRole`),
-   *  a companion to a MEASURED `headHalfWidth`, not a caller-facing target.
+   *  with its OWN rest x there — as `createLayerSetMeasurer` measures it, a
+   *  companion to a MEASURED `headHalfWidth`, not a caller-facing target.
    *  `evaluateTurnCandidate` takes the OUTERMOST *landing* across a side's own
    *  list, not the outermost REST x: which part ends up furthest out after
    *  the turn can differ from which one drew furthest out at rest (the bangs'
@@ -3285,9 +3286,9 @@ function evaluateTurnCandidate(
             x,
             ctx.eyeRowY,
           );
-    // Where a named role's OWN rest x lands after the turn — the mcp measures
-    // the union of every layer's opaque pixels, so an edge can belong to any
-    // role, not just the bangs. `face` and the FEATURE_NOD_DEPTH family (the
+    // Where a named role's OWN rest x lands after the turn —
+    // `createLayerSetMeasurer` measures the union of every layer's opaque
+    // pixels, so an edge can belong to any role, not just the bangs. `face` and the FEATURE_NOD_DEPTH family (the
     // eye stack, lashes, brows, blush, the nose, both mouths) each ride their
     // own group grid, so each is read through its own carrier — the grid and
     // mesh it renders with — at the shift that grid's keyforms carry: its
@@ -3319,9 +3320,10 @@ function evaluateTurnCandidate(
       ) {
         const carrier = ctx.carriers.get(role);
         if (carrier === undefined) {
-          // The mcp measures edges off the layers it rigs, so a face-family
-          // role it names is one this layer set has — anything else is a
-          // caller's list that does not belong to these layers.
+          // `createLayerSetMeasurer` measures edges off the layers the host
+          // rigs, so a face-family role it names is one this layer set has —
+          // anything else is a caller's list that does not belong to these
+          // layers.
           throw new Error(
             `auto-rig: evaluateTurnCandidate: headEdges names "${role}", which this layer set has no layer for`,
           );

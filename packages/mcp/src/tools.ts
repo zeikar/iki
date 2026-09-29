@@ -11,11 +11,12 @@ import {
   EditorDocument,
   packAtlas,
   uvRectFor,
+  createLayerSetMeasurer,
   generateIkiFromLayerSet,
   parseLayerRoles,
   TurnTargetError,
   type IrisStrand,
-  type LayerInput,
+  type LayerSetMeasurer,
   type AtlasAssignment,
   type AtlasLayout,
   type TurnTargets,
@@ -23,19 +24,10 @@ import {
 } from "@ikijs/editor";
 import {
   decodePng,
-  detectAlphaBbox,
   cropToBuffer,
   renderAtlasToDataUri,
   type AtlasCrop,
 } from "./node-images";
-import {
-  ALPHA_OPAQUE,
-  HEAD_BAND,
-  denseCoreOf,
-  foregroundSpan,
-  headHalfOf,
-  isSpeckCore,
-} from "./measure-turn";
 import {
   AutoRigInputError,
   MAX_LAYERS,
@@ -346,78 +338,6 @@ function expectInput<T>(label: string, fn: () => T): T {
 }
 
 /**
- * The row the head's width is measured at: the mean of the iris centres, or of
- * the eye centres when the layer set has no irises. `measure_turn_reference`
- * picks the same row off a render — it finds the irises themselves — so the
- * head it spans there is the head spanned here.
- */
-function eyeRowOf(layers: LayerInput[]): number {
-  const centreY = (role: string): number | undefined => {
-    const layer = layers.find((l) => l.role === role);
-    return layer && layer.bbox.y + layer.bbox.h / 2;
-  };
-  const pairRow = (left: string, right: string): number | undefined => {
-    const a = centreY(left);
-    const b = centreY(right);
-    return a === undefined || b === undefined ? undefined : (a + b) / 2;
-  };
-  const row = pairRow("iris_L", "iris_R") ?? pairRow("eye_L", "eye_R");
-  if (row === undefined) {
-    // eye_L/eye_R are required roles, so parseLayerRoles refused this set long
-    // before here — a miss is an invariant break, not caller input.
-    throw new Error("auto-rig: no eye pair to measure the head width at");
-  }
-  return Math.round(row);
-}
-
-/**
- * `foregroundSpan`, but over one layer's own already-reduced per-row
- * left/right (see `rowSpansByRole` in `autoRigFromLayers`) instead of a
- * pixel mask — the same row-band reduction, without re-scanning pixels.
- */
-function foregroundSpanOfRows(
-  rowLeft: Int32Array,
-  rowRight: Int32Array,
-  rowLo: number,
-  rowHi: number,
-): { left: number; right: number } {
-  let left = Infinity;
-  let right = -Infinity;
-  for (
-    let y = Math.max(0, rowLo);
-    y <= Math.min(rowLeft.length - 1, rowHi);
-    y++
-  ) {
-    if (rowLeft[y] < left) left = rowLeft[y];
-    if (rowRight[y] > right) right = rowRight[y];
-  }
-  return { left, right };
-}
-
-/** The face plate's half-width, derived the way generateIkiFromLayerSet derives
- *  it — off the `face` layer's cropped width — so the two agree on which head
- *  is the wider one. */
-function facePlateHalfOf(layers: LayerInput[]): number {
-  const face = layers.find((l) => l.role === "face");
-  if (face === undefined) {
-    // `face` is a required role; parseLayerRoles refused this set long before.
-    throw new Error("auto-rig: no face layer to measure the plate against");
-  }
-  return face.cropW / 2;
-}
-
-/**
- * The narrowest `hair_front` run, as a fraction of an iris's painted width on
- * its centre row, that the strand scan takes as a strand. A run narrower than
- * this (strictly `<`; one exactly this wide is a strand) is hair detail and
- * counts as clear: the far iris may cross it on the turn, as intended. The
- * hero's row shows why: 5 px inside its 67 px side strand lies an 8 px wisp
- * the iris is painted 2 px under, and bounding the iris against that wisp cut
- * the −30 eye shift from ≈ 0.18 to 0.14.
- */
-const STRAND_MIN_RUN_FRACTION = 0.5;
-
-/**
  * The role that keeps a lossless atlas page of its own under `quantizeColors`.
  * At 256 colours a soft nose's feather took the hair edge's lavender palette
  * entries and drew a rim around the nose; changing the dither, the effort, the
@@ -450,23 +370,13 @@ async function renderAtlasPage(
  * the textures (Node sharp), validate, and write the renderable `.iki` to disk.
  * Returns the output path + summary stats (the multi-MB model is never inlined).
  *
- * The head turn is fitted to `input.turnTargets`, on the head half-width this
- * measures off the layers themselves; what the solve settled on comes back in
- * `turn`. The face layer alone also gets its per-row painted half-widths
- * (`LayerInput.rowHalfWidths`), which bend the face plate on a row-dependent
- * radius: the generator reads no other role's, so measuring any other layer's
- * would only hand it bytes it discards. Each iris's opaque span and the bangs'
- * run it would slide under are measured on the iris's own centre row too
- * (`strandEdges`), so the turn keeps the far iris from sliding under the bangs
- * any further than it is painted; a run narrower than half the iris there is
- * hair detail the iris may cross, and is skipped. The nose layer alone also
- * gets its dense core measured (`LayerInput.denseCore`, returned as
- * `noseCore`), so a shaded nose is fitted and tilted by the drawing inside its
- * feather rather than by the feather itself — unless that core is a speck of
- * the nose's crop (`isSpeckCore`), which is not handed over: the crop stands
- * in, as it does for a nose with no core. Under `quantizeColors` that nose
- * is atlased alone on a second, lossless page, which the palette would
- * otherwise rim; `atlasBytes` sums both pages.
+ * The head turn is fitted to `input.turnTargets`, on what @ikijs/editor's
+ * `createLayerSetMeasurer` measures off the decoded layers (the head
+ * half-width, `headEdges`, `strandEdges`, the face's `rowHalfWidths` and the
+ * nose's dense core, returned as `noseCore`); what the solve settled on comes
+ * back in `turn`. Under `quantizeColors` the nose is atlased alone on a
+ * second, lossless page, which the palette would otherwise rim; `atlasBytes`
+ * sums both pages.
  *
  * Re-host of examples/editor/src/store.ts `importLayerSet` with the three DOM
  * pixel functions swapped for the sharp-backed ./node-images helpers; the pure
@@ -527,30 +437,11 @@ export async function autoRigFromLayers(
     let canvasW = 0;
     let canvasH = 0;
     let totalPixels = 0;
-    // Union of EVERY layer's opaque pixels — the silhouette the head half-width
-    // is measured off below. Every layer folds in, so a body or an accessory
-    // crossing the eye band widens the span; that is deliberate, because a rest
-    // render of the finished rig shows the same union and measures the same.
-    // Sized once the first layer gives the canvas.
-    let opaque = new Uint8Array(0);
-    const layerInputs: LayerInput[] = [];
+    // Measures each layer while its decoded pixels are live, keeping none of
+    // them (see createLayerSetMeasurer). Created once the first layer gives the
+    // canvas.
+    let measurer: LayerSetMeasurer | undefined;
     const crops: AtlasCrop[] = [];
-    // Per layer, per row: its OWN leftmost/rightmost opaque column (canvasW /
-    // -1 where it has none that row) — recorded in the SAME pass as the union
-    // fold, while the layer's decoded pixels are still live, rather than a
-    // second decode pass. Reduced to a single left/right owner per side once
-    // the eye row is known, below: which layer's own deformation actually
-    // carries the union's outermost pixel through the turn.
-    const rowSpansByRole: {
-      role: string;
-      rowLeft: Int32Array;
-      rowRight: Int32Array;
-    }[] = [];
-    // hair_front's own opaque pixels (alpha >= ALPHA_OPAQUE, the union's rule),
-    // kept from its pass for the strand edges below: the run an iris would
-    // slide under is read off it on that iris's own row. The irises need no
-    // mask of their own — their per-row extremes are in rowSpansByRole.
-    let hairFrontMask: Uint8Array | undefined;
     for (let i = 0; i < resolvedLayers.length; i++) {
       const { resolved, fileName } = resolvedLayers[i];
       const png = await decodePng(resolved);
@@ -573,7 +464,7 @@ export async function autoRigFromLayers(
             `canvas ${canvasW}x${canvasH} exceeds ${MAX_CANVAS_DIM}`,
           );
         }
-        opaque = new Uint8Array(canvasW * canvasH);
+        measurer = createLayerSetMeasurer({ width: canvasW, height: canvasH });
       } else if (png.width !== canvasW || png.height !== canvasH) {
         throw new AutoRigInputError(
           `layer "${fileName}" size ${png.width}x${png.height} differs from canvas ${canvasW}x${canvasH}`,
@@ -584,241 +475,30 @@ export async function autoRigFromLayers(
       if (role === undefined) {
         throw new AutoRigInputError(`no role resolved for "${fileName}"`);
       }
-      let bbox: { x: number; y: number; w: number; h: number };
-      try {
-        bbox = detectAlphaBbox(png.rgba, png.width, png.height);
-      } catch (e) {
-        // Enrich the empty-layer error with role + file context.
-        const msg = e instanceof Error ? e.message : String(e);
+      // Created at i === 0 above.
+      const layer = measurer!.add({ role, fileName, rgba: png.rgba });
+      if (layer === null) {
         throw new AutoRigInputError(
-          `role "${role}" file "${fileName}": ${msg}`,
+          `role "${role}" file "${fileName}": layer is empty after alpha threshold`,
         );
       }
+      const { bbox } = layer;
       const buffer = await cropToBuffer(png.rgba, png.width, png.height, bbox);
-      // Fold this layer into the silhouette AND record its own per-row extent
-      // while its pixels are still here — one pass over the same pixels.
-      const rowLeft = new Int32Array(canvasH).fill(canvasW);
-      const rowRight = new Int32Array(canvasH).fill(-1);
-      const ownMask =
-        role === "hair_front" ? new Uint8Array(canvasW * canvasH) : undefined;
-      for (let y = 0; y < canvasH; y++) {
-        for (let x = 0; x < canvasW; x++) {
-          const p = y * canvasW + x;
-          if (png.rgba[p * 4 + 3] < ALPHA_OPAQUE) continue;
-          opaque[p] = 1;
-          if (ownMask !== undefined) ownMask[p] = 1;
-          if (x < rowLeft[y]) rowLeft[y] = x;
-          if (x > rowRight[y]) rowRight[y] = x;
-        }
-      }
-      rowSpansByRole.push({ role, rowLeft, rowRight });
-      if (ownMask !== undefined) hairFrontMask = ownMask;
       // png.rgba (full-canvas) is dropped at the next iteration — GC reclaims it
       // before the next decode, so peak memory stays ~one canvas + the crops.
-      const layer: LayerInput = {
-        role,
-        fileName,
-        canvasW,
-        canvasH,
-        bbox,
-        cropW: bbox.w,
-        cropH: bbox.h,
-      };
-      if (role === "face") {
-        // The plate's painted half-width on each of its crop rows — the same
-        // alpha rule and halving as the head's own span, row by row (0 for a
-        // row with no opaque pixel; a single opaque pixel IS a half-px row
-        // here, where the head-span reads below treat a one-column band as
-        // no span) — so the face plate can turn on a radius that tapers with
-        // the jaw. The bbox admits alpha down to 8 while the span counts
-        // alpha >= 128 only, so a row's span sits inside the crop and its
-        // half never exceeds cropW / 2, the generator's bound.
-        const rowHalfWidths: number[] = [];
-        for (let y = bbox.y; y < bbox.y + bbox.h; y++) {
-          rowHalfWidths.push(
-            rowRight[y] >= rowLeft[y]
-              ? headHalfOf({ left: rowLeft[y], right: rowRight[y] })
-              : 0,
-          );
-        }
-        layer.rowHalfWidths = rowHalfWidths;
-      } else if (role === "nose") {
-        // The drawing inside a soft nose's feather, canvas px like `bbox` —
-        // `png` is still this layer's full-canvas buffer, so the core comes
-        // out in the same coordinates as `bbox` and every other measurement
-        // here. `null` (wholly translucent) or a speck of the crop (a lone
-        // nostril mark, which measure_layers flags on this same file and
-        // crop) leaves `denseCore` unset, the generator falling back to the
-        // crop.
-        const core = denseCoreOf(png.rgba, canvasW, canvasH);
-        if (core !== null && !isSpeckCore(core, bbox)) layer.denseCore = core;
-      }
-      layerInputs.push(layer);
       crops.push({ id: role, buffer, width: bbox.w, height: bbox.h });
     }
+    // `layers` is non-empty (checked above), so the loop created the measurer.
+    const measurement = measurer!.finish();
+    const { headHalfWidth, headHalfWidthApplied, turnOptions } = measurement;
+    const { headEdges, strandEdges } = turnOptions;
 
     // The nose layer's own denseCore, for the result — undefined without a
-    // `nose` layer, or when denseCoreOf found no pixel at ALPHA_OPAQUE above
-    // or a speck of the crop.
-    const noseCore = layerInputs.find((l) => l.role === "nose")?.denseCore;
-
-    // The head's own half-width at the eye row, in canvas px, taken off the
-    // layers' opaque union the way measure_turn_reference takes it off a render
-    // (alpha rule, same row band, same halving) — so a rest render of this rig
-    // measures the same span back. It is what the turn's shift targets are
-    // fractions of; the generator's own fallback is the face plate, which is
-    // narrower than the head the hair draws, and every shift then lands short.
-    const eyeRow = eyeRowOf(layerInputs);
-    const span = foregroundSpan(
-      opaque,
-      canvasW,
-      canvasH,
-      eyeRow - HEAD_BAND,
-      eyeRow + HEAD_BAND,
-    );
-    // A layer set painted below the ALPHA_OPAQUE threshold (translucent art —
-    // still above detectAlphaBbox's own, much lower, floor) has no confident
-    // span here. That is not the same as having no head: fall back to the face
-    // plate, same as a span that measures narrower than it below, rather than
-    // refuse the whole rig over a union that is merely non-opaque.
-    const headHalfWidth = span.right > span.left ? headHalfOf(span) : undefined;
-    // ...but only when it IS wider than the plate. A hairless set, one whose
-    // face plate is what the eye row is widest at, or one with no confident
-    // span at all, measures a head the generator refuses (the silhouette
-    // hold's zone would sit inside the plate) — and the right answer there is
-    // the plate it falls back to, not no rig at all.
-    const headHalfWidthApplied =
-      headHalfWidth !== undefined &&
-      headHalfWidth > facePlateHalfOf(layerInputs);
-
-    // Every layer's own opaque extent in the same band — a companion to
-    // headHalfWidth, only meaningful once it is actually applied (the
-    // fallback path has no measured edge to report at all). The generator
-    // lands each candidate through its OWN deformation and takes the
-    // outermost LANDING, not just the outermost REST pixel, since which part
-    // ends up furthest out after the turn can differ from which one drew
-    // furthest out at rest. Model x (canvas x minus half the canvas width),
-    // matching bboxToTransform's own convention.
-    let headEdges:
-      | {
-          left: { role: string; x: number }[];
-          right: { role: string; x: number }[];
-        }
-      | undefined;
-    if (headHalfWidthApplied) {
-      const bandLo = eyeRow - HEAD_BAND;
-      const bandHi = eyeRow + HEAD_BAND;
-      const left: { role: string; x: number }[] = [];
-      const right: { role: string; x: number }[] = [];
-      for (const { role, rowLeft, rowRight } of rowSpansByRole) {
-        const own = foregroundSpanOfRows(rowLeft, rowRight, bandLo, bandHi);
-        if (own.right <= own.left) continue; // no opaque pixel here at all
-        left.push({ role, x: own.left - canvasW / 2 });
-        right.push({ role, x: own.right - canvasW / 2 });
-      }
-      headEdges = { left, right };
-    }
-
-    // Each iris against the bangs' run it would slide under on the turn, on
-    // ONE row — the one holding the iris's centre — under ONE rule (alpha >=
-    // ALPHA_OPAQUE), a bangs run narrower than STRAND_MIN_RUN_FRACTION of that
-    // iris's row width counting as clear. The iris's alpha-bbox (alpha >= 8, grown by a pixel) only
-    // gives that row and where to start scanning, never an edge: every number
-    // is the pixel boundary facing the neighbouring clear pixel, less half the
-    // canvas, so each is the painted edge the way bboxToTransform's crop edges
-    // are. The scan decides with the very crop centres the generator validates
-    // these edges against (bboxToTransform's), so what it measures is always
-    // accepted, on either side. A side's iris is whichever sits on that side,
-    // the two paired by x rather than by role name. Measured whether or not
-    // headHalfWidth is applied: the bound it feeds is the far iris against its
-    // own strand, not the head's width.
-    let strandEdges: { left?: IrisStrand; right?: IrisStrand } | undefined;
-    const irisLayers = layerInputs
-      .filter((l) => l.role === "iris_L" || l.role === "iris_R")
-      .sort((a, b) => a.bbox.x + a.bbox.w / 2 - (b.bbox.x + b.bbox.w / 2));
-    if (hairFrontMask !== undefined && irisLayers.length === 2) {
-      const mask = hairFrontMask;
-      const half = canvasW / 2;
-      const strandOn = (
-        iris: LayerInput,
-        other: LayerInput,
-        side: -1 | 1,
-      ): IrisStrand | undefined => {
-        const r = Math.floor(iris.bbox.y + iris.bbox.h / 2);
-        // The iris's crop centre, canvas x (a pixel boundary for an even
-        // width, a pixel's middle for an odd one), and the other's in model
-        // x — bboxToTransform's placement of each.
-        const centre = iris.bbox.x + iris.bbox.w / 2;
-        const otherX = other.bbox.x + other.bbox.w / 2 - half;
-        // The pixel just on THIS side of that centre: a run covering it
-        // reaches outward past the centre, so its outer end is strictly
-        // outward of it on either side, which a pixel chosen by one rounding
-        // for both sides would not give.
-        const c = side < 0 ? Math.ceil(centre) - 1 : Math.floor(centre);
-        const span = rowSpansByRole.find((s) => s.role === iris.role)!;
-        // An iris with no opaque pixel on its own centre row has no edge.
-        if (span.rowRight[r] < span.rowLeft[r]) return undefined;
-        // The row's strand pixels: hair_front's opaque runs on it, less every
-        // run narrower than STRAND_MIN_RUN_FRACTION of this iris's painted
-        // width there, which the whole scan below reads as clear. Runs are
-        // judged whole, so the result is the same from either side.
-        const minRun =
-          STRAND_MIN_RUN_FRACTION * (span.rowRight[r] + 1 - span.rowLeft[r]);
-        const strand = new Uint8Array(canvasW);
-        for (let a = 0; a < canvasW; ) {
-          if (mask[r * canvasW + a] !== 1) {
-            a++;
-            continue;
-          }
-          let b = a;
-          while (b < canvasW && mask[r * canvasW + b] === 1) b++;
-          if (b - a >= minRun) strand.fill(1, a, b);
-          a = b;
-        }
-        const strandAt = (x: number) =>
-          x >= 0 && x < canvasW && strand[x] === 1;
-        // The boundary between pixel x and its neighbour one step outward.
-        const outerBoundary = (x: number) => (side < 0 ? x : x + 1) - half;
-        let x = c;
-        let runFace: number | null;
-        if (!strandAt(c)) {
-          // A clear centre (or one under a thin run only): the first strand
-          // pixel outward starts the run, and its face-side boundary is
-          // runFace.
-          while (x >= 0 && x < canvasW && !strandAt(x)) x += side;
-          if (x < 0 || x >= canvasW) return undefined; // no run outward
-          runFace = outerBoundary(x - side);
-        } else {
-          // A covered centre: the run's face-side end is where it clears on
-          // the face side — when that is strictly on this side of the other
-          // iris's centre. A run still opaque there is a fringe spanning the
-          // face, which has no face-side end on this side.
-          let f = c - side;
-          while (strandAt(f)) f -= side;
-          const face = outerBoundary(f);
-          runFace = side * (face - otherX) > 0 ? face : null;
-        }
-        // Outward to the run's outer end: its last opaque pixel's boundary
-        // with the first clear one after it, or with the crop's edge.
-        while (strandAt(x)) x += side;
-        return {
-          y: canvasH / 2 - (r + 0.5),
-          irisOuter: (side < 0 ? span.rowLeft[r] : span.rowRight[r] + 1) - half,
-          irisInner: (side < 0 ? span.rowRight[r] + 1 : span.rowLeft[r]) - half,
-          runOuter: outerBoundary(x - side),
-          runFace,
-        };
-      };
-      const [low, high] = irisLayers;
-      const left = strandOn(low, high, -1);
-      const right = strandOn(high, low, 1);
-      if (left !== undefined || right !== undefined) {
-        strandEdges = {
-          ...(left === undefined ? {} : { left }),
-          ...(right === undefined ? {} : { right }),
-        };
-      }
-    }
+    // `nose` layer, or when the measurer's denseCoreOf found no pixel at
+    // ALPHA_OPAQUE or a speck of the crop.
+    const noseCore = measurement.layers.find(
+      (l) => l.role === "nose",
+    )?.denseCore;
 
     // Internal pipeline — direct calls. By here roles + bboxes are validated, so
     // a throw is an invariant break / bug and must propagate to `isError` —
@@ -837,7 +517,7 @@ export async function autoRigFromLayers(
       const { eyeShift, farEyeRatio, silhouetteRatio, noseShift, mouthShift } =
         input.turnTargets ?? {};
       model = generateIkiFromLayerSet(
-        layerInputs,
+        measurement.layers,
         { width: canvasW, height: canvasH },
         {
           turnTargets: {
@@ -846,7 +526,7 @@ export async function autoRigFromLayers(
             silhouetteRatio,
             noseShift,
             mouthShift,
-            ...(headHalfWidthApplied ? { headHalfWidth } : {}),
+            ...turnOptions.turnTargets,
           },
           onTurnSolved: (report) => {
             turn = report;
