@@ -98,7 +98,7 @@ export interface LayerInput {
    * (`createLayerSetMeasurer`), 0 for a row with no opaque pixel.
    * Optional, and only the FACE's is read: it gives the face plate a
    * row-dependent turn radius and a chin swing (`faceRowProfile`,
-   * `turnSurface`); absent — as the editor's own import leaves it — the plate
+   * `turnSurface`); absent — from a host that does not measure it — the plate
    * turns on one radius on every row. Validated before anything reads it: an
    * array of length `cropH` whose every entry is a finite number in
    * [0, cropW / 2], the most an inclusive span inside the crop can be.
@@ -111,8 +111,8 @@ export interface LayerInput {
    * NOSE's is read: its centre and width are the nose's turn landmark
    * (`turnLandmarks`), so a shaded nose is fitted by the drawing rather than
    * by its feather, and its top edge at its centre x is the bridge top the
-   * nose tilts about on the turn (`NOSE_TURN_TILT_DEG`). Absent — as the
-   * editor's own import leaves it — the crop stands in for both. Validated
+   * nose tilts about on the turn (`NOSE_TURN_TILT_DEG`). Absent — from a
+   * host that does not measure it — the crop stands in for both. Validated
    * before anything reads it: a plain object whose x, y, w and h are finite,
    * w and h positive, and the box inside `bbox`.
    */

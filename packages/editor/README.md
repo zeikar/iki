@@ -118,17 +118,18 @@ solve, so it has no effect on the rig without a `nose`; absent or `{}`, the rig
 is exactly the one built without it.
 
 It takes **already-decoded** layer geometry (`LayerInput`), never pixels, which
-is what keeps this package free of any image dependency: the editor app
-decodes with canvas, `@ikijs/mcp` decodes with `sharp`, and both feed the same
-pure function — including the optional `rowHalfWidths` (one entry per crop row,
-half that row's opaque span in canvas px), measured for the face so the plate
-turns on a radius that varies by row; absent, it turns on one constant radius.
-It also takes the optional `denseCore`, the tight box of a layer's alpha ≥ 128
-pixels in image coords, not grown, measured for the nose: its centre and width
-are the nose's turn landmark, so a shaded nose is fitted by its drawing rather
-than its soft feather, and its top edge at its centre x is the bridge top the
-nose tilts 6° about on the turn, its tip toward the far side; absent, the crop
-stands in for both.
+is what keeps this package free of any image dependency: the editor app decodes
+with canvas, `@ikijs/mcp` decodes with `sharp`, and both hand the RGBA they
+decoded to `createLayerSetMeasurer` (below) and feed what it measures to the
+same pure function — including the optional `rowHalfWidths` (one entry per crop
+row, half that row's opaque span in canvas px), measured for the face so the
+plate turns on a radius that varies by row; absent, it turns on one constant
+radius. It also takes the optional `denseCore`, the tight box of a layer's alpha
+≥ 128 pixels in image coords, not grown, measured for the nose: its centre and
+width are the nose's turn landmark, so a shaded nose is fitted by its drawing
+rather than its soft feather, and its top edge at its centre x is the bridge top
+the nose tilts 6° about on the turn, its tip toward the far side; absent, the
+crop stands in for both.
 
 `createLayerSetMeasurer(canvas)` measures all of it — `rowHalfWidths`,
 `denseCore`, `headHalfWidth`, `headEdges` and `strandEdges` — off the RGBA a
@@ -136,7 +137,7 @@ host decoded, one layer at a time: `add` each layer while its pixels are in
 memory (it keeps no reference to them), then `finish` for the `LayerInput`s and
 the `turnOptions` to pass the generator. A caller's own `turnTargets` go
 underneath `turnOptions.turnTargets`: spread the caller's targets first, then
-the measured ones. `@ikijs/mcp` calls it.
+the measured ones.
 
 `*_L` / `*_R` are the **character's** sides — `eye_L` is the character's left
 eye, which appears on the viewer's right.

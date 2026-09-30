@@ -22,7 +22,6 @@ import {
   type EditCommand,
   type EditTransformChannel,
   type DeformerTransformChannel,
-  type LayerInput,
 } from "@ikijs/editor";
 import type {
   IkiTransform,
@@ -756,9 +755,10 @@ export const useEditorStore = create<EditorState>((set, get) => {
           }
         }
 
-        // Build LayerInput[] — reads pixels only, creates NO ImageBitmaps.
-        // parseLayerRoles throws on duplicate names BEFORE we build the Map.
-        const layers: LayerInput[] = buildLayerInputs(decodedList);
+        // Measure the layers as auto_rig_from_layers does — reads pixels only,
+        // creates NO ImageBitmaps. parseLayerRoles throws on duplicate names
+        // BEFORE we build the Map.
+        const { layers, turnOptions } = buildLayerInputs(decodedList);
 
         // Now that duplicates have been rejected, the name→bitmap Map is
         // collision-free for the crop loop's decodedByName.get lookups.
@@ -788,11 +788,13 @@ export const useEditorStore = create<EditorState>((set, get) => {
           });
         }
 
-        // Generate model and create a fresh document.
-        const model = generateIkiFromLayerSet(layers, {
-          width: layers[0].canvasW,
-          height: layers[0].canvasH,
-        });
+        // Generate model and create a fresh document. The app passes no turn
+        // targets of its own, so the measured turnOptions go in as they are.
+        const model = generateIkiFromLayerSet(
+          layers,
+          { width: layers[0].canvasW, height: layers[0].canvasH },
+          turnOptions,
+        );
         const doc = new EditorDocument(model);
 
         // Pack + render atlas from crops.

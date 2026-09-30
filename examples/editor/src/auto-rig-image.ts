@@ -7,9 +7,9 @@
  */
 
 import {
-  detectAlphaBbox as scanAlphaBbox,
+  createLayerSetMeasurer,
   parseLayerRoles,
-  type LayerInput,
+  type LayerSetMeasurement,
 } from "@ikijs/editor";
 
 /**
@@ -26,20 +26,12 @@ export const MAX_PNG_LAYER_DIM = 4096;
 export const MAX_PNG_TOTAL_MEGAPIXELS = 256;
 
 /**
- * Rasterize a bitmap and return the tight alpha bounding box, expanded by 1px
- * (clamped to canvas bounds) to give AA / extrude margin. Top-left origin,
- * +y down (image coordinates).
+ * Rasterize a bitmap and return its straight-alpha RGBA, stride 4, top-left
+ * origin — the pixels `createLayerSetMeasurer` measures.
  *
- * Throws if:
- * - the 2d canvas context is unavailable
- * - no pixel passes the threshold (empty layer)
+ * Throws if the 2d canvas context is unavailable.
  */
-export function detectAlphaBbox(bitmap: ImageBitmap): {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-} {
+export function bitmapRgba(bitmap: ImageBitmap): Uint8ClampedArray {
   const { width, height } = bitmap;
 
   const canvas = document.createElement("canvas");
@@ -48,19 +40,11 @@ export function detectAlphaBbox(bitmap: ImageBitmap): {
 
   const ctx = canvas.getContext("2d");
   if (ctx === null) {
-    throw new Error("detectAlphaBbox: could not obtain 2d canvas context");
+    throw new Error("auto-rig: bitmapRgba: could not obtain 2d canvas context");
   }
 
   ctx.drawImage(bitmap, 0, 0);
-  const { data } = ctx.getImageData(0, 0, width, height);
-
-  // The scan lives in @ikijs/editor so this path and the Node MCP path
-  // cannot drift; only the decode above is browser-specific.
-  const bbox = scanAlphaBbox(data, width, height);
-  if (bbox === null) {
-    throw new Error("auto-rig: layer is empty after alpha threshold");
-  }
-  return bbox;
+  return ctx.getImageData(0, 0, width, height).data;
 }
 
 /**
@@ -82,10 +66,14 @@ export function cropBitmap(
 }
 
 /**
- * Build the pure LayerInput[] payload from an array of decoded bitmaps.
+ * Measure an array of decoded bitmaps for the auto-rig, as `@ikijs/mcp`'s
+ * `auto_rig_from_layers` measures its decoded PNGs: the layers' `LayerInput`s
+ * plus the `turnOptions` to pass `generateIkiFromLayerSet` (and the head
+ * half-width they were derived from).
  *
  * NON-async — creates NO ImageBitmaps — the store owns every cropped-bitmap
- * lifetime; this function only reads pixels.
+ * lifetime; this function only reads pixels, one layer's RGBA at a time: each
+ * is dropped once `createLayerSetMeasurer` has measured it.
  *
  * Contract:
  * - All bitmaps must share the same width/height (canvas size is taken from
@@ -94,11 +82,12 @@ export function cropBitmap(
  *   throw).
  * - Every layer must contain at least one non-transparent pixel.
  *
- * Throws a path-qualified Error on any violation.
+ * Throws a path-qualified Error on any violation. (A missing 2d canvas
+ * context is not a layer's fault, so `bitmapRgba`'s error names no file.)
  */
 export function buildLayerInputs(
   decoded: { fileName: string; bitmap: ImageBitmap }[],
-): LayerInput[] {
+): LayerSetMeasurement {
   if (decoded.length === 0) {
     throw new Error(
       "auto-rig: buildLayerInputs: decoded layers must not be empty",
@@ -126,26 +115,16 @@ export function buildLayerInputs(
     rolePairs.map(({ role, fileName }) => [fileName, role]),
   );
 
-  return decoded.map(({ fileName, bitmap }) => {
+  // The measurement lives in @ikijs/editor so this path and the Node MCP path
+  // cannot drift; only the decode (bitmapRgba) is browser-specific.
+  const measurer = createLayerSetMeasurer({ width: canvasW, height: canvasH });
+  for (const { fileName, bitmap } of decoded) {
     const role = roleByFileName.get(fileName)!;
-
-    let bbox: { x: number; y: number; w: number; h: number };
-    try {
-      bbox = detectAlphaBbox(bitmap);
-    } catch (err) {
-      // Enrich the empty-layer error with role + file context.
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`auto-rig: role "${role}" file "${fileName}": ${msg}`);
+    if (measurer.add({ role, fileName, rgba: bitmapRgba(bitmap) }) === null) {
+      throw new Error(
+        `auto-rig: role "${role}" file "${fileName}": layer is empty after alpha threshold`,
+      );
     }
-
-    return {
-      role,
-      fileName,
-      canvasW,
-      canvasH,
-      bbox,
-      cropW: bbox.w,
-      cropH: bbox.h,
-    };
-  });
+  }
+  return measurer.finish();
 }
