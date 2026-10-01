@@ -14,8 +14,9 @@ import {
   type TurnSolveReport,
   type TurnTargets,
 } from "@ikijs/editor";
-import { buildHeadFrame } from "../src/auto-rig/head";
+import { buildHeadFrame, type HeadFrame } from "../src/auto-rig/head";
 import { AMPLITUDE } from "../src/auto-rig/profile";
+import type { GenerateOptions } from "../src/auto-rig/types";
 import { CANVAS, character, type CharacterOptions } from "./helpers/character";
 import {
   landVertices,
@@ -631,7 +632,7 @@ describe("the jaw cut", () => {
   /** The fixture's face with a measured jaw stroke: a V from where the jaw
    *  meets the neck (canvas row 648, 78 px either side of the axis) down to
    *  the chin at row 692. */
-  function withJaw(edit: (rows: number[]) => void = () => {}) {
+  function jawed(edit: (rows: number[]) => void = () => {}) {
     const { layers, options } = character();
     const face = layers.find((l) => l.role === "face")!;
     const rows = Array.from({ length: face.bbox.w }, (_, i) => {
@@ -639,8 +640,53 @@ describe("the jaw cut", () => {
       return d <= 78 ? Math.round(692 - (d / 78) * 44) : -1;
     });
     edit(rows);
-    const faced = layers.map((l) => (l === face ? { ...l, jawRows: rows } : l));
-    return generateIkiFromLayerSet(faced, CANVAS, options);
+    return {
+      layers: layers.map((l) => (l === face ? { ...l, jawRows: rows } : l)),
+      options,
+    };
+  }
+  function withJaw(edit: (rows: number[]) => void = () => {}) {
+    const { layers, options } = jawed(edit);
+    return generateIkiFromLayerSet(layers, CANVAS, options);
+  }
+  /** The stroke's lower boundary, model y, at offset d from the axis. */
+  const jawStroke = (d: number) => 500 - (Math.round(692 - (d / 78) * 44) + 1);
+  const frameOf = (layers: LayerInput[], options: GenerateOptions) =>
+    buildHeadFrame(layers, {
+      headHalfWidth: 262,
+      headEdges: options.headEdges,
+    });
+
+  /** How many samples of the plate a turn of `ax` lands past the neck's
+   *  outline from inside it, of those lying more than `depth` px under the
+   *  jaw's stroke at rest. */
+  function pastOutline(
+    m: IkiModel,
+    frame: HeadFrame,
+    stroke: (d: number) => number,
+    depth: number,
+    ax: number,
+  ): number {
+    const { axisX } = frame;
+    const waist = frame.neck!.waist;
+    const rest = landVertices(m, "face");
+    const v = landVertices(m, "face", X30(ax));
+    const tris = triangles(m.parts.find((p) => p.id === "face")!.mesh!.indices);
+    const S = 6;
+    let past = 0;
+    for (const t of tris) {
+      for (let i = 0; i <= S; i++) {
+        for (let j = 0; i + j <= S; j++) {
+          const w = [i / S, j / S, (S - i - j) / S];
+          const at = (p: Float32Array, k: number) =>
+            w.reduce((s, wk, n) => s + wk * p[t[n] * 2 + k], 0);
+          const d = Math.abs(at(rest, 0) - axisX);
+          if (d >= waist || at(rest, 1) >= stroke(d) - depth) continue;
+          if (Math.abs(at(v, 0) - axisX) > waist) past++;
+        }
+      }
+    }
+    return past;
   }
   const pivotY = (m: IkiModel) =>
     (
@@ -660,18 +706,10 @@ describe("the jaw cut", () => {
     expect(Math.abs(pivotY(stray) - pivotY(m))).toBeLessThanOrEqual(1);
   });
 
-  it("carries the chin's shade with the head under the chin only, thinning it to nothing at the neck's outline", () => {
-    const { layers, options } = character();
-    const face = layers.find((l) => l.role === "face")!;
-    const rows = Array.from({ length: face.bbox.w }, (_, i) => {
-      const d = Math.abs(face.bbox.x + i + 0.5 - 500.5);
-      return d <= 78 ? Math.round(692 - (d / 78) * 44) : -1;
-    });
-    const frame = buildHeadFrame(
-      layers.map((l) => (l === face ? { ...l, jawRows: rows } : l)),
-      { headHalfWidth: 262, headEdges: options.headEdges },
-    );
-    const stroke = (d: number) => 500 - (Math.round(692 - (d / 78) * 44) + 1);
+  it("carries the chin's shade with the head under the chin only, thinning it to nothing short of the neck's outline by the chin's slide", () => {
+    const { layers, options } = jawed();
+    const frame = frameOf(layers, options);
+    const stroke = jawStroke;
     // Under the chin the cut runs a band's depth below the jaw's stroke...
     expect(stroke(0) - frame.cutAt(0.5)).toBeGreaterThan(10);
     // ...and at the neck's outline (its waist, 78) right under it, so the
@@ -680,6 +718,76 @@ describe("the jaw cut", () => {
     expect(
       Math.abs(stroke(waist - 1) - frame.cutAt(0.5 - (waist - 1))),
     ).toBeLessThan(2.5);
+    // Given the chin's slide at a full turn (51 px on the fixture), the band
+    // still runs deep under the chin, but the cut draws its end that slide
+    // and 2 px short of the outline: past there, only the fringe margin
+    // (thinned there to under 1.4 px) and the cut's low filter over three
+    // columns of the V (about 1.7 px) lie under the stroke.
+    const slide = 51;
+    const turned = buildHeadFrame(layers, {
+      headHalfWidth: 262,
+      headEdges: options.headEdges,
+      chinSlide: slide,
+    });
+    const { axisX } = turned;
+    expect(stroke(0) - turned.cutAt(axisX)).toBeGreaterThan(10);
+    for (let d = waist - slide - 2; d < waist; d++) {
+      for (const x of [axisX - d, axisX + d]) {
+        expect(stroke(d) - turned.cutAt(x), `x ${x}`).toBeLessThan(3.5);
+      }
+    }
+  });
+
+  it("keeps the chin's shade inside the neck through the turn", () => {
+    const { layers, options } = jawed();
+    const m = generateIkiFromLayerSet(layers, CANVAS, options);
+    const frame = frameOf(layers, options);
+    // The drawing more than 4 px under the stroke (its fringe margin and the
+    // cut's low filter on the V, about 3 px, lie within that) lands inside
+    // the neck.
+    for (const ax of [-30, -15, 15, 30]) {
+      expect(pastOutline(m, frame, jawStroke, 4, ax), `AngleX ${ax}`).toBe(0);
+    }
+  });
+
+  it("keeps the chin's shade inside a slim neck, which leaves the band little room or none", () => {
+    for (const waist of [54, 56, 58, 60, 64]) {
+      // The fixture's neck narrowed to `waist`, its jaw stroke a V from the
+      // chin (canvas row 692) up to where the jaw meets the neck's sides.
+      const { layers, options } = character();
+      const face = layers.find((l) => l.role === "face")!;
+      const h = face.bbox.h;
+      const prof = face.rowHalfWidths!.map((w, r) => {
+        const t = r / h;
+        if (t < 0.5 || r >= h - 4) return w;
+        const v = t < 0.8 ? 198 - (198 - waist) * ((t - 0.5) / 0.3) : waist;
+        return Math.round(v * 2) / 2;
+      });
+      const half = waist + 0.15 * (198 - waist);
+      const top = face.bbox.y + prof.findIndex((w, r) => r > 100 && w <= half);
+      const row = (d: number) => Math.round(692 - (d / half) * (692 - top));
+      const rows = Array.from({ length: face.bbox.w }, (_, i) => {
+        const d = Math.abs(face.bbox.x + i + 0.5 - 500.5);
+        return d <= half ? row(d) : -1;
+      });
+      const slim = layers.map((l) =>
+        l === face ? { ...l, rowHalfWidths: prof, jawRows: rows } : l,
+      );
+      const m = generateIkiFromLayerSet(slim, CANVAS, options);
+      const frame = frameOf(slim, options);
+      expect(frame.neck!.waist).toBe(waist);
+      // Past the stroke's fringe (2 px) and the cut's low filter over three
+      // columns of this steeper V (and a quarter pixel for the stroke's
+      // rounded rows), nothing lands past the outline.
+      const depth = 2 + (3 * (692 - top)) / half + 0.25;
+      const stroke = (d: number) => 500 - (row(d) + 1);
+      for (const ax of [-30, -15, 15, 30]) {
+        expect(
+          pastOutline(m, frame, stroke, depth, ax),
+          `waist ${waist}, AngleX ${ax}`,
+        ).toBe(0);
+      }
+    }
   });
 
   it("keeps the neck's texture on the drawing: a collar as wide as the plate, a neck stub", () => {

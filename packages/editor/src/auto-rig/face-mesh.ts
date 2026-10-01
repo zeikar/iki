@@ -11,7 +11,7 @@
  */
 
 import type { IkiMesh } from "@ikijs/format";
-import { shadeAcross, type HeadFrame } from "./head";
+import { fadeToOutline, type HeadFrame } from "./head";
 import {
   bh,
   bw,
@@ -133,7 +133,8 @@ export function buildFaceMesh(
   };
 
   // Columns at even steps, plus the chin's and the jaw corners' own, so the
-  // cut's V runs through vertices rather than chording off its tip.
+  // cut's V runs through vertices rather than chording off its tip, and the
+  // chin's shade band's ends, so no cell chords the band on past them.
   const columns = (x0: number, x1: number, n: number): number[] => {
     const xs = Array.from(
       { length: n + 1 },
@@ -155,12 +156,24 @@ export function buildFaceMesh(
         frame.axisX - neck.waist,
         frame.axisX + neck.waist,
       );
+      if (neck.bandEnd !== undefined)
+        at.push(frame.axisX - neck.bandEnd, frame.axisX + neck.bandEnd);
     }
+    // Each takes the even column near it (not an end), or one of its own —
+    // never a column another has taken, so none of them is lost; one near an
+    // end is left to it, and one within half a pixel of a taken column is that
+    // column.
+    const placed = new Set<number>();
     for (const k of at) {
       if (k <= x0 || k >= x1) continue;
-      const near = xs.findIndex((x) => Math.abs(x - k) < 0.3 * step);
-      if (near >= 0 && near !== 0 && near !== xs.length - 1) xs[near] = k;
-      else if (near < 0) xs.push(k);
+      if ([...placed].some((i) => Math.abs(xs[i] - k) < 0.5)) continue;
+      const near = xs.findIndex(
+        (x, i) => !placed.has(i) && Math.abs(x - k) < 0.3 * step,
+      );
+      if (near > 0 && near < n) {
+        xs[near] = k;
+        placed.add(near);
+      } else if (near < 0) placed.add(xs.push(k) - 1);
     }
     return xs.sort((a, b) => a - b);
   };
@@ -177,13 +190,17 @@ export function buildFaceMesh(
       Math.min(b.x1, frame.axisX + span),
       nc,
     );
-    // The hidden rows show the shade under the jaw's middle, and toward the
-    // neck's outline the row just under the cut (the shade band thins to
-    // nothing there, and the outline must run on unbroken above the cut).
+    // The hidden rows show the drawing SAMPLE_BELOW under the cut, thinning
+    // to the row just under it at the neck's outline (which must run on
+    // unbroken above the cut). Under the chin that is the neck below the
+    // shade band the head carries; past the band's end, where the cut runs
+    // just under the stroke, it is whatever shade the neck keeps there.
     const sampleBelow = (x: number) =>
       Math.max(
         1,
-        SAMPLE_BELOW * frame.hh * shadeAcross(Math.abs(x - frame.axisX), neck),
+        SAMPLE_BELOW *
+          frame.hh *
+          fadeToOutline(Math.abs(x - frame.axisX), neck),
       );
     // The jaw's corners: the highest the cut runs across the neck. Beside
     // the neck a column's cut is the head's own side outline instead, up the

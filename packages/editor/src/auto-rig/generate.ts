@@ -44,6 +44,7 @@ import {
 import { roleSpec, ROLE_TABLE, type Family, type RoleSpec } from "./roles";
 import { bake, lattice, X_STOPS, Y_STOPS, type Lattice } from "./grid";
 import {
+  chinSlide,
   earField,
   familyField,
   hairFrontBends,
@@ -157,11 +158,43 @@ export function generateIkiFromLayerSet(
     ? resolveTurnTargets(options.turnTargets, plateHalf)
     : { given: new Set() };
   const turnOptions: GenerateOptions = hasNose ? options : {};
-  const frame = buildHeadFrame(layers, {
+  const frameOptions = {
     headHalfWidth: targets.headHalfWidth,
     headEdges:
       targets.headHalfWidth !== undefined ? options.headEdges : undefined,
+  };
+  const solveFrame = buildHeadFrame(layers, frameOptions);
+
+  // --- the turn ---
+  const ctx = solveContext(solveFrame, byRole, turnOptions, hasNose);
+  const landmarks: Pick<
+    TurnModel,
+    "boxes" | "noseAt" | "noseTopY" | "mouthAt" | "hairTop"
+  > = {
+    boxes: Object.fromEntries(
+      (["eye_L", "eye_R", "brow_L", "brow_R"] as const)
+        .filter(has)
+        .map((r) => [r, box(r)]),
+    ),
+    noseAt: ctx.noseAt,
+    noseTopY: ctx.noseBox?.y1,
+    mouthAt: ctx.mouthAt,
+    hairTop: has("hair_front") ? box("hair_front").y1 : solveFrame.face.y1,
+  };
+  const build = (q: Parameters<typeof buildTurn>[2]) =>
+    buildTurn(solveFrame, landmarks, q);
+  // Without a nose there are no targets, but the art's room still bounds
+  // the profile's turn.
+  const fit: TurnFit = fitTurn(ctx, targets, style, build);
+
+  // The jaw's cut takes the chin's shade only as far as the solved turn
+  // keeps it inside the neck, so the frame is rebuilt with the chin's slide;
+  // the two differ only in the cut, which the solve does not read.
+  const frame = buildHeadFrame(layers, {
+    ...frameOptions,
+    chinSlide: chinSlide(fit.model),
   });
+  const turn: TurnModel = { ...fit.model, frame };
 
   // --- parts, with the warps and bindings that are not the turn's ---
   const parts: IkiPart[] = [];
@@ -186,29 +219,6 @@ export function generateIkiFromLayerSet(
     reach.set(spec.role, built.reach);
     parts.push(built.part);
   }
-
-  // --- the turn ---
-  const ctx = solveContext(frame, byRole, turnOptions, hasNose);
-  const landmarks: Pick<
-    TurnModel,
-    "boxes" | "noseAt" | "noseTopY" | "mouthAt" | "hairTop"
-  > = {
-    boxes: Object.fromEntries(
-      (["eye_L", "eye_R", "brow_L", "brow_R"] as const)
-        .filter(has)
-        .map((r) => [r, box(r)]),
-    ),
-    noseAt: ctx.noseAt,
-    noseTopY: ctx.noseBox?.y1,
-    mouthAt: ctx.mouthAt,
-    hairTop: has("hair_front") ? box("hair_front").y1 : frame.face.y1,
-  };
-  const build = (q: Parameters<typeof buildTurn>[2]) =>
-    buildTurn(frame, landmarks, q);
-  // Without a nose there are no targets, but the art's room still bounds
-  // the profile's turn.
-  const fit: TurnFit = fitTurn(ctx, targets, style, build);
-  const turn = fit.model;
 
   // --- the features' grids ---
   const grids: Grids = new Map();

@@ -70,19 +70,28 @@ first, then ears, then head:
   from the plate's widest row, the last row of the first stroke darker than
   0.55 of the plate's median luminance) — lowered under the chin by 0.05 hh,
   so the dark band a chin casts on the neck goes with the chin rather than
-  staying behind as a second jaw line. That band thins evenly to nothing at
-  the neck's outline (with no margin under the stroke there): carried whole
-  to the neck's sides, a turn slid its ends past the neck as a box of neck
-  with a straight edge, the top of the neck's own outline hanging under the
-  jaw; thinned, its ends are slivers along the jaw. Without a measured stroke the line is a V from where the
-  jaw's outline meets the neck's sides down to the chin (estimated half the
-  eye→mouth span under the mouth). Beside the neck it follows the plate's own
-  outline. A column sits at the chin and at each jaw corner, so the V runs
-  through vertices.
+  staying behind as a second jaw line. That band thins evenly to nothing
+  short of the neck's outline: the cut draws its end the chin's slide at a
+  full turn and 2 px inside the waist (it thins out four columns sooner,
+  since the cut takes the lowest of three columns either side and is read
+  between them), so at ±30 the end lands at least 2 px inside the outline.
+  Carried on to the outline, a turn slid its end past the neck as an unlined
+  wedge of neck over the top of the outline. The 2 px fringe margin still
+  thins evenly to nothing at the outline itself (with no margin under the
+  stroke there). The slide is the solved turn's, so the frame is built
+  twice: the turn is solved on the first, the parts are built on the second,
+  which differs from it only in this cut. Without a measured stroke the line
+  is a V from where the jaw's outline meets the neck's sides down to the chin
+  (estimated half the eye→mouth span under the mouth). Beside the neck it
+  follows the plate's own outline. A column sits at the chin, at each jaw
+  corner and, under a measured stroke, at each end of the band — none taking
+  another's place — so the V runs through vertices.
 - **The neck island** runs from the neck's cut edge up under the jaw by 0.3 hh
   (what the chin uncovers as it slides). Above the jaw line its rows show the
-  neck's shade 0.04 hh below it — one even tone — rather than the chin
-  painted there. It is drawn first, so the head slides over it; its vertices
+  drawing just under the cut — 0.04 hh under it below the chin, thinning to a
+  pixel at the neck's outline — rather than the chin painted there: under the
+  chin that is the neck below the shade band the head carries; past the band's
+  end, whatever shade the neck keeps under the jaw. It is drawn first, so the head slides over it; its vertices
   take no part in the nod, undo the head's roll (within a fraction of a pixel
   between its keyed extremes), and rise with the shoulders on a breath. On the
   turn its outline and its base stay, but the shade under the chin slides
@@ -220,7 +229,13 @@ curvature the plate would need to put the eyes that far in front of its edge.
   0.13 of the chin's 0.19 hh), and not on a nod (looking up uncovers the
   hidden top's shade instead). The cut follows a measured stroke only where
   the art has line work under the jaw; otherwise it is a V estimated from
-  the outline.
+  the outline. The band under the stroke goes with the chin only as far as
+  the waist less the chin's full-turn slide: a cast shadow drawn past that
+  stays on the neck, and shows under the jaw on the near side. Past the
+  band's end the cut still runs a little under the stroke — the fringe
+  margin, part thinned there, and the jaw's drop over the low filter's three
+  columns — and at full turn that sliver crosses the outline: about 3 px
+  deep where the jaw falls 0.56 px per column, under 5 px where it falls 0.9.
 - Holding the outline the front hair draws squeezes the far side lock (to
   about 0.6 of its width at ±30 on the hero) and widens the near one; with
   `outlineFollow` at `hairFollow` the locks ride whole instead and the

@@ -145,6 +145,12 @@ export function earField(m: TurnModel): Field {
   };
 }
 
+/** How far the chin slides at a full turn, px. */
+export function chinSlide(m: TurnModel): number {
+  const f = m.frame;
+  return Math.abs(faceField(m)(f.axisX, f.chinY, 30, 0)[0]);
+}
+
 /** How far the shade under the chin may slide across the neck, as a share of
  *  the neck's half-width: its outline stays put, and the drawing between them
  *  keeps more than half its width. */
@@ -165,7 +171,7 @@ export function neckField(m: TurnModel): Field {
   const nk = f.neck;
   if (nk === undefined) return () => [0, 0];
   const face = faceField(m);
-  const full = Math.abs(face(f.axisX, f.chinY, 30, 0)[0]);
+  const full = chinSlide(m);
   const share = Math.min(1, (NECK_SHADE_MAX * nk.waist) / Math.max(1e-6, full));
   // By row only: from a little under the chin up it slides whole, fading to
   // nothing at the neck's base — the jaw's V and the neck's rows under it

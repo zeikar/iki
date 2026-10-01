@@ -15,7 +15,7 @@
 import type { HeadFrame } from "./head";
 import { cy, type Box } from "./layout";
 import { roleSpec, type Family } from "./roles";
-import { familyField, type TurnModel } from "./fields";
+import { chinSlide, familyField, type TurnModel } from "./fields";
 import { TURN, type ResolvedStyle } from "./profile";
 import {
   TurnTargetError,
@@ -548,8 +548,7 @@ function eyesInPlate(ctx: SolveContext, m: TurnModel): boolean {
 function chinOverNeck(ctx: SolveContext, m: TurnModel): boolean {
   const { frame } = ctx;
   if (frame.neck === undefined) return true;
-  const f = familyField(m, "face");
-  return Math.abs(f(frame.axisX, frame.chinY, 30, 0)[0]) <= frame.neck.half;
+  return chinSlide(m) <= frame.neck.half;
 }
 
 /** The far iris goes no deeper under its bangs' strand than it is painted. */

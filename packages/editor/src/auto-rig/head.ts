@@ -18,6 +18,9 @@ export interface Neck {
   span: number;
   /** Its narrowest, between the two: where its outline runs. */
   waist: number;
+  /** Under a measured jaw stroke, given the chin's slide: how far from the
+   *  axis the cut draws the end of the chin's shade band (see JAW_SHADE). */
+  bandEnd?: number;
 }
 
 /** Ears the face layer paints on the plate's sides: a band of rows where the
@@ -135,11 +138,16 @@ function boxSmooth(v: number[], k: number): number[] {
 /** How far under the jaw's outline the cut runs, px: the stroke's
  *  antialiased fringe stays on the head. */
 const CUT_MARGIN = 2;
-/** How much of the chin's shade band the head takes at offset d from the
- *  axis: all of it under the chin, thinning evenly to none at the neck's
- *  outline — so the band's ends, slid past the neck by a turn, are slivers
- *  along the jaw rather than a box of neck. */
-export function shadeAcross(d: number, nk: Neck): number {
+/** The cut takes the lowest of each column's neighbours this many columns
+ *  either side, and is read linearly between columns. On a jaw rising away
+ *  from the chin, that draws the cut's shape — the shade band's end among it
+ *  — up to one column more than that further out. */
+const CUT_LOW = 3;
+/** How much of a depth under the jaw's line holds at offset d from the axis:
+ *  all of it under the chin, thinning evenly to none at the neck's outline,
+ *  where the outline's own first pixels lie. The cut's fringe margin thins
+ *  so, and the depth the neck's hidden rows sample the drawing at. */
+export function fadeToOutline(d: number, nk: Neck): number {
   return Math.max(0, 1 - d / nk.waist);
 }
 
@@ -149,12 +157,23 @@ const STROKE_RUN = 4;
 const STROKE_SLACK = 6;
 /** Under a measured jaw stroke, the dark band a chin casts on the neck goes
  *  with the chin too (hh): left on the neck, it reads as a second jaw line
- *  once the chin slides off it. */
+ *  once the chin slides off it. It goes only as far as a full turn keeps it
+ *  on the neck: given the chin's slide at AngleX 30, the cut draws the
+ *  band's end no nearer the waist than that slide and a CUT_MARGIN, so at
+ *  ±30 the end lands at least 2 px inside the neck's outline. Carried
+ *  further, a turn slides it past the outline, an unlined wedge of neck over
+ *  the outline's top. */
 const JAW_SHADE = 0.05;
 
 export function buildHeadFrame(
   layers: LayerInput[],
-  opts: { headHalfWidth?: number; headEdges?: HeadEdges },
+  opts: {
+    headHalfWidth?: number;
+    headEdges?: HeadEdges;
+    /** The chin's slide at AngleX 30, px. Without it the chin's shade band
+     *  reaches the neck's outline. */
+    chinSlide?: number;
+  },
 ): HeadFrame {
   const byRole = new Map(layers.map((l) => [l.role, l]));
   const faceLayer = byRole.get("face")!;
@@ -340,6 +359,19 @@ export function buildHeadFrame(
       };
       const chin = chinY;
       const shade = JAW_SHADE * HH_PER_EYE_TO_CHIN * Math.max(1, eyeY - chin);
+      // Where the band thins to nothing: CUT_LOW + 1 columns short of the
+      // furthest the cut may draw its end. Without a slide, at the neck's
+      // outline.
+      const reach =
+        opts.chinSlide === undefined
+          ? nk.waist
+          : clamp(
+              nk.waist - opts.chinSlide - CUT_MARGIN - (CUT_LOW + 1),
+              0,
+              nk.waist,
+            );
+      // The furthest column the band reaches under a measured stroke.
+      let banded = -1;
       const cut = new Float64Array(faceLayer.cropW);
       for (let i = 0; i < faceLayer.cropW; i++) {
         const d = Math.abs(colX(i) - axisX);
@@ -348,15 +380,15 @@ export function buildHeadFrame(
         // neck, the jaw's own outline (below it the layer is empty, save a
         // collar flare the neck keeps).
         const stroke = d <= nk.half ? strokeAt(i) : undefined;
-        // The chin's shade goes with the head only across the neck's middle:
-        // toward its outline the band thins to nothing, or it would carry the
-        // top of the neck's own outline off with the chin — a box of neck
-        // with a straight edge sliding past the neck, a stroke under the jaw.
-        // Where the jaw meets the neck's outline, not even the stroke's
-        // fringe margin: the outline's own first pixels would go with it.
+        // The chin's shade goes with the head only across the neck's middle,
+        // thinning to nothing at its reach (see JAW_SHADE). The stroke's
+        // fringe margin thins on to the outline itself, where not even that
+        // goes: the outline's own first pixels would go with it.
+        const band = reach > 0 ? Math.max(0, 1 - d / reach) : 0;
+        if (stroke !== undefined && band > 0) banded = Math.max(banded, d);
         const y =
           stroke !== undefined
-            ? stroke - (shade + CUT_MARGIN) * shadeAcross(d, nk)
+            ? stroke - shade * band - CUT_MARGIN * fadeToOutline(d, nk)
             : (d <= nk.half
                 ? chin + (nk.topY - chin) * (d / Math.max(1, nk.half))
                 : outlineAt(d)) - CUT_MARGIN;
@@ -367,11 +399,15 @@ export function buildHeadFrame(
       // two sampled columns stays on the head.
       const low = cut.map((_, i) => {
         let m = Infinity;
-        for (let j = i - 3; j <= i + 3; j++) {
+        for (let j = i - CUT_LOW; j <= i + CUT_LOW; j++) {
           if (j >= 0 && j < cut.length) m = Math.min(m, cut[j]);
         }
         return m;
       });
+      // Where the cut draws the band's end: CUT_LOW columns past the last
+      // it reaches, then read toward the next.
+      if (opts.chinSlide !== undefined && banded >= 0)
+        nk.bandEnd = banded + CUT_LOW + 1;
       cutAt = (x: number) => {
         const f = x - (faceLayer.bbox.x - canvasW / 2) - 0.5;
         const i = clamp(Math.floor(f), 0, low.length - 1);
