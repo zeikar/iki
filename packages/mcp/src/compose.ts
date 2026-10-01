@@ -17,6 +17,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
+import { ALPHA_OPAQUE } from "@ikijs/editor";
 import { cropToBuffer, decodePng } from "./node-images";
 import { measureDir, type MeasureReport, type NoseSpeck } from "./measure";
 import { denseCoreOf, isSpeckCore } from "./measure-turn";
@@ -584,29 +585,50 @@ function luma(rgba: Buffer, i: number): number {
 
 /**
  * The eyewhite's light ink drawn detached above its white, as a row-major
- * mask (1 = detached). The white is the largest 8-connected set of light
- * pixels: non-transparent and at luma EYE_LASH_LUMA or over. Another such set
- * is detached above it when each of its pixels lies above the white's topmost
- * pixel in its column, or, past either end of the white, above the top of
- * that end's column. A crease often runs on past the eye's corners, and judged
- * only over the white, one pixel out there (even a faint halo) would keep the
- * whole crease. A shade painted on the white touches it, so it is part of the
- * white; a mark below the white, or beside an end and level with it, is left.
+ * mask (1 = detached). Light ink is non-transparent at luma EYE_LASH_LUMA or
+ * over. Its sets are 8-connected through visibly painted pixels only (alpha
+ * ALPHA_OPAQUE or over), so a faint antialiased pixel between a crease and
+ * the white does not join them. Each fainter pixel is fringe of the nearest
+ * painted set it reaches through faint pixels whose alpha never rises on the
+ * way (ties go to the set met first in row-major order, the higher one).
+ * Antialiasing fades away from what it edges, so a translucent stroke past a
+ * fainter halo does not become the fringe of the set the halo edges. Faint
+ * ink that no painted set reaches this way forms sets of its own. So does a
+ * noisy faint pixel brighter than every claimed neighbour and touching no
+ * painted pixel: above the white's top, it is dropped. The white is the
+ * largest painted set. Another set is detached above it when each of its own
+ * pixels, fringe aside, lies above the white's topmost painted pixel in its
+ * column, or, past either end of the white, above the top of that end's
+ * column; it goes with its fringe. A crease often runs on past the eye's
+ * corners, and judged only over the white, one pixel out there would keep
+ * the whole crease. A shade painted on the white touches it, so it is part
+ * of the white; a mark below the white, or beside an end and level with it,
+ * is left.
  */
 function detachedAboveWhite(rgba: Buffer, W: number, H: number): Uint8Array {
   const n = W * H;
-  const light = new Uint8Array(n);
+  // 2 = painted light ink, 1 = fainter light ink, 0 = neither.
+  const ink = new Uint8Array(n);
   for (let p = 0; p < n; p++) {
-    light[p] =
-      rgba[p * 4 + 3] > 0 && luma(rgba, p * 4) >= EYE_LASH_LUMA ? 1 : 0;
+    const alpha = rgba[p * 4 + 3];
+    if (alpha > 0 && luma(rgba, p * 4) >= EYE_LASH_LUMA)
+      ink[p] = alpha >= ALPHA_OPAQUE ? 2 : 1;
   }
-  // Flood-fill each set from an explicit stack. A pixel is labelled as it is
-  // pushed, so it is pushed once and the stack never outgrows the image.
   const label = new Int32Array(n).fill(-1);
+  // A pixel is labelled as it is pushed, so it is pushed once and neither the
+  // flood fill's stack nor the fringe's queue outgrows the image.
   const stack = new Int32Array(n);
+  const near = (p: number, visit: (q: number) => void) => {
+    const px = p % W;
+    const py = (p - px) / W;
+    for (let y = Math.max(0, py - 1); y <= Math.min(H - 1, py + 1); y++) {
+      for (let x = Math.max(0, px - 1); x <= Math.min(W - 1, px + 1); x++) {
+        visit(y * W + x);
+      }
+    }
+  };
   const sizes: number[] = [];
-  for (let start = 0; start < n; start++) {
-    if (!light[start] || label[start] !== -1) continue;
+  const fill = (start: number) => {
     const id = sizes.length;
     let size = 0;
     let depth = 0;
@@ -615,33 +637,53 @@ function detachedAboveWhite(rgba: Buffer, W: number, H: number): Uint8Array {
     while (depth > 0) {
       const p = stack[--depth];
       size++;
-      const px = p % W;
-      const py = (p - px) / W;
-      for (let y = Math.max(0, py - 1); y <= Math.min(H - 1, py + 1); y++) {
-        for (let x = Math.max(0, px - 1); x <= Math.min(W - 1, px + 1); x++) {
-          const q = y * W + x;
-          if (light[q] && label[q] === -1) {
-            label[q] = id;
-            stack[depth++] = q;
-          }
+      near(p, (q) => {
+        if (ink[q] === ink[start] && label[q] === -1) {
+          label[q] = id;
+          stack[depth++] = q;
         }
-      }
+      });
     }
     sizes.push(size);
+  };
+  for (let p = 0; p < n; p++) if (ink[p] === 2 && label[p] === -1) fill(p);
+  const paintedSets = sizes.length;
+  // The fringe: breadth-first from every painted pixel at once, each faint
+  // pixel no more opaque than the one before taking the set that reaches it
+  // first.
+  let head = 0;
+  let tail = 0;
+  for (let p = 0; p < n; p++) if (ink[p] === 2) stack[tail++] = p;
+  while (head < tail) {
+    const p = stack[head++];
+    near(p, (q) => {
+      if (
+        ink[q] === 1 &&
+        label[q] === -1 &&
+        rgba[q * 4 + 3] <= rgba[p * 4 + 3]
+      ) {
+        label[q] = label[p];
+        stack[tail++] = q;
+      }
+    });
   }
+  for (let p = 0; p < n; p++) if (ink[p] === 1 && label[p] === -1) fill(p);
 
   const detached = new Uint8Array(n);
-  if (sizes.length < 2) return detached;
+  if (paintedSets === 0 || sizes.length < 2) return detached;
   let white = 0;
-  for (let id = 1; id < sizes.length; id++) {
+  for (let id = 1; id < paintedSets; id++) {
     if (sizes[id] > sizes[white]) white = id;
   }
-  // The white's topmost row per column (the scan is row-major, so the first
-  // pixel met is the top).
+  // A set's own pixels: a painted set's painted ones, a faint set's all.
+  const own = (p: number) => ink[p] === 2 || label[p] >= paintedSets;
+  // The white's topmost painted row per column (the scan is row-major, so
+  // the first pixel met is the top).
   const whiteTop = new Int32Array(W).fill(-1);
   for (let p = 0; p < n; p++) {
     const x = p % W;
-    if (label[p] === white && whiteTop[x] === -1) whiteTop[x] = (p - x) / W;
+    if (label[p] === white && own(p) && whiteTop[x] === -1)
+      whiteTop[x] = (p - x) / W;
   }
   // An 8-connected set covers one unbroken run of columns, so every column
   // the white misses lies past one of its ends and takes that end's top.
@@ -654,7 +696,7 @@ function detachedAboveWhite(rgba: Buffer, W: number, H: number): Uint8Array {
   const above = new Uint8Array(sizes.length).fill(1);
   for (let p = 0; p < n; p++) {
     const id = label[p];
-    if (id === -1 || id === white) continue;
+    if (id === -1 || id === white || !own(p)) continue;
     const x = p % W;
     if ((p - x) / W >= whiteTop[x]) above[id] = 0;
   }

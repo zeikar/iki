@@ -129,7 +129,11 @@ function rim(
  * light marks a drawn eye carries around its white, which the split must tell
  * apart. A 1-2 px double-eyelid crease arcs over the lash with transparent
  * rows between them: `"short"` over its middle, `"long"` out past both ends of
- * the white, the way a crease follows the lid past its corners. The marks the
+ * the white, the way a crease follows the lid past its corners, and
+ * `"bridged"` the long one with a halo of its ink at alpha 24 run down to the
+ * white's end, a nearly invisible antialiasing bridge, and `"translucent"`
+ * that one with the crease itself painted at alpha 100, visible but under
+ * the alpha 128 the split counts as painted. The marks the
  * white keeps: an EYE_SHADE band on its upper rows that touches it, an
  * EYE_MARK_BELOW dot under the lower rim, and an EYE_MARK_BESIDE dot past its
  * tear-duct end, level with the white there rather than above it.
@@ -139,7 +143,10 @@ export async function writeEyewhite(
   {
     tearDuct,
     crease,
-  }: { tearDuct?: "left" | "right"; crease?: "short" | "long" } = {},
+  }: {
+    tearDuct?: "left" | "right";
+    crease?: "short" | "long" | "bridged" | "translucent";
+  } = {},
 ): Promise<void> {
   await writeRgbaPart(dir, "eyewhite.png", 72, 48, (set) => {
     const bounds = { width: 72, height: 48 };
@@ -156,7 +163,13 @@ export async function writeEyewhite(
         // The top half of a flat almond as wide as the image: row 0 at the
         // middle, rows 8-9 at x 0 and 71, past the white's ends (x 4 and 67,
         // where its top is row 22).
-        rim(set, bounds, 36, 10, 72, 20, 2, (y) => y < 10, CREASE);
+        const alpha = crease === "translucent" ? 100 : 255;
+        const setCrease: SetPixel = (x, y, rgb) => set(x, y, rgb, alpha);
+        rim(setCrease, bounds, 36, 10, 72, 20, 2, (y) => y < 10, CREASE);
+        // The halo: column 3 from under the crease's left end (rows 6-7
+        // there) down to beside the white's (row 22 at x 4), touching both.
+        if (crease === "bridged" || crease === "translucent")
+          for (let y = 8; y <= 21; y++) set(3, y, CREASE, 24);
       }
       // Row 44 and column 68 stay transparent, between the dots and the eye.
       for (let y = 45; y <= 46; y++)

@@ -306,6 +306,94 @@ describe("composeLayersFromParts", () => {
     expect(r.measure.warnings.filter((w) => /^lash_/.test(w))).toEqual([]);
   });
 
+  it("drops a crease that a nearly invisible halo joins to the eye white, with the halo's crease-side half", async () => {
+    // The halo runs at alpha 24 from the crease's left end down to the
+    // white's: it must not make the crease part of the white.
+    const creased = partsDir();
+    await writePartsSet(creased, { omit: ["eyewhite.png"] });
+    await writeEyewhite(creased, { crease: "bridged" });
+    const dir = outDir();
+    const r = await composeOk({ partsDir: creased, outDir: dir });
+
+    for (const side of ["L", "R"]) {
+      const eye = await statsFor(dir, `eye_${side}`);
+      const lash = await statsFor(dir, `lash_${side}`);
+      expect(eye.marginTop).toBe(lash.marginTop);
+    }
+    // The halo's upper half, nearer the crease than the white, goes with it:
+    // nothing is left where source columns 2-4 and rows 8-11 land in eye_R.
+    // eye_R takes the source as drawn, and the 72x48 image's alpha box (the
+    // 72x47 frame) starts at its row 0 and column 0, so a source pixel lands
+    // at its own coordinates times the layer's scale.
+    const layer = r.layers.find((l) => l.role === "eye_R")!;
+    const sclera = await decodePng(layer.path);
+    const scale = layer.width / 72;
+    let alpha = 0;
+    for (
+      let y = Math.floor(layer.top + 8 * scale);
+      y < layer.top + 12 * scale;
+      y++
+    ) {
+      for (
+        let x = Math.floor(layer.left + 2 * scale);
+        x < layer.left + 5 * scale;
+        x++
+      ) {
+        alpha = Math.max(alpha, sclera.rgba[(y * sclera.width + x) * 4 + 3]);
+      }
+    }
+    expect(alpha).toBeLessThanOrEqual(8);
+    // Its lower half, nearer the white, stays the white's fringe: over the
+    // sclera composed without the halo (the "long" crease, otherwise the
+    // same), source column 3's rows 16-19 add alpha in eye_R. Recoloured
+    // lash ink reaches that column too, so the halo is read as the
+    // difference.
+    const plain = partsDir();
+    await writePartsSet(plain, { omit: ["eyewhite.png"] });
+    await writeEyewhite(plain, { crease: "long" });
+    const plainDir = outDir();
+    const p = await composeOk({ partsDir: plain, outDir: plainDir });
+    const without = await decodePng(
+      p.layers.find((l) => l.role === "eye_R")!.path,
+    );
+    let added = 0;
+    for (
+      let y = Math.floor(layer.top + 16 * scale);
+      y < layer.top + 20 * scale;
+      y++
+    ) {
+      for (
+        let x = Math.floor(layer.left + 3 * scale);
+        x < layer.left + 4 * scale;
+        x++
+      ) {
+        const i = (y * sclera.width + x) * 4 + 3;
+        added += sclera.rgba[i] - without.rgba[i];
+      }
+    }
+    expect(added).toBeGreaterThanOrEqual(12);
+    expect(r.measure.warnings.filter((w) => /^lash_/.test(w))).toEqual([]);
+  });
+
+  it("drops a translucent crease that a fainter halo joins to the eye white", async () => {
+    // The crease is painted at alpha 100: no pixel of it counts as painted,
+    // and the alpha-24 halo still runs from it down to the white. A fringe
+    // fades away from what it fringes, so the halo does not make the brighter
+    // crease the white's.
+    const creased = partsDir();
+    await writePartsSet(creased, { omit: ["eyewhite.png"] });
+    await writeEyewhite(creased, { crease: "translucent" });
+    const dir = outDir();
+    const r = await composeOk({ partsDir: creased, outDir: dir });
+
+    for (const side of ["L", "R"]) {
+      const eye = await statsFor(dir, `eye_${side}`);
+      const lash = await statsFor(dir, `lash_${side}`);
+      expect(eye.marginTop).toBe(lash.marginTop);
+    }
+    expect(r.measure.warnings.filter((w) => /^lash_/.test(w))).toEqual([]);
+  });
+
   it("keys the white ground out of a part that arrived without alpha", async () => {
     const mouth = await statsFor(out, "mouth");
     const png = await decodePng(path.join(out, "mouth.png"));
