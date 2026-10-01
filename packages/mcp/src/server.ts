@@ -174,7 +174,7 @@ export function createIkiMcpServer(): McpServer {
     "compose_layers_from_parts",
     {
       description:
-        "Composes AI-generated part PNGs into canvas-aligned, role-named PNG layers on disk, ready for auto_rig_from_layers (the eyewhite split, alpha-trim/white-key, and placement pipeline the character-generation skill needs), with the same geometry report measure_layers returns standalone included inline. face, mouth, eyewhite, iris, brow, hair_front are required; hair_back, body, mouth_open, nose are optional — without a nose layer the rig does not slide the features on the head turn. A nose whose dense core is a speck — under a quarter of its trimmed part's width or height, such as a lone nostril mark or highlight — is sized and placed whole, and the inline report warns of it.",
+        "Composes AI-generated part PNGs into canvas-aligned, role-named PNG layers on disk, ready for auto_rig_from_layers (the eyewhite split, alpha-trim/white-key, and placement pipeline the character-generation skill needs), with the same geometry report measure_layers returns standalone included inline. face, mouth, eyewhite, iris, brow, hair_front are required; hair_back, body, mouth_open, nose are optional — without a nose layer the head still turns on the rig's Live2D profile, but it has no nose to lead the turn, and `auto_rig_from_layers` fits no turn to the art (`turnTargets` is inert, no `turn` report). A nose whose dense core is a speck — under a quarter of its trimmed part's width or height, such as a lone nostril mark or highlight — is sized and placed whole, and the inline report warns of it.",
       inputSchema: {
         partsDir: z
           .string()
