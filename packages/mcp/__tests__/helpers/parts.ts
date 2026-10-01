@@ -30,6 +30,8 @@ const CREASE: RGB = [215, 190, 185];
 export const EYE_SHADE: RGB = [200, 205, 225];
 export const EYE_MARK_BELOW: RGB = [230, 190, 200];
 export const EYE_MARK_BESIDE: RGB = [240, 215, 150];
+const BLUSH: RGB = [245, 160, 170];
+export const BLUSH_MARK: RGB = [200, 80, 100];
 
 /** Paint a straight-alpha RGBA canvas and write it as a PNG. */
 async function writeRgbaPart(
@@ -230,6 +232,19 @@ export async function writeSoftNose(
   });
 }
 
+/**
+ * A blush.png: a pink ellipse with a BLUSH_MARK patch inside its left end, so
+ * a mirror shows. The ellipse spans x 4..43 and rows 4..19; the patch, x 6..13
+ * and rows 9..14, stays inside it, so the trimmed part is the ellipse's 40x16.
+ */
+async function writeBlush(dir: string): Promise<void> {
+  await writeRgbaPart(dir, "blush.png", 48, 24, (set) => {
+    ellipse(set, { width: 48, height: 24 }, 24, 12, 40, 16, BLUSH);
+    for (let y = 9; y <= 14; y++)
+      for (let x = 6; x <= 13; x++) set(x, y, BLUSH_MARK);
+  });
+}
+
 /** A part that is just one ellipse on its own transparent frame. */
 const blobPart =
   (
@@ -250,6 +265,7 @@ const PARTS: Record<string, (dir: string) => Promise<void>> = {
   "hair_back.png": blobPart("hair_back.png", 120, 90, 100, 70, HAIR),
   "body.png": blobPart("body.png", 120, 80, 100, 60, DARK),
   "face.png": blobPart("face.png", 100, 120, 80, 100, SKIN),
+  "blush.png": writeBlush,
   // The nose is a part of its own — the rig leads the head turn with it.
   "nose.png": blobPart("nose.png", 24, 34, 20, 30, DARK),
   "eyewhite.png": (dir) => writeEyewhite(dir),

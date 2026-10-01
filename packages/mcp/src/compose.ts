@@ -120,8 +120,10 @@ const NOSE_TIP_AT = 0.86;
 // image terms: eyewhite.png is the eye on the SCREEN LEFT, its lash wing (outer
 // corner) at the image's left end and its lash-free tear duct at the right;
 // brow.png is the brow on the SCREEN RIGHT, its thick head at the image's left
-// end and its tail at the right. A part drawn the other way round is flipped
-// for free with `mirrorParts`.
+// end and its tail at the right; blush.png is the blush on the SCREEN LEFT,
+// its outer end (toward the face's edge) at the image's left end and its
+// inner end (toward the nose) at the right. A part drawn the other way round
+// is flipped for free with `mirrorParts`.
 // eye_*  = clean WHITE sclera (lashes recolored white) = the blink clip mask + fold.
 // iris_* = colored disc on top, clipped to the sclera, drives gaze.
 // lash_* = the dark lashes, a separate layer ABOVE the iris that folds down to
@@ -135,6 +137,17 @@ const DEFAULT_LAYOUT = {
   // floating head. It rides its own `bodyDeformer`, which only breathes.
   body: { src: "body.png", cx: 550, cy: 1017, w: 840, optional: true },
   face: { src: "face.png", cx: 550, cy: 475, w: 400 },
+  // The cheek blush, one part for both cheeks: blush_R (screen left) takes it
+  // as drawn and blush_L mirrors it, like the eyewhite. It draws over the face
+  // and under the nose. Its box sits below each eye, centred just outside the
+  // eye's centre and above the nose tip. Tuned on the hero's face at its
+  // default placement, which narrows fast below the eye row: a 96-wide box at
+  // row 552 ran up to 24 px past the cheek's drawn outline (inside the ears),
+  // and this one, for a 2:1 blush, stays inside it by 1 px at its lower outer
+  // corner. OPTIONAL, and decoration: a parts dir without it composes, and
+  // nothing reports it missing.
+  blush_L: { src: "blush.png", cx: 662, cy: 530, w: 56, optional: true, mirror: true }, // prettier-ignore
+  blush_R: { src: "blush.png", cx: 438, cy: 530, w: 56, optional: true, mirror: false }, // prettier-ignore
   // The nose, drawn on its own (the face is drawn without one): the auto-rig
   // leads the head turn with it and keys the other features' slide on its
   // presence, so without it the features stay on the face plate. `w` is the
@@ -192,6 +205,8 @@ const ORDER: Role[] = [
   "hair_back",
   "body",
   "face",
+  "blush_L",
+  "blush_R",
   "nose",
   "mouth",
   "mouth_open",
@@ -418,8 +433,8 @@ async function partBuffer(
   } else {
     const srcPath = path.join(partsDir, cfg.src);
     if (!fs.existsSync(srcPath)) {
-      // Optional roles (hair_back, body, mouth_open) are absent from a
-      // head-only parts dir; the auto-rig only requires face/eye_L/eye_R/mouth.
+      // An optional role's part may be absent from the parts dir; the
+      // auto-rig only requires face/eye_L/eye_R/mouth.
       if (cfg.optional) return null;
       // Name the role, not just the file: one source feeds two roles
       // (brow.png -> brow_L/brow_R), so the path alone does not say what broke.

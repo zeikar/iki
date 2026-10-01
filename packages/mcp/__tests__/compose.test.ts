@@ -16,6 +16,7 @@ import { layerStats, measureLayers } from "../src/measure";
 import { denseCoreOf } from "../src/measure-turn";
 import { decodePng } from "../src/node-images";
 import {
+  BLUSH_MARK,
   EYE_MARK_BELOW,
   EYE_MARK_BESIDE,
   EYE_SHADE,
@@ -30,6 +31,8 @@ const ROLES: Role[] = [
   "hair_back",
   "body",
   "face",
+  "blush_L",
+  "blush_R",
   "nose",
   "mouth",
   "mouth_open",
@@ -103,14 +106,36 @@ function lumaAt(rgba: Buffer, i: number): number {
   return 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
 }
 
-/** How many pixels of `rgba` over alpha 128 are within 8 per channel of `rgb`. */
+/** Whether the RGBA pixel at byte offset `i` is over alpha 128 and within 8
+ *  per channel of `rgb`. */
+function isNear(rgba: Buffer, i: number, rgb: readonly number[]): boolean {
+  return (
+    rgba[i + 3] > 128 &&
+    [0, 1, 2].every((c) => Math.abs(rgba[i + c] - rgb[c]) <= 8)
+  );
+}
+
+/** How many pixels of `rgba` are near `rgb` (`isNear`). */
 function countNear(rgba: Buffer, rgb: readonly number[]): number {
   let n = 0;
-  for (let i = 0; i < rgba.length; i += 4) {
-    if (rgba[i + 3] <= 128) continue;
-    if ([0, 1, 2].every((c) => Math.abs(rgba[i + c] - rgb[c]) <= 8)) n++;
-  }
+  for (let i = 0; i < rgba.length; i += 4) if (isNear(rgba, i, rgb)) n++;
   return n;
+}
+
+/** The mean column of a decoded PNG's pixels near `rgb` (`isNear`). */
+function meanColumnNear(
+  png: { rgba: Buffer; width: number },
+  rgb: readonly number[],
+): number {
+  let sum = 0;
+  let n = 0;
+  for (let i = 0; i < png.rgba.length; i += 4) {
+    if (!isNear(png.rgba, i, rgb)) continue;
+    sum += (i / 4) % png.width;
+    n++;
+  }
+  if (n === 0) throw new Error("no pixel near the colour");
+  return sum / n;
 }
 
 async function statsFor(dir: string, role: string) {
@@ -319,11 +344,64 @@ describe("composeLayersFromParts", () => {
     expect(fs.existsSync(path.join(dir, "body.png"))).toBe(false);
   });
 
+  it("composes the cheek blush pair from one blush.png, mirrored for blush_L", async () => {
+    // blush.png is read as the blush on the screen left: blush_R takes it as
+    // drawn and blush_L mirrored, so the mark at the image's left end shows
+    // on blush_R's left and on blush_L's right.
+    const roles = full.layers.map((l) => l.role);
+    for (const [role, cx, markSide] of [
+      ["blush_L", 662, 1],
+      ["blush_R", 438, -1],
+    ] as const) {
+      expect(roles.indexOf(role)).toBeGreaterThan(roles.indexOf("face"));
+      expect(roles.indexOf(role)).toBeLessThan(roles.indexOf("nose"));
+      // Centred on its cx and cy 530, 56 wide; the fixture trims to 40x16,
+      // so it is round(16 * 56 / 40) = 22 tall.
+      const layer = full.layers.find((l) => l.role === role)!;
+      expect([layer.left, layer.top, layer.width, layer.height]).toEqual([
+        cx - 28,
+        530 - 11,
+        56,
+        22,
+      ]);
+      const mark = meanColumnNear(await decodePng(layer.path), BLUSH_MARK);
+      expect(Math.sign(mark - (layer.left + layer.width / 2))).toBe(markSide);
+    }
+  });
+
+  it("skips the blush pair without a blush.png, leaving no stale layer and no warning", async () => {
+    const dir = outDir();
+    await composeOk({ partsDir: parts, outDir: dir });
+    for (const role of ["blush_L", "blush_R"]) {
+      expect(fs.existsSync(path.join(dir, `${role}.png`))).toBe(true);
+    }
+
+    const noBlush = partsDir();
+    await writePartsSet(noBlush, { omit: ["blush.png"] });
+    const result = await composeOk({ partsDir: noBlush, outDir: dir });
+
+    expect(result.skipped).toEqual(["blush_L", "blush_R"]);
+    for (const role of ["blush_L", "blush_R"]) {
+      expect(fs.existsSync(path.join(dir, `${role}.png`))).toBe(false);
+      expect(result.measure.layers[role]).toBeUndefined();
+    }
+    // Blush is optional decoration, so its absence is not reported: a warning
+    // would send every character drawn without one to a billed regeneration.
+    expect(result.measure.warnings).toEqual(full.measure.warnings);
+  });
+
   it("places the nose as a part of its own, under the face and over the mouth", async () => {
     // The rig leads the head turn with the nose, so it is a part like the eyes
     // and the mouth, not something cut out of the face.
+    // The blush pair draws between them: over the face, under the nose.
     const roles = full.layers.map((l) => l.role);
-    expect(roles.indexOf("nose")).toBe(roles.indexOf("face") + 1);
+    const face = roles.indexOf("face");
+    expect(roles.slice(face, face + 4)).toEqual([
+      "face",
+      "blush_L",
+      "blush_R",
+      "nose",
+    ]);
     expect(roles.indexOf("nose")).toBeLessThan(roles.indexOf("mouth"));
     // Its dense core is w wide and centred on cx; with no cy its tip lands
     // 0.86 of the way from the eye row (475) to the mouth's (619): row 599.
@@ -596,8 +674,8 @@ describe("composeLayersFromParts", () => {
     });
     expect(error).toBe(
       "layout.eyebrow: unknown role — expected one of hair_back, body, face, " +
-        "nose, mouth, mouth_open, eye_L, eye_R, iris_L, iris_R, lash_L, lash_R, " +
-        "brow_L, brow_R, hair_front",
+        "blush_L, blush_R, nose, mouth, mouth_open, eye_L, eye_R, iris_L, " +
+        "iris_R, lash_L, lash_R, brow_L, brow_R, hair_front",
     );
   });
 
