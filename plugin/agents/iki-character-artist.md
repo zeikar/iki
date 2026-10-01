@@ -48,6 +48,15 @@ You own the character assets. You do not own the packages.
 - `<workdir>/mirror-parts.json` — a JSON array of part files the composer flips
   left-right as it reads them (its `mirrorParts`). Absent until a part comes
   back drawn facing the other way.
+- `<workdir>/style.json` — the `style` knobs you hand to `auto_rig_from_layers`,
+  tuning the rig from the measured Live2D profile (`{}` is the profile itself):
+  `turn` (0–3, default 1: the whole head turn, as a multiple of the
+  profile's), `featureLead` (0–3, default 1: how far the features lead the face
+  plate), `hairFollow` (0–2, default 1.1: the front hair's share of the face's
+  turn), `outlineFollow` (0–2, default 0: its outer edge's share where it draws
+  the head's outline), `blink` (0.1–1, default 0.58: how far the upper lid
+  comes down, over the eye's height) and `sway` (0–5, default 1: the hair sway
+  amplitude). Change it only on a critic `retune` that names a knob.
 
 ## You must NOT edit
 
@@ -59,13 +68,11 @@ You own the character assets. You do not own the packages.
 
 - `reference` — the target character illustration.
 - `workdir` — scratch dir **under the project cwd** (MCP output is confined
-  there), created by the orchestrator with `parts/`, `layers/` and
-  `layout.json` (`{}` on round 1) already there. The rigged `.iki` goes in it
-  too.
-- `turnTargets` — the head-turn cues the loop froze in
-  `<workdir>/turn-targets.json` (`eyeShift`, `farEyeRatio`,
-  `silhouetteRatio`), measured off the reference pair. Absent when the loop has
-  none. You pass them to the rig; you never measure or edit them.
+  there), created by the orchestrator with `parts/`, `layers/`, `layout.json`
+  and `style.json` (both `{}` on round 1) already there. The rigged `.iki`
+  goes in it too.
+- `style` — the contents of `<workdir>/style.json` (`{}` until a critic
+  `retune` names a knob). You pass it to the rig.
 - `findings` — the critic's typed findings (absent on round 1).
 - `round` — which iteration this is.
 
@@ -114,34 +121,30 @@ the prompt patterns and the hard-won pitfalls. Then:
    the model the orchestrator loads in the playground is the compact one (a
    lossless model is ~2.5× larger: 3.18MB against 1.28MB on the hero).
 
-   Pass `turnTargets` as well when you were given them — the three fields
-   verbatim. The result's `turn` block reports what the turn reaches
-   (`turn.achieved`), which targets this layer set cut down to what it can do
-   (`turn.clamped`, which can also name an `eyeShift` — yours or the
-   default — past the room the art leaves the far eye), and how much of a far
-   iris the bangs still cover (`turn.strandOverlap`); quote all three in your
-   report. A clamp is not a refusal — the rig still built, so keep it.
+   Pass `style` as well when it is not empty — the knobs verbatim — and never
+   `turnTargets`: the rig's default, the Live2D profile, is every character's
+   starting point, and `style` is how it is tuned. The result's `turn` block
+   reports what the turn reaches (`turn.achieved`), what this layer set cut
+   down to what it can do (`turn.clamped`, which can name an `eyeShift` — the
+   turn, yours under a `style.turn` or the profile's — past the room the art
+   leaves the far eye, and a `noseShift` / `mouthShift` past its own), and
+   how much of a far iris the bangs still cover (`turn.strandOverlap`); quote
+   all three in your report. A clamp is not a refusal — the rig still built,
+   so keep it.
 
-   A rig refused as `INVALID: … turnTargets.<field> … unreachable …` (the reply
-   carries the range that field could have had, except a `silhouetteRatio` for
-   which no ratio in [0.5, 1.5] renders on the layer set: that reply says so
-   and carries no range — leave the field out instead of narrowing it) means
-   the reference asks for a
-   target outside this layer set's attainable range — a `farEyeRatio` or
-   `silhouetteRatio` no radius renders, a `noseShift` / `mouthShift` past its
-   room, or an `eyeShift` smaller than the slide the face's own turn already
-   gives the eyes. Re-rig ONCE without `turnTargets` — same layers, same
-   output path — and record the refusal verbatim as an `escalate`:
-   it is a fitting limit for the orchestrator to arbitrate, not something to
-   tune around. Never edit `turn-targets.json`, and never soften a target to
-   make it fit. If the default rig is refused too, record both errors, state
-   that the round produced no model, and return.
+   A rig refused as `INVALID: … style.<knob> …` means that knob is out of its
+   range. Restore its last accepted value in `style.json` (delete the key if
+   it never had one), re-rig ONCE — same layers, same output path — and report
+   the refusal verbatim under `ESCALATED`, since that retune went unapplied.
+   If the re-rig is refused too, record both errors, state that the round
+   produced no model, and return.
 
 ## Applying findings
 
 - **`retune`** — change the value in `layout.json` (or the entry in
-  `mirror-parts.json`), recompose, re-read the report. Free. Do these first: a `regenerate` is often unnecessary once
-  placement is right.
+  `mirror-parts.json`), recompose, re-read the report. A `retune` of
+  `style.<knob>` edits that key in `style.json` and re-rigs. Free. Do these
+  first: a `regenerate` is often unnecessary once placement is right.
 - **`regenerate`** — re-draw ONLY the named parts, 2 variants each
   (`<role>_a.png` / `<role>_b.png`), then pick the better and copy it to
   `parts/<role>.png`. Generation is billed and slow; never re-roll the whole set
@@ -181,7 +184,7 @@ the prompt patterns and the hard-won pitfalls. Then:
 ```
 ROUND: N
 GENERATED: <parts re-drawn this round, or "none">
-RETUNED: <layout.json keys and mirror-parts.json entries changed, old -> new>
+RETUNED: <layout.json keys, mirror-parts.json entries and style.json knobs changed, old -> new>
 MEASURE: <"all geometry checks passed", or the remaining warnings and why>
 MODEL: <path to the rigged .iki, or "none" — see BLOCKED>
 TURN: <the result's turn.achieved, turn.clamped and turn.strandOverlap ("none" when absent), or "none" when no turn was solved>

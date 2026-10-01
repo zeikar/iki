@@ -88,11 +88,16 @@ it to `.gitignore` before the first run, or the generated art lands in a commit.
 ```bash
 mkdir -p iki-char/parts iki-char/layers
 [ -f iki-char/layout.json ] || echo '{}' > iki-char/layout.json
+[ -f iki-char/style.json ] || echo '{}' > iki-char/style.json
 ```
 
-The `layout.json` line only seeds the file when it is missing, so re-entering
-or restarting the loop keeps the tuning you already paid for — the workdir is
+The two seed lines only write a file that is missing, so re-entering or
+restarting the loop keeps the tuning you already paid for — the workdir is
 gitignored, so an overwrite here has no repository copy to recover it from.
+`style.json` is the per-character rig tuning surface: the `style` knobs of
+`auto_rig_from_layers` (their defaults and ranges are in the **iki-character**
+skill, Step 3), where `{}` is the measured Live2D profile every character
+starts from. Only the artist edits it, and only on a critic `retune`.
 
 If `<workdir>/reference.png` and `reference-30.png` already exist (a restart),
 reuse them — do not regenerate. Otherwise, generate 2–3 reference candidates
@@ -100,43 +105,26 @@ with the **codex-image** skill and let the user pick, or accept a reference
 the user supplies. It must be a single front-facing character in the target
 style. Then run `gen-turn-reference.sh <workdir>/reference.png <workdir>` once
 to produce `<workdir>/reference-30.png`: the same character turned to the
-rig's own `ParamAngleX` limit (30°) — a head turn judged against a
-front-facing drawing has no target, and a target drawn at 45° over-asks a 30°
-rig by ~1.7x (measured, not derived). Redo the generation if both eyes are not
-fully visible, the torso turned with the head, or any attribute drifted from
-the front reference.
+rig's own `ParamAngleX` limit (30°). It is a style check, nothing more — the
+critic reads it by eye to judge how this character's turn should look, and
+nothing measures it. Drawn at 30° so the comparison is like for like: a
+drawing at 45° over-asks a 30° rig by ~1.7x (measured, not derived). Redo the
+generation if both eyes are not fully visible, the torso turned with the head,
+or any attribute drifted from the front reference.
 
-Either way, if `<workdir>/turn-targets.json` does not already exist, call
-`measure_turn_reference` once with `front: <workdir>/reference.png`,
-`turned: <workdir>/reference-30.png`, `debugDir: <workdir>`, and confirm in the
-written overlays (`front-reference.debug.png`, `turned-reference-30.debug.png`)
-that the iris boxes sit on the irises — a mismeasured reference silently
-invalidates every round's `turn` score. Save its `structuredContent`'s
-`eyeShift`, `farEyeRatio` and `silhouetteRatio` to `<workdir>/turn-targets.json`;
-add an `iris` key only when the default violet window did not find this
-character's eyes (e.g. amber eyes need their own hue window). `turn-targets.json`
-is the turn target the artist's rig step passes to `auto_rig_from_layers` and
-the baseline the critic compares the rig's own measured turn against, e.g.:
+A restarted workdir may still hold a `turn-targets.json` from an earlier
+version of this loop; it is ignored.
 
-```json
-{
-  "eyeShift": -0.224,
-  "farEyeRatio": 0.671,
-  "silhouetteRatio": 1.012,
-  "iris": { "hueMin": 20, "hueMax": 50, "satMin": 0.35 }
-}
-```
-
-Then go to Step 1. `reference.png`, `reference-30.png` and `turn-targets.json`
-are all frozen, because everything is judged against them and changing any of
-them mid-loop or on a restart invalidates every prior score.
+Then go to Step 1. `reference.png` and `reference-30.png` are frozen, because
+everything is judged against them and changing either of them mid-loop or on
+a restart invalidates every prior score.
 
 ### Step 1 — round
 
 1. Dispatch **`iki:iki-character-artist`** with `reference` (the front view
    only — `gen-parts.sh` attaches it to every job), `workdir`, `round`,
-   `turnTargets` (the three turn fields of `<workdir>/turn-targets.json`, which
-   its rig step passes to `auto_rig_from_layers`), and the critic's findings
+   `style` (the contents of `<workdir>/style.json`, which its rig step passes
+   to `auto_rig_from_layers` when it is not empty), and the critic's findings
    (none on round 1). Both agents ship inside this plugin, so the dispatch name carries
    its namespace; a bare `iki-character-artist` does not resolve.
 
@@ -147,10 +135,9 @@ them mid-loop or on a restart invalidates every prior score.
    than dispatching a fresh one. If it returns reporting a usage limit instead,
    the round is over: take the reset time and go to Step 2.
 
-   **An artist that returns no model ends the round the same way** — a rig
-   refused even without `turnTargets` leaves nothing to render. Skip the render
-   and the critic (there is nothing to score), keep its escalation, and go to
-   Step 2.
+   **An artist that returns no model ends the round the same way** — a
+   refused rig leaves nothing to render. Skip the render and the critic (there
+   is nothing to score), keep its escalation, and go to Step 2.
 
 2. **Render it yourself.** Load the artist's `.iki` through the Model picker's
    "Load a .iki file…" entry — the same on both paths; only the load order and
@@ -176,12 +163,12 @@ them mid-loop or on a restart invalidates every prior score.
    Either way, screenshot at least: rest, head-turn (`ParamAngleX` near its
    limit), blink (`ParamEyeLOpen` ≈ 0), gaze (`ParamEyeBallX` near its limit),
    and the poses **midway between the rig's keyform stops** on each moving axis
-   — the stops sit 15° apart, so that is `ParamAngleX` at 7.5 and at 22.5,
-   `ParamAngleY` at the same two, and (its stops being 0 and 1) `ParamEyeLOpen`
-   at 0.5. Rig breakage surfaces in the turn and blink poses, which a
-   front-facing screenshot hides; the between-stop poses expose interpolation
-   defects that the endpoint shots miss (the engine blends linearly between
-   authored keyforms), so both sets need looking at.
+   — the turn and nod stops sit at 0 and ±30, so that is `ParamAngleX` at 15,
+   `ParamAngleY` at 15, and (its stops being 0 and 1) `ParamEyeLOpen` at 0.5.
+   Rig breakage surfaces in the turn and blink poses, which a front-facing
+   screenshot hides; the between-stop poses expose interpolation defects that
+   the endpoint shots miss (the engine blends linearly between authored
+   keyforms), so both sets need looking at.
    **The rest shot must be untouched**: standalone, that means Idle was
    already off before the model loaded and no slider has been touched since;
    in a checkout, `reset()` and screenshot, nothing set afterwards. Every
@@ -247,24 +234,21 @@ them mid-loop or on a restart invalidates every prior score.
    resource; two agents driving it collide.
 3. Dispatch **`iki:iki-character-critic`** with `reference`, `reference-30`, `layers`,
    `renders` (the render paths), `turn-pair` (`<workdir>/renders/rest.png` and
-   `turn-m30.png`), `turn-targets` (`<workdir>/turn-targets.json`), `round`,
-   `scores` (the previous rounds' `SCORES:` lines), and `turn-clamped` (this
-   round's artist's own `TURN:` line, verbatim — its `turn.achieved`,
-   `turn.clamped` and `turn.strandOverlap`, or "none" when no turn was solved)
-   so the critic can tell a clamped fitting limit
-   from a new turn defect. It returns scores and
-   typed findings.
-4. Route: `regenerate` and `retune` go back to the artist. Handle `escalate`
-   yourself — decide whether the package change is warranted, and if it is,
-   make it as normal code work with a test and a changeset. Never let the loop
-   edit `packages/`. An `eyeShift` past the room the art leaves the far eye —
-   the face plate's edge, or the bangs' side strand — comes back CLAMPED, not
-   refused, so the rig still built; a `strandOverlap` reaches the critic in the
-   same `TURN:` line (`turn-clamped`). Only the remaining refusals — a turn
-   target the artist's rig still refused as
-   unreachable — arrive as an escalation: it says this art cannot reach the
-   reference's turn, so the call is yours — accept the defaulted rig, or change
-   the art.
+   `turn-m30.png`), `round`, `scores` (the previous rounds' `SCORES:` lines),
+   and `turn-clamped` (this round's artist's own `TURN:` line, verbatim — its
+   `turn.achieved`, `turn.clamped` and `turn.strandOverlap`, or "none" when no
+   turn was solved) so the critic can check the render against the rig's own
+   report and tell a clamp this art forced from a new turn defect. It returns
+   scores and typed findings.
+4. Route: `regenerate` and `retune` go back to the artist — a `retune` names a
+   `layout.json` key, a `mirror-parts.json` entry or a `style.json` knob.
+   Handle `escalate` yourself — decide whether the package change is
+   warranted, and if it is, make it as normal code work with a test and a
+   changeset. Never let the loop edit `packages/`. A turn the art has no room
+   for — the far eye at the face plate's edge, the chin at the neck's, the far
+   iris at the bangs' side strand — comes back CLAMPED, not refused, so the rig
+   still built; the clamp and any `strandOverlap` reach the critic in the same
+   `TURN:` line (`turn-clamped`).
 
 ### Step 2 — stop
 
@@ -282,15 +266,20 @@ rounds, what remains unfixed, and every escalation with your recommendation.
 
 ## Escalations you should expect
 
-The rig constants were tuned when nothing on screen held still. Anything that
-now looks wrong _relative to the body_ is likely a rig constant, not art — the
-head-turn sideways travel already needed this treatment once. Treat a repeated
-`rig` escalation as a signal to fix the package, not to keep re-rolling art.
+The rig's defaults are not constants tuned by eye: they are the Live2D profile
+measured on the Cubism sample models (`packages/editor/AUTO-RIG.md`). So a turn
+that reads wrong against `reference-30.png` — too weak or too strong, the
+features leading the face too much or too little, the hair following it too
+much or too little — is first a `style` retune, free and per character. A rig
+defect is the package escalation: a seam, a fold, a part detaching from the one
+it sits on, or a render that disagrees with the rig's own report (the critic's
+render-vs-report delta). Treat a repeated `rig` escalation as a signal to fix
+the package, not to keep re-rolling art or retuning style.
 
 ## Do not
 
 - Let either agent edit `packages/`.
-- Change a frozen reference or `turn-targets.json` mid-loop.
+- Change a frozen reference mid-loop.
 - Use a licensed sample model's art as a reference — see the iki-character
   pitfalls.
 - Regenerate the whole part set because one part is wrong.

@@ -45,29 +45,29 @@ artist agent applies your findings; the orchestrator arbitrates.
 
 - `reference` — path to the front-facing reference illustration (the target look).
 - `reference-30` — the same character turned to the rig's own `ParamAngleX`
-  limit (30°): the target the turn poses are judged against. It is drawn at
-  that specific angle, not a generic 3/4 view, because a target drawn at 45°
-  over-asks a 30° rig by ~1.7x (measured, not derived).
+  limit (30°): the style check you judge the turn poses against by eye — how
+  far this character's face turns, how far its features lead, how far its hair
+  follows. Nothing measures it. It is drawn at that specific angle, not a
+  generic 3/4 view, because a drawing at 45° over-asks a 30° rig by ~1.7x
+  (measured, not derived).
 - `layers` — the composed role-layer dir (`face.png`, `eye_L.png`, …, `preview.png`).
 - `renders` — screenshots of the rigged model in the engine: rest, head-turn,
-  blink, gaze, and the between-stop poses (`ParamAngleX`/`ParamAngleY` at 7.5°
-  and 22.5°, `ParamEyeLOpen` at 0.5) where interpolation defects show.
+  blink, gaze, and the between-stop poses (`ParamAngleX`/`ParamAngleY` at 15°,
+  `ParamEyeLOpen` at 0.5) where interpolation defects show.
 - `turn-pair` — the rig's own rest and `ParamAngleX` −30 renders, captured via
   `canvas.toDataURL` rather than screenshotted (the measurement needs the
   render's own transparency): the pair you feed `measure_turn_reference`.
-- `turn-targets` — path to `<workdir>/turn-targets.json`, the reference's own
-  `eyeShift`/`farEyeRatio`/`silhouetteRatio` (and an `iris` window override,
-  if the character needed one) — the baseline the rig's turn is compared to.
 - `round` — which iteration this is.
 - `scores` — the previous rounds' `SCORES:` lines, so you can compare each axis
   against its best so far (none on round 1).
 - `turn-clamped` — this round's artist's own `TURN:` line, verbatim: its
   `turn.achieved`, `turn.clamped` and `turn.strandOverlap`, or "none" when no
-  turn was solved. `turn.clamped` can name the reference's own `eyeShift`,
-  cut down to the room this art leaves the far eye — the face plate's edge, or
-  the bangs' side strand. The only way to tell a target the rig already
-  clamped to what this layer set can reach from a new turn defect — see the
-  ±0.05 delta rule below.
+  turn was solved. `turn.achieved` is what the rig reports it renders at full
+  turn — what your own measurement of the render is checked against (Step 1).
+  `turn.clamped` names what this art's room cut down: the turn (`eyeShift`)
+  where the far eye met the face plate's edge, the chin the neck's, or the far
+  iris the bangs' side strand, and a `noseShift` / `mouthShift` past its own
+  room.
 
 Read both references, `preview.png` and every render before writing anything.
 
@@ -93,19 +93,27 @@ role — read the number off it and quote it rather than describing what you see
 
 ### Measure the turn
 
-Call `measure_turn_reference` on `turn-pair`, with the same `iris` override
-`turn-targets.json` carries (if any):
+Call `measure_turn_reference` on `turn-pair`:
 
 ```jsonc
 { "front": "<turn-pair rest.png>", "turned": "<turn-pair turn-m30.png>" }
 ```
 
-Read `farEyeRatio`, `eyeShift` and `silhouetteRatio` off `turn-targets.json` as
-the reference's own numbers, and compute Δ = rig − reference for each of the
-three fields the tool reports back for the rig. Compare `eyeShift` as
-magnitudes (`Math.abs` both sides before subtracting) — the rig turns
-whichever way `packages/editor/src/auto-rig/` set it up, and the tool's sign just follows which
-way the image happens to lean, not which way the reference was drawn turning.
+Pass an `iris` window only when the default (violet: hue 230–300, saturation
+above 0.22) misses this character's irises — the tool then answers
+`no iris pair found …` — e.g. `{ "hueMin": 20, "hueMax": 50, "satMin": 0.35 }`
+for amber eyes.
+
+Compare its `farEyeRatio`, `eyeShift` and `silhouetteRatio` with the same
+three fields of the artist's `turn.achieved` (in `turn-clamped`), and compute
+Δ = render − report for each. Compare `eyeShift` as magnitudes (`Math.abs`
+both sides before subtracting) — the report is a magnitude, and the tool's
+sign just follows which way the image happens to lean. A Δ beyond ±0.05 on
+any cue is an `escalate` naming `packages/editor/src/auto-rig/`, the cue and
+both numbers, because the report and the render disagree: the rig is not
+drawing what it says it draws, and no retune fixes that. When `turn-clamped`
+is "none" (no turn was solved), there is no report to check: measure the pair
+anyway and quote it.
 
 ## Step 2 — score the rubric
 
@@ -136,31 +144,42 @@ for: a straight seam appearing on turn, the head sliding off the shoulders, the
 iris spilling past the lids at extreme gaze, the eye vanishing entirely at
 blink, brows hidden under hair.
 
-`turn` asks whether the motion reads right, not whether it survives. At the
-between-stop `ParamAngleX` poses (7.5°, 22.5°) and at the limit: does the head
-read as rotating in depth, or as a flat cutout sliding sideways? Does the far
-cheek recede as it turns away? Does the nose bridge travel with the face instead
-of sitting still on it? Does the hair silhouette stay put while the face slides
-inside it, or does the whole head slide as one cutout? `reference-30.png` is
-the target for those questions — judge it on attributes, not overlap, as
-above. At the `ParamAngleY` midpoints the question is foreshortening: does the
-face compress toward the brow or chin as it tips, or does the whole head slide
-up and down unchanged? A `turn` defect is nearly always `escalate` — redrawing a
-part cannot put depth into it.
+`turn` asks whether the motion reads right, not whether it survives — judged
+by eye against `reference-30.png`, on attributes, not overlap, as above. At
+the between-stop `ParamAngleX` pose (15°) and at the limit: does the head read
+as turning in depth — the face plate sliding, the features leading it (the
+nose most), the back hair staying behind it — or as a flat cutout sliding
+sideways? Then hold it against the reference: does the face turn as far as the
+reference's, do the features lead it as far, does the front hair follow it as
+far? The rig starts every character on the measured Live2D profile, and those
+three are what differs between characters, so each is a `retune` of a
+`style.json` knob, with a direction and the evidence from the renders: a turn
+weaker or stronger than the reference's is `style.turn`; features leading
+more or less, `style.featureLead`; hair following more or less,
+`style.hairFollow` (`style.outlineFollow` where the front hair draws the head's
+outline). Blink depth — how far the lid comes down at `ParamEyeLOpen` 0 —
+maps to `style.blink` the same way, and the hair's sway amplitude, where a
+render shows it, to `style.sway`.
 
-The three deltas from Step 1 settle only what they measure — `farEyeRatio` the
-far iris' endpoint compression, `eyeShift` the eye pair's travel,
-`silhouetteRatio` the head's width. A delta beyond ±0.05 is an `escalate`
-naming `packages/editor/src/auto-rig/` and the number, EXCEPT when `turn-clamped` shows the rig
-already clamped that field: that is a documented fitting limit this layer set
-cannot reach, not a new defect — report it in MEASUREMENTS and in the deltas,
-but do not raise a second escalation for it (the loop already carries the
-artist's). A delta within ±0.05 does not by itself clear the axis — it only
-says that one number tracks the reference.
-The visual questions above stay their own findings, judged against
-`reference-30.png` on attributes as above, and the `turn` score combines
-both: a rig can pass all three numbers and still score low on what they
-cannot see.
+A turn `clamped` names (`eyeShift`) ran out of the art's room, not the knob's:
+raising `style.turn` gains nothing at the face plate's edge or the neck, and at
+the bangs' side strand only slides the far iris under it. A turn weaker than
+the reference there is a `retune` of the placement that gave out (the eye in
+`layout.json`) or a `regenerate` of `hair_front` with the side strand clear of
+the iris — say which room ran out.
+
+At the `ParamAngleY` midpoint (15°) the question is whether the face reads as
+tipping — the features moving further than the plate, the face shortening a
+little looking down — or the whole head slides up and down unchanged.
+Redrawing a part cannot put depth into a turn, so a `turn` finding is a
+`style` retune first; it is an `escalate` only as a rig defect — a seam, a
+fold, a part detaching from the one it sits on — or as the render-vs-report
+delta of Step 1.
+
+The deltas from Step 1 say whether the rig draws what it reports, not whether
+the turn matches the reference: a delta within ±0.05 clears nothing about the
+look, and the `turn` score is the judgement above. A rig can render exactly
+what it reports and still score low against `reference-30.png`.
 
 A `strandOverlap` side in `turn-clamped` is evidence to classify, not by
 itself an `escalate` on `packages/editor/src/auto-rig/`, and its `px` is quoted in MEASUREMENTS.
@@ -184,14 +203,16 @@ Every finding carries a `type`, and the type decides who acts:
   (wrong rendering style, cut through the drawing, wrong shape). Name the part,
   the defect, and the exact prompt correction. **Costly** — each one is billed
   generation, minutes per image. Name only parts that genuinely need it.
-- **`retune`** — the art is fine, its placement or scale is wrong. Name the
-  `layout.json` key (e.g. `iris_L.cx`), the direction, and the measured
-  evidence. A part drawn facing the other way (an eye whose lash stops short of
-  its outer corner instead of its tear duct) is a retune too: target
-  `mirror-parts.json`, naming the part file. **Free** — recomposing costs nothing, so prefer this whenever it
-  can work.
-- **`escalate`** — the fix lies outside the parts dir, `layout.json` and
-  `mirror-parts.json`:
+- **`retune`** — the art is fine, its placement, its scale or the rig's
+  tuning is wrong. Name the `layout.json` key (e.g. `iris_L.cx`) or the
+  `style.json` knob (e.g. `style.turn`; its default and range are in the
+  **iki-character** skill's Step 3), the direction, and the measured evidence.
+  A part drawn facing the other way (an eye whose lash stops short of its outer
+  corner instead of its tear duct) is a retune too: target `mirror-parts.json`,
+  naming the part file. **Free** — recomposing and re-rigging cost nothing, so
+  prefer this whenever it can work.
+- **`escalate`** — the fix lies outside the parts dir, `layout.json`,
+  `mirror-parts.json` and `style.json`:
   `packages/editor/src/auto-rig/`, the engine, the format. The artist is not allowed to touch
   these. State the file, the suspected cause and the evidence; the orchestrator
   decides.
@@ -199,7 +220,7 @@ Every finding carries a `type`, and the type decides who acts:
 Before writing a `regenerate`, ask whether a `retune` would do. Historically
 most defects that _looked_ like bad art were placement constants.
 
-A numeric turn delta beyond ±0.05 and a visual turn defect are separate
+A render-vs-report delta beyond ±0.05 and a visual turn finding are separate
 findings even in the same round — list each on its own line with its own
 evidence, never folded into one.
 
@@ -216,13 +237,14 @@ change likely to raise a score.
 ## Output format
 
 Report exactly this, nothing else. The `TURN:` line abbreviates the three
-deltas from Step 1 — `far` is `farEyeRatio`, `shift` is `|eyeShift|`,
-`silhouette` is `silhouetteRatio`:
+deltas from Step 1, the render against the artist's report (`turn.achieved`) —
+`far` is `farEyeRatio`, `shift` is `|eyeShift|`, `silhouette` is
+`silhouetteRatio` — and reads `TURN: none` when no turn was solved:
 
 ```
 VERDICT: ship | iterate | stop
 SCORES: face=N eyes=N hair=N body=N palette=N line=N rig=N turn=N   (total NN/40)
-TURN: far <rig> (ref <ref>, Δ<d>) shift <rig> (ref <ref>, Δ<d>) silhouette <rig> (ref <ref>, Δ<d>)
+TURN: far <render> (report <report>, Δ<d>) shift <render> (report <report>, Δ<d>) silhouette <render> (report <report>, Δ<d>)
 
 MEASUREMENTS
 <the measure_layers check lines, the measure_turn_reference lines quoted
@@ -232,7 +254,7 @@ FINDINGS
 1. [regenerate] part=<role>
    problem: <what is wrong, with evidence>
    correction: <the exact prompt directive to use>
-2. [retune] target=<layout.json key, or mirror-parts.json>
+2. [retune] target=<layout.json key, style.json knob, or mirror-parts.json>
    problem: <what is wrong, with the measured number>
    correction: <new value or direction>
 3. [escalate] target=<file:symbol>
