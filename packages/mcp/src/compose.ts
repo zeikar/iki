@@ -131,9 +131,8 @@ const DEFAULT_LAYOUT = {
   // Back hair and body sit behind the face. Both are OPTIONAL: a parts dir
   // without them still composes (head-only character).
   hair_back: { src: "hair_back.png", cx: 550, cy: 523, w: 800, optional: true },
-  // The torso, cut off by the canvas bottom. It rides its own `bodyDeformer`: a
-  // light share of the head turn and half its breath bob, so the character is
-  // not a floating head.
+  // The torso, cut off by the canvas bottom, so the character is not a
+  // floating head. It rides its own `bodyDeformer`, which only breathes.
   body: { src: "body.png", cx: 550, cy: 1017, w: 840, optional: true },
   face: { src: "face.png", cx: 550, cy: 475, w: 400 },
   // The nose, drawn on its own (the face is drawn without one): the auto-rig

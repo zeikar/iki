@@ -49,60 +49,64 @@ leaves the document untouched.
 | Grid keyforms      | `computeGridOffsets`, `interpolateGridOffsets`, `upsertGridKeyform`                                                                                                      |
 | Factories          | `createDefaultPart`, `createDefaultMatrixDeformer`, `createDefaultWarpDeformer`, `createGridMesh`                                                                        |
 | Pixels             | `detectAlphaBbox`, `ALPHA_BBOX_THRESHOLD`, `AlphaBbox`, `ALPHA_OPAQUE`, `HEAD_BAND`, `SPECK_CORE_FRACTION`, `denseCoreOf`, `isSpeckCore`, `foregroundSpan`, `headHalfOf` |
-| Auto-rig           | `generateIkiFromLayerSet`, `parseLayerRoles`, `createLayerSetMeasurer`, `TurnTargets`, `DEFAULT_TURN_TARGETS`, `TurnSolveReport`                                         |
+| Auto-rig           | `generateIkiFromLayerSet`, `parseLayerRoles`, `createLayerSetMeasurer`, `TurnTargets`, `DEFAULT_TURN_TARGETS`, `TurnSolveReport`, `RigStyle`                             |
 | Bindings           | `captureBindingEndpoint`                                                                                                                                                 |
 
 ## Auto-rig
 
 `generateIkiFromLayerSet` turns role-named layers (`face`, `eye_L`, `eye_R`,
 `mouth`, plus optional `iris_*`, `brow_*`, `lash_*`, `hair_front`, `hair_back`,
-…) into a rigged model that blinks, gazes, opens its mouth, turns its head on a
-torso that follows and breathes, and emotes with its brows — including a
+…) into a rigged model that blinks, gazes, opens its mouth, turns its head over
+a torso that breathes, and emotes with its brows — including a
 hair-sway physics rig when a `hair_front` layer is present.
 
-On the turn the head's outline holds still — the bangs that draw it pin their
-own silhouette — while everything inside it slides: the face plate, its
-features, and the bangs' own inner strands. That slide is the plate's own ask, a
-quarter of its half-width, capped to what the held outline has room for when
-`turnTargets.headHalfWidth` was measured and uncut when it was not. That turn is
-**fitted, not tuned**: on a layer set with a `nose`, the cylinder's radius and
-each feature's own depth on top of that slide are solved from
-`options.turnTargets` — the cues a 30° reference measures (how far the eye pair
-slides, how much the far eye foreshortens, whether the silhouette holds),
-defaulting to `DEFAULT_TURN_TARGETS`. The features' slide is bounded by the art:
-every feature has to stay on the face plate, because past its contour the far
-eye is drawn over the side hair, which still bends with the plate inside that
-held outline and swallows it. Given `options.strandEdges`, the eyes are also
-kept from sliding the far iris under the bangs' side strand any further than it
-is painted — best effort, never a refusal: the fit prefers radii where some eye
-depth holds that, and where none does (a fringe spanning the face included) the
-rig is still built with the eyes' turn depth at 0. The report's `strandOverlap`
-gives, per side whose far iris the bangs' run still covers at some far stop,
-the covered width: how much of the iris's painted row the run covers at the
-stop where that is largest, in px and head half-widths, next to how much it
-covers at rest, and whether the bound held — `true` for an iris painted under
-its run that the turn took no deeper, `false` where the fitted radius could not
-hold it and the eyes' turn depth is 0.
+The rig reproduces a Live2D default rig, measured on the Cubism sample models
+(the numbers are in `auto-rig/profile.ts`): the turn reads through parallax,
+not a reshaped face. The face plate translates, changing its width by a few
+percent, the chin leading it; the features lead the plate by their own amounts
+(the nose most, then the brows, eyes and mouth), the eyes foreshortening mildly
+about their own centres; the front hair rides the face where it lies over it and holds the head's
+outline where it draws it, and the back hair stays behind; the neck and the
+ears the face layer paints are cut off into islands of the plate's own mesh,
+drawn behind the head — the neck stays (only the chin's shade slides across
+it), the ears lag the face. AngleZ rolls the head 10° about the chin; the torso only
+breathes.
 
-A target that came from the defaults is a style prior, not a measurement of
-this character, so it is **clamped** to what the layer set can do and the rig is
-built. So is an `eyeShift` you passed that runs past the room the art leaves the
-far eye — the face plate's edge, or the bangs' strand — since that room is a
-fact about these layers, not about the reference. Every other target you passed
-that this layer set cannot reach **throws**, naming the field and the range it
-could have had: a `farEyeRatio` or `silhouetteRatio` no radius renders, a
-`noseShift` / `mouthShift` outside what that feature can reach, or an
-`eyeShift` smaller than the slide the face's own turn already gives the eyes.
-Pass `options.onTurnSolved` to see what the turn settled on and which targets
-were clamped.
+On a layer set with a `nose`, `options.turnTargets` — the cues a 30° reference
+measures (how far the eye pair slides, how much the far eye foreshortens,
+whether the silhouette holds) — are **fitted** each by the one knob it reads:
+the turn's amount, the eyes' foreshortening, the hair's width, a feature's own
+shift. With none given the profile itself renders (`DEFAULT_TURN_TARGETS`
+expresses it in the cues' units). `options.style` tunes a character from the
+profile where the Live2D samples themselves disagree: the whole turn, the
+features' lead, the front hair's follow and its outline's, the blink and the
+hair sway. The turn
+is bounded by the art: the far eye stays inside the plate's outline and, given
+`options.strandEdges`, the far iris may not slide under the bangs' side strand
+any further than it is painted — best effort, never a refusal. The report's
+`strandOverlap` gives, per side whose far iris the bangs' run still covers at
+some far stop, the covered width: how much of the iris's painted row the run
+covers at the stop where that is largest, in px and head half-widths, next to
+how much it covers at rest, and whether the bound held.
+[`AUTO-RIG.md`](./AUTO-RIG.md) describes the model, the fit and the limits.
+
+An `eyeShift` you passed that runs past the room the art leaves the far eye —
+the face plate's edge, or the bangs' strand — is **clamped** and the rig is
+built, since that room is a fact about these layers, not about the reference;
+so is the profile's own turn where the art has less room than it needs. Every
+other target you passed that this layer set cannot reach **throws**, naming the
+field and the range it could have had: a `farEyeRatio` or `silhouetteRatio`
+out of the rig's reach, or a `noseShift` / `mouthShift` outside what that
+feature can reach. Pass `options.onTurnSolved` to see what the turn settled on
+and which targets were clamped.
 
 `turnTargets.headHalfWidth` is what the shift targets are fractions of, when a
 caller has measured the actual head (the face plate stands in otherwise).
 Alongside it, `options.headEdges` names, per side, every layer with an opaque
 pixel at the eye row and its own rest x there — a companion to a measured
 `headHalfWidth`, absent otherwise — so the solver can land each candidate
-through its OWN part's deformation (the bangs move with their hold, the back
-hair holds still, a face-plate or body edge slide) rather than assume the head
+through its OWN part's deformation (the bangs ride the face, the back hair
+stays behind it, a face-plate edge slides) rather than assume the head
 is centred on the face plate or that whichever part drew furthest out at rest
 is still the furthest out after it turns.
 

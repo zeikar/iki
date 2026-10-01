@@ -81,6 +81,7 @@ export {
   parseLayerRoles,
   type IrisStrand,
   type LayerInput,
+  type RigStyle,
   type StrandOverlap,
   type TurnDepths,
   type TurnSolveReport,

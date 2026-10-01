@@ -783,17 +783,33 @@ describe("autoRigFromLayers", () => {
     return sum / (offsets.length / 2);
   }
 
-  /** The face plate's turn dx at the −30° stop (AngleY 0) down one node
-   *  column of its own grid, top row first. */
-  function faceWarpDxByRow(filePath: string, col: number): number[] {
+  /** The face plate's turn dx at the −30° stop down the column of its mesh
+   *  nearest model x `x`, top row first — the plate carries its own AngleX
+   *  keyforms (a head island sliding over a neck island), not a grid's —
+   *  over the vertices resting on the face's crop (model y 35 down to −35 on
+   *  these 100 px fixtures). */
+  function faceTurnDxByRow(
+    filePath: string,
+    x: number,
+  ): { y: number; dx: number }[] {
     const model = parseIkiModel(JSON.parse(fs.readFileSync(filePath, "utf8")));
-    const { grid, offsets } = turnKeyform(model, "faceWarp");
-    const perRow = grid.cols + 1;
-    const dx: number[] = [];
-    for (let row = 0; row <= grid.rows; row++) {
-      dx.push(offsets[(row * perRow + col) * 2]);
-    }
-    return dx;
+    const face = model.parts.find((p) => p.id === "face")!;
+    const warp = face.warps!.find((w) => w.parameter === "ParamAngleX")!;
+    const offsets = warp.keyforms.find((k) => k.value === -30)!.offsets;
+    const v = face.mesh!.vertices;
+    const at = (i: number) => ({
+      x: face.transform.x + v[i * 2] * face.width,
+      y: face.transform.y + v[i * 2 + 1] * face.height,
+      dx: offsets[i * 2] * face.width,
+    });
+    const all = Array.from({ length: v.length / 2 }, (_, i) => at(i));
+    const col = all.reduce((b, p) =>
+      Math.abs(p.x - x) < Math.abs(b.x - x) ? p : b,
+    ).x;
+    return all
+      .filter((p) => Math.abs(p.x - col) < 1e-6 && p.y <= 35 && p.y >= -35)
+      .sort((a, b) => b.y - a.y)
+      .map(({ y, dx }) => ({ y, dx }));
   }
 
   it("falls back to the face plate, and still rigs, when the layers are translucent (alpha below the opaque-union threshold)", async () => {
@@ -813,11 +829,13 @@ describe("autoRigFromLayers", () => {
     expect(result.headHalfWidth).toBeUndefined();
     expect(result.headHalfWidthApplied).toBe(false);
     // The face's per-row half-widths read all-zero under the same rule, which
-    // the generator takes as no profile at all: the plate still turns, on one
-    // radius on every row.
-    const dx = faceWarpDxByRow(path.join(dir, "model.iki"), 2);
-    expect(dx[5]).not.toBe(0);
-    for (const d of dx) expect(d).toBeCloseTo(dx[5], 9);
+    // the generator takes as no profile at all: the plate still turns, every
+    // row above the cheek row by the one translation.
+    const rows = faceTurnDxByRow(path.join(dir, "model.iki"), -15);
+    const upper = rows.filter((r) => r.y >= 0);
+    expect(upper.length).toBeGreaterThan(2);
+    expect(upper[0].dx).toBeLessThan(0);
+    for (const r of upper) expect(r.dx).toBeCloseTo(upper[0].dx, 9);
   });
 
   it("falls back to the face plate on translucent layers with a nose too, and still solves the turn", async () => {
@@ -836,7 +854,7 @@ describe("autoRigFromLayers", () => {
     expect(result.turn).toBeDefined();
   });
 
-  it("a rect face turns its plate on one radius on every row: its measured profile is flat", async () => {
+  it("a rect face translates its plate: one dx on every row above the cheek, the chin leading below", async () => {
     const dir = tmpDir();
     const paths = await writeNoseLayers(dir);
     const out = path.join(dir, "model.iki");
@@ -848,21 +866,18 @@ describe("autoRigFromLayers", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // Every PAINTED row of the rect measures the same half-width (30); the
-    // crop's 1 px alpha margin adds an empty row above and below them, each
-    // reading 0, which the profile fills (the top one reads the widest width
-    // like every row above the widest, the bottom one the nearest painted row
-    // above it). So the plate's row profile is flat and the turn's column map
-    // is one map on every row: a node column off the axis (2, three cells left
-    // of the axis column 5) carries a single dx from the top row to the
-    // bottom — the constant-radius bake a face with no profile gets.
-    const dx = faceWarpDxByRow(out, 2);
-    expect(dx).toHaveLength(11);
-    expect(dx[5]).not.toBe(0);
-    for (const d of dx) expect(d).toBeCloseTo(dx[5], 9);
+    // The eye row sits at model y 11 and the plate's bottom (its chin, with
+    // no neck under it) at −30: rows above the cheek row (−9.5) carry the
+    // plate's one translation, and the rows toward the chin lead it.
+    const rows = faceTurnDxByRow(out, -15);
+    const upper = rows.filter((r) => r.y >= -9);
+    expect(upper.length).toBeGreaterThan(2);
+    expect(upper[0].dx).toBeLessThan(0);
+    for (const r of upper) expect(r.dx).toBeCloseTo(upper[0].dx, 9);
+    expect(rows[rows.length - 1].dx).toBeLessThan(upper[0].dx - 0.5);
   });
 
-  it("a face that tapers to its chin turns its plate on a radius that tapers with its own painted rows", async () => {
+  it("a face that tapers to its chin narrows its plate a little more at the jaw than at the cheeks", async () => {
     const dir = tmpDir();
     const paths = await writeJawFaceLayers(dir);
     const out = path.join(dir, "model.iki");
@@ -874,20 +889,24 @@ describe("autoRigFromLayers", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const dx = faceWarpDxByRow(out, 2);
-    expect(dx).toHaveLength(11);
-    // Down to the widest row — the last full-width one, mid-crop — every row
-    // reads the widest half-width (30), so the node rows resting above it
-    // carry one dx: rows 0–4. Row 5 sits at the crop's centre, between the
-    // widest row and the one above it, so its read already mixes in the
-    // taper the smoothing folds into the widest row — not the same dx.
-    for (const d of dx.slice(0, 5)) expect(d).toBeCloseTo(dx[0], 9);
-    expect(dx[5]).not.toBeCloseTo(dx[0], 9);
-    // Below it the measured rows narrow toward the 10 px chin (a 5 px half-width): the bottom node
-    // row (on the grid's margin, reading the crop's last row) bends on a far
-    // smaller radius than the middle row and lands well away from it (2.7 px
-    // on this 60 px face).
-    expect(Math.abs(dx[10] - dx[5])).toBeGreaterThan(1);
+    // The plate's width at full turn, row by row, off two columns 30 apart:
+    // the profile's 0.985 on the upper face, 0.96 down the jaw — the face
+    // translating rather than reshaping, the jaw giving a little more.
+    const left = faceTurnDxByRow(out, -15);
+    const right = faceTurnDxByRow(out, 15);
+    const width = (y: number) => {
+      const l = left.find((r) => Math.abs(r.y - y) < 1e-6)!;
+      const r = right.find((q) => Math.abs(q.y - y) < 1e-6)!;
+      return 1 + (r.dx - l.dx) / 30;
+    };
+    const ys = left
+      .map((r) => r.y)
+      .filter((y) => right.some((r) => Math.abs(r.y - y) < 1e-6));
+    const top = width(Math.max(...ys));
+    const bottom = width(Math.min(...ys));
+    expect(top).toBeCloseTo(0.985, 2);
+    expect(bottom).toBeLessThan(top - 0.01);
+    expect(bottom).toBeGreaterThan(0.95);
   });
 
   it("measures the head half-width off the layers' alpha, ink included", async () => {
@@ -1026,35 +1045,38 @@ describe("autoRigFromLayers", () => {
   it("a bigger eyeShift target slides the eyes further", async () => {
     const dir = tmpDir();
     const layers = (await writeTurnLayers(dir)).map((p) => ({ path: p }));
+    const base = await autoRigFromLayers({
+      layers,
+      outputPath: path.join(dir, "base.iki"),
+    });
+    expect(base.ok).toBe(true);
+    if (!base.ok) return;
+    const e = base.turn!.achieved.eyeShift;
     const smallPath = path.join(dir, "small.iki");
     const bigPath = path.join(dir, "big.iki");
 
-    // Both targets are reachable here and neither is cut down — 0.15/0.25 sit
-    // in the band this fixture rigs with `clamped: []`, so what changes
-    // between them is the eye's own depth and not the solve's character. The
-    // floor they clear is measured, not guessed: eyeShift 0.01 comes back
-    // "attainable 0.06609…0.36505".
+    // A shift is fitted by the turn's amount; both are inside the room the
+    // plate leaves the far eye, so neither is cut down.
     const small = await autoRigFromLayers({
       layers,
       outputPath: smallPath,
-      turnTargets: { eyeShift: 0.15 },
+      turnTargets: { eyeShift: 0.5 * e },
     });
     const big = await autoRigFromLayers({
       layers,
       outputPath: bigPath,
-      turnTargets: { eyeShift: 0.25 },
+      turnTargets: { eyeShift: 1.2 * e },
     });
     expect(small.ok && big.ok).toBe(true);
     if (!small.ok || !big.ok) return;
-    // Both targets are inside what this layer set can do, so neither was cut
-    // down: what eyeSlide compares below is the depth each target asked for
-    // on top of that shared plate slide, not a clamp.
     expect(small.turn!.clamped).not.toContain("eyeShift");
     expect(big.turn!.clamped).not.toContain("eyeShift");
-    expect(small.turn!.achieved.eyeShift).toBeCloseTo(0.15, 2);
-    expect(big.turn!.achieved.eyeShift).toBeCloseTo(0.25, 2);
+    // (Fitted on the fields, reported off the written mesh: within 0.005 on
+    // this 100 px fixture.)
+    expect(small.turn!.achieved.eyeShift).toBeCloseTo(0.5 * e, 2);
+    expect(big.turn!.achieved.eyeShift).toBeCloseTo(1.2 * e, 2);
     // Both were fractions of the head measured off the layers (40), not of the
-    // face plate (31) — the hold pivots on the one the solve used.
+    // face plate (31).
     expect(small.turn!.holdBase).toBe(small.headHalfWidth);
     expect(big.turn!.holdBase).toBe(big.headHalfWidth);
     expect(Math.abs(eyeSlide(bigPath))).toBeGreaterThan(
@@ -1062,35 +1084,35 @@ describe("autoRigFromLayers", () => {
     );
   });
 
-  it("clamps a passed eyeShift past the room the face plate leaves the far eye, and still refuses one below the face's own slide", async () => {
+  it("clamps a passed eyeShift past the room the face plate leaves the far eye, and fits a small one by turning less", async () => {
     const dir = tmpDir();
     const layers = (await writeTurnLayers(dir)).map((p) => ({ path: p }));
 
-    // Half the head half-width would slide the far eye off the face plate:
-    // the art's room, so the rig is built with the shift cut to it and says
-    // so, as it would for a default.
+    // Nine tenths of the head half-width is past what the most turn (3× the
+    // profile's) gives, and past the room the plate leaves the far eye: the
+    // rig is built with the shift cut to it and says so, as it would for a
+    // default.
     const past = await autoRigFromLayers({
       layers,
       outputPath: path.join(dir, "past.iki"),
-      turnTargets: { eyeShift: 0.5 },
+      turnTargets: { eyeShift: 0.9 },
     });
     expect(past.ok).toBe(true);
     if (!past.ok) return;
     expect(past.turn!.clamped).toContain("eyeShift");
-    expect(past.turn!.achieved.eyeShift).toBeLessThan(0.5);
+    expect(past.turn!.achieved.eyeShift).toBeLessThan(0.9);
 
-    // Below the slide the face's own turn already gives the eyes (attainable
-    // 0.06609…0.36505 here): no depth reaches it, so it is refused.
-    const below = await autoRigFromLayers({
+    // Any smaller shift is the same turn, less of it.
+    const small = await autoRigFromLayers({
       layers,
-      outputPath: path.join(dir, "below.iki"),
+      outputPath: path.join(dir, "small.iki"),
       turnTargets: { eyeShift: 0.01 },
     });
-    expect(below.ok).toBe(false);
-    if (below.ok) return;
-    expect(below.error).toMatch(/turnTargets\.eyeShift/);
-    expect(below.error).toMatch(/unreachable/);
-    expect(below.error).toMatch(/attainable/);
+    expect(small.ok).toBe(true);
+    if (!small.ok) return;
+    expect(small.turn!.clamped).toEqual([]);
+    // Written rounded to 0.1 px, on a 0.4 px slide.
+    expect(small.turn!.achieved.eyeShift).toBeCloseTo(0.01, 2);
   });
 
   // ── the nose's dense core ────────────────────────────────────────────────

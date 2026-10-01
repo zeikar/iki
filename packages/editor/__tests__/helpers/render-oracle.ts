@@ -203,23 +203,25 @@ function latticeOf(part: IkiPart) {
     for (let c = 0; c <= cols; c++) {
       const i = (r * stride + c) * 2;
       if (
-        Math.abs(v[i] - (left + (c / cols) * w)) > 1e-6 ||
-        Math.abs(v[i + 1] - (top - (r / rows) * h)) > 1e-6
+        // The generator writes vertices rounded to 1e-5 of the part.
+        Math.abs(v[i] - (left + (c / cols) * w)) > 1e-5 ||
+        Math.abs(v[i + 1] - (top - (r / rows) * h)) > 1e-5
       ) {
         throw malformed(`vertex ${i / 2} off its lattice position`);
       }
     }
   }
-  // Every cell is split [BL, BR, TL] then [TL, BR, TR]; check it on the first.
+  // Every cell is split [BL, BR, TL] then [TL, BR, TR]; check it on the
+  // first one drawn (a mesh may leave cells over empty canvas undrawn).
   const idx = part.mesh?.indices;
+  const tl = idx?.[2] ?? 0;
   if (
     idx &&
-    (idx[0] !== stride ||
-      idx[1] !== stride + 1 ||
-      idx[2] !== 0 ||
-      idx[3] !== 0 ||
-      idx[4] !== stride + 1 ||
-      idx[5] !== 1)
+    (idx[0] !== tl + stride ||
+      idx[1] !== tl + stride + 1 ||
+      idx[3] !== tl ||
+      idx[4] !== tl + stride + 1 ||
+      idx[5] !== tl + 1)
   ) {
     throw malformed("unexpected triangle split");
   }
@@ -256,6 +258,8 @@ function landedAt(
       `render-oracle: landedXAt / landedYAt read a part placed by translate alone; "${partId}" rests rotated or scaled`,
     );
   }
+  if (!isLattice(part))
+    return landedOnTriangles(model, part, restX, restY, params);
   const g = latticeOf(part);
   // Lattice fractions: u along the columns (0 at the left edge), v down the
   // rows (0 at the top).
@@ -281,6 +285,66 @@ function landedAt(
     return tl + fx * (tr - tl) + fy * (br - tr);
   };
   return { x: read(0), y: read(1) };
+}
+
+function isLattice(part: IkiPart): boolean {
+  try {
+    latticeOf(part);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `landedAt` for a mesh that is not a lattice (the face plate's two islands):
+ * the point is read off the LAST-drawn triangle containing it at rest — the
+ * one on top, which is what renders there — and, off the mesh, off the
+ * triangle it is nearest to, its barycentric weights clamped.
+ */
+function landedOnTriangles(
+  model: IkiModel,
+  part: IkiPart,
+  restX: number,
+  restY: number,
+  params: ParamValues,
+): { x: number; y: number } {
+  const rest = landVertices(model, part.id);
+  const landed = landVertices(model, part.id, params);
+  const idx = part.mesh!.indices;
+  let best: { t: number; w: [number, number, number]; score: number } | null =
+    null;
+  for (let t = idx.length - 3; t >= 0; t -= 3) {
+    const [a, b, c] = [idx[t], idx[t + 1], idx[t + 2]];
+    const [ax, ay, bx, by, cx, cy] = [
+      rest[a * 2],
+      rest[a * 2 + 1],
+      rest[b * 2],
+      rest[b * 2 + 1],
+      rest[c * 2],
+      rest[c * 2 + 1],
+    ];
+    const d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+    if (Math.abs(d) < 1e-9) continue;
+    const u = ((by - cy) * (restX - cx) + (cx - bx) * (restY - cy)) / d;
+    const v = ((cy - ay) * (restX - cx) + (ax - cx) * (restY - cy)) / d;
+    const w = 1 - u - v;
+    const score = Math.min(u, v, w);
+    if (score >= -1e-6) {
+      best = { t, w: [u, v, w], score };
+      break;
+    }
+    if (best === null || score > best.score) best = { t, w: [u, v, w], score };
+  }
+  const { t, w } = best!;
+  const clamped = w.map((x) => Math.max(0, x));
+  const sum = clamped[0] + clamped[1] + clamped[2];
+  const [u, v, ww] = clamped.map((x) => x / sum);
+  const [a, b, c] = [idx[t], idx[t + 1], idx[t + 2]];
+  return {
+    x: u * landed[a * 2] + v * landed[b * 2] + ww * landed[c * 2],
+    y: u * landed[a * 2 + 1] + v * landed[b * 2 + 1] + ww * landed[c * 2 + 1],
+  };
 }
 
 /** The rendered x of a part's rest point `(restX, restY)` — see `landedAt`. */

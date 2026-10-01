@@ -159,6 +159,75 @@ export interface RgbaLayer {
   rgba: ArrayLike<number>;
 }
 
+/** A pixel darker than this share of the plate's median skin luminance is
+ *  line work: the jaw's outline, not its shading. */
+const DARK_SHARE = 0.55;
+
+/**
+ * The face plate's jaw line, per crop column: going down from the plate's
+ * widest row, the canvas row of the last pixel of the first dark stroke met
+ * (the jaw's outline where a neck runs on below it), or −1 where the column
+ * leaves the paint first. `undefined` when no column meets a stroke — art
+ * with no line work, which the generator then reads off its outline alone.
+ */
+function jawRowsOf(
+  rgba: ArrayLike<number>,
+  canvasW: number,
+  bbox: { x: number; y: number; w: number; h: number },
+  rowLeft: Int32Array,
+  rowRight: Int32Array,
+): number[] | undefined {
+  const lum = (p: number) =>
+    0.299 * rgba[p * 4] + 0.587 * rgba[p * 4 + 1] + 0.114 * rgba[p * 4 + 2];
+  const hist = new Uint32Array(256);
+  let count = 0;
+  let widest = bbox.y;
+  let widestSpan = -1;
+  for (let y = bbox.y; y < bbox.y + bbox.h; y++) {
+    const span = rowRight[y] - rowLeft[y];
+    if (span >= widestSpan) {
+      widestSpan = span;
+      widest = y;
+    }
+    for (let x = bbox.x; x < bbox.x + bbox.w; x++) {
+      const p = y * canvasW + x;
+      if (rgba[p * 4 + 3] < ALPHA_OPAQUE) continue;
+      hist[Math.min(255, Math.round(lum(p)))]++;
+      count++;
+    }
+  }
+  if (count === 0) return undefined;
+  let median = 0;
+  for (let acc = 0; median < 255; median++) {
+    acc += hist[median];
+    if (acc * 2 >= count) break;
+  }
+  const dark = DARK_SHARE * median;
+  const out: number[] = [];
+  let found = false;
+  for (let x = bbox.x; x < bbox.x + bbox.w; x++) {
+    let row = -1;
+    for (let y = widest + 1; y < bbox.y + bbox.h; y++) {
+      const p = y * canvasW + x;
+      if (rgba[p * 4 + 3] < ALPHA_OPAQUE) break;
+      if (lum(p) >= dark) continue;
+      let end = y;
+      while (
+        end + 1 < bbox.y + bbox.h &&
+        rgba[((end + 1) * canvasW + x) * 4 + 3] >= ALPHA_OPAQUE &&
+        lum((end + 1) * canvasW + x) < dark
+      ) {
+        end++;
+      }
+      row = end;
+      break;
+    }
+    if (row >= 0) found = true;
+    out.push(row);
+  }
+  return found ? out : undefined;
+}
+
 /**
  * Measures a layer set one decoded layer at a time, so a host holds one
  * full-canvas RGBA buffer at once, however many layers the set has. Call
@@ -221,7 +290,8 @@ export interface LayerSetMeasurement {
  * the eye centres when the layer set has no irises. `@ikijs/mcp`'s
  * `measure_turn_reference` picks the same row off a render — it finds the
  * irises themselves — so the head it spans there is the head spanned here. Not
- * `auto-rig.ts`'s `eyeRowOf`, the eye landmarks' mean model y, unrounded: this
+ * the generator's own eye row (`HeadFrame.eyeY` in `auto-rig/head.ts`, the eye
+ * landmarks' mean model y, unrounded): this
  * is the canvas row of the crop centres, rounded, and one in place of the other
  * would move the measured head.
  */
@@ -386,8 +456,8 @@ export function createLayerSetMeasurer(canvas: {
       // alpha rule and halving as the head's own span, row by row (0 for a
       // row with no opaque pixel; a single opaque pixel IS a half-px row
       // here, where the head-span reads below treat a one-column band as
-      // no span) — so the face plate can turn on a radius that tapers with
-      // the jaw. The bbox admits alpha down to 8 while the span counts
+      // no span) — which give the plate's outline, the neck's plateau and
+      // the ears' steps. The bbox admits alpha down to 8 while the span counts
       // alpha >= 128 only, so a row's span sits inside the crop and its
       // half never exceeds cropW / 2, the generator's bound.
       const rowHalfWidths: number[] = [];
@@ -399,6 +469,8 @@ export function createLayerSetMeasurer(canvas: {
         );
       }
       layer.rowHalfWidths = rowHalfWidths;
+      const jawRows = jawRowsOf(rgba, canvasW, bbox, rowLeft, rowRight);
+      if (jawRows !== undefined) layer.jawRows = jawRows;
     } else if (role === "nose") {
       // The drawing inside a soft nose's feather, canvas px like `bbox` —
       // `rgba` is this layer's full-canvas buffer, so the core comes out in
@@ -450,7 +522,7 @@ export function createLayerSetMeasurer(canvas: {
     // outermost LANDING, not just the outermost REST pixel, since which part
     // ends up furthest out after the turn can differ from which one drew
     // furthest out at rest. Model x (canvas x minus half the canvas width),
-    // matching bboxToTransform's own convention.
+    // matching the generator's own placement of a layer (`boxOfLayer`).
     let headEdges:
       | {
           left: { role: string; x: number }[];
@@ -477,9 +549,9 @@ export function createLayerSetMeasurer(canvas: {
     // iris's row width counting as clear. The iris's alpha-bbox (alpha >= 8, grown by a pixel) only
     // gives that row and where to start scanning, never an edge: every number
     // is the pixel boundary facing the neighbouring clear pixel, less half the
-    // canvas, so each is the painted edge the way bboxToTransform's crop edges
-    // are. The scan decides with the very crop centres the generator validates
-    // these edges against (bboxToTransform's), so what it measures is always
+    // canvas, so each is the painted edge the way the generator's crop edges
+    // (`boxOfLayer`) are. The scan decides with the very crop centres the
+    // generator validates these edges against, so what it measures is always
     // accepted, on either side. A side's iris is whichever sits on that side,
     // the two paired by x rather than by role name. Measured whether or not
     // headHalfWidth is applied: the bound it feeds is the far iris against its
@@ -499,7 +571,7 @@ export function createLayerSetMeasurer(canvas: {
         const r = Math.floor(iris.bbox.y + iris.bbox.h / 2);
         // The iris's crop centre, canvas x (a pixel boundary for an even
         // width, a pixel's middle for an odd one), and the other's in model
-        // x — bboxToTransform's placement of each.
+        // x — the generator's placement of each (`boxOfLayer`).
         const centre = iris.bbox.x + iris.bbox.w / 2;
         const otherX = other.bbox.x + other.bbox.w / 2 - half;
         // The pixel just on THIS side of that centre: a run covering it

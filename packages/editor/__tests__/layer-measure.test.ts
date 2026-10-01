@@ -4,17 +4,24 @@ import type { LayerSetMeasurement, RgbaLayer } from "@ikijs/editor";
 
 const CANVAS = 100;
 
-type Rect = { x: number; y: number; w: number; h: number; alpha?: number };
+type Rect = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  alpha?: number;
+  rgb?: [number, number, number];
+};
 
 /** A transparent CANVAS² straight-alpha RGBA layer with `rects` painted on it,
- *  opaque unless a rect gives its own alpha; a later rect paints over an
- *  earlier one. */
+ *  skin-toned and opaque unless a rect gives its own colour or alpha; a later
+ *  rect paints over an earlier one. */
 function paint(rects: Rect[]): Uint8ClampedArray {
   const rgba = new Uint8ClampedArray(CANVAS * CANVAS * 4);
-  for (const { x, y, w, h, alpha = 255 } of rects) {
+  for (const { x, y, w, h, alpha = 255, rgb = [200, 120, 60] } of rects) {
     for (let yy = y; yy < y + h; yy++) {
       for (let xx = x; xx < x + w; xx++) {
-        rgba.set([200, 120, 60, alpha], (yy * CANVAS + xx) * 4);
+        rgba.set([...rgb, alpha], (yy * CANVAS + xx) * 4);
       }
     }
   }
@@ -187,6 +194,46 @@ describe("createLayerSetMeasurer", () => {
     );
     expect(nose).toMatchObject({ bbox: { x: 39, y: 39, w: 20, h: 20 } });
     expect(nose!.denseCore).toBeUndefined();
+  });
+
+  // A head on rows 20..59, columns 20..79, and a neck on columns 40..59 below
+  // it down to row 89, with a shade band across the neck on rows 61..62 —
+  // darker than the skin (luminance 137) but not line work: above DARK_SHARE
+  // (0.55) of it.
+  const SHADE: [number, number, number] = [150, 90, 45];
+  const LINE: [number, number, number] = [40, 20, 10];
+  const headAndNeck: Rect[] = [
+    { x: 20, y: 20, w: 60, h: 40 },
+    { x: 40, y: 60, w: 20, h: 30 },
+    { x: 40, y: 61, w: 20, h: 2, rgb: SHADE },
+  ];
+
+  it("reads the jaw's stroke under the face's widest row, column by column", () => {
+    const measurer = createLayerSetMeasurer({ width: CANVAS, height: CANVAS });
+    // The jaw's line across the neck on rows 64..65, and a dark mark on the
+    // head above the widest row (an eye's line), which no column scans.
+    const face = measurer.add(
+      layer("face", [
+        ...headAndNeck,
+        { x: 40, y: 64, w: 20, h: 2, rgb: LINE },
+        { x: 30, y: 30, w: 10, h: 2, rgb: LINE },
+      ]),
+    )!;
+    // One entry per crop column (canvas 19..80): the stroke's last row under
+    // the neck, the shade band passed over; −1 where the paint ends first.
+    expect(face.jawRows).toEqual(
+      Array.from({ length: 62 }, (_, i) =>
+        i + 19 >= 40 && i + 19 < 60 ? 65 : -1,
+      ),
+    );
+  });
+
+  it("measures no jaw on a face without line work under its widest row", () => {
+    const measurer = createLayerSetMeasurer({ width: CANVAS, height: CANVAS });
+    const face = measurer.add(
+      layer("face", [...headAndNeck, { x: 30, y: 30, w: 10, h: 2, rgb: LINE }]),
+    )!;
+    expect(face).not.toHaveProperty("jawRows");
   });
 
   it("returns null for an empty layer and records nothing for it", () => {

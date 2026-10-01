@@ -1,0 +1,656 @@
+/**
+ * `generateIkiFromLayerSet`: role layers in, a rigged `.iki` out.
+ *
+ * The rig's shape follows a Live2D default rig (`profile.ts`): a torso that
+ * only breathes; a head deformer that rolls about the chin and breathes; one
+ * small warp grid per feature (each eye, each brow, the nose, the mouth),
+ * translating and foreshortening it by its own lead over the plate; and the
+ * plate, the hair and the blush moved by per-vertex keyforms of their own —
+ * the plate as up to four islands of one drawing: a head that slides, a neck
+ * that stays and two ears that lag. Blink, gaze, brows, mouth, breath and
+ * hair sway are part warps and bindings under those.
+ */
+
+import {
+  IKI_FORMAT_VERSION,
+  StandardParameter as P,
+  parseIkiModel,
+  type IkiBinding,
+  type IkiDeformer,
+  type IkiMesh,
+  type IkiModel,
+  type IkiParameter,
+  type IkiPart,
+  type IkiPhysics,
+  type IkiWarp,
+} from "@ikijs/format";
+import { checkHeadEdges, checkLayers, checkStrandEdges } from "./checks";
+import { renderedLander, sideIrises, solveContext } from "./context";
+import { buildHeadFrame, type HeadFrame } from "./head";
+import { buildFaceMesh, type Region } from "./face-mesh";
+import {
+  bh,
+  boxOfLayer,
+  bw,
+  cellsFor,
+  cx,
+  cy,
+  gridMesh,
+  roundTo,
+  unionBoxes,
+  type Box,
+  type Cells,
+} from "./layout";
+import { roleSpec, ROLE_TABLE, type Family, type RoleSpec } from "./roles";
+import { bake, lattice, X_STOPS, Y_STOPS, type Lattice } from "./grid";
+import {
+  earField,
+  familyField,
+  hairFrontBends,
+  neckField,
+  type Field,
+  type TurnModel,
+} from "./fields";
+import {
+  buildTurn,
+  checkedKeys,
+  checkedNumber,
+  fitTurn,
+  resolveTurnTargets,
+  TURN_TARGET_KEYS,
+  turnReport,
+  type ResolvedTargets,
+  type TurnFit,
+} from "./solve";
+import {
+  blinkFold,
+  browBindings,
+  browReach,
+  gazeBindings,
+  gazeReach,
+  hairHangWeight,
+  hairSway,
+  lashFold,
+  localWarp,
+  motionReach,
+  mouthForm,
+  mouthOpenGrow,
+  mouthWiden,
+  SWAY_RANGE,
+  tiltHang,
+  type Reach,
+} from "./drivers";
+import {
+  AMPLITUDE,
+  ROLL_DEG,
+  STYLE_KNOBS,
+  resolveStyle,
+  type ResolvedStyle,
+} from "./profile";
+import { type GenerateOptions, type LayerInput } from "./types";
+
+/** Mesh cells per role. The plate's head island carries the chin's lead and
+ *  the jaw's narrowing; the hair only sways and hangs. */
+const MESH_CELLS: Record<string, Cells> = {
+  face: { px: 28, min: 4, max: 24 },
+  // The front hair eases from riding the face to holding the outline.
+  hair_front: { px: 32, min: 3, max: 24 },
+  hair_back: { px: 56, min: 3, max: 18 },
+};
+const NECK_CELLS: Cells = { px: 20, min: 3, max: 12 };
+const FEATURE_MESH_CELLS: Cells = { px: 14, min: 2, max: 12 };
+
+type GridFamily = "eye_L" | "eye_R" | "brow_L" | "brow_R" | "nose" | "mouth";
+
+/** Grid cells per feature: each only translates, foreshortens and tilts, so a
+ *  few cells carry it; they mostly hold the room its own motions need. */
+const GRID_CELLS: Record<GridFamily, Cells> = {
+  eye_L: { px: 24, min: 2, max: 8 },
+  eye_R: { px: 24, min: 2, max: 8 },
+  brow_L: { px: 32, min: 2, max: 6 },
+  brow_R: { px: 32, min: 2, max: 6 },
+  nose: { px: 16, min: 2, max: 8 },
+  mouth: { px: 16, min: 2, max: 8 },
+};
+const WARP_ID: Record<GridFamily, string> = {
+  eye_L: "eyeWarp_L",
+  eye_R: "eyeWarp_R",
+  brow_L: "browWarp_L",
+  brow_R: "browWarp_R",
+  nose: "noseWarp",
+  mouth: "mouthWarp",
+};
+const isGridFamily = (f: Family): f is GridFamily => f in WARP_ID;
+const GRID_PAD = 6;
+
+type Grids = Map<Family, { lattice: Lattice; keyforms: number[][] }>;
+
+export function generateIkiFromLayerSet(
+  layers: LayerInput[],
+  canvas: { width: number; height: number },
+  options: GenerateOptions = {},
+): IkiModel {
+  checkLayers(layers, canvas);
+  const byRole = new Map(layers.map((l) => [l.role, l]));
+  const has = (role: string) => byRole.has(role);
+  const box = (role: string) => boxOfLayer(byRole.get(role)!);
+  const hasNose = has("nose");
+  const plateHalf = byRole.get("face")!.cropW / 2;
+
+  checkHeadEdges(options.headEdges, byRole);
+  checkStrandEdges(
+    options.strandEdges,
+    sideIrises(byRole),
+    has("hair_front") ? box("hair_front") : undefined,
+  );
+  checkedKeys("style", options.style, STYLE_KNOBS);
+  const style = resolveStyle(options.style, (name, v, lo, hi) =>
+    checkedNumber(name, v, lo, hi),
+  );
+
+  // Without a nose there is no turn to fit: the face turns on the profile,
+  // inside its own outline. Every turn option — the cues, the measured head,
+  // its edges and strands — is then inert; the edges and strands are still
+  // checked against the layers, and the cues' object for a misspelt field.
+  checkedKeys("turnTargets", options.turnTargets, TURN_TARGET_KEYS);
+  const targets: ResolvedTargets = hasNose
+    ? resolveTurnTargets(options.turnTargets, plateHalf)
+    : { given: new Set() };
+  const turnOptions: GenerateOptions = hasNose ? options : {};
+  const frame = buildHeadFrame(layers, {
+    headHalfWidth: targets.headHalfWidth,
+    headEdges:
+      targets.headHalfWidth !== undefined ? options.headEdges : undefined,
+  });
+
+  // --- parts, with the warps and bindings that are not the turn's ---
+  const parts: IkiPart[] = [];
+  const reach = new Map<string, Reach>();
+  let regionOf: Region[] = [];
+  let headStart = 0;
+  for (const spec of ROLE_TABLE) {
+    const layer = byRole.get(spec.role);
+    if (layer === undefined) continue;
+    const built = buildPart(
+      spec,
+      boxOfLayer(layer),
+      parts.length,
+      frame,
+      byRole,
+      style,
+    );
+    if (built.region !== undefined) {
+      regionOf = built.region;
+      headStart = built.headStart;
+    }
+    reach.set(spec.role, built.reach);
+    parts.push(built.part);
+  }
+
+  // --- the turn ---
+  const ctx = solveContext(frame, byRole, turnOptions, hasNose);
+  const landmarks: Pick<
+    TurnModel,
+    "boxes" | "noseAt" | "noseTopY" | "mouthAt" | "hairTop"
+  > = {
+    boxes: Object.fromEntries(
+      (["eye_L", "eye_R", "brow_L", "brow_R"] as const)
+        .filter(has)
+        .map((r) => [r, box(r)]),
+    ),
+    noseAt: ctx.noseAt,
+    noseTopY: ctx.noseBox?.y1,
+    mouthAt: ctx.mouthAt,
+    hairTop: has("hair_front") ? box("hair_front").y1 : frame.face.y1,
+  };
+  const build = (q: Parameters<typeof buildTurn>[2]) =>
+    buildTurn(frame, landmarks, q);
+  // Without a nose there are no targets, but the art's room still bounds
+  // the profile's turn.
+  const fit: TurnFit = fitTurn(ctx, targets, style, build);
+  const turn = fit.model;
+
+  // --- the features' grids ---
+  const grids: Grids = new Map();
+  for (const family of Object.keys(WARP_ID) as GridFamily[]) {
+    const members = parts.filter((p) => roleSpec(p.id).family === family);
+    if (members.length === 0) continue;
+    const area = unionBoxes(
+      members.map((p) => {
+        const r = reach.get(p.id)!;
+        const b = box(p.id);
+        return {
+          x0: b.x0 - r.left - GRID_PAD,
+          x1: b.x1 + r.right + GRID_PAD,
+          y0: b.y0 - r.bottom - GRID_PAD,
+          y1: b.y1 + r.top + GRID_PAD,
+        };
+      }),
+    );
+    const cells = GRID_CELLS[family];
+    const l = lattice(area, cells.px, cells.min, cells.max);
+    grids.set(family, {
+      lattice: l,
+      keyforms: bake(l, familyField(turn, family)),
+    });
+  }
+
+  // --- the plate, the blush and the hair: their own turn keyforms ---
+  for (const part of parts) {
+    const family = roleSpec(part.id).family;
+    if (isGridFamily(family)) {
+      part.deformer = WARP_ID[family];
+      continue;
+    }
+    part.deformer = family === "body" ? "bodyDeformer" : "headDeformer";
+    if (family === "body" || part.mesh === undefined) continue;
+    const own = familyField(turn, family);
+    const fieldOf: (i: number) => Field =
+      part.id === "face" ? plateFields(turn, regionOf, own) : () => own;
+    part.warps = [
+      ...turnWarps(part.mesh, box(part.id), fieldOf),
+      ...(part.warps ?? []),
+    ];
+  }
+
+  const model: IkiModel = {
+    version: IKI_FORMAT_VERSION,
+    name: "auto-rigged",
+    canvas: { width: canvas.width, height: canvas.height },
+    parameters: declareParameters(new Set(byRole.keys())),
+    parts,
+    deformers: deformers(frame, grids, has("body") ? box("body") : undefined),
+    ...(has("hair_front") ? { physics: hairPhysics() } : {}),
+  };
+
+  // Reported only for a model that validates.
+  const valid = parseIkiModel(model);
+  if (hasNose && options.onTurnSolved) {
+    options.onTurnSolved(
+      turnReport(
+        ctx,
+        fit,
+        renderedLander(turn, parts, grids, new Map([["face", headStart]])),
+      ),
+    );
+  }
+  return valid;
+}
+
+/** A part's own turn and nod keyforms off its vertices' fields — split into
+ *  AngleX and AngleY, which add as the fields do. */
+function turnWarps(
+  mesh: IkiMesh,
+  b: Box,
+  fieldOf: (i: number) => Field,
+): IkiWarp[] {
+  return [
+    localWarp(P.AngleX, mesh, b, X_STOPS, ([x, y], v, i) =>
+      v === 0 ? [0, 0] : [fieldOf(i)(x, y, v, 0)[0], 0],
+    ),
+    localWarp(P.AngleY, mesh, b, Y_STOPS, ([x, y], v, i) =>
+      v === 0 ? [0, 0] : [0, fieldOf(i)(x, y, 0, v)[1]],
+    ),
+  ];
+}
+
+/** The plate's islands each on their own motion: the head on the plate's
+ *  field, the ears lagging it, the neck still but for the shade under the
+ *  chin. */
+function plateFields(
+  turn: TurnModel,
+  region: Region[],
+  head: Field,
+): (i: number) => Field {
+  const ear = earField(turn);
+  const neck = neckField(turn);
+  return (i) =>
+    region[i] === "ear" ? ear : region[i] === "neck" ? neck : head;
+}
+
+// --- parts ----------------------------------------------------------------------
+
+function buildPart(
+  spec: RoleSpec,
+  b: Box,
+  order: number,
+  frame: HeadFrame,
+  byRole: Map<string, LayerInput>,
+  style: ResolvedStyle,
+): { part: IkiPart; reach: Reach; region?: Region[]; headStart: number } {
+  const box = (role: string) => boxOfLayer(byRole.get(role)!);
+  const part: IkiPart = {
+    id: spec.role,
+    color: [1, 1, 1, 1],
+    width: bw(b),
+    height: bh(b),
+    transform: { x: cx(b), y: cy(b) },
+    order,
+  };
+  const pivot: [number, number] = [frame.axisX, frame.chinY];
+  const warps: IkiWarp[] = [];
+  const bindings: IkiBinding[] = [];
+  let extra: [number, number] = [0, 0];
+  let mesh: IkiMesh | undefined;
+  let region: Region[] | undefined;
+  let headStart = 0;
+  if (spec.role === "face") {
+    const px = Math.min(MESH_CELLS.face.px, (2 * frame.wMax) / 14);
+    const fm = buildFaceMesh(frame, b, { ...MESH_CELLS.face, px }, NECK_CELLS);
+    mesh = fm.mesh;
+    region = fm.region;
+    headStart = fm.headStart;
+  } else if (spec.family !== "body") {
+    const cells = MESH_CELLS[spec.role] ?? FEATURE_MESH_CELLS;
+    // No coarser than a fraction of the head, whatever its size.
+    const px = Math.min(cells.px, meshScale(spec.role, frame));
+    const cols = cellsFor(bw(b), px, cells.min, cells.max);
+    const rows = cellsFor(bh(b), px, cells.min, cells.max);
+    if (spec.role === "hair_front") {
+      // Columns where its follow bends, so the mesh carries it exactly.
+      const boxes = Object.fromEntries(
+        (["eye_L", "eye_R"] as const)
+          .filter((r) => byRole.has(r))
+          .map((r) => [r, box(r)]),
+      );
+      const { inner, left, right } = hairFrontBends(frame, boxes);
+      mesh = columnMesh(
+        b,
+        [
+          frame.axisX - left,
+          frame.axisX - inner,
+          frame.axisX + inner,
+          frame.axisX + right,
+        ],
+        cols,
+        rows,
+      );
+    } else {
+      mesh = gridMesh(cols, rows);
+    }
+  }
+  if (mesh !== undefined) part.mesh = mesh;
+  const side = spec.role.endsWith("_L") ? "L" : "R";
+  const eyeOpen = side === "L" ? P.EyeOpenLeft : P.EyeOpenRight;
+  const hh = frame.hh;
+  switch (spec.role) {
+    case "face":
+      if (region?.some((r) => r === "neck")) {
+        const isNeck = region.map((r) => r === "neck");
+        // The neck stays on the shoulders through the roll, and rises with
+        // them on a breath (the head rises less).
+        warps.push(
+          tiltHang(mesh!, b, pivot, (_y, i) => (isNeck[i] ? 1 : 0)),
+          localWarp(P.Breath, mesh!, b, [0, 1], (_p, v, i) =>
+            v === 1 && isNeck[i]
+              ? [0, (AMPLITUDE.breathBody - AMPLITUDE.breathHead) * hh]
+              : [0, 0],
+          ),
+        );
+      }
+      break;
+    case "eye_L":
+    case "eye_R":
+      warps.push(blinkFold(eyeOpen, mesh!, b, style.blink));
+      break;
+    case "lash_L":
+    case "lash_R":
+      warps.push(lashFold(eyeOpen, mesh!, b, box(`eye_${side}`), style.blink));
+      break;
+    case "iris_L":
+    case "iris_R":
+    case "pupil_L":
+    case "pupil_R":
+    case "highlight_L":
+    case "highlight_R": {
+      // A highlight is a reflection: it travels half as far.
+      const share = spec.role.startsWith("highlight") ? 0.5 : 1;
+      const iris = byRole.get(`iris_${side}`);
+      const irisW =
+        iris !== undefined ? iris.cropW : 0.46 * bw(box(`eye_${side}`));
+      bindings.push(...gazeBindings(irisW, share));
+      extra = gazeReach(irisW, share);
+      part.clip = { masks: [`eye_${side}`] };
+      break;
+    }
+    case "brow_L":
+    case "brow_R": {
+      const r = browReach(hh);
+      bindings.push(...browBindings(side, r));
+      extra = [0.15 * bw(b), r + 0.15 * bw(b)];
+      break;
+    }
+    case "mouth":
+      warps.push(mouthForm(mesh!, b));
+      if (byRole.has("mouth_open")) {
+        warps.push(mouthWiden(mesh!, b));
+        // Two multiplying fades: the closed lips are gone by the time the
+        // open drawing is half grown.
+        bindings.push(
+          { parameter: P.MouthOpen, channel: "opacity", from: 1, to: 0 },
+          { parameter: P.MouthOpen, channel: "opacity", from: 1, to: 0 },
+        );
+        extra = [(AMPLITUDE.mouthOpenWidth - 1) * (bw(b) / 2), 0];
+      } else {
+        // One drawing only: stretch it open downward from its top lip, to
+        // the profile's open height, and wider.
+        const grow = Math.max(
+          0,
+          (AMPLITUDE.mouthOpenHeight * bw(b)) / bh(b) - 1,
+        );
+        bindings.push(
+          {
+            parameter: P.MouthOpen,
+            channel: "scaleY",
+            from: 0,
+            to: roundTo(grow, 0.01),
+          },
+          {
+            parameter: P.MouthOpen,
+            channel: "scaleX",
+            from: 0,
+            to: roundTo(AMPLITUDE.mouthOpenWidth - 1, 0.01),
+          },
+          {
+            parameter: P.MouthOpen,
+            channel: "translateY",
+            from: 0,
+            to: -roundTo((grow * bh(b)) / 2, 0.01),
+          },
+        );
+        extra = [(AMPLITUDE.mouthOpenWidth - 1) * (bw(b) / 2), grow * bh(b)];
+      }
+      break;
+    case "mouth_open":
+      warps.push(mouthForm(mesh!, b), mouthOpenGrow(mesh!, b));
+      bindings.push({
+        parameter: P.MouthOpen,
+        channel: "opacity",
+        from: 0,
+        to: 1,
+      });
+      extra = [(AMPLITUDE.mouthOpenWidth - 1) * (bw(b) / 2), 0];
+      break;
+    case "hair_front":
+    case "hair_back":
+      if (byRole.has("hair_front")) {
+        const amp = style.sway * AMPLITUDE.sway * hh;
+        warps.push(
+          hairSway(P.HairSwayX, mesh!, b, amp),
+          hairSway(P.HairSwayZ, mesh!, b, amp),
+        );
+      }
+      warps.push(tiltHang(mesh!, b, pivot, hairHangWeight(frame.chinY, b.y0)));
+      break;
+  }
+  if (warps.length > 0) part.warps = warps;
+  if (bindings.length > 0) part.bindings = bindings;
+  return {
+    part,
+    reach: motionReach(part.warps, mesh, b, extra),
+    region,
+    headStart,
+  };
+}
+
+/** A grid mesh over `b` with its even columns plus columns at `at` (model x,
+ *  inside the box), rows even; row 0 on top, each cell split as `gridMesh`'s. */
+function columnMesh(b: Box, at: number[], cols: number, rows: number): IkiMesh {
+  const step = bw(b) / cols;
+  const xs = Array.from({ length: cols + 1 }, (_, c) => b.x0 + c * step);
+  for (const x of at) {
+    if (x <= b.x0 + 0.25 || x >= b.x1 - 0.25) continue;
+    const near = xs.findIndex((v) => Math.abs(v - x) < 0.3 * step);
+    if (near > 0 && near < xs.length - 1) xs[near] = x;
+    else if (near < 0) xs.push(x);
+  }
+  xs.sort((p, q) => p - q);
+  const vertices: number[] = [];
+  const uvs: number[] = [];
+  for (let r = 0; r <= rows; r++) {
+    for (const x of xs) {
+      const u = (x - b.x0) / bw(b);
+      vertices.push(roundTo(u - 0.5, 1e-5), roundTo(0.5 - r / rows, 1e-5));
+      uvs.push(roundTo(u, 1e-5), roundTo(r / rows, 1e-5));
+    }
+  }
+  const n = xs.length;
+  const indices: number[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c + 1 < n; c++) {
+      const tl = r * n + c;
+      const bl = tl + n;
+      indices.push(bl, bl + 1, tl, tl, bl + 1, tl + 1);
+    }
+  }
+  return { vertices, uvs, indices };
+}
+
+function meshScale(role: string, frame: HeadFrame): number {
+  switch (role) {
+    case "hair_front":
+    case "hair_back":
+      // It only sways and hangs: smooth bends a coarse mesh carries.
+      return Math.max(2, (frame.shellRight - frame.shellLeft) / 9);
+    default:
+      return Infinity;
+  }
+}
+
+// --- deformers, parameters, physics ---------------------------------------------
+
+function deformers(
+  frame: HeadFrame,
+  grids: Grids,
+  body: Box | undefined,
+): IkiDeformer[] {
+  const out: IkiDeformer[] = [];
+  if (body !== undefined) {
+    out.push({
+      id: "bodyDeformer",
+      pivot: { x: roundTo(cx(body), 0.01), y: roundTo(body.y1, 0.01) },
+      bindings: [
+        {
+          parameter: P.Breath,
+          channel: "translateY",
+          from: 0,
+          to: roundTo(AMPLITUDE.breathBody * frame.hh, 0.01),
+        },
+      ],
+    });
+  }
+  out.push({
+    id: "headDeformer",
+    pivot: { x: roundTo(frame.axisX, 0.01), y: roundTo(frame.chinY, 0.01) },
+    bindings: [
+      // AngleZ is clockwise-positive (Live2D's); a rotation is CCW-positive.
+      { parameter: P.AngleZ, channel: "rotate", from: ROLL_DEG, to: -ROLL_DEG },
+      {
+        parameter: P.Breath,
+        channel: "translateY",
+        from: 0,
+        to: roundTo(AMPLITUDE.breathHead * frame.hh, 0.01),
+      },
+    ],
+  });
+  for (const [family, g] of grids) {
+    out.push({
+      kind: "warp",
+      id: WARP_ID[family as GridFamily],
+      parent: "headDeformer",
+      grid: {
+        cols: g.lattice.cols,
+        rows: g.lattice.rows,
+        points: g.lattice.points,
+      },
+      warp2d: {
+        parameter: P.AngleX,
+        parameterY: P.AngleY,
+        valuesX: X_STOPS,
+        valuesY: Y_STOPS,
+        keyforms2d: g.keyforms.map((offsets) => ({ offsets })),
+      },
+    });
+  }
+  return out;
+}
+
+/** Two springs, one per head axis the hair lags (a rig has one input). Each
+ *  settles at a modest share of its range, so a held turn or tilt leaves the
+ *  hair only a little swung. */
+function hairPhysics(): IkiPhysics[] {
+  return [
+    {
+      id: "hairSway",
+      input: { parameter: P.AngleX, weight: 1 },
+      output: { parameter: P.HairSwayX, scale: 5 },
+      mass: 1,
+      stiffness: 30,
+      damping: 3,
+    },
+    {
+      id: "hairTilt",
+      input: { parameter: P.AngleZ, weight: 1 },
+      output: { parameter: P.HairSwayZ, scale: 8 },
+      mass: 1,
+      stiffness: 25,
+      damping: 2.5,
+    },
+  ];
+}
+
+function declareParameters(roles: Set<string>): IkiParameter[] {
+  const out: IkiParameter[] = [];
+  const add = (
+    id: string,
+    name: string,
+    min: number,
+    max: number,
+    def: number,
+  ) => out.push({ id, name, min, max, default: def });
+  add(P.AngleX, "Head Angle", -30, 30, 0);
+  add(P.AngleY, "Head Angle Y", -30, 30, 0);
+  add(P.AngleZ, "Head Angle Z", -30, 30, 0);
+  add(P.EyeOpenLeft, "Eye L", 0, 1, 1);
+  add(P.EyeOpenRight, "Eye R", 0, 1, 1);
+  if ([...roles].some((r) => /^(iris|pupil|highlight)_/.test(r))) {
+    add(P.EyeballX, "Gaze X", -1, 1, 0);
+    add(P.EyeballY, "Gaze Y", -1, 1, 0);
+  }
+  add(P.MouthOpen, "Mouth Open", 0, 1, 0);
+  add(P.MouthForm, "Mouth Form", -1, 1, 0);
+  if (roles.has("brow_L")) {
+    add(P.BrowLeftY, "Brow L Y", -1, 1, 0);
+    add(P.BrowLeftAngle, "Brow L Angle", -1, 1, 0);
+  }
+  if (roles.has("brow_R")) {
+    add(P.BrowRightY, "Brow R Y", -1, 1, 0);
+    add(P.BrowRightAngle, "Brow R Angle", -1, 1, 0);
+  }
+  add(P.Breath, "Breath", 0, 1, 0);
+  if (roles.has("hair_front")) {
+    add(P.HairSwayX, "Hair Sway X", -SWAY_RANGE, SWAY_RANGE, 0);
+    add(P.HairSwayZ, "Hair Sway Z", -SWAY_RANGE, SWAY_RANGE, 0);
+  }
+  return out;
+}

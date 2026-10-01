@@ -26,11 +26,13 @@ deliberately deferred.
    - `generateIkiFromLayerSet` (`@ikijs/editor`) rigs role-named layers (`face`, `eye_L/R`, `mouth`, plus optional iris / brow / lash / hair) into a model that blinks, gazes, talks, turns, and emotes
    - PSD import in the editor; the `auto_rig_from_layers` tool in [`@ikijs/mcp`](./packages/mcp) so an agent can go from PNGs to a renderable `.iki` on disk
    - A Claude skill chains image generation → layer compose → rig in one gesture
-   - Head-turn depth parallax: the hair silhouette holds still while the face plate slides and foreshortens inside it, the bangs leading that slide — a turn reads as a head rotating rather than a flat cutout sliding
-   - Head nod: `AngleY` drives the face plate and each feature group on its own 2D grid warp (`warp2d`) over turn × nod, all baked from one surface, with a gentler vertical bend so the hair crown stays whole
-   - Head tilt: `AngleZ` rolls the head about the neck pivot, clockwise-positive to match Live2D
-   - Torso: `body` rides a `bodyDeformer` that follows the turn at a light share and the breath bob at half amplitude, so the shoulders come along instead of staying bolted to the canvas
-   - Motion fidelity: turn/nod keyforms at 15° stops, a 10-cell face plate and 4-cell feature grids, and meshes sized to the art (`meshCellsFor`), so mid-angle poses and full turns render as curves rather than chords
+   - Head turn as parallax, from a Live2D default-rig profile measured on the Cubism sample models: the face plate translates, the chin and the features lead it, the front hair rides the face and holds the head's outline where it draws it, and the back hair stays behind
+   - Neck and ears: the ones the face layer paints are cut into islands of the plate's own mesh, drawn behind the head — the neck stays under the sliding chin, the ears lag the face
+   - Head nod: `AngleY` moves each region by the profile's own values
+   - Head tilt: `AngleZ` rolls the head 10° about the chin, clockwise-positive to match Live2D
+   - Torso: `body` rides a `bodyDeformer` that only breathes — a turn leaves it where it is, as on the samples
+   - Keyforms at 0 and ±30 only, since every profile curve is linear in its angle: each feature family rides its own `warp2d` grid over the 3×3 of turn × nod, and the plate, the blush and both hair layers carry their own keyforms
+   - Per-character `style` knobs scale the profile only where the samples themselves disagree: the turn's amount, the features' lead, how far the front hair follows the face and at the outline, the blink and the sway
    - Deferred: ML segmentation of a single flat illustration (today the parts arrive as separate layers)
 7. **Physics / secondary motion** — done
    - Spring-mass-damper rigs (`model.physics`) driven by the `PhysicsMotion` peer driver
