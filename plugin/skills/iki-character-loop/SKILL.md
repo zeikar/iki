@@ -86,7 +86,7 @@ missing parts dir. The `iki` repo ignores `iki-char/`; in any other project add
 it to `.gitignore` before the first run, or the generated art lands in a commit.
 
 ```bash
-mkdir -p iki-char/parts iki-char/layers
+mkdir -p iki-char/parts iki-char/layers iki-char/renders/debug
 [ -f iki-char/layout.json ] || echo '{}' > iki-char/layout.json
 [ -f iki-char/style.json ] || echo '{}' > iki-char/style.json
 ```
@@ -176,12 +176,13 @@ a restart invalidates every prior score.
    hero pose saved as `rest.png` silently invalidates the whole round — that
    has already happened once, and two rounds of "it looks like the reference"
    were judged against a head turned nine degrees.
-   Besides the screenshots, also capture the pair `measure_turn_reference`
+   Besides the screenshots, also capture the poses `measure_turn_reference`
    needs: `canvas.toDataURL("image/png")` at `ParamAngleX` 0 (the untouched
-   rest pose) and at −30 (the rig's own limit), via `browser_evaluate` — not a
-   screenshot, because a screenshot carries the page under the canvas and the
-   measurement needs the render's own transparency to tell foreground from
-   background.
+   rest pose), at −30 and at +30 (the rig's own limit, both ways, because its
+   `turn.achieved` is the mean of the two directions), via `browser_evaluate`
+   — not a screenshot, because a screenshot carries the page under the canvas
+   and the measurement needs the render's own transparency to tell foreground
+   from background.
    **Standalone:** the prior screenshots already moved sliders, so load the
    `.iki` file through the picker once more (same flow as above, Idle already
    off) to get back to the untouched rest pose, then drive `ParamAngleX`
@@ -205,11 +206,15 @@ a restart invalidates every prior score.
      input.dispatchEvent(new Event("input", { bubbles: true }));
      await nextFrame();
      const turnM30 = canvas.toDataURL("image/png");
-     return JSON.stringify({ rest, "turn-m30": turnM30 });
+     input.value = "30";
+     input.dispatchEvent(new Event("input", { bubbles: true }));
+     await nextFrame();
+     const turnP30 = canvas.toDataURL("image/png");
+     return JSON.stringify({ rest, "turn-m30": turnM30, "turn-p30": turnP30 });
    };
    ```
    **Inside an `iki` checkout:** the model is already loaded, and
-   `window.__iki` gives the same pair by id, no reload needed:
+   `window.__iki` gives the same three by id, no reload needed:
    ```js
    async () => {
      const api = window.__iki;
@@ -220,21 +225,24 @@ a restart invalidates every prior score.
      api.setParam("ParamAngleX", -30);
      await api.nextFrame();
      const turnM30 = canvas.toDataURL("image/png");
-     return JSON.stringify({ rest, "turn-m30": turnM30 });
+     api.setParam("ParamAngleX", 30);
+     await api.nextFrame();
+     const turnP30 = canvas.toDataURL("image/png");
+     return JSON.stringify({ rest, "turn-m30": turnM30, "turn-p30": turnP30 });
    };
    ```
    Pass `filename` to `browser_evaluate` so the JSON lands in a file instead
    of inline in the response — it lands in the CURRENT WORKING DIRECTORY (the
    repo root, for a checkout), not `.playwright-mcp/`, so move it into
    `<workdir>` before decoding. Then
-   `node decode-renders.cjs <the moved file> <workdir>/renders/` (creating
-   `<workdir>/renders/` if needed) writes `<workdir>/renders/rest.png` and
-   `<workdir>/renders/turn-m30.png`.
+   `node decode-renders.cjs <the moved file> <workdir>/renders/` writes
+   `<workdir>/renders/rest.png`, `turn-m30.png` and `turn-p30.png`, beside the
+   `debug/` dir Step 0 made for the critic's measurement overlays.
    Rendering stays with you because the Playwright browser is a single shared
    resource; two agents driving it collide.
 3. Dispatch **`iki:iki-character-critic`** with `reference`, `reference-30`, `layers`,
-   `renders` (the render paths), `turn-pair` (`<workdir>/renders/rest.png` and
-   `turn-m30.png`), `round`, `scores` (the previous rounds' `SCORES:` lines),
+   `renders` (the render paths), `turn-pair` (`<workdir>/renders/rest.png`,
+   `turn-m30.png` and `turn-p30.png`), `round`, `scores` (the previous rounds' `SCORES:` lines),
    and `turn-clamped` (this round's artist's own `TURN:` line, verbatim — its
    `turn.achieved`, `turn.clamped` and `turn.strandOverlap`, or "none" when no
    turn was solved) so the critic can check the render against the rig's own
@@ -244,7 +252,28 @@ a restart invalidates every prior score.
    `layout.json` key, a `mirror-parts.json` entry or a `style.json` knob.
    Handle `escalate` yourself — decide whether the package change is
    warranted, and if it is, make it as normal code work with a test and a
-   changeset. Never let the loop edit `packages/`. A turn the art has no room
+   changeset. A render-vs-report `escalate` (the critic's Δ beyond ±0.05)
+   comes off the palette-quantized model, so confirm it losslessly before
+   deciding: call `auto_rig_from_layers` yourself on the same layers (every
+   `<workdir>/layers/*.png` but `preview.png`) with the same `style`, no
+   `quantizeColors`, and `outputPath: <workdir>/iki-character-lossless.iki`;
+   load that file and capture the same three poses as in step 2, decoding them
+   into `<workdir>/renders/lossless/`; then measure them as the critic's Step 1
+   does — rest against each turn, with the `iris` window its finding names and
+   `debugDir: <workdir>/renders/lossless`, the overlays checked, the two
+   directions averaged — against that rig's own `turn.achieved` (the artist's
+   again: the report is read off the layers, not the atlas). A Δ that closes
+   was the palette moving the iris detection, and the escalation drops. A Δ
+   still beyond ±0.05 is a render-vs-report discrepancy, not yet a rig defect:
+   the report lands each iris's painted span and the layers' silhouette edges,
+   while the tool takes iris widths from colour blobs and the head span at the
+   row of the irises it detected, so the two can disagree with the rig drawing
+   correctly. Diagnose it before changing either side — the raw lines of the
+   lossless calls (each image's iris widths and centres, eye row, head edges,
+   half-width and pair centre) and their overlays against the lossless rig's
+   result (`turn.achieved`, `headHalfWidth`, `headEdges`, `strandEdges`) say
+   whether the rig's landing or the tool's detection is off. Never let the loop edit
+   `packages/`. A turn the art has no room
    for — the far eye at the face plate's edge, the chin at the neck's, the far
    iris at the bangs' side strand — comes back CLAMPED, not refused, so the rig
    still built; the clamp and any `strandOverlap` reach the critic in the same
@@ -272,8 +301,11 @@ that reads wrong against `reference-30.png` — too weak or too strong, the
 features leading the face too much or too little, the hair following it too
 much or too little — is first a `style` retune, free and per character. A rig
 defect is the package escalation: a seam, a fold, a part detaching from the one
-it sits on, or a render that disagrees with the rig's own report (the critic's
-render-vs-report delta). Treat a repeated `rig` escalation as a signal to fix
+it sits on, or a nod that slides instead of tipping (no `style` knob reaches
+`ParamAngleY`). A render that disagrees with the rig's own report even on a
+lossless pair (the critic's render-vs-report delta, re-measured as in Step 1)
+is a package escalation too, but a discrepancy to diagnose — the rig's
+landing or the tool's detection — not a rig defect on sight. Treat a repeated `rig` escalation as a signal to fix
 the package, not to keep re-rolling art or retuning style.
 
 ## Do not

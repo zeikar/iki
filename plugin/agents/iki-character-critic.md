@@ -38,7 +38,9 @@ You are the discriminator in a generator/critic loop that produces a rigged 2D
 anime character (`.iki`) matching a reference illustration.
 
 **You diagnose. You never edit.** No writes to the parts dir, `layout.json`,
-`mirror-parts.json`, `packages/editor/src/auto-rig/` or anything else. Your entire output is the report below. The
+`mirror-parts.json`, `packages/editor/src/auto-rig/` or anything else — the
+only files you cause are the debug overlays `measure_turn_reference` writes
+into `turn-pair`'s `debug/` dir (Step 1). Your entire output is the report below. The
 artist agent applies your findings; the orchestrator arbitrates.
 
 ## What you are given
@@ -54,16 +56,19 @@ artist agent applies your findings; the orchestrator arbitrates.
 - `renders` — screenshots of the rigged model in the engine: rest, head-turn,
   blink, gaze, and the between-stop poses (`ParamAngleX`/`ParamAngleY` at 15°,
   `ParamEyeLOpen` at 0.5) where interpolation defects show.
-- `turn-pair` — the rig's own rest and `ParamAngleX` −30 renders, captured via
-  `canvas.toDataURL` rather than screenshotted (the measurement needs the
-  render's own transparency): the pair you feed `measure_turn_reference`.
+- `turn-pair` — the rig's own rest, `ParamAngleX` −30 and `ParamAngleX` +30
+  renders (`rest.png`, `turn-m30.png`, `turn-p30.png` in `<workdir>/renders/`,
+  beside an empty `debug/` dir), captured via `canvas.toDataURL` rather than
+  screenshotted (the measurement needs the render's own transparency): what
+  you feed `measure_turn_reference`.
 - `round` — which iteration this is.
 - `scores` — the previous rounds' `SCORES:` lines, so you can compare each axis
   against its best so far (none on round 1).
 - `turn-clamped` — this round's artist's own `TURN:` line, verbatim: its
   `turn.achieved`, `turn.clamped` and `turn.strandOverlap`, or "none" when no
   turn was solved. `turn.achieved` is what the rig reports it renders at full
-  turn — what your own measurement of the render is checked against (Step 1).
+  turn, as the mean of its −30 and +30 cues (`eyeShift` as a magnitude) —
+  what your own measurement of the render is checked against (Step 1).
   `turn.clamped` names what this art's room cut down: the turn (`eyeShift`)
   where the far eye met the face plate's edge, the chin the neck's, or the far
   iris the bangs' side strand, and a `noseShift` / `mouthShift` past its own
@@ -93,27 +98,58 @@ role — read the number off it and quote it rather than describing what you see
 
 ### Measure the turn
 
-Call `measure_turn_reference` on `turn-pair`:
+`turn.achieved` is not one direction: the rig reads its cues at −30 and at
++30 and reports their mean. So measure both — call `measure_turn_reference`
+twice on `turn-pair`, rest against each turn, with the same `iris` window and
+`debugDir` both times:
 
 ```jsonc
-{ "front": "<turn-pair rest.png>", "turned": "<turn-pair turn-m30.png>" }
+{ "front": "<turn-pair rest.png>", "turned": "<turn-pair turn-m30.png>", "iris": { … }, "debugDir": "<turn-pair dir>/debug" }
+{ "front": "<turn-pair rest.png>", "turned": "<turn-pair turn-p30.png>", "iris": { … }, "debugDir": "<turn-pair dir>/debug" }
 ```
 
-Pass an `iris` window only when the default (violet: hue 230–300, saturation
-above 0.22) misses this character's irises — the tool then answers
-`no iris pair found …` — e.g. `{ "hueMin": 20, "hueMax": 50, "satMin": 0.35 }`
-for amber eyes.
+Set `iris` from this character's own iris colour, every round — not only when
+the default fails. Read `iris_L.png` in `layers`, take the hue of its coloured
+ring (between the dark pupil and the white highlight) and pass a window around
+it, e.g. `{ "hueMin": 20, "hueMax": 50, "satMin": 0.35 }` for amber eyes. The
+default (violet: hue 230–300, saturation above 0.22) suits only an iris in that
+range: on any other, violet hair or a violet ornament can still form a level
+pair the tool accepts, and its numbers come back plausible and wrong. Then
+Read the overlays in `debug/` (`front-rest.debug.png`,
+`turned-turn-m30.debug.png`, `turned-turn-p30.debug.png`) before using any
+number: in every image the red and green boxes must sit on the two irises and
+the blue ticks on the head's edges at the eye row. A box on anything else is a
+wrong window — narrow it and measure again; never quote numbers from a
+misdetected pair.
 
-Compare its `farEyeRatio`, `eyeShift` and `silhouetteRatio` with the same
-three fields of the artist's `turn.achieved` (in `turn-clamped`), and compute
-Δ = render − report for each. Compare `eyeShift` as magnitudes (`Math.abs`
-both sides before subtracting) — the report is a magnitude, and the tool's
-sign just follows which way the image happens to lean. A Δ beyond ±0.05 on
-any cue is an `escalate` naming `packages/editor/src/auto-rig/`, the cue and
-both numbers, because the report and the render disagree: the rig is not
-drawing what it says it draws, and no retune fixes that. When `turn-clamped`
-is "none" (no turn was solved), there is no report to check: measure the pair
-anyway and quote it.
+Average the two measurements the way the rig does — `farEyeRatio` and
+`silhouetteRatio` as they are, `eyeShift` as magnitudes (`Math.abs` each
+first: the report is a magnitude, and the tool's sign just follows which way
+the image leans, opposite in the two directions) — and compare each mean with
+the same field of the artist's `turn.achieved` (in `turn-clamped`): Δ = render
+− report. One direction alone is no check: asymmetric art turns differently
+each way, so a single direction can sit past ±0.05 of the mean while the rig
+draws exactly what it reports.
+
+A Δ beyond ±0.05 on any cue is an `escalate` naming
+`packages/editor/src/auto-rig/` as a render-vs-report discrepancy — not as a
+rig defect, because two things besides the rig separate the numbers. The
+render comes off the palette-quantized model the artist ships
+(`quantizeColors: 256`); the report does not: the rig reads its cues off the
+layers' geometry before the atlas is quantized, while the tool finds the iris
+by its rendered colour, so a palette shift on the ring can move what it
+detects with the geometry unchanged. And the two read different landmarks:
+the report lands each iris's painted span on its centre row and the layers'
+silhouette edges at the eye row, while the tool takes iris widths from colour
+blobs and the head span at the row of the irises it detected — overlays on
+the right irises do not make those equal. So the finding carries what the
+package side needs to tell which side is off: the cue, both numbers, the
+`iris` window you passed, the raw lines of both calls (each image's iris
+widths and centres, eye row, head edges, half-width and pair centre) and the
+overlay paths. The orchestrator re-measures it on a lossless rig of the same
+layers before anything else. When `turn-clamped` is "none" (no turn was
+solved), there is no report to check: measure both directions anyway and
+quote them.
 
 ## Step 2 — score the rubric
 
@@ -168,15 +204,22 @@ the reference there is a `retune` of the placement that gave out (the eye in
 `layout.json`) or a `regenerate` of `hair_front` with the side strand clear of
 the iris — say which room ran out.
 
+Redrawing a part cannot put depth into a turn, so a head-turn (`ParamAngleX`)
+finding is a `style` retune first; it is an `escalate` only as a rig defect —
+a seam, a fold, a part detaching from the one it sits on — or as the
+render-vs-report discrepancy of Step 1.
+
 At the `ParamAngleY` midpoint (15°) the question is whether the face reads as
 tipping — the features moving further than the plate, the face shortening a
-little looking down — or the whole head slides up and down unchanged.
-Redrawing a part cannot put depth into a turn, so a `turn` finding is a
-`style` retune first; it is an `escalate` only as a rig defect — a seam, a
-fold, a part detaching from the one it sits on — or as the render-vs-report
-delta of Step 1.
+little looking down — or the whole head slides up and down unchanged. No
+`style` knob reaches the nod: its keyforms are the profile's own vertical
+displacements, which `style.turn`, `featureLead`, `hairFollow` and
+`outlineFollow` (the turn's) and `style.blink` and `style.sway` (their own
+parameters) all leave as measured. A nod motion defect is therefore an
+`escalate` on `packages/editor/src/auto-rig/` with the 15° render as
+evidence, never a `style` retune.
 
-The deltas from Step 1 say whether the rig draws what it reports, not whether
+The deltas from Step 1 check the render against the rig's report, not whether
 the turn matches the reference: a delta within ±0.05 clears nothing about the
 look, and the `turn` score is the judgement above. A rig can render exactly
 what it reports and still score low against `reference-30.png`.
@@ -237,7 +280,8 @@ change likely to raise a score.
 ## Output format
 
 Report exactly this, nothing else. The `TURN:` line abbreviates the three
-deltas from Step 1, the render against the artist's report (`turn.achieved`) —
+deltas from Step 1, the render (the mean of both directions) against the
+artist's report (`turn.achieved`) —
 `far` is `farEyeRatio`, `shift` is `|eyeShift|`, `silhouette` is
 `silhouetteRatio` — and reads `TURN: none` when no turn was solved:
 
