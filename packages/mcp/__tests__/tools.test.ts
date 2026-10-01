@@ -1084,6 +1084,55 @@ describe("autoRigFromLayers", () => {
     );
   });
 
+  it("passes the style knobs through: half the turn halves the eye shift, and a bad knob is refused", async () => {
+    const dir = tmpDir();
+    const layers = (await writeTurnLayers(dir)).map((p) => ({ path: p }));
+    const base = await autoRigFromLayers({
+      layers,
+      outputPath: path.join(dir, "base.iki"),
+    });
+    const half = await autoRigFromLayers({
+      layers,
+      outputPath: path.join(dir, "half.iki"),
+      style: { turn: 0.5 },
+    });
+    expect(base.ok && half.ok).toBe(true);
+    if (!base.ok || !half.ok) return;
+    expect(half.turn!.achieved.eyeShift).toBeCloseTo(
+      base.turn!.achieved.eyeShift / 2,
+      2,
+    );
+    const bad = await autoRigFromLayers({
+      layers,
+      outputPath: path.join(dir, "bad.iki"),
+      style: { turn: -1 },
+    });
+    expect(bad.ok).toBe(false);
+    if (bad.ok) return;
+    expect(bad.error).toMatch(/style\.turn/);
+    const unknown = await autoRigFromLayers({
+      layers,
+      outputPath: path.join(dir, "unknown.iki"),
+      style: { turns: 1 } as never,
+    });
+    expect(unknown.ok).toBe(false);
+    if (unknown.ok) return;
+    expect(unknown.error).toMatch(/style\.turns/);
+  });
+
+  it("refuses a misspelt turnTargets field instead of dropping it", async () => {
+    const dir = tmpDir();
+    const layers = (await writeTurnLayers(dir)).map((p) => ({ path: p }));
+    const r = await autoRigFromLayers({
+      layers,
+      outputPath: path.join(dir, "misspelt.iki"),
+      turnTargets: { eyeshift: 0.1 } as never,
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toMatch(/turnTargets\.eyeshift/);
+  });
+
   it("clamps a passed eyeShift past the room the face plate leaves the far eye, and fits a small one by turning less", async () => {
     const dir = tmpDir();
     const layers = (await writeTurnLayers(dir)).map((p) => ({ path: p }));

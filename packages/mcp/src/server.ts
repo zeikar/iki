@@ -133,9 +133,24 @@ export function createIkiMcpServer(): McpServer {
             noseShift: z.number().optional(),
             mouthShift: z.number().optional(),
           })
+          .passthrough()
           .optional()
           .describe(
-            "What the head turn is fitted to, as `measure_turn_reference` reports it off a front/turned reference pair. `eyeShift` (and the optional `noseShift`/`mouthShift`) is how far that feature slides across the head at full turn, as a fraction of the head's half-width — a MAGNITUDE: the rig turns both ways, so the sign is ignored. `farEyeRatio` is the far/near eye width at full turn over that same ratio at rest, `silhouetteRatio` the head's half-width turned over at rest. The half-width the shifts are fractions of is measured off the layers themselves, so it is not an input. An omitted field leaves that part of the turn at the Live2D profile the rig defaults to. A passed `eyeShift` is fitted by the turn's amount and clamped to the room the art leaves the far eye — the face plate's edge, or the bangs' side strand over the far iris (the result's `turn.clamped` lists every clamped field, `turn.achieved` what the rig reaches, and `turn.strandOverlap` how much of a far iris the bangs still cover). Any other passed target this layer set cannot reach comes back as `INVALID: …` naming the field and the attainable range, since it is a measurement rather than a preference.",
+            "What the head turn is fitted to, as `measure_turn_reference` reports it off a front/turned reference pair. `eyeShift` (and the optional `noseShift`/`mouthShift`) is how far that feature slides across the head at full turn, as a fraction of the head's half-width — a MAGNITUDE: the rig turns both ways, so the sign is ignored. `farEyeRatio` is the far/near eye width at full turn over that same ratio at rest, `silhouetteRatio` the head's half-width turned over at rest. The half-width the shifts are fractions of is measured off the layers themselves, so it is not an input. An omitted field leaves that part of the turn at the Live2D profile the rig defaults to. A passed `eyeShift` is fitted by the turn's amount and clamped to the room the art leaves the far eye — the face plate's edge, or the bangs' side strand over the far iris (the result's `turn.clamped` lists every clamped field, `turn.achieved` what the rig reaches, and `turn.strandOverlap` how much of a far iris the bangs still cover). Any other passed target this layer set cannot reach comes back as `INVALID: …` naming the field and the attainable range, since it is a measurement rather than a preference. A field not named here is refused the same way.",
+          ),
+        style: z
+          .object({
+            turn: z.number().optional(),
+            featureLead: z.number().optional(),
+            hairFollow: z.number().optional(),
+            outlineFollow: z.number().optional(),
+            blink: z.number().optional(),
+            sway: z.number().optional(),
+          })
+          .passthrough()
+          .optional()
+          .describe(
+            "Per-character tuning from the Live2D profile the rig defaults to — only what the Live2D samples themselves disagree on: `turn` scales the whole head turn (plate, features, hair and the eyes' foreshortening; 0..3, 1 = the profile; ignored when `turnTargets.eyeShift` is given), `featureLead` how far the features lead the face plate (0..3, 1 = the profile), `hairFollow` the front hair's share of the face's turn (0..2, profile 1.1), `outlineFollow` its outer edge's share where the front hair draws the head's outline (0..2, profile 0: the outline holds), `blink` how far the upper lid comes down over the eye's height (0.1..1, profile 0.58), `sway` the hair sway amplitude (0..5, 1 = the profile). A value out of range, or a knob not named here, comes back as `INVALID: …`.",
           ),
       },
     },

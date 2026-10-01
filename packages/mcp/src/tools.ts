@@ -19,6 +19,7 @@ import {
   type LayerSetMeasurer,
   type AtlasAssignment,
   type AtlasLayout,
+  type RigStyle,
   type TurnTargets,
   type TurnSolveReport,
 } from "@ikijs/editor";
@@ -251,6 +252,9 @@ export interface AutoRigInput {
   /** Head-turn cues to fit the rig to, as `measure_turn_reference` reports
    *  them. */
   turnTargets?: AutoRigTurnTargets;
+  /** Per-character tuning from the Live2D profile's defaults (see
+   *  @ikijs/editor's `RigStyle`). */
+  style?: RigStyle;
 }
 
 /** The turn cues a caller may pass, which is every one but `headHalfWidth`:
@@ -509,18 +513,26 @@ export async function autoRigFromLayers(
     let turn: TurnSolveReport | undefined;
     let model: IkiModel;
     try {
-      // Destructured, not spread: a JS caller (unchecked by AutoRigTurnTargets'
+      // headHalfWidth is dropped: a JS caller (unchecked by AutoRigTurnTargets'
       // own `Omit<TurnTargets, "headHalfWidth">`) could otherwise smuggle its
-      // OWN headHalfWidth through untouched whenever headHalfWidthApplied is
-      // false — headHalfWidth is measured off the layers, never accepted from
-      // the caller, so only these five fields cross the boundary.
-      const { eyeShift, farEyeRatio, silhouetteRatio, noseShift, mouthShift } =
-        input.turnTargets ?? {};
+      // OWN through untouched whenever headHalfWidthApplied is false — it is
+      // measured off the layers, never accepted from the caller. Any other
+      // field crosses as passed, so the generator refuses a misspelt one.
+      const {
+        headHalfWidth: _callerHeadHalfWidth,
+        eyeShift,
+        farEyeRatio,
+        silhouetteRatio,
+        noseShift,
+        mouthShift,
+        ...unknownTargets
+      } = (input.turnTargets ?? {}) as TurnTargets;
       model = generateIkiFromLayerSet(
         measurement.layers,
         { width: canvasW, height: canvasH },
         {
           turnTargets: {
+            ...unknownTargets,
             eyeShift,
             farEyeRatio,
             silhouetteRatio,
@@ -531,6 +543,7 @@ export async function autoRigFromLayers(
           onTurnSolved: (report) => {
             turn = report;
           },
+          ...(input.style === undefined ? {} : { style: input.style }),
           ...(headEdges === undefined ? {} : { headEdges }),
           ...(strandEdges === undefined ? {} : { strandEdges }),
         },
