@@ -60,7 +60,7 @@ That is why the caps below are not optional, and why the critic is asked to call
 ## Cost
 
 Every `regenerate` is a billed `codex exec` taking minutes. A full part set is
-9 parts × 2 variants = 18 jobs.
+11 parts × 2 variants = 22 jobs.
 
 **You cannot check the quota up front.** `codex login status` reports
 authentication and nothing else — its output is byte-identical before and after
