@@ -734,22 +734,29 @@ describe("the ears", () => {
     const rows = face.rowHalfWidths!.map((w, r) =>
       r >= 170 && r <= 260 ? w : Math.max(10, w - 25),
     );
-    return generateIkiFromLayerSet(
-      layers.map((l) => (l === face ? { ...l, rowHalfWidths: rows } : l)),
-      CANVAS,
-      options,
+    const eared = layers.map((l) =>
+      l === face ? { ...l, rowHalfWidths: rows } : l,
     );
+    return {
+      m: generateIkiFromLayerSet(eared, CANVAS, options),
+      frame: buildHeadFrame(eared, {
+        headHalfWidth: 262,
+        headEdges: options.headEdges,
+      }),
+    };
   }
 
   it("lags the ears behind the face — the far one most — with no seam at rest", () => {
-    const m = withEars();
-    // An ear, near its outer rim (crop row 215: model y 500 − 200 − 215).
+    const { m, frame } = withEars();
+    // On crop row 215 (model y 500 − 200 − 215): the far ear near its outer
+    // rim, the near one at its widest reach, where its lag is whole.
     const ear = (x: number, ax: number) =>
       landedXAt(m, "face", x, 85, X30(ax)) - x;
     const face = (ax: number) => landedXAt(m, "face", 0.5, 85, X30(ax)) - 0.5;
     for (const ax of [-30, 30]) {
       const s = Math.sign(ax);
-      const [far, near] = s < 0 ? [-192, 193] : [193, -192];
+      const far = s < 0 ? -192 : 193;
+      const near = frame.axisX - s * frame.ears!.outer;
       expect(ear(far, ax) / face(ax)).toBeCloseTo(0.44, 1);
       expect(ear(near, ax) / face(ax)).toBeCloseTo(0.87, 1);
     }
@@ -761,6 +768,36 @@ describe("the ears", () => {
         part.transform.x + part.mesh!.vertices[i * 2] * part.width,
         3,
       );
+    }
+  });
+
+  it("moves the near ear's root, tucked under the head, as the head moves it", () => {
+    const { m, frame } = withEars();
+    const ears = frame.ears!;
+    const rest = landVertices(m, "face");
+    for (const ax of [-30, 30]) {
+      const pose = X30(ax);
+      const v = landVertices(m, "face", pose);
+      let tucked = 0;
+      for (let i = 0; i < rest.length / 2; i++) {
+        const [x, y] = [rest[i * 2], rest[i * 2 + 1]];
+        const u = x - frame.axisX;
+        // On the ear band, inside the head's own outline, on the near side.
+        if (y < ears.bottom || y > ears.top) continue;
+        if (Math.abs(u) >= ears.attachAt(y) - 1) continue;
+        if (Math.sign(ax) * u > 0) continue;
+        // The head island is drawn last, so this reads how it moves there.
+        const head = landedXAt(m, "face", x, y, pose);
+        expect(
+          Math.abs(v[i * 2] - head),
+          `(${x}, ${y}) at AngleX ${ax}`,
+        ).toBeLessThan(0.5);
+        // The ear island's own inner column, EAR_TUCK (0.08 hh) inside the
+        // line — not only the head's vertices over it.
+        const tuck = ears.attachAt(y) - 0.08 * frame.hh;
+        if (Math.abs(Math.abs(u) - tuck) < 0.05) tucked++;
+      }
+      expect(tucked).toBeGreaterThan(0);
     }
   });
 });

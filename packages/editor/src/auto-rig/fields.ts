@@ -117,16 +117,31 @@ export function faceField(m: TurnModel): Field {
   };
 }
 
-/** The ears the plate paints: on the head, but behind the face, so they lag
- *  its slide — the far one a little under the cheek, the near one coming
- *  out from behind it — and nod with it. */
+/**
+ * The ears the plate paints: on the head, but behind the face, so they lag
+ * its slide, and nod with it. The far one lags most, a little under the
+ * cheek. The near one's root — what lies inside the head's own outline,
+ * tucked under it — moves as the head moves it there, and the ear eases
+ * evenly out to its own lag at its widest reach: it widens a little rather
+ * than sliding out from under the head, so its tucked strip never shows.
+ */
 export function earField(m: TurnModel): Field {
+  const f = m.frame;
+  const ears = f.ears;
+  if (ears === undefined) return () => [0, 0];
   const face = faceField(m);
   return (x, y, ax, ay) => {
     const s = Math.sign(ax);
     const a = Math.abs(ax) / 30;
-    const share = sideOf(m, x, s) === "far" ? TURN.earFar : TURN.earNear;
-    return [s * a * share * m.face, face(x, y, 0, ay)[1]];
+    const dy = face(x, y, 0, ay)[1];
+    if (sideOf(m, x, s) === "far") return [s * a * TURN.earFar * m.face, dy];
+    const d = Math.abs(x - f.axisX);
+    const attach = ears.attachAt(y);
+    if (d <= attach) return [face(x, y, ax, 0)[0], dy];
+    const root = face(f.axisX + Math.sign(x - f.axisX) * attach, y, ax, 0)[0];
+    const rim = s * a * TURN.earNear * m.face;
+    const t = Math.min(1, (d - attach) / Math.max(1, ears.outer - attach));
+    return [root + (rim - root) * t, dy];
   };
 }
 

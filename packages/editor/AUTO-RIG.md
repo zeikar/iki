@@ -43,7 +43,7 @@ curve is linear in its angle on each side of rest, so the keyforms at 0 and
 | brows far / near     | 0.213 / 0.243                                            |                                                                                                                                                                                               |
 | nose                 | 0.301                                                    | its tip swings a further 6° to the far side about the bridge top                                                                                                                              |
 | mouth                | 0.213                                                    | 0.975 of its width, far corner up 4.4°                                                                                                                                                        |
-| ears                 | far 0.44×, near 0.87× the plate                          | behind the face: the far one slides under the cheek, the near one comes out from behind it                                                                                                    |
+| ears                 | far 0.44× the plate; near 0.87× at its widest reach      | behind the face: the far one slides under the cheek; the near one's root rides the head, so it widens a little rather than sliding out from behind it                                         |
 | front hair           | 1.1 × the plate over the face; 0 at the outline it draws | eased evenly between the eyes' outer corners and the outline; over the far eye, on the eye's rows, as far as that eye's corner goes; its crown eases to the back hair's motion toward its top |
 | back hair            | −0.027                                                   | a slight counter-drift: the head moves in front of it                                                                                                                                         |
 | neck (under the jaw) | 0                                                        | the chin slides over it; the chin's shade on it slides with the chin (see below)                                                                                                              |
@@ -97,10 +97,14 @@ first, then ears, then head:
   least a tenth of the eye→chin span apart. The head's own outline under an
   ear is the line between the rows just outside that band; the head island
   ends along it, and each ear island runs from 0.08 hh inside it (tucked
-  under the head, so an ear lagging the head opens no gap) out past the ear.
-  They lag the face's slide — the far ear 0.44 of it, the near 0.87 (the
-  samples' parallax ratios) — and nod with it. A column of the head island
-  that lies wholly outside the head collapses and fans no cells.
+  under the head, so an ear opens no gap beside it) out past the ear. The
+  ears lag the face's slide by the samples' parallax ratios. The far ear
+  moves 0.44 of it, its tuck sliding deeper under the head. The near ear's
+  root — what lies inside that line — moves as the head moves it there, and
+  the ear eases evenly out to 0.87 of the slide at its widest reach: it
+  widens a little rather than sliding out from under the head, so its tuck
+  never shows. Both nod with the face. A column of the head island that lies
+  wholly outside the head collapses and fans no cells.
 
 The face layer carries a neck when, below its widest row, the plate settles
 onto a narrow plateau that runs on for at least 12 % of its height. A plate without
@@ -208,9 +212,10 @@ curvature the plate would need to put the eyes that far in front of its edge.
 
 ## Known limits
 
-- An ear's island is cut along a straight line under it, not along its
-  own front outline (which the alpha does not show): where an ear lags the
-  head, that outline shows a small step at the head's edge.
+- An ear's island is cut along a chord under it, not along the drawn
+  outline where the ear meets the cheek (which the alpha does not show). On
+  the far side, where that outline runs outside the chord, it stays with the
+  ear, so there the head's edge slides over the ear unlined.
 - The chin's shade slides at most 0.45 of the neck's half-width (on the hero
   0.13 of the chin's 0.19 hh), and not on a nod (looking up uncovers the
   hidden top's shade instead). The cut follows a measured stroke only where

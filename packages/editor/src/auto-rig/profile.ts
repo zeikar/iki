@@ -49,7 +49,8 @@ export const TURN = {
   /** The back hair's slight counter-motion. */
   hairBack: -0.027,
   /** The ears lag the plate: the far one moves this share of its slide, the
-   *  near one this (the samples' parallax ratios, 0.44 and 0.87). */
+   *  near one this at its widest reach, its root riding the head (the
+   *  samples' parallax ratios, 0.44 and 0.87). */
   earFar: 0.44,
   earNear: 0.87,
 } as const;

@@ -5,8 +5,9 @@
  * along the head's own outline under each ear; the neck island runs from the
  * collar up under the jaw, its hidden top stretching the neck's first rows
  * under the jaw upward, so a chin sliding off it uncovers neck rather than the
- * chin painted there; each ear island reaches in under the head a little, so
- * an ear lagging the head never opens a gap beside it.
+ * chin painted there; each ear island reaches in under the head a little —
+ * on the near side that tuck rides the head, on the far side it slides deeper
+ * under it as the ear lags — so an ear never opens a gap beside it.
  */
 
 import type { IkiMesh } from "@ikijs/format";
@@ -38,8 +39,11 @@ export interface FaceMesh {
  *  the neck's shade, clear of the jaw's own line and its darkest band, so the
  *  neck a chin uncovers is one even tone. */
 const SAMPLE_BELOW = 0.04;
-/** How far an ear island reaches in under the head's outline, hh: more than
- *  an ear ever lags the head by. */
+/** How far an ear island reaches in under the head's outline, hh: enough to
+ *  stay under the head island's edge, which follows that line only through
+ *  the island's columns and strays a little either side of it between them.
+ *  On the near side the tuck rides the head; on the far side it slides
+ *  deeper under it as the ear lags. */
 const EAR_TUCK = 0.08;
 
 export function buildFaceMesh(
