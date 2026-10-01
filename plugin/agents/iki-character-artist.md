@@ -51,7 +51,7 @@ You own the character assets. You do not own the packages.
 
 ## You must NOT edit
 
-- anything under `packages/` — `auto-rig.ts`, the engine, the format. These ship
+- anything under `packages/` — the auto-rig (`packages/editor/src/auto-rig/`), the engine, the format. These ship
   to npm; a loop must not quietly change what users get. If a finding needs one
   of them, **report it and stop on that finding** rather than working around it.
 
