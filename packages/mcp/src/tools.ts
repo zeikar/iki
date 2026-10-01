@@ -420,6 +420,26 @@ export async function autoRigFromLayers(
         `quantizeColors must be an integer in 2..256, got ${String(quantizeColors)}`,
       );
     }
+    // Checked before the generator call spreads it: a spread turns null or an
+    // array into {}, which would rig on the defaults instead of refusing.
+    const turnTargets: unknown = input.turnTargets;
+    if (turnTargets !== undefined) {
+      if (
+        typeof turnTargets !== "object" ||
+        turnTargets === null ||
+        Array.isArray(turnTargets)
+      ) {
+        throw new AutoRigInputError("turnTargets must be a plain object");
+      }
+      // Excluded from AutoRigTurnTargets, but a JS caller can still pass one:
+      // the half-width is measured off the layers below, so a caller's own is
+      // refused rather than silently dropped.
+      if ((turnTargets as TurnTargets).headHalfWidth !== undefined) {
+        throw new AutoRigInputError(
+          "turnTargets.headHalfWidth is measured off the layers, not accepted as input",
+        );
+      }
+    }
 
     // Resolve paths + role-map up front (input boundary; no decode needed).
     // parseLayerRoles throws on unknown/duplicate/missing-required roles.
@@ -513,31 +533,15 @@ export async function autoRigFromLayers(
     let turn: TurnSolveReport | undefined;
     let model: IkiModel;
     try {
-      // headHalfWidth is dropped: a JS caller (unchecked by AutoRigTurnTargets'
-      // own `Omit<TurnTargets, "headHalfWidth">`) could otherwise smuggle its
-      // OWN through untouched whenever headHalfWidthApplied is false — it is
-      // measured off the layers, never accepted from the caller. Any other
-      // field crosses as passed, so the generator refuses a misspelt one.
-      const {
-        headHalfWidth: _callerHeadHalfWidth,
-        eyeShift,
-        farEyeRatio,
-        silhouetteRatio,
-        noseShift,
-        mouthShift,
-        ...unknownTargets
-      } = (input.turnTargets ?? {}) as TurnTargets;
+      // The caller's fields cross as passed (a headHalfWidth was refused
+      // above), so the generator refuses a misspelt one; the measured
+      // headHalfWidth, when applied, is merged in after them.
       model = generateIkiFromLayerSet(
         measurement.layers,
         { width: canvasW, height: canvasH },
         {
           turnTargets: {
-            ...unknownTargets,
-            eyeShift,
-            farEyeRatio,
-            silhouetteRatio,
-            noseShift,
-            mouthShift,
+            ...input.turnTargets,
             ...turnOptions.turnTargets,
           },
           onTurnSolved: (report) => {

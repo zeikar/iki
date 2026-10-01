@@ -285,6 +285,40 @@ describe("MCP server integration", () => {
     expect(texts[0].text).toMatch(/^INVALID:/);
   });
 
+  it("auto_rig_from_layers leaves a malformed turnTargets or style to the tool schema, which the SDK answers with isError", async () => {
+    pair = await createPair();
+    const dir = tmpDir();
+    const layers = (await writeTurnLayers(dir)).map((p) => ({ path: p }));
+
+    const cases = [
+      ["turnTargets", null],
+      ["turnTargets", []],
+      ["turnTargets", { eyeShift: "0.1" }],
+      ["style", null],
+      ["style", []],
+      ["style", { turn: "1" }],
+    ] as const;
+    for (const [i, [field, value]] of cases.entries()) {
+      const outPath = path.join(dir, `malformed-${i}.iki`);
+      const result = await pair.client.callTool({
+        name: "auto_rig_from_layers",
+        arguments: { layers, outputPath: outPath, [field]: value },
+      });
+
+      // The README documents this split: the schema refuses a non-object or a
+      // named field that is not a number before the handler runs, so there is
+      // no `INVALID:` result to return.
+      expect(result.isError, `${field}: ${JSON.stringify(value)}`).toBe(true);
+      expect(result.structuredContent).toBeUndefined();
+      const texts = (result.content as { type: string; text: string }[]).filter(
+        (c) => c.type === "text",
+      );
+      expect(texts[0].text).toMatch(/Input validation error/);
+      expect(texts[0].text).toContain(field);
+      expect(fs.existsSync(outPath)).toBe(false);
+    }
+  });
+
   it("registers compose_layers_from_parts, measure_layers and measure_turn_reference among the server's tools", async () => {
     pair = await createPair();
     const { tools } = await pair.client.listTools();

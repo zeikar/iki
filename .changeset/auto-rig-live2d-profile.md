@@ -49,8 +49,12 @@ refused):
   before; the magnitude is used.
 - A face layer under 24 px is refused, naming the file.
 - An unknown `style` or `turnTargets` key is refused, and so is a `style` or
-  `turnTargets` that is not a plain object. In `@ikijs/mcp`, such keys now
-  come back as an `INVALID` result instead of being dropped.
+  `turnTargets` that is not a plain object. In `@ikijs/mcp`, `autoRigFromLayers`
+  returns all of these, and a `turnTargets.headHalfWidth` (which the tool
+  measures off the layers), as an `INVALID` result instead of dropping them or
+  rigging on the defaults. Over MCP, the tool's input schema still rejects a
+  non-object before the tool runs, which the SDK answers with an `isError`
+  "Input validation error" result.
 - `parseLayerRoles` keeps its name normalisation; directory prefixes are
   still not accepted.
 

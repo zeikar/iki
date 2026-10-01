@@ -993,26 +993,24 @@ describe("autoRigFromLayers", () => {
     expect(result.turn!.holdBase).not.toBe(30);
   });
 
-  it("ignores a caller-supplied headHalfWidth smuggled into turnTargets (a JS caller, unchecked by the TS type)", async () => {
+  it("refuses a caller-supplied headHalfWidth in turnTargets (a JS caller, unchecked by the TS type)", async () => {
     const dir = tmpDir();
     const paths = await writeNoseLayers(dir);
+    const outPath = path.join(dir, "model.iki");
 
     const result = await autoRigFromLayers({
       layers: paths.map((p) => ({ path: p })),
-      outputPath: path.join(dir, "model.iki"),
+      outputPath: outPath,
       // headHalfWidth is excluded from AutoRigTurnTargets' own type, so this
-      // is only reachable from plain JS / a cast — exactly what a spread
-      // instead of a destructure would let through untouched.
+      // is only reachable from plain JS / a cast.
       turnTargets: { headHalfWidth: 99999 } as AutoRigTurnTargets,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    // headHalfWidthApplied is false here (same fixture as the test above), so
-    // the smuggled value must NOT reach the generator: holdBase falls back to
-    // the plate, not the caller's 99999.
-    expect(result.headHalfWidthApplied).toBe(false);
-    expect(result.turn!.holdBase).not.toBe(99999);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/turnTargets\.headHalfWidth/);
+    expect(result.error).toMatch(/measured off the layers/);
+    expect(fs.existsSync(outPath)).toBe(false);
   });
 
   it("reports what the turn solve settled on — and nothing when there is no nose", async () => {
@@ -1131,6 +1129,30 @@ describe("autoRigFromLayers", () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error).toMatch(/turnTargets\.eyeshift/);
+  });
+
+  it("refuses a turnTargets or style that is not a plain object instead of rigging on the defaults", async () => {
+    const dir = tmpDir();
+    const layers = (await writeTurnLayers(dir)).map((p) => ({ path: p }));
+    // A spread would read null or [] as {}, so these reach the rig only from
+    // plain JS / a cast; the MCP schema rejects them before the handler.
+    for (const [field, value] of [
+      ["turnTargets", null],
+      ["turnTargets", []],
+      ["style", null],
+      ["style", []],
+    ] as const) {
+      const outPath = path.join(dir, `${field}-${String(value)}.iki`);
+      const r = await autoRigFromLayers({
+        layers,
+        outputPath: outPath,
+        [field]: value as never,
+      });
+      expect(r.ok, `${field}: ${JSON.stringify(value)}`).toBe(false);
+      if (r.ok) return;
+      expect(r.error).toMatch(new RegExp(`${field} must be a plain object`));
+      expect(fs.existsSync(outPath)).toBe(false);
+    }
   });
 
   it("clamps a passed eyeShift past the room the face plate leaves the far eye, and fits a small one by turning less", async () => {
