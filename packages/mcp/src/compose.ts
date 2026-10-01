@@ -562,6 +562,94 @@ function blankCanvas() {
   });
 }
 
+/** Luma (0..255) of the RGBA pixel at byte offset `i`. */
+function luma(rgba: Buffer, i: number): number {
+  return 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
+}
+
+/**
+ * The eyewhite's light ink drawn detached above its white, as a row-major
+ * mask (1 = detached). The white is the largest 8-connected set of light
+ * pixels: non-transparent and at luma EYE_LASH_LUMA or over. Another such set
+ * is detached above it when each of its pixels lies above the white's topmost
+ * pixel in its column, or, past either end of the white, above the top of
+ * that end's column. A crease often runs on past the eye's corners, and judged
+ * only over the white, one pixel out there (even a faint halo) would keep the
+ * whole crease. A shade painted on the white touches it, so it is part of the
+ * white; a mark below the white, or beside an end and level with it, is left.
+ */
+function detachedAboveWhite(rgba: Buffer, W: number, H: number): Uint8Array {
+  const n = W * H;
+  const light = new Uint8Array(n);
+  for (let p = 0; p < n; p++) {
+    light[p] =
+      rgba[p * 4 + 3] > 0 && luma(rgba, p * 4) >= EYE_LASH_LUMA ? 1 : 0;
+  }
+  // Flood-fill each set from an explicit stack. A pixel is labelled as it is
+  // pushed, so it is pushed once and the stack never outgrows the image.
+  const label = new Int32Array(n).fill(-1);
+  const stack = new Int32Array(n);
+  const sizes: number[] = [];
+  for (let start = 0; start < n; start++) {
+    if (!light[start] || label[start] !== -1) continue;
+    const id = sizes.length;
+    let size = 0;
+    let depth = 0;
+    label[start] = id;
+    stack[depth++] = start;
+    while (depth > 0) {
+      const p = stack[--depth];
+      size++;
+      const px = p % W;
+      const py = (p - px) / W;
+      for (let y = Math.max(0, py - 1); y <= Math.min(H - 1, py + 1); y++) {
+        for (let x = Math.max(0, px - 1); x <= Math.min(W - 1, px + 1); x++) {
+          const q = y * W + x;
+          if (light[q] && label[q] === -1) {
+            label[q] = id;
+            stack[depth++] = q;
+          }
+        }
+      }
+    }
+    sizes.push(size);
+  }
+
+  const detached = new Uint8Array(n);
+  if (sizes.length < 2) return detached;
+  let white = 0;
+  for (let id = 1; id < sizes.length; id++) {
+    if (sizes[id] > sizes[white]) white = id;
+  }
+  // The white's topmost row per column (the scan is row-major, so the first
+  // pixel met is the top).
+  const whiteTop = new Int32Array(W).fill(-1);
+  for (let p = 0; p < n; p++) {
+    const x = p % W;
+    if (label[p] === white && whiteTop[x] === -1) whiteTop[x] = (p - x) / W;
+  }
+  // An 8-connected set covers one unbroken run of columns, so every column
+  // the white misses lies past one of its ends and takes that end's top.
+  let first = 0;
+  while (whiteTop[first] === -1) first++;
+  let last = W - 1;
+  while (whiteTop[last] === -1) last--;
+  whiteTop.fill(whiteTop[first], 0, first);
+  whiteTop.fill(whiteTop[last], last + 1);
+  const above = new Uint8Array(sizes.length).fill(1);
+  for (let p = 0; p < n; p++) {
+    const id = label[p];
+    if (id === -1 || id === white) continue;
+    const x = p % W;
+    if ((p - x) / W >= whiteTop[x]) above[id] = 0;
+  }
+  for (let p = 0; p < n; p++) {
+    const id = label[p];
+    if (id !== -1 && id !== white && above[id]) detached[p] = 1;
+  }
+  return detached;
+}
+
 /**
  * Split eyewhite.png (white almond + dark lashes) into a clean white sclera
  * (the dark outline/lash recolored to white = the blink clip-mask shape) and a
@@ -569,6 +657,12 @@ function blankCanvas() {
  * aligned (consumed with noTrim): the lash arc keeps its position at the top of
  * the sclera, so on blink it folds DOWN over the eye rather than the eye shrinking
  * in place.
+ *
+ * A light mark drawn detached above the white, such as a double-eyelid crease,
+ * is dropped from the sclera (`detachedAboveWhite`). The sclera is the iris's
+ * clip, and at half blink the fold carries such a mark down into the iris's
+ * path. The frame is still the source's alpha bbox, crease and all, so the
+ * layout places the pair where it did before.
  *
  * Both come back as PNG buffers. The script this ports wrote them back into the
  * parts dir, but that dir is an INPUT here (reads are deliberately unconfined),
@@ -603,15 +697,16 @@ async function prepEyeSplit(
   }
   // Keep only the upper lash: dark pixels above this row become the lash layer.
   const lashCutoffY = minY + LASH_KEEP_FRACTION * (maxY - minY + 1);
+  const detached = detachedAboveWhite(data, W, H);
 
   const sclera = Buffer.from(data);
   const lash = Buffer.from(data);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const i = (y * W + x) * 4;
-      const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-      const isDark = data[i + 3] > 0 && lum < EYE_LASH_LUMA;
+      const isDark = data[i + 3] > 0 && luma(data, i) < EYE_LASH_LUMA;
       if (isDark) sclera[i] = sclera[i + 1] = sclera[i + 2] = 255; // dark -> white
+      if (detached[y * W + x]) sclera[i + 3] = 0;
       if (!(isDark && y <= lashCutoffY)) lash[i + 3] = 0; // keep upper dark only
     }
   }

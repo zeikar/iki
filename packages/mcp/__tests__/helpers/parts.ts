@@ -24,6 +24,12 @@ const SKIN: RGB = [240, 205, 180];
 const BLUE: RGB = [40, 90, 200];
 const LIP: RGB = [190, 90, 90];
 const HAIR: RGB = [90, 60, 50];
+// The light marks writeEyewhite's `crease` paints, all well over
+// EYE_LASH_LUMA (luma about 197-215) and told apart by colour.
+const CREASE: RGB = [215, 190, 185];
+export const EYE_SHADE: RGB = [200, 205, 225];
+export const EYE_MARK_BELOW: RGB = [230, 190, 200];
+export const EYE_MARK_BESIDE: RGB = [240, 215, 150];
 
 /** Paint a straight-alpha RGBA canvas and write it as a PNG. */
 async function writeRgbaPart(
@@ -117,15 +123,45 @@ function rim(
  * and a dark lower rim (dropped by it), so both halves of prepEyeSplit are
  * exercised. `tearDuct` leaves that end's fifth of the upper arc unlashed, the
  * way a drawn eye leaves its inner corner, which fixes the way the eye faces;
- * without it the arc is symmetric and faces neither way.
+ * without it the arc is symmetric and faces neither way. `crease` adds the
+ * light marks a drawn eye carries around its white, which the split must tell
+ * apart. A 1-2 px double-eyelid crease arcs over the lash with transparent
+ * rows between them: `"short"` over its middle, `"long"` out past both ends of
+ * the white, the way a crease follows the lid past its corners. The marks the
+ * white keeps: an EYE_SHADE band on its upper rows that touches it, an
+ * EYE_MARK_BELOW dot under the lower rim, and an EYE_MARK_BESIDE dot past its
+ * tear-duct end, level with the white there rather than above it.
  */
 export async function writeEyewhite(
   dir: string,
-  tearDuct?: "left" | "right",
+  {
+    tearDuct,
+    crease,
+  }: { tearDuct?: "left" | "right"; crease?: "short" | "long" } = {},
 ): Promise<void> {
   await writeRgbaPart(dir, "eyewhite.png", 72, 48, (set) => {
     const bounds = { width: 72, height: 48 };
     ellipse(set, bounds, 36, 24, 64, 40, WHITE);
+    if (crease !== undefined) {
+      // Painted before the lash, which covers its outer 4 px: the band left
+      // is the 4 px of white under the lash.
+      rim(set, bounds, 36, 24, 64, 40, 8, (y) => y < 16, EYE_SHADE);
+      if (crease === "short") {
+        // The top of a taller almond, rows 0-2 over x 24..48; the eye's own
+        // top is row 4 at its middle and lower either side.
+        rim(set, bounds, 36, 24, 56, 48, 2, (y) => y < 3, CREASE);
+      } else {
+        // The top half of a flat almond as wide as the image: row 0 at the
+        // middle, rows 8-9 at x 0 and 71, past the white's ends (x 4 and 67,
+        // where its top is row 22).
+        rim(set, bounds, 36, 10, 72, 20, 2, (y) => y < 10, CREASE);
+      }
+      // Row 44 and column 68 stay transparent, between the dots and the eye.
+      for (let y = 45; y <= 46; y++)
+        for (let x = 33; x <= 38; x++) set(x, y, EYE_MARK_BELOW);
+      for (let y = 22; y <= 25; y++)
+        for (let x = 69; x <= 71; x++) set(x, y, EYE_MARK_BESIDE);
+    }
     // The almond spans x 4..67; its end fifth is 13 px.
     const unlashed = (x: number) =>
       tearDuct === "left" ? x < 17 : tearDuct === "right" ? x > 54 : false;

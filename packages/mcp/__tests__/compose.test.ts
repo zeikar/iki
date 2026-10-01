@@ -16,6 +16,9 @@ import { layerStats, measureLayers } from "../src/measure";
 import { denseCoreOf } from "../src/measure-turn";
 import { decodePng } from "../src/node-images";
 import {
+  EYE_MARK_BELOW,
+  EYE_MARK_BESIDE,
+  EYE_SHADE,
   writeEyewhite,
   writePartsSet,
   writeSoftNose,
@@ -93,6 +96,21 @@ function digest(dir: string): string[] {
           .update(fs.readFileSync(path.join(dir, f)))
           .digest("hex")}`,
     );
+}
+
+/** Luma (0..255) of the RGBA pixel at byte offset `i`. */
+function lumaAt(rgba: Buffer, i: number): number {
+  return 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
+}
+
+/** How many pixels of `rgba` over alpha 128 are within 8 per channel of `rgb`. */
+function countNear(rgba: Buffer, rgb: readonly number[]): number {
+  let n = 0;
+  for (let i = 0; i < rgba.length; i += 4) {
+    if (rgba[i + 3] <= 128) continue;
+    if ([0, 1, 2].every((c) => Math.abs(rgba[i + c] - rgb[c]) <= 8)) n++;
+  }
+  return n;
 }
 
 async function statsFor(dir: string, role: string) {
@@ -183,11 +201,7 @@ describe("composeLayersFromParts", () => {
     let darkest = 255;
     for (let i = 0; i < sclera.rgba.length; i += 4) {
       if (sclera.rgba[i + 3] <= 8) continue;
-      const luma =
-        0.299 * sclera.rgba[i] +
-        0.587 * sclera.rgba[i + 1] +
-        0.114 * sclera.rgba[i + 2];
-      if (luma < darkest) darkest = luma;
+      darkest = Math.min(darkest, lumaAt(sclera.rgba, i));
     }
     expect(darkest).toBeGreaterThanOrEqual(120);
 
@@ -206,6 +220,65 @@ describe("composeLayersFromParts", () => {
     // ...and both keep the eyewhite's frame, so the fold cannot tear.
     expect(lash.marginLeft).toBe(eye.marginLeft);
     expect(lash.marginTop).toBe(eye.marginTop);
+  });
+
+  it("drops a crease drawn detached above the eye white from the sclera", async () => {
+    const creased = partsDir();
+    await writePartsSet(creased, { omit: ["eyewhite.png"] });
+    await writeEyewhite(creased, { crease: "short" });
+    const dir = outDir();
+    const r = await composeOk({ partsDir: creased, outDir: dir });
+
+    // The frame is still the source's alpha bbox, crease rows and all (68x47,
+    // 128x88 at w 128), so no layout moves.
+    for (const role of ["eye_L", "eye_R", "lash_L", "lash_R"]) {
+      expect(r.layers.find((l) => l.role === role)?.height).toBe(88);
+    }
+    const source = await decodePng(path.join(creased, "eyewhite.png"));
+    for (const side of ["L", "R"]) {
+      // The sclera is the iris's clip, so nothing of it may stand above the
+      // lash that folds down over it.
+      const eye = await statsFor(dir, `eye_${side}`);
+      const lash = await statsFor(dir, `lash_${side}`);
+      expect(eye.marginTop).toBe(lash.marginTop);
+      // The light ink that is not above the white stays: the shade band
+      // touches it, and the dots under its rim and beside its end lie level
+      // with or below it. At w 128 each source px covers about 3.5 layer px,
+      // so more layer px than source px survive even with resampled edges.
+      const sclera = await decodePng(path.join(dir, `eye_${side}.png`));
+      for (const rgb of [EYE_SHADE, EYE_MARK_BELOW, EYE_MARK_BESIDE]) {
+        expect(countNear(sclera.rgba, rgb)).toBeGreaterThan(
+          countNear(source.rgba, rgb),
+        );
+      }
+      // The lash still carries only the dark rim: none of the crease's light
+      // ink moved into it.
+      const lashPng = await decodePng(path.join(dir, `lash_${side}.png`));
+      let lightest = 0;
+      for (let i = 0; i < lashPng.rgba.length; i += 4) {
+        if (lashPng.rgba[i + 3] < 128) continue;
+        lightest = Math.max(lightest, lumaAt(lashPng.rgba, i));
+      }
+      expect(lightest).toBeLessThan(120);
+    }
+    expect(r.measure.warnings.filter((w) => /^lash_/.test(w))).toEqual([]);
+  });
+
+  it("drops a crease that runs past the ends of the eye white", async () => {
+    // Past the white's ends the crease has no white under it, so it is judged
+    // against the top of the white's end column.
+    const creased = partsDir();
+    await writePartsSet(creased, { omit: ["eyewhite.png"] });
+    await writeEyewhite(creased, { crease: "long" });
+    const dir = outDir();
+    const r = await composeOk({ partsDir: creased, outDir: dir });
+
+    for (const side of ["L", "R"]) {
+      const eye = await statsFor(dir, `eye_${side}`);
+      const lash = await statsFor(dir, `lash_${side}`);
+      expect(eye.marginTop).toBe(lash.marginTop);
+    }
+    expect(r.measure.warnings.filter((w) => /^lash_/.test(w))).toEqual([]);
   });
 
   it("keys the white ground out of a part that arrived without alpha", async () => {
@@ -698,7 +771,7 @@ describe("composeLayersFromParts", () => {
     // of one real run came back.
     const facing = partsDir();
     await writePartsSet(facing, { omit: ["eyewhite.png"] });
-    await writeEyewhite(facing, "left");
+    await writeEyewhite(facing, { tearDuct: "left" });
     const wrong = await composeOk({ partsDir: facing, outDir: outDir() });
     const warning = wrong.measure.warnings.find((w) =>
       /^eye_R: .*facing/.test(w),
