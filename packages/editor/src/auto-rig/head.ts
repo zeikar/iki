@@ -74,6 +74,44 @@ export interface HeadFrame {
   hairShell: boolean;
   /** The head half-width the turn cues are fractions of. */
   holdBase: number;
+  /** A hair layer's opaque runs on the pixel row holding model y, as model x
+   *  boundaries `[start0, end0, start1, end1, …]` (its `rowRuns`); `[]` off
+   *  its crop, `undefined` when the layer is absent or carries none. */
+  hairRuns(role: "hair_front" | "hair_back", y: number): number[] | undefined;
+}
+
+/** The outermost edge of `runs` (model x boundaries) on `side` of the axis:
+ *  the last run's end on +x, the first run's start on −x; `undefined` when
+ *  no run reaches past the axis on that side. */
+export function outerEdge(
+  runs: number[],
+  axisX: number,
+  side: -1 | 1,
+): number | undefined {
+  if (runs.length === 0) return undefined;
+  const x = side > 0 ? runs[runs.length - 1] : runs[0];
+  return side * (x - axisX) > 0 ? x : undefined;
+}
+
+/** How far the run of `runs` holding the pixel just inside boundary `x` on
+ *  `side` reaches inward of `x` and outward past it, px; 0 both where that
+ *  pixel is transparent. A run beyond a gap does not count. */
+export function runReach(
+  runs: number[],
+  x: number,
+  side: -1 | 1,
+): { inward: number; outward: number } {
+  // The pixel just inside x: [x − 1, x) on +x, [x, x + 1) on −x.
+  const px = side > 0 ? x - 1 : x;
+  for (let k = 0; k < runs.length; k += 2) {
+    const [a, b] = [runs[k], runs[k + 1]];
+    if (a <= px && px + 1 <= b) {
+      return side > 0
+        ? { inward: x - a, outward: b - x }
+        : { inward: b - x, outward: x - a };
+    }
+  }
+  return { inward: 0, outward: 0 };
 }
 
 /** Rows filled in; `null` without a usable profile. */
@@ -456,6 +494,16 @@ export function buildHeadFrame(
     }
   }
 
+  const hairRuns = (
+    role: "hair_front" | "hair_back",
+    y: number,
+  ): number[] | undefined => {
+    const l = byRole.get(role);
+    if (l?.rowRuns === undefined) return undefined;
+    const runs = l.rowRuns[Math.floor(canvasH / 2 - y) - l.bbox.y];
+    return runs === undefined ? [] : runs.map((c) => c - canvasW / 2);
+  };
+
   return {
     canvasW,
     canvasH,
@@ -478,5 +526,6 @@ export function buildHeadFrame(
     shellRight,
     hairShell,
     holdBase: headHalf ?? plateHalf,
+    hairRuns,
   };
 }

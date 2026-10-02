@@ -59,6 +59,59 @@ export interface CharacterOptions {
   shortFringe?: boolean;
   /** The optional eye and cheek roles: pupils, highlights, blush. */
   extras?: boolean;
+  /** A back hair drawn wide behind the bangs — ±310 at the eye row, the
+   *  silhouette — and both hair layers carrying their opaque runs, banded
+   *  as `FULL_BACK_ROWS` sets out. */
+  fullBack?: boolean;
+}
+
+/**
+ * The `fullBack` hair's bands, canvas rows `[from, to)` (the axis is at
+ * column 500.5; the bangs' side locks' outer edges at columns 238 and 762,
+ * model ∓262):
+ * - `crown`: the back solid ±310 from row 0, above the bangs' top (row 10)
+ *   in every column; the bangs a dome widening to ±262;
+ * - `temple`: the back's outer end 5 px inside the bangs' edge;
+ * - `solid`: from the brows down, the eye row (433.5) among them: the back
+ *   one solid run ±310 behind the locks (as it is below the bangs' crop);
+ * - `gap`: as on bob's row 366, a 3 px sliver of back 2 px outside the
+ *   bangs' edge, then nothing until 8 px inside it;
+ * - `stroke`: as on the hero's row 610, the back solid from inside the
+ *   bangs' edge to 20 px past it, then empty for 30 px, then a 4 px stroke.
+ */
+const FULL_BACK_ROWS = {
+  crown: [0, 210],
+  temple: [210, 330],
+  solid: [330, 630],
+  gap: [630, 730],
+  stroke: [730, 970],
+} as const;
+
+/** The `fullBack` layers' `rowRuns`, one entry per crop row: the bangs'
+ *  crop holds canvas rows 10–969, the back's rows 0–999. */
+function fullBackRuns(): { front: number[][]; back: number[][] } {
+  const { temple, gap, stroke } = FULL_BACK_ROWS;
+  const front: number[][] = [];
+  const back: number[][] = [];
+  for (let k = 0; k < 1000; k++) {
+    // The solid band's, unless another band's.
+    let f = [238, 347, 654, 762];
+    let b = [190, 810];
+    if (k < temple[0]) {
+      const w = Math.round(Math.min(262, 200 + ((k - 10) * 62) / 80));
+      f = [500 - w, 500 + w];
+    } else if (k < temple[1]) {
+      f = [238, 762];
+      b = [243, 757];
+    } else if (k >= gap[0] && k < gap[1]) {
+      b = [233, 236, 246, 754, 764, 767];
+    } else if (k >= stroke[0] && k < stroke[1]) {
+      b = [184, 188, 218, 782, 812, 816];
+    }
+    if (k >= 10 && k < 970) front.push(f);
+    back.push(b);
+  }
+  return { front, back };
 }
 
 export function character(opts: CharacterOptions = {}): {
@@ -71,6 +124,7 @@ export function character(opts: CharacterOptions = {}): {
     fringe = false,
     shortFringe = false,
     extras = false,
+    fullBack = false,
   } = opts;
   const face = { x: 300, y: 200, w: 401, h: 560 };
   const layers: LayerInput[] = [
@@ -131,24 +185,37 @@ export function character(opts: CharacterOptions = {}): {
     };
   }
   if (hair) {
+    const runs = fullBack ? fullBackRuns() : undefined;
     layers.push(
-      layer("hair_back", { x: 110, y: 20, w: 780, h: 980 }),
-      layer("hair_front", { x: 170, y: 10, w: 660, h: 960 }),
+      runs
+        ? layer(
+            "hair_back",
+            { x: 90, y: 0, w: 820, h: 1000 },
+            { rowRuns: runs.back },
+          )
+        : layer("hair_back", { x: 110, y: 20, w: 780, h: 980 }),
+      layer(
+        "hair_front",
+        { x: 170, y: 10, w: 660, h: 960 },
+        runs ? { rowRuns: runs.front } : {},
+      ),
     );
   }
   const options: GenerateOptions = {};
   if (hair) {
-    // The bangs draw the head's outline at the eye row: ±262 about the face.
-    options.turnTargets = { headHalfWidth: 262 };
+    // The bangs draw the head's outline at the eye row, ±262 about the face —
+    // unless the full back hair, at ±310, draws it.
+    const back = fullBack ? 310 : 230;
+    options.turnTargets = { headHalfWidth: fullBack ? 310 : 262 };
     options.headEdges = {
       left: [
         { role: "hair_front", x: -262 },
-        { role: "hair_back", x: -230 },
+        { role: "hair_back", x: -back },
         { role: "face", x: -200 },
       ],
       right: [
         { role: "hair_front", x: 261 },
-        { role: "hair_back", x: 229 },
+        { role: "hair_back", x: back - 1 },
         { role: "face", x: 200 },
       ],
     };

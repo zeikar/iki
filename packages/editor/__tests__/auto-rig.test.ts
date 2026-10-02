@@ -43,6 +43,7 @@ function rig(
 }
 
 const hero = rig();
+const fullBack = rig({ fullBack: true });
 const EYE_Y = 500 - 433.5;
 
 /** The three cues `measure_turn_reference` reads, off where the render puts
@@ -490,6 +491,112 @@ describe("the head turn", () => {
     }
   });
 
+  describe("with back hair painted behind the bangs' outer edge", () => {
+    const { model: full } = fullBack;
+    /** The same set without its hair runs: today's hold. */
+    const today = (() => {
+      const { layers, options } = character({ fullBack: true });
+      return generateIkiFromLayerSet(
+        layers.map((l) => ({ ...l, rowRuns: undefined })),
+        CANVAS,
+        options,
+      );
+    })();
+    /** Model y of canvas row k's centre. */
+    const rowY = (k: number) => 500 - k - 0.5;
+    const DRIFT = 0.027 * HH;
+    /** The face's follow at the edge below the eye band, hh at ±30. */
+    const CORE = 1.1 * 0.118;
+    const edge = (
+      m: IkiModel,
+      role: string,
+      x: number,
+      y: number,
+      ax: number,
+    ) => landedXAt(m, role, x, y, X30(ax));
+
+    it("rides the edge with the face where the back reaches past it and far inside it", () => {
+      // Below the eye band, the back solid to ±310: 48 px past the edge less
+      // the 7.1 px drift, and far inside it, both more than the face's
+      // 34.3 px follow, so both edges may ride it whole. The mesh carries the
+      // ride's kink at the edge between two columns, so the edge lands a
+      // little short of it (today's hold is 0.045 hh).
+      const y = rowY(560);
+      for (const ax of [-30, 30]) {
+        const s = Math.sign(ax);
+        for (const x of [-262, 262]) {
+          const ride = (s * (edge(full, "hair_front", x, y, ax) - x)) / HH;
+          expect(ride, `x ${x}, AngleX ${ax}`).toBeLessThanOrEqual(CORE + 1e-3);
+          expect(ride, `x ${x}, AngleX ${ax}`).toBeGreaterThan(0.9 * CORE);
+        }
+      }
+    });
+
+    it("holds the edge as today where the back hair is not behind it", () => {
+      const rows = {
+        // The back's outer end 5 px inside the bangs' edge.
+        temple: rowY(270),
+        // A sliver outside the edge, nothing until 8 px inside it.
+        gap: rowY(680),
+      };
+      for (const [name, y] of Object.entries(rows)) {
+        for (const ax of [-30, -15, 15, 30]) {
+          for (const x of [-262, 262]) {
+            expect(
+              edge(full, "hair_front", x, y, ax),
+              `${name}, x ${x}, AngleX ${ax}`,
+            ).toBe(edge(today, "hair_front", x, y, ax));
+          }
+        }
+      }
+    });
+
+    it("rides the far edge only over the back's run past it, not out to a stroke beyond a gap", () => {
+      // The back solid from inside the edge to 20 px past it (±282), then
+      // 30 px empty, then a 4 px stroke.
+      const y = rowY(800);
+      for (const ax of [-30, -22.5, -15, 15, 22.5, 30]) {
+        const s = Math.sign(ax);
+        const a = Math.abs(ax) / 30;
+        const far = edge(full, "hair_front", 262 * s, y, ax);
+        const runEnd = edge(full, "hair_back", 282 * s, y, ax);
+        // At most the keyforms' rounding (1e-4 of a part's width) past it.
+        expect(s * (far - runEnd), `AngleX ${ax}`).toBeLessThan(0.1);
+        expect(s * (far - 262 * s), `AngleX ${ax}`).toBeCloseTo(
+          a * (20 - DRIFT),
+          0,
+        );
+        // The near edge, over the run's 544 px inside it, rides the face's
+        // follow — short of it by the mesh's columns, as above.
+        const near =
+          (s * (edge(full, "hair_front", -262 * s, y, ax) + 262 * s)) / HH;
+        expect(near, `AngleX ${ax}`).toBeLessThanOrEqual(a * CORE + 1e-3);
+        expect(near, `AngleX ${ax}`).toBeGreaterThan(0.9 * a * CORE);
+      }
+    });
+
+    it("keeps the far edge over the back hair when a narrower shell is fitted", () => {
+      const { model, report } = rig(
+        { fullBack: true },
+        { silhouetteRatio: 0.95 },
+      );
+      expect(report!.achieved.silhouetteRatio).toBeCloseTo(0.95, 2);
+      for (const y of [EYE_Y, rowY(560)]) {
+        for (const ax of [-30, 30]) {
+          const s = Math.sign(ax);
+          const back = edge(model, "hair_back", 310 * s, y, ax);
+          // The shell is narrower than at rest ...
+          expect(s * back).toBeLessThan(310 - DRIFT);
+          // ... and the far edge stays inside it.
+          expect(
+            s * (edge(model, "hair_front", 262 * s, y, ax) - back),
+            `y ${y}, AngleX ${ax}`,
+          ).toBeLessThan(0);
+        }
+      }
+    });
+  });
+
   it("nods by the profile: the forehead drops further than the chin", () => {
     const down = { [P.AngleY]: -30 };
     const up = { [P.AngleY]: 30 };
@@ -606,23 +713,29 @@ describe("the head turn", () => {
         [P.MouthForm]: 1,
       },
     );
-    for (const part of model.parts) {
-      if (!part.mesh) continue;
-      const rest = signedAreas(landVertices(model, part.id), part.mesh.indices);
-      for (const pose of poses) {
-        const areas = signedAreas(
-          landVertices(model, part.id, pose),
-          part.mesh.indices,
-        );
-        areas.forEach((a, i) => {
-          // Same winding as at rest; a fold would flip it.
-          if (Math.sign(a) !== Math.sign(rest[i])) {
-            expect(
-              Math.abs(a),
-              `${part.id} ${JSON.stringify(pose)}`,
-            ).toBeLessThan(1e-6);
-          }
-        });
+    // The bangs riding the back hair (fullBack) bend their locks further.
+    for (const [name, m] of [
+      ["default", model],
+      ["fullBack", fullBack.model],
+    ] as const) {
+      for (const part of m.parts) {
+        if (!part.mesh) continue;
+        const rest = signedAreas(landVertices(m, part.id), part.mesh.indices);
+        for (const pose of poses) {
+          const areas = signedAreas(
+            landVertices(m, part.id, pose),
+            part.mesh.indices,
+          );
+          areas.forEach((a, i) => {
+            // Same winding as at rest; a fold would flip it.
+            if (Math.sign(a) !== Math.sign(rest[i])) {
+              expect(
+                Math.abs(a),
+                `${name} ${part.id} ${JSON.stringify(pose)}`,
+              ).toBeLessThan(1e-6);
+            }
+          });
+        }
       }
     }
   });
@@ -912,29 +1025,33 @@ describe("the ears", () => {
 
 describe("extreme combined poses", () => {
   it("squeezes no face or hair triangle below 40 % when turn, nod, tilt and sway meet", () => {
-    const { model } = hero;
     const S = [-30, -15, 0, 15, 30];
-    for (const id of ["face", "hair_front", "hair_back"]) {
-      const part = model.parts.find((p) => p.id === id)!;
-      const rest = signedAreas(landVertices(model, id), part.mesh!.indices);
-      let worst = Infinity;
-      for (const x of S)
-        for (const y of S)
-          for (const z of S)
-            for (const s of [-20, 0, 20]) {
-              const pose = {
-                [P.AngleX]: x,
-                [P.AngleY]: y,
-                [P.AngleZ]: z,
-                [P.HairSwayX]: s,
-              };
-              const areas = signedAreas(
-                landVertices(model, id, pose),
-                part.mesh!.indices,
-              );
-              areas.forEach((a, i) => (worst = Math.min(worst, a / rest[i])));
-            }
-      expect(worst, id).toBeGreaterThan(0.4);
+    for (const [name, { model }] of [
+      ["default", hero],
+      ["fullBack", fullBack],
+    ] as const) {
+      for (const id of ["face", "hair_front", "hair_back"]) {
+        const part = model.parts.find((p) => p.id === id)!;
+        const rest = signedAreas(landVertices(model, id), part.mesh!.indices);
+        let worst = Infinity;
+        for (const x of S)
+          for (const y of S)
+            for (const z of S)
+              for (const s of [-20, 0, 20]) {
+                const pose = {
+                  [P.AngleX]: x,
+                  [P.AngleY]: y,
+                  [P.AngleZ]: z,
+                  [P.HairSwayX]: s,
+                };
+                const areas = signedAreas(
+                  landVertices(model, id, pose),
+                  part.mesh!.indices,
+                );
+                areas.forEach((a, i) => (worst = Math.min(worst, a / rest[i])));
+              }
+        expect(worst, `${name} ${id}`).toBeGreaterThan(0.4);
+      }
     }
   });
 });

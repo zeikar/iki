@@ -632,7 +632,7 @@ export function buildTurn(
   frame: HeadFrame,
   landmarks: Pick<
     TurnModel,
-    "boxes" | "noseAt" | "noseTopY" | "mouthAt" | "hairTop"
+    "boxes" | "noseAt" | "noseTopY" | "mouthAt" | "hairTop" | "hairFrontGrid"
   >,
   q: TurnParams,
 ): TurnModel {

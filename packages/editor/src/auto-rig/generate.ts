@@ -50,6 +50,7 @@ import {
   hairFrontBends,
   neckField,
   type Field,
+  type HairFrontGrid,
   type TurnModel,
 } from "./fields";
 import {
@@ -167,19 +168,25 @@ export function generateIkiFromLayerSet(
 
   // --- the turn ---
   const ctx = solveContext(solveFrame, byRole, turnOptions, hasNose);
+  const boxes: TurnModel["boxes"] = Object.fromEntries(
+    (["eye_L", "eye_R", "brow_L", "brow_R"] as const)
+      .filter(has)
+      .map((r) => [r, box(r)]),
+  );
   const landmarks: Pick<
     TurnModel,
-    "boxes" | "noseAt" | "noseTopY" | "mouthAt" | "hairTop"
+    "boxes" | "noseAt" | "noseTopY" | "mouthAt" | "hairTop" | "hairFrontGrid"
   > = {
-    boxes: Object.fromEntries(
-      (["eye_L", "eye_R", "brow_L", "brow_R"] as const)
-        .filter(has)
-        .map((r) => [r, box(r)]),
-    ),
+    boxes,
     noseAt: ctx.noseAt,
     noseTopY: ctx.noseBox?.y1,
     mouthAt: ctx.mouthAt,
     hairTop: has("hair_front") ? box("hair_front").y1 : solveFrame.face.y1,
+    // The field reads the grid the mesh is built on (the rebuilt frame below
+    // differs only in the jaw's cut, which the grid does not read).
+    hairFrontGrid: has("hair_front")
+      ? hairFrontGrid(box("hair_front"), solveFrame, boxes)
+      : undefined,
   };
   const build = (q: Parameters<typeof buildTurn>[2]) =>
     buildTurn(solveFrame, landmarks, q);
@@ -211,6 +218,7 @@ export function generateIkiFromLayerSet(
       frame,
       byRole,
       style,
+      landmarks.hairFrontGrid,
     );
     if (built.region !== undefined) {
       regionOf = built.region;
@@ -327,6 +335,7 @@ function buildPart(
   frame: HeadFrame,
   byRole: Map<string, LayerInput>,
   style: ResolvedStyle,
+  frontGrid: HairFrontGrid | undefined,
 ): { part: IkiPart; reach: Reach; region?: Region[]; headStart: number } {
   const box = (role: string) => boxOfLayer(byRole.get(role)!);
   const part: IkiPart = {
@@ -350,34 +359,16 @@ function buildPart(
     mesh = fm.mesh;
     region = fm.region;
     headStart = fm.headStart;
+  } else if (spec.role === "hair_front") {
+    mesh = columnMesh(b, frontGrid!);
   } else if (spec.family !== "body") {
     const cells = MESH_CELLS[spec.role] ?? FEATURE_MESH_CELLS;
     // No coarser than a fraction of the head, whatever its size.
     const px = Math.min(cells.px, meshScale(spec.role, frame));
-    const cols = cellsFor(bw(b), px, cells.min, cells.max);
-    const rows = cellsFor(bh(b), px, cells.min, cells.max);
-    if (spec.role === "hair_front") {
-      // Columns where its follow bends, so the mesh carries it exactly.
-      const boxes = Object.fromEntries(
-        (["eye_L", "eye_R"] as const)
-          .filter((r) => byRole.has(r))
-          .map((r) => [r, box(r)]),
-      );
-      const { inner, left, right } = hairFrontBends(frame, boxes);
-      mesh = columnMesh(
-        b,
-        [
-          frame.axisX - left,
-          frame.axisX - inner,
-          frame.axisX + inner,
-          frame.axisX + right,
-        ],
-        cols,
-        rows,
-      );
-    } else {
-      mesh = gridMesh(cols, rows);
-    }
+    mesh = gridMesh(
+      cellsFor(bw(b), px, cells.min, cells.max),
+      cellsFor(bh(b), px, cells.min, cells.max),
+    );
   }
   if (mesh !== undefined) part.mesh = mesh;
   const side = spec.role.endsWith("_L") ? "L" : "R";
@@ -503,18 +494,44 @@ function buildPart(
   };
 }
 
-/** A grid mesh over `b` with its even columns plus columns at `at` (model x,
- *  inside the box), rows even; row 0 on top, each cell split as `gridMesh`'s. */
-function columnMesh(b: Box, at: number[], cols: number, rows: number): IkiMesh {
+/** The front hair's mesh grid over its box `b`: even cells no coarser than a
+ *  fraction of the head, plus columns where its follow bends, so the mesh
+ *  carries the bends exactly. */
+function hairFrontGrid(
+  b: Box,
+  frame: HeadFrame,
+  boxes: TurnModel["boxes"],
+): HairFrontGrid {
+  const cells = MESH_CELLS.hair_front;
+  const px = Math.min(cells.px, meshScale("hair_front", frame));
+  const cols = cellsFor(bw(b), px, cells.min, cells.max);
+  const rows = cellsFor(bh(b), px, cells.min, cells.max);
+  const { inner, left, right } = hairFrontBends(frame, boxes);
   const step = bw(b) / cols;
   const xs = Array.from({ length: cols + 1 }, (_, c) => b.x0 + c * step);
-  for (const x of at) {
+  for (const x of [
+    frame.axisX - left,
+    frame.axisX - inner,
+    frame.axisX + inner,
+    frame.axisX + right,
+  ]) {
     if (x <= b.x0 + 0.25 || x >= b.x1 - 0.25) continue;
     const near = xs.findIndex((v) => Math.abs(v - x) < 0.3 * step);
     if (near > 0 && near < xs.length - 1) xs[near] = x;
     else if (near < 0) xs.push(x);
   }
   xs.sort((p, q) => p - q);
+  const ys = Array.from(
+    { length: rows + 1 },
+    (_, r) => b.y1 - (bh(b) * r) / rows,
+  );
+  return { xs, ys };
+}
+
+/** A mesh over `b` on `grid`; row 0 on top, each cell split as `gridMesh`'s. */
+function columnMesh(b: Box, grid: HairFrontGrid): IkiMesh {
+  const { xs } = grid;
+  const rows = grid.ys.length - 1;
   const vertices: number[] = [];
   const uvs: number[] = [];
   for (let r = 0; r <= rows; r++) {
