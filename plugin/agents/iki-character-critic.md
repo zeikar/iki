@@ -54,8 +54,9 @@ artist agent applies your findings; the orchestrator arbitrates.
   (measured, not derived).
 - `layers` — the composed role-layer dir (`face.png`, `eye_L.png`, …, `preview.png`).
 - `renders` — screenshots of the rigged model in the engine: rest, head-turn,
-  blink, gaze, and the between-stop poses (`ParamAngleX`/`ParamAngleY` at 15°,
-  `ParamEyeLOpen` at 0.5) where interpolation defects show.
+  blink, gaze, the between-stop poses (`ParamAngleX`/`ParamAngleY` at 15°,
+  `ParamEyeLOpen` at 0.5) where interpolation defects show, and one combined
+  pose (`ParamAngleX`, `ParamAngleY` and `ParamAngleZ` all at 30).
 - `turn-pair` — the rig's own rest, `ParamAngleX` −30 and `ParamAngleX` +30
   renders (`rest.png`, `turn-m30.png`, `turn-p30.png` in `<workdir>/renders/`,
   beside an empty `debug/` dir), captured via `canvas.toDataURL` rather than
@@ -179,6 +180,15 @@ individually pretty.
 for: a straight seam appearing on turn, the head sliding off the shoulders, the
 iris spilling past the lids at extreme gaze, the eye vanishing entirely at
 blink, brows hidden under hair.
+
+The neck is drawn on the torso and never moves with the head, so its flat top
+must stay hidden behind the face. Look at the combined pose for that top, or its
+corners, showing beside or under the jaw. That is art or placement, not a rig
+defect, so never escalate it. When the top sits too low behind the face, it is a
+`retune` of `layout.body`: a smaller `cy`, or a larger `h` (a flat torso
+stretches about 10 % unseen). When the neck is too wide for the jaw, it is a
+`regenerate` of `body.png` with the neck drawn about one eighth of the shoulder
+width.
 
 `turn` asks whether the motion reads right, not whether it survives — judged
 by eye against `reference-30.png`, on attributes, not overlap, as above. At

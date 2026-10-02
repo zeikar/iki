@@ -76,7 +76,8 @@ fully visible, the far (viewer's left) eye only slightly narrower than the
 near eye, the nose tip shifted a little toward the near cheek, the far cheek
 outline receding a touch, the near ear just starting to peek out under the
 hair. The shoulders and torso stay facing the camera exactly as in the
-reference; only the head and neck rotate. Same eye level and head size as the
+reference; only the head rotates — the neck stays facing the camera with the
+torso, as the rig keeps it. Same eye level and head size as the
 reference so the two images can be overlaid. Keep every other attribute
 exactly as in the attached image: hairstyle and hair colour, eye colour,
 expression, clothing and accessories. Save it to ./$out. Reply with only the

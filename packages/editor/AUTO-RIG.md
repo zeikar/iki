@@ -58,9 +58,11 @@ AngleZ ±30 rolls the head 10° about the chin.
 
 ## The plate, the neck and the ears
 
-A face layer usually paints a neck below the jaw and ears on its sides. Left
-on the plate, the neck would turn with the head and drag across the collar,
-and the ears would slide as if painted on the cheek. The plate's mesh is
+The neck comes one of two ways. Either the torso draws it, rising behind the
+face, and the face is drawn without one, so the plate is all head (its ears
+aside). Or the face layer paints it below the jaw, together with ears on its
+sides. Left on the plate, a painted neck would turn with the head and drag across
+the collar, and the ears would slide as if painted on the cheek. The plate's mesh is
 therefore several islands of the same drawing, and the same part, drawn neck
 first, then ears, then head:
 
@@ -175,8 +177,9 @@ nose or without one):
 
 - the far eye's far corner stays inside the plate's outline on its row —
   unless a side strand frames that eye, which then covers the outline there;
-- the chin stays over the neck it slides across (its shift at most the neck's
-  half-width), or the neck's hidden top would come out from under the jaw;
+- the chin stays over a neck the face paints (its shift at most that neck's
+  half-width), or the neck's hidden top would come out from under the jaw; a
+  neck drawn on the torso bounds nothing (see Known limits);
 - the far iris goes no deeper under its bangs' strand (`strandEdges`) than it
   is painted — best effort: a strand that leaves less than half the profile's
   turn is left to overlap, and `strandOverlap.held` is `false`;
