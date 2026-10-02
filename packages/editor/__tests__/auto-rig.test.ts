@@ -1106,6 +1106,30 @@ describe("turn targets", () => {
     expect(() => generateIkiFromLayerSet(jaw, CANVAS, options)).toThrow(
       /jawRows/,
     );
+    // hair_back's crop spans columns 110..890 over 980 rows.
+    const withRuns = (rowRuns: number[][]) => () =>
+      generateIkiFromLayerSet(
+        layers.map((l) => (l.role === "hair_back" ? { ...l, rowRuns } : l)),
+        CANVAS,
+        options,
+      );
+    const runs = (row: number[]) => Array.from({ length: 980 }, () => row);
+    expect(withRuns(runs([110, 400, 600, 890]))).not.toThrow();
+    expect(withRuns(runs([200, 300]).slice(1))).toThrow(
+      /"hair_back\.png": rowRuns must have one entry per crop row \(980\)/,
+    );
+    expect(withRuns(runs([200, 300, 400]))).toThrow(
+      /"hair_back\.png": rowRuns\[0\] \[200,300,400\] is not/,
+    );
+    expect(withRuns(runs([200, 300, 300, 400]))).toThrow(
+      /"hair_back\.png": rowRuns\[0\] \[200,300,300,400\] is not/,
+    );
+    expect(withRuns(runs([100, 300]))).toThrow(
+      /"hair_back\.png": rowRuns\[0\] \[100,300\] is not/,
+    );
+    expect(withRuns(runs([200, 891]))).toThrow(
+      /"hair_back\.png": rowRuns\[0\] \[200,891\] is not/,
+    );
     const swapped = {
       left: options.headEdges!.right,
       right: options.headEdges!.left,

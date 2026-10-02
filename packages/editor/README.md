@@ -133,15 +133,20 @@ radius. It also takes the optional `denseCore`, the tight box of a layer's alpha
 width are the nose's turn landmark, so a shaded nose is fitted by its drawing
 rather than its soft feather, and its top edge at its centre x is the bridge top
 the nose tilts 6° about on the turn, its tip toward the far side; absent, the
-crop stands in for both.
+crop stands in for both. And it takes the optional `rowRuns` (per crop row, the
+row's alpha ≥ 128 runs as a flat list of canvas columns `[start, end, …]`, each
+end exclusive), measured for `hair_front` and `hair_back` so the turn and the
+nod can tell where back hair is painted behind the front hair; absent, the front
+hair keeps its outline hold on the turn and its crown's ease to the back hair's
+nod looking down.
 
 `createLayerSetMeasurer(canvas)` measures all of it — `rowHalfWidths`,
-`denseCore`, `headHalfWidth`, `headEdges` and `strandEdges` — off the RGBA a
-host decoded, one layer at a time: `add` each layer while its pixels are in
-memory (it keeps no reference to them), then `finish` for the `LayerInput`s and
-the `turnOptions` to pass the generator. A caller's own `turnTargets` go
-underneath `turnOptions.turnTargets`: spread the caller's targets first, then
-the measured ones.
+`rowRuns`, `denseCore`, `headHalfWidth`, `headEdges` and `strandEdges` — off
+the RGBA a host decoded, one layer at a time: `add` each layer while its pixels
+are in memory (it keeps no reference to them), then `finish` for the
+`LayerInput`s and the `turnOptions` to pass the generator. A caller's own
+`turnTargets` go underneath `turnOptions.turnTargets`: spread the caller's
+targets first, then the measured ones.
 
 `*_L` / `*_R` are the **character's** sides — `eye_L` is the character's left
 eye, which appears on the viewer's right.

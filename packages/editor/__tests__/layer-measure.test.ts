@@ -107,6 +107,49 @@ describe("createLayerSetMeasurer", () => {
     expect(measurer.finish().layers).toEqual(inputs);
   });
 
+  it("measures each hair layer's opaque runs per crop row, gaps and empty rows included", () => {
+    const measurer = createLayerSetMeasurer({ width: CANVAS, height: CANVAS });
+    const inputs = [
+      ...strandLayers(),
+      // Row 5 paints 10..13, 20..22 and 95..99 up to the canvas's edge, row
+      // 6 10..13, row 7 nothing, row 8 12..16 opaque and 30..31 at alpha 77,
+      // which the crop takes in and a run does not.
+      layer("hair_back", [
+        { x: 10, y: 5, w: 4, h: 2 },
+        { x: 20, y: 5, w: 3, h: 1 },
+        { x: 95, y: 5, w: 5, h: 1 },
+        { x: 12, y: 8, w: 5, h: 1 },
+        { x: 30, y: 8, w: 2, h: 1, alpha: 77 },
+      ]),
+    ].map((l) => measurer.add(l)!);
+    const byRole = new Map(inputs.map((l) => [l.role, l]));
+
+    const back = byRole.get("hair_back")!;
+    expect(back.bbox).toEqual({ x: 9, y: 4, w: 91, h: 6 });
+    // One entry per crop row, canvas columns, each end exclusive (a run at
+    // the canvas's edge ends at its width); the grown margin rows and row 7
+    // have no run.
+    expect(back.rowRuns).toEqual([
+      [],
+      [10, 14, 20, 23, 95, 100],
+      [10, 14],
+      [],
+      [12, 17],
+      [],
+    ]);
+    // The bangs' two side strands on rows 25..55, in a crop from row 24.
+    expect(byRole.get("hair_front")!.rowRuns).toEqual([
+      [],
+      ...Array(31).fill([10, 28, 72, 90]),
+      [],
+    ]);
+    for (const l of inputs) {
+      if (l.role !== "hair_front" && l.role !== "hair_back") {
+        expect(l.rowRuns).toBeUndefined();
+      }
+    }
+  });
+
   it("applies the head the bangs draw at the eye row, with every layer's own edges there", () => {
     const result = measure(strandLayers());
     // Columns 10..89 over rows 29..49, against a face-plate half-width of 31.

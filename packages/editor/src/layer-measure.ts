@@ -237,13 +237,14 @@ function jawRowsOf(
 export interface LayerSetMeasurer {
   /**
    * Measure one layer while its `rgba` is in memory, keeping no reference to
-   * it: only the set's opaque union, this layer's per-row opaque extent and,
-   * for `hair_front`, its opaque mask outlive the call, so the host may drop
-   * `rgba` as soon as it returns. Returns the layer's `LayerInput` — its crop
-   * box, the face's `rowHalfWidths`, the nose's `denseCore` unless that is a
-   * speck of its crop (`isSpeckCore`) — or `null` for an empty layer, one with
-   * no pixel at or above `ALPHA_BBOX_THRESHOLD`, which it records nothing for:
-   * the host reports that with its own error. Throws, naming the file, when
+   * it: only the set's opaque union, this layer's per-row opaque extent and
+   * the `LayerInput` it returns outlive the call, so the host may drop `rgba`
+   * as soon as it returns. Returns the layer's `LayerInput` — its crop
+   * box, the face's `rowHalfWidths`, the hair layers' `rowRuns`, the nose's
+   * `denseCore` unless that is a speck of its crop (`isSpeckCore`) — or
+   * `null` for an empty layer, one with no pixel at or above
+   * `ALPHA_BBOX_THRESHOLD`, which it records nothing for: the host reports
+   * that with its own error. Throws, naming the file, when
    * `rgba` is not `width × height × 4` long; checking the decoded dimensions
    * is the host's job.
    */
@@ -410,11 +411,6 @@ export function createLayerSetMeasurer(canvas: {
     rowLeft: Int32Array;
     rowRight: Int32Array;
   }[] = [];
-  // hair_front's own opaque pixels (alpha >= ALPHA_OPAQUE, the union's rule),
-  // kept from its pass for the strand edges below: the run an iris would
-  // slide under is read off it on that iris's own row. The irises need no
-  // mask of their own — their per-row extremes are in rowSpansByRole.
-  let hairFrontMask: Uint8Array | undefined;
 
   function add({ role, fileName, rgba }: RgbaLayer): LayerInput | null {
     if (rgba.length !== rgbaLength) {
@@ -428,20 +424,31 @@ export function createLayerSetMeasurer(canvas: {
     // while its pixels are still here — one pass over the same pixels.
     const rowLeft = new Int32Array(canvasH).fill(canvasW);
     const rowRight = new Int32Array(canvasH).fill(-1);
-    const ownMask =
-      role === "hair_front" ? new Uint8Array(canvasW * canvasH) : undefined;
+    const rowRuns: number[][] | undefined =
+      role === "hair_front" || role === "hair_back" ? [] : undefined;
     for (let y = 0; y < canvasH; y++) {
+      // Every opaque pixel lies inside the crop, so only its rows hold runs.
+      let runs: number[] | undefined;
+      if (rowRuns !== undefined && y >= bbox.y && y < bbox.y + bbox.h) {
+        runs = [];
+        rowRuns.push(runs);
+      }
+      let inRun = false;
       for (let x = 0; x < canvasW; x++) {
         const p = y * canvasW + x;
-        if (rgba[p * 4 + 3] < ALPHA_OPAQUE) continue;
+        const on = rgba[p * 4 + 3] >= ALPHA_OPAQUE;
+        if (runs !== undefined && on !== inRun) {
+          runs.push(x);
+          inRun = on;
+        }
+        if (!on) continue;
         opaque[p] = 1;
-        if (ownMask !== undefined) ownMask[p] = 1;
         if (x < rowLeft[y]) rowLeft[y] = x;
         if (x > rowRight[y]) rowRight[y] = x;
       }
+      if (runs !== undefined && inRun) runs.push(canvasW);
     }
     rowSpansByRole.push({ role, rowLeft, rowRight });
-    if (ownMask !== undefined) hairFrontMask = ownMask;
     const layer: LayerInput = {
       role,
       fileName,
@@ -451,6 +458,7 @@ export function createLayerSetMeasurer(canvas: {
       cropW: bbox.w,
       cropH: bbox.h,
     };
+    if (rowRuns !== undefined) layer.rowRuns = rowRuns;
     if (role === "face") {
       // The plate's painted half-width on each of its crop rows — the same
       // alpha rule and halving as the head's own span, row by row (0 for a
@@ -560,8 +568,14 @@ export function createLayerSetMeasurer(canvas: {
     const irisLayers = layerInputs
       .filter((l) => l.role === "iris_L" || l.role === "iris_R")
       .sort((a, b) => a.bbox.x + a.bbox.w / 2 - (b.bbox.x + b.bbox.w / 2));
-    if (hairFrontMask !== undefined && irisLayers.length === 2) {
-      const mask = hairFrontMask;
+    const hairFront = layerInputs.find((l) => l.role === "hair_front");
+    const hairRuns = hairFront?.rowRuns;
+    if (
+      hairFront !== undefined &&
+      hairRuns !== undefined &&
+      irisLayers.length === 2
+    ) {
+      const hairTop = hairFront.bbox.y;
       const half = canvasW / 2;
       const strandOn = (
         iris: LayerInput,
@@ -589,15 +603,15 @@ export function createLayerSetMeasurer(canvas: {
         const minRun =
           STRAND_MIN_RUN_FRACTION * (span.rowRight[r] + 1 - span.rowLeft[r]);
         const strand = new Uint8Array(canvasW);
-        for (let a = 0; a < canvasW; ) {
-          if (mask[r * canvasW + a] !== 1) {
-            a++;
-            continue;
+        // A row outside the bangs' crop has no opaque pixel of theirs.
+        const runs =
+          r >= hairTop && r < hairTop + hairRuns.length
+            ? hairRuns[r - hairTop]
+            : [];
+        for (let k = 0; k < runs.length; k += 2) {
+          if (runs[k + 1] - runs[k] >= minRun) {
+            strand.fill(1, runs[k], runs[k + 1]);
           }
-          let b = a;
-          while (b < canvasW && mask[r * canvasW + b] === 1) b++;
-          if (b - a >= minRun) strand.fill(1, a, b);
-          a = b;
         }
         const strandAt = (x: number) =>
           x >= 0 && x < canvasW && strand[x] === 1;

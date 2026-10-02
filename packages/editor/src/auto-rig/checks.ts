@@ -92,6 +92,31 @@ export function checkLayers(
         }
       });
     }
+    if (l.rowRuns !== undefined) {
+      const rows = l.rowRuns;
+      if (!Array.isArray(rows) || rows.length !== h) {
+        throw new Error(
+          `${at}: rowRuns must have one entry per crop row (${h})`,
+        );
+      }
+      rows.forEach((runs, i) => {
+        if (
+          !Array.isArray(runs) ||
+          runs.length % 2 !== 0 ||
+          !runs.every(
+            (c, k) =>
+              Number.isInteger(c) &&
+              c >= x &&
+              c <= x + w &&
+              (k === 0 || c > runs[k - 1]),
+          )
+        ) {
+          throw new Error(
+            `${at}: rowRuns[${i}] ${JSON.stringify(runs)} is not an even-length, strictly increasing list of columns inside its crop (${x}..${x + w})`,
+          );
+        }
+      });
+    }
     if (l.jawRows !== undefined) {
       const cols = l.jawRows;
       if (!Array.isArray(cols) || cols.length !== w) {
