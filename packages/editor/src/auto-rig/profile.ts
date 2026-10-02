@@ -71,6 +71,13 @@ export const NOD = {
   nose: { up: -0.207, down: 0.193 },
   mouth: { up: -0.172, down: 0.177 },
   hairFront: { up: -0.11, down: 0.189 },
+  /** The front hair's cap top. The samples' cap top moves 1.215× their face's
+   *  centroid looking down (Mao 1.236, Haru 1.626, Hiyori 1.194, Natori
+   *  0.730) and 0.415× looking up (0.385, 0.430, 0.400, 0.487); each ratio
+   *  times the plate's own nod halfway between its top and the chin (0.1435
+   *  down, 0.084 up). Looking down, the rig slides it only as far as the
+   *  back hair covers the crown behind it. */
+  hairFrontTop: { up: -0.035, down: 0.174 },
   hairBack: { up: -0.011, down: 0.025 },
 } as const;
 

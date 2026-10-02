@@ -321,13 +321,15 @@ export function hairFrontBends(
  * the lock easing between. On a row where the back hair paints behind that
  * edge at every angle of the turn, the edge rides further, up to the face's
  * follow (`outerRide`). Its crown, above the face plate's top, is the top of
- * the head and eases to the back hair's motion toward its top, so the head's
- * top outline holds while the fringe slides under it.
+ * the head: on the turn it eases toward its top to the back hair's motion, so
+ * the head's top outline holds while the fringe slides under it; on the nod
+ * to its cap top's — one slide for the whole cap (`capSlide`), so the cap
+ * moves with the face rather than its bangs stretching from a pinned top.
  */
 function hairFrontField(m: TurnModel): Field {
   const f = m.frame;
   const back = hairField(m, m.hairBack, NOD.hairBack);
-  const top = f.face.y1;
+  const cap = { up: NOD.hairFrontTop.up, down: capSlide(m) };
   // The rows the far eye's own lead reaches: its box, easing out over one
   // eye height above and below (the lock bends there, not over its length).
   const eyes = [m.boxes.eye_L, m.boxes.eye_R].filter(
@@ -370,10 +372,130 @@ function hairFrontField(m: TurnModel): Field {
     const follow = followAt(x, y, s) + (ride === undefined ? 0 : ride(x, y, s));
     const rx = s * a * follow + a * (m.shellScale - 1) * (x - f.axisX);
     const ry = nodDy(NOD.hairFront, ay, f.hh);
-    const [bx, by] = back(x, y, ax, ay);
-    const w = 1 - smoothstep(top, Math.max(top + 1, m.hairTop), y);
+    const bx = back(x, y, ax, ay)[0];
+    const by = nodDy(cap, ay, f.hh);
+    const w = crownBlend(m, y);
     return [bx + w * (rx - bx), by + w * (ry - by)];
   };
+}
+
+/** The share of the front hair's own motion at model y, the rest its
+ *  crown's: all of it up to the face plate's top, none at the hair's top. */
+function crownBlend(m: TurnModel, y: number): number {
+  const top = m.frame.face.y1;
+  return 1 - smoothstep(top, Math.max(top + 1, m.hairTop), y);
+}
+
+/** The most back-hair cover, hh, a crown column may lose at its top when the
+ *  cap's top slides looking down, beyond what it loses at the back hair's
+ *  own nod (the slide without runs): a pixel or two, so the slide opens no
+ *  notch in the head's top. The rest of the samples' slide is the art's to
+ *  earn, with a back hair drawn up past the front hair's top. */
+const CAP_COVER_LOSS = 0.01;
+
+/**
+ * How far the front hair's cap top slides looking down, hh at −30: one value
+ * for the whole cap, the largest up to `NOD.hairFrontTop.down` at which no
+ * crown column loses more than `CAP_COVER_LOSS` of back-hair cover beyond
+ * what it loses at the back hair's own nod (`least`). Without both hair
+ * layers' runs it is that nod.
+ *
+ * A column's top, its first opaque row, drops by the crown's blend of the
+ * bangs' nod and the slide there, read between the mesh's vertex rows as the
+ * render interpolates it (in the crown the drop depends on the row alone, so
+ * across vertex columns it adds nothing). The pixel rows whose centres it
+ * uncovers show the back hair at its own posed place, its nod lower, or
+ * nothing; the cost is how many more show nothing than at `least`. It never
+ * falls as the slide grows, so bisection finds the largest.
+ */
+function capSlide(m: TurnModel): number {
+  const f = m.frame;
+  const least = NOD.hairBack.down;
+  const grid = m.hairFrontGrid;
+  if (
+    grid === undefined ||
+    f.hairRuns("hair_front", grid.ys[0]) === undefined ||
+    f.hairRuns("hair_back", grid.ys[0]) === undefined
+  ) {
+    return least;
+  }
+  const { xs, ys } = grid;
+  const top = ys[0];
+  const n = ys.length;
+  const bangs = NOD.hairFront.down;
+  // The crown's blend at each vertex row, and between them as rendered.
+  const wr = ys.map((y) => crownBlend(m, y));
+  const blendAt = (y: number) => {
+    const v = clamp(((top - y) / (top - ys[n - 1])) * (n - 1), 0, n - 1);
+    const r = Math.min(n - 2, Math.floor(v));
+    return wr[r] + (wr[r + 1] - wr[r]) * (v - r);
+  };
+  // From the first vertex row whose blend is 1 down, the slide moves nothing.
+  const flat = ys[wr.findIndex((w) => w >= 1)] ?? ys[n - 1];
+  // Each pixel column's top, in pixel rows under the hair's top: the first
+  // row above `flat` that paints it.
+  const x0 = xs[0];
+  const tops = new Float64Array(Math.round(xs[xs.length - 1] - x0)).fill(NaN);
+  for (let i = 0; i < top - flat; i++) {
+    const runs = f.hairRuns("hair_front", top - i - 0.5)!;
+    for (let k = 0; k < runs.length; k += 2) {
+      for (let px = runs[k]; px < runs[k + 1]; px++) {
+        const j = Math.round(px - x0);
+        if (Number.isNaN(tops[j])) tops[j] = i;
+      }
+    }
+  }
+  // The pixel rows under a column's top whose centres a drop of s px bares,
+  // up to the most either nod, the bangs' or the cap top's, drops it.
+  const hh = f.hh;
+  const most = Math.ceil(Math.max(bangs, NOD.hairFrontTop.down) * hh);
+  const bared = (s: number) => clamp(Math.ceil(s - 0.5), 0, most);
+  const dropAt = (w: number, slide: number) =>
+    (w * bangs + (1 - w) * slide) * hh;
+  // Per crown column: its blend, how many of the first r rows under its top
+  // the posed back hair leaves empty (`empty[r]`), and that at `least`.
+  const backNod = NOD.hairBack.down * hh;
+  const backRows = new Map<number, number[]>();
+  const columns: { w: number; empty: Int32Array; base: number }[] = [];
+  tops.forEach((i, j) => {
+    if (Number.isNaN(i)) return;
+    const w = blendAt(top - i);
+    const empty = new Int32Array(most + 1);
+    for (let r = 0; r < most; r++) {
+      // The back hair's own pixel row behind that row's centre, its nod up.
+      const at = Math.floor(i + r + 0.5 - backNod);
+      let runs = backRows.get(at);
+      if (runs === undefined) {
+        runs = f.hairRuns("hair_back", top - at - 0.5)!;
+        backRows.set(at, runs);
+      }
+      empty[r + 1] = empty[r] + (paints(runs, x0 + j) ? 0 : 1);
+    }
+    columns.push({ w, empty, base: empty[bared(dropAt(w, least))] });
+  });
+  const budget = CAP_COVER_LOSS * hh;
+  const fits = (slide: number) =>
+    columns.every((c) => c.empty[bared(dropAt(c.w, slide))] - c.base <= budget);
+  let lo: number = least;
+  let hi: number = NOD.hairFrontTop.down;
+  if (fits(hi)) return hi;
+  // `least` always fits (it costs nothing); 30 halvings leave the slide far
+  // finer than a keyform's rounding.
+  for (let k = 0; k < 30; k++) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** Whether `runs` (model x boundaries) paint the pixel column starting at
+ *  model x `px`. */
+function paints(runs: number[], px: number): boolean {
+  for (let k = 0; k < runs.length; k += 2) {
+    if (runs[k] <= px && px + 1 <= runs[k + 1]) return true;
+  }
+  return false;
 }
 
 type Follow = (x: number, y: number, s: number) => number;

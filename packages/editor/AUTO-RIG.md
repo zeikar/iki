@@ -44,7 +44,7 @@ curve is linear in its angle on each side of rest, so the keyforms at 0 and
 | nose                 | 0.301                                                                                                                                                                             | its tip swings a further 6° to the far side about the bridge top                                                                                                                              |
 | mouth                | 0.213                                                                                                                                                                             | 0.975 of its width, far corner up 4.4°                                                                                                                                                        |
 | ears                 | far 0.44× the plate; near 0.87× at its widest reach                                                                                                                               | behind the face: the far one slides under the cheek; the near one's root rides the head, so it widens a little rather than sliding out from behind it                                         |
-| front hair           | 1.1 × the plate over the face; 0 at the outline it draws, more on each row where the back hair paints behind that edge at every angle of the turn, up to its follow over the face | eased evenly between the eyes' outer corners and the outline; over the far eye, on the eye's rows, as far as that eye's corner goes; its crown eases to the back hair's motion toward its top |
+| front hair           | 1.1 × the plate over the face; 0 at the outline it draws, more on each row where the back hair paints behind that edge at every angle of the turn, up to its follow over the face | eased evenly between the eyes' outer corners and the outline; over the far eye, on the eye's rows, as far as that eye's corner goes; its crown eases into the back hair's turn toward its top |
 | back hair            | −0.027                                                                                                                                                                            | a slight counter-drift: the head moves in front of it                                                                                                                                         |
 | neck (under the jaw) | 0                                                                                                                                                                                 | the chin slides over it; the chin's shade on it slides with the chin (see below)                                                                                                              |
 | torso                | 0                                                                                                                                                                                 | AngleX leaves it where it is                                                                                                                                                                  |
@@ -53,7 +53,19 @@ A nod (AngleY ±30, screen-down at −30 / up at +30) moves the plate's top
 0.178 / 0.081 and the chin 0.109 / 0.0875 (the face shortens a little looking
 down), the eyes 0.202 / 0.167 (squashed to 0.96 / 0.994 of their height), the
 brows 0.223 / 0.167, the nose 0.193 / 0.207, the mouth 0.177 / 0.172, the
-front hair 0.189 / 0.110, the back hair 0.025 / 0.011; the neck not at all.
+front hair 0.189 / 0.110 and its cap's top 0.174 / 0.035, the back hair
+0.025 / 0.011; the neck not at all. The samples' cap top moves 1.215× their
+face's centroid looking down and 0.415× looking up (Mao 1.236 / 0.385, Haru
+1.626 / 0.430, Hiyori 1.194 / 0.400, Natori 0.730 / 0.487); the rig takes
+those ratios of the plate's own nod halfway between its top and the chin
+(0.1435 / 0.084). The front hair's crown eases from its nod at the plate's
+top to the cap top's at the hair's top. Looking up, the cap's top rises over
+its own background and uncovers nothing. Looking down it slides by one value
+for the whole cap, so the cap stays rigid: the largest, up to 0.174, at which
+no crown column bares more than 0.01 hh of the rows the back hair leaves
+empty at its own nod beyond what the back hair's own 0.025 bares there —
+read off the hair layers' `rowRuns`, with each column's top dropping as the
+mesh renders it. Without `rowRuns` it slides 0.025.
 AngleZ ±30 rolls the head 10° about the chin.
 
 ## The plate, the neck and the ears
@@ -253,6 +265,11 @@ curvature the plate would need to put the eyes that far in front of its edge.
 - A layer set whose hair layers carry no `rowRuns` (a host that does not
   measure them) holds the front hair's outer edge on every row, as if no
   back hair painted behind it.
+- A back hair that falls short of the cap's top near the crown's peak, where
+  the crown takes little of the bangs' own nod — at a parting dip, say —
+  holds the whole cap's top near the back hair's own 0.025 looking down,
+  since one column binds the one slide. The samples' 0.174 needs a back
+  hair drawn up past the front hair's top.
 - The lock over the far eye is kept as far over its outer corner as drawn,
   not clear of it: on the hero the lash's tip is under the lock at rest. The
   report reads the iris's painted span, not what a lock covers of it, so a

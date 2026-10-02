@@ -44,6 +44,7 @@ function rig(
 
 const hero = rig();
 const fullBack = rig({ fullBack: true });
+const tuft = rig({ tuft: true });
 const EYE_Y = 500 - 433.5;
 
 /** The three cues `measure_turn_reference` reads, off where the render puts
@@ -607,8 +608,147 @@ describe("the head turn", () => {
     expect(dy("face", 0.5, -190, down)).toBeCloseTo(-0.109, 2);
     expect(dy("face", 0.5, -190, up)).toBeCloseTo(0.0875, 2);
     expect(dy("iris_L", 106, EYE_Y, down)).toBeCloseTo(-0.202, 2);
-    expect(dy("hair_front", 0, 150, down)).toBeCloseTo(-0.189, 2);
-    expect(dy("hair_back", -350, -300, down)).toBeCloseTo(-0.025, 2);
+  });
+
+  describe("the hair on the nod", () => {
+    /** How far a rest point drops on screen at AngleY `ay`, hh. */
+    const drop = (m: IkiModel, id: string, x: number, y: number, ay: number) =>
+      (y - landedYAt(m, id, x, y, { [P.AngleY]: ay })) / HH;
+
+    it("nods the bangs and the back hair by the profile, whatever the crown", () => {
+      for (const [name, m] of [
+        ["default", model],
+        ["fullBack", fullBack.model],
+        ["tuft", tuft.model],
+      ] as const) {
+        expect(drop(m, "hair_front", 0, 150, -30), name).toBeCloseTo(0.189, 2);
+        expect(drop(m, "hair_front", 0, 150, 30), name).toBeCloseTo(-0.11, 2);
+        expect(drop(m, "hair_back", -350, -300, -30), name).toBeCloseTo(
+          0.025,
+          2,
+        );
+        expect(drop(m, "hair_back", -350, -300, 30), name).toBeCloseTo(
+          -0.011,
+          2,
+        );
+      }
+    });
+
+    it("slides the cap's top with the face over a back hair drawn up past it, today's without runs", () => {
+      // Just under the bangs' top (490): looking down, the samples' 0.174
+      // over a back hair painted above it in every column, the back hair's
+      // own 0.025 with no runs to tell; looking up, 0.035 either way.
+      for (const [name, m, down] of [
+        ["fullBack", fullBack.model, 0.174],
+        ["default", model, 0.025],
+      ] as const) {
+        expect(drop(m, "hair_front", 0, 489, -30), name).toBeCloseTo(down, 2);
+        expect(drop(m, "hair_front", 0, 489, 30), name).toBeCloseTo(-0.035, 2);
+      }
+    });
+
+    /**
+     * Per crown column of the `character(opts)` set rigged as `m` — its top
+     * above the plate's (row 200) — how many more of the rows the back hair
+     * leaves empty at its own nod its top bares at AngleY −30, landed through
+     * the mesh, than the same set without runs bares. A row is bared when its
+     * centre lies between the top's rest and landed edges, and the back hair
+     * fills it when its own pixel there, its nod further up, is opaque.
+     */
+    const crownLosses = (opts: CharacterOptions, m: IkiModel) => {
+      const { layers, options } = character(opts);
+      const today = generateIkiFromLayerSet(
+        layers.map((l) => ({ ...l, rowRuns: undefined })),
+        CANVAS,
+        options,
+      );
+      const front = layers.find((l) => l.role === "hair_front")!;
+      const back = layers.find((l) => l.role === "hair_back")!;
+      const inRuns = (runs: number[], c: number) => {
+        for (let k = 0; k < runs.length; k += 2)
+          if (runs[k] <= c && c + 1 <= runs[k + 1]) return true;
+        return false;
+      };
+      const down = { [P.AngleY]: -30 };
+      const backNod = 400 - landedYAt(m, "hair_back", 0, 400, down);
+      const bared = (
+        rigged: IkiModel,
+        c: number,
+        top: number,
+        slack: number,
+      ) => {
+        const y = 500 - top;
+        const s = y - landedYAt(rigged, "hair_front", c + 0.5 - 500, y, down);
+        let n = 0;
+        for (let i = 0; i + 0.5 < s + slack; i++) {
+          const row = Math.floor(top + i + 0.5 - backNod) - back.bbox.y;
+          if (!inRuns(back.rowRuns![row], c)) n++;
+        }
+        return n;
+      };
+      // The keyforms round each offset to 1e-4 of the part's height: read
+      // each drop through that rounding the way that cannot fail the bound
+      // on it alone.
+      const round = 1e-4 * front.bbox.h;
+      const losses = new Map<number, number>();
+      for (let c = front.bbox.x; c < front.bbox.x + front.bbox.w; c++) {
+        const r = front.rowRuns!.findIndex((runs) => inRuns(runs, c));
+        if (r < 0 || front.bbox.y + r >= 200) continue;
+        const top = front.bbox.y + r;
+        losses.set(c, bared(m, c, top, -round) - bared(today, c, top, round));
+      }
+      return losses;
+    };
+
+    /** Each column loses at most 0.01 hh; and when the bound holds the
+     *  slide (`tight`), the worst loses all the whole rows that leaves: the
+     *  slide is the largest the bound allows. */
+    const expectBound = (losses: Map<number, number>, tight: boolean) => {
+      for (const [c, loss] of losses) {
+        expect(loss, `column ${c}`).toBeLessThanOrEqual(0.01 * HH);
+      }
+      if (tight) {
+        expect(Math.max(...losses.values())).toBe(Math.floor(0.01 * HH));
+      }
+    };
+
+    it("slides the whole cap's top as far as its least-covered crown column allows", () => {
+      const m = tuft.model;
+      // The columns beside the tuft, their back hair's top 40 px under the
+      // bangs', let the top slide about 0.01 hh past today's 0.025 (as many
+      // whole rows as that leaves), and the tuft does not lift it: the axis
+      // column slides as they do.
+      const d = drop(m, "hair_front", 0, 489, -30);
+      expect(d).toBeCloseTo(0.025 + 0.01, 2);
+      for (const x of [-100, 100]) {
+        expect(drop(m, "hair_front", x, 489, -30), `x ${x}`).toBeCloseTo(d, 4);
+      }
+      const losses = crownLosses({ tuft: true }, m);
+      // Every column of the bangs' dome, ±262 about the axis, tops out above
+      // the plate.
+      expect(losses.size).toBe(2 * 262);
+      expectBound(losses, true);
+    });
+
+    it("holds the whole cap's top near the back hair's nod over a parting dip", () => {
+      // A back hair over the whole crown but for a 4 px dip at the axis: the
+      // dip alone, bared by the back hair's own nod, binds the one slide.
+      const { model: m } = rig({ dip: true });
+      const d = drop(m, "hair_front", 0, 489, -30);
+      expect(d).toBeCloseTo(0.025 + 0.01, 2);
+      expect(drop(m, "hair_front", -200, 489, -30)).toBeCloseTo(d, 4);
+      expectBound(crownLosses({ dip: true }, m), true);
+    });
+
+    it("slides the cap's top the whole way past a dip the bangs' own nod mostly bares", () => {
+      // The same 4 px dip on the dome's shoulder, where each column's top
+      // sits lower, and the crown there takes enough of the bangs' nod to
+      // bare all but two rows of it at the back hair's own slide: within
+      // the 0.01 hh budget, so it holds nothing.
+      const { model: m } = rig({ shoulderDip: true });
+      expect(drop(m, "hair_front", 0, 489, -30)).toBeCloseTo(0.174, 2);
+      expectBound(crownLosses({ shoulderDip: true }, m), false);
+    });
   });
 
   it("rolls the head a third of AngleZ about the chin", () => {
@@ -713,10 +853,13 @@ describe("the head turn", () => {
         [P.MouthForm]: 1,
       },
     );
-    // The bangs riding the back hair (fullBack) bend their locks further.
+    // The bangs riding the back hair (fullBack) bend their locks further;
+    // their cap's top slides on the nod, the whole way (fullBack) or bound
+    // by the columns beside a tuft (tuft).
     for (const [name, m] of [
       ["default", model],
       ["fullBack", fullBack.model],
+      ["tuft", tuft.model],
     ] as const) {
       for (const part of m.parts) {
         if (!part.mesh) continue;
@@ -1029,6 +1172,7 @@ describe("extreme combined poses", () => {
     for (const [name, { model }] of [
       ["default", hero],
       ["fullBack", fullBack],
+      ["tuft", tuft],
     ] as const) {
       for (const id of ["face", "hair_front", "hair_back"]) {
         const part = model.parts.find((p) => p.id === id)!;

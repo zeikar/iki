@@ -63,6 +63,21 @@ export interface CharacterOptions {
    *  silhouette — and both hair layers carrying their opaque runs, banded
    *  as `FULL_BACK_ROWS` sets out. */
   fullBack?: boolean;
+  /** As `fullBack`, but on the crown the back hair reaches above the bangs'
+   *  top only over a ±15 px band of columns at the axis; elsewhere its top
+   *  lies 40 px (0.15 hh) under the bangs' top in each column. */
+  tuft?: boolean;
+  /** As `fullBack`, but the back hair's top dips 4 px under the bangs' top
+   *  (row 10) over a ±15 px band of columns at the axis, as at a parting:
+   *  less than the back hair's own nod (6.6 px), so it binds the cap's
+   *  slide only through the back hair's posed place, its nod lower. */
+  dip?: boolean;
+  /** As `fullBack`, but over columns 255–285, on the dome's shoulder, the
+   *  back hair's top lies 4 px under the bangs' top in each column — rows
+   *  29–68, where the crown already takes 5–24 % of the bangs' nod, which
+   *  bares all but two rows of it at the back hair's own slide, within the
+   *  0.01 hh budget. */
+  shoulderDip?: boolean;
 }
 
 /**
@@ -88,9 +103,19 @@ const FULL_BACK_ROWS = {
 } as const;
 
 /** The `fullBack` layers' `rowRuns`, one entry per crop row: the bangs'
- *  crop holds canvas rows 10–969, the back's rows 0–999. */
-function fullBackRuns(): { front: number[][]; back: number[][] } {
+ *  crop holds canvas rows 10–969, the back's rows 0–999. The back's crown is
+ *  as `crown` names: `fullBack`'s, or the `tuft`, `dip` or `shoulderDip`
+ *  option's. */
+function fullBackRuns(crown: "full" | "tuft" | "dip" | "shoulder"): {
+  front: number[][];
+  back: number[][];
+} {
   const { temple, gap, stroke } = FULL_BACK_ROWS;
+  // The bangs' dome: its half-width on row k, from ±200 on its top row (10)
+  // to ±262 on row 90 and below.
+  const dome = (k: number) =>
+    Math.round(Math.min(262, 200 + ((k - 10) * 62) / 80));
+  const TUFT_DROP = 40;
   const front: number[][] = [];
   const back: number[][] = [];
   for (let k = 0; k < 1000; k++) {
@@ -98,8 +123,23 @@ function fullBackRuns(): { front: number[][]; back: number[][] } {
     let f = [238, 347, 654, 762];
     let b = [190, 810];
     if (k < temple[0]) {
-      const w = Math.round(Math.min(262, 200 + ((k - 10) * 62) / 80));
+      const w = dome(k);
       f = [500 - w, 500 + w];
+      if (crown === "tuft") {
+        // The back's row k paints the columns of the bangs' row
+        // k − TUFT_DROP, and those beside the bangs from TUFT_DROP rows
+        // under their widest row (90), so from row 130; the tuft, columns
+        // 485–515, from row 0.
+        const v = dome(k - TUFT_DROP);
+        if (k - TUFT_DROP < 10) b = [485, 516];
+        else if (v < 262) b = [500 - v, 500 + v];
+      } else if (crown === "dip" && k < 14) {
+        b = [190, 485, 516, 810];
+      } else if (crown === "shoulder") {
+        // The band's columns the bangs' row k − 4 does not reach.
+        const end = Math.min(286, 500 - dome(k - 4));
+        if (end > 255) b = [190, 255, end, 810];
+      }
     } else if (k < temple[1]) {
       f = [238, 762];
       b = [243, 757];
@@ -124,8 +164,11 @@ export function character(opts: CharacterOptions = {}): {
     fringe = false,
     shortFringe = false,
     extras = false,
-    fullBack = false,
+    tuft = false,
+    dip = false,
+    shoulderDip = false,
   } = opts;
+  const fullBack = opts.fullBack === true || tuft || dip || shoulderDip;
   const face = { x: 300, y: 200, w: 401, h: 560 };
   const layers: LayerInput[] = [
     layer("body", { x: 90, y: 770, w: 820, h: 230 }),
@@ -185,7 +228,11 @@ export function character(opts: CharacterOptions = {}): {
     };
   }
   if (hair) {
-    const runs = fullBack ? fullBackRuns() : undefined;
+    const runs = fullBack
+      ? fullBackRuns(
+          tuft ? "tuft" : dip ? "dip" : shoulderDip ? "shoulder" : "full",
+        )
+      : undefined;
     layers.push(
       runs
         ? layer(
