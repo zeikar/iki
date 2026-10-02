@@ -209,7 +209,7 @@ three are what differs between characters, so each is a `retune` of a
 weaker or stronger than the reference's is `style.turn`; features leading
 more or less, `style.featureLead`; hair following more or less,
 `style.hairFollow` (`style.outlineFollow` where the front hair draws the head's
-outline). Blink depth — how far the lid comes down at `ParamEyeLOpen` 0 —
+outline; back hair painted behind that edge may add motion on top of it). Blink depth — how far the lid comes down at `ParamEyeLOpen` 0 —
 maps to `style.blink` the same way, and the hair's sway amplitude, where a
 render shows it, to `style.sway`.
 

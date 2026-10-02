@@ -54,7 +54,8 @@ You own the character assets. You do not own the packages.
   profile's), `featureLead` (0–3, default 1: how far the features lead the face
   plate), `hairFollow` (0–2, default 1.1: the front hair's share of the face's
   turn), `outlineFollow` (0–2, default 0: its outer edge's share where it draws
-  the head's outline), `blink` (0.1–1, default 0.58: how far the upper lid
+  the head's outline; back hair painted behind that edge may add motion on
+  top of it), `blink` (0.1–1, default 0.58: how far the upper lid
   comes down, over the eye's height) and `sway` (0–5, default 1: the hair sway
   amplitude). Change it only on a critic `retune` that names a knob.
 
