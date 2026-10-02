@@ -186,9 +186,15 @@ must stay hidden behind the face. Look at the combined pose for that top, or its
 corners, showing beside or under the jaw. That is art or placement, not a rig
 defect, so never escalate it. When the top sits too low behind the face, it is a
 `retune` of `layout.body`: a smaller `cy`, or a larger `h` (a flat torso
-stretches about 10 % unseen). When the neck is too wide for the jaw, it is a
-`regenerate` of `body.png` with the neck drawn about one eighth of the shoulder
-width.
+stretches about 10 % unseen). When the neck is too wide for the jaw, or too
+short to hide its top without lifting the shoulders, it is a `regenerate` of
+`body.png` with the neck drawn long and about one eighth of the shoulder width.
+When the face looks small against the torso, compare both with the reference
+to find which one is off. A torso too big is first a `retune` to a smaller
+`layout.body.w`, as long as the smaller torso still reaches the canvas's bottom
+with its neck's top hidden. When it cannot — a chest-only drawing fills the
+canvas's width with shoulders, and shrinking it lowers the neck's top — it is a
+`regenerate` of `body.png` framed down to the waist.
 
 `turn` asks whether the motion reads right, not whether it survives — judged
 by eye against `reference-30.png`, on attributes, not overlap, as above. At
