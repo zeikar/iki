@@ -165,6 +165,10 @@ a restart invalidates every prior score.
    and the poses **midway between the rig's keyform stops** on each moving axis
    — the turn and nod stops sit at 0 and ±30, so that is `ParamAngleX` at 15,
    `ParamAngleY` at 15, and (its stops being 0 and 1) `ParamEyeLOpen` at 0.5.
+   Add one combined pose, `ParamAngleX` 30 with `ParamAngleY` 30 and
+   `ParamAngleZ` 30 at once: the torso's neck stays still while the face
+   slides, turns and rolls over it, and a neck drawn too wide or too low shows
+   its flat top beside the jaw only when all three peak together.
    Rig breakage surfaces in the turn and blink poses, which a front-facing
    screenshot hides; the between-stop poses expose interpolation defects that
    the endpoint shots miss (the engine blends linearly between authored

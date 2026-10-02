@@ -117,7 +117,9 @@ first, then ears, then head:
 
 The face layer carries a neck when, below its widest row, the plate settles
 onto a narrow plateau that runs on for at least 12 % of its height. A plate without
-one is all head island.
+one is all head island: a face drawn without a neck, its neck drawn on the torso
+(which never turns), slides whole over the torso's neck, with no jaw cut, chin-shade
+band or hidden rows.
 
 The plate, the blush and both hair layers carry their own AngleX and AngleY
 keyforms (per vertex, under `headDeformer`); each feature family rides its own
@@ -221,6 +223,10 @@ curvature the plate would need to put the eyes that far in front of its edge.
 
 ## Known limits
 
+- A face drawn without a neck whose chin tapers long and straight can read as
+  a plateau, and the rig then holds the chin's tip still as a neck island. Nothing
+  bounds the turn by a neck drawn on the torso either: the chin may slide past it,
+  and only a render of the turned head shows whether its top stays hidden.
 - An ear's island is cut along a chord under it, not along the drawn
   outline where the ear meets the cheek (which the alpha does not show). On
   the far side, where that outline runs outside the chord, it stays with the
