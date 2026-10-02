@@ -319,7 +319,7 @@ export function hairFrontBends(
  * goes); out at the head's outline its outer edge follows only as far as
  * `hairOuter` — on a Live2D model the outline is the back hair's, and holds —
  * the lock easing between. On a row where the back hair paints behind that
- * edge at every angle of the turn, the edge rides further, up to the face's
+ * edge at every turn and nod angle, the edge rides further, up to the face's
  * follow (`outerRide`). Its crown, above the face plate's top, is the top of
  * the head: on the turn it eases toward its top to the back hair's motion, so
  * the head's top outline holds while the fringe slides under it; on the nod
@@ -503,11 +503,13 @@ type Follow = (x: number, y: number, s: number) => number;
 /**
  * How much further than `followAt` the front hair's outer edge rides at
  * (x, y) turning toward s, where the back hair paints behind that edge at
- * every angle of the turn; `undefined` unless both hair layers carry runs.
+ * every angle of the turn and the nod; `undefined` unless both hair layers
+ * carry runs.
  *
  * On a pixel row, take the back hair's run holding the front's outermost
- * pixel on a side: `c_in` how far it reaches inside the edge, `c_out` how far
- * past it (both 0 where the back hair is transparent there). Both layers take
+ * pixel on a side, on each back row the row passes over on the nod: `c_in`
+ * the least it reaches inside the edge, `c_out` the least past it (both 0
+ * where the back hair is transparent there on any of them). Both layers take
  * the shell's width term, and the back hair drifts against the turn by
  * |hairBack|. On the far side the edge goes out, and stays over that run's
  * outer end while its follow is at most shellScale·c_out − drift; on the
@@ -548,20 +550,38 @@ function outerRide(
   // hair allows it turning toward that side (far) and away from it (near).
   const n = ys.length;
   const count = Math.round(top - ys[n - 1]);
+  // On the nod a front row passes over the back hair's rows: down by the
+  // bangs' nod less the back hair's looking down, up by theirs looking up
+  // (the crown, easing to the cap's smaller nod, passes over fewer). The
+  // back's pixel rows, indexed as the front's from its top, from `j0`.
+  const below = (NOD.hairFront.down - NOD.hairBack.down) * f.hh;
+  const above = (NOD.hairBack.up - NOD.hairFront.up) * f.hh;
+  const j0 = Math.floor(-above);
+  const backRows = Array.from(
+    { length: Math.ceil(count + below) - j0 },
+    (_, j) => f.hairRuns("hair_back", top - (j + j0) - 0.5)!,
+  );
   const offset = sides.map(() => new Float64Array(count).fill(NaN));
   const far = sides.map(() => new Float64Array(count));
   const near = sides.map(() => new Float64Array(count));
   for (let i = 0; i < count; i++) {
     const y = top - i - 0.5;
     const front = f.hairRuns("hair_front", y)!;
-    const back = f.hairRuns("hair_back", y)!;
     sides.forEach((side, k) => {
       const edge = outerEdge(front, f.axisX, side);
       if (edge === undefined) return;
-      const c = runReach(back, edge, side);
+      // The least reach over every back row the row's span overlaps at some
+      // nod: a turn and a nod add.
+      let outward = Infinity;
+      let inward = Infinity;
+      for (let j = Math.floor(i - above); j < Math.ceil(i + 1 + below); j++) {
+        const c = runReach(backRows[j - j0], edge, side);
+        outward = Math.min(outward, c.outward);
+        inward = Math.min(inward, c.inward);
+      }
       offset[k][i] = side * (edge - f.axisX);
-      far[k][i] = m.shellScale * c.outward - drift;
-      near[k][i] = m.shellScale * c.inward - drift;
+      far[k][i] = m.shellScale * outward - drift;
+      near[k][i] = m.shellScale * inward - drift;
     });
   }
   // Per vertex row and side: the innermost edge in its window, and the ride

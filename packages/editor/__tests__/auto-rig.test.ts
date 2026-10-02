@@ -517,12 +517,13 @@ describe("the head turn", () => {
     ) => landedXAt(m, role, x, y, X30(ax));
 
     it("rides the edge with the face where the back reaches past it and far inside it", () => {
-      // Below the eye band, the back solid to ±310: 48 px past the edge less
-      // the 7.1 px drift, and far inside it, both more than the face's
-      // 34.3 px follow, so both edges may ride it whole. The mesh carries the
-      // ride's kink at the edge between two columns, so the edge lands a
-      // little short of it (today's hold is 0.045 hh).
-      const y = rowY(560);
+      // Under the eyes, the back solid to ±310 over every row the edge passes
+      // over on the nod (43 px down to 26 px up, one mesh row either side):
+      // 48 px past the edge less the 7.1 px drift, and far inside it, both
+      // more than the face's 34.3 px follow, so both edges may ride it whole.
+      // The mesh carries the ride's kink at the edge between two columns, so
+      // the edge lands a little short of it (today's hold is 0.045 hh).
+      const y = rowY(530);
       for (const ax of [-30, 30]) {
         const s = Math.sign(ax);
         for (const x of [-262, 262]) {
@@ -554,8 +555,9 @@ describe("the head turn", () => {
 
     it("rides the far edge only over the back's run past it, not out to a stroke beyond a gap", () => {
       // The back solid from inside the edge to 20 px past it (±282), then
-      // 30 px empty, then a 4 px stroke.
-      const y = rowY(800);
+      // 30 px empty, then a 4 px stroke, over every row the edge passes over
+      // on the nod.
+      const y = rowY(830);
       for (const ax of [-30, -22.5, -15, 15, 22.5, 30]) {
         const s = Math.sign(ax);
         const a = Math.abs(ax) / 30;
@@ -595,6 +597,75 @@ describe("the head turn", () => {
           ).toBeLessThan(0);
         }
       }
+    });
+
+    it("keeps every riding edge over the back hair when the turn and the nod meet", () => {
+      // The bangs nod further than the back hair, so a row's edge lands over
+      // the back's rows under it looking down, over it looking up: a row of
+      // the solid band rides beside the gap under it or the temple over it.
+      const { layers } = character({ fullBack: true });
+      const front = layers.find((l) => l.role === "hair_front")!;
+      const back = layers.find((l) => l.role === "hair_back")!;
+      /** Whether the back hair paints canvas columns [c0, c1) on row k. */
+      const backPaints = (k: number, c0: number, c1: number) => {
+        const runs = back.rowRuns![k - back.bbox.y] ?? [];
+        for (let i = 0; i < runs.length; i += 2)
+          if (runs[i] <= c0 && c1 <= runs[i + 1]) return true;
+        return false;
+      };
+      let riding = 0;
+      for (const [ax, ay] of [
+        [-30, -30],
+        [-30, 30],
+        [30, -30],
+        [30, 30],
+        [-15, -15],
+        [-15, 15],
+        [15, -15],
+        [15, 15],
+      ]) {
+        const pose = { [P.AngleX]: ax, [P.AngleY]: ay };
+        // The back hair nods whole and turns linearly in x: the rest x under
+        // a landed x, and the rest row under a landed y.
+        const bx0 = landedXAt(full, "hair_back", 0, 0, pose);
+        const bx1 = landedXAt(full, "hair_back", 100, 0, pose);
+        const backX = (x: number) => ((x - bx0) * 100) / (bx1 - bx0);
+        const backDy = landedYAt(full, "hair_back", 0, 0, pose);
+        // Every other pixel row of the bangs, each side's outermost pixel.
+        for (let k = front.bbox.y; k < front.bbox.y + front.bbox.h; k += 2) {
+          const runs = front.rowRuns![k - front.bbox.y];
+          for (const side of [-1, 1]) {
+            const ce = side > 0 ? runs[runs.length - 1] : runs[0];
+            const x = ce - 500;
+            const y = rowY(k);
+            // The ride is the turn's: it rides where it lands past today's.
+            if (
+              Math.abs(
+                edge(full, "hair_front", x, y, ax) -
+                  edge(today, "hair_front", x, y, ax),
+              ) < 0.1
+            )
+              continue;
+            riding++;
+            const row = Math.floor(
+              500 - (landedYAt(full, "hair_front", x, y, pose) - backDy),
+            );
+            const cb = backX(landedXAt(full, "hair_front", x, y, pose)) + 500;
+            // From the edge's own pixel to where it lands (far, going out),
+            // or across the strip it leaves (near, coming in), less the
+            // keyforms' rounding.
+            const [c0, c1] =
+              side > 0
+                ? [Math.min(ce - 1, cb + 0.1), Math.max(ce, cb - 0.1)]
+                : [Math.min(ce, cb + 0.1), Math.max(ce + 1, cb - 0.1)];
+            expect(
+              backPaints(row, Math.floor(c0), Math.ceil(c1)),
+              `row ${k}, side ${side}, AngleX ${ax}, AngleY ${ay}`,
+            ).toBe(true);
+          }
+        }
+      }
+      expect(riding).toBeGreaterThan(0);
     });
   });
 
