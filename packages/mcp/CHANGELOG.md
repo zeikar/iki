@@ -1,5 +1,12 @@
 # @ikijs/mcp
 
+## 0.13.2
+
+### Patch Changes
+
+- Updated dependencies [40592b7]
+  - @ikijs/editor@0.11.0
+
 ## 0.13.1
 
 ### Patch Changes
