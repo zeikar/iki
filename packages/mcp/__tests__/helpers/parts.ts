@@ -246,6 +246,31 @@ export async function writeSoftNose(
 }
 
 /**
+ * A body.png that is the stock body's ellipse (x 10..109, rows 10..69, painted
+ * at `bodyAlpha`) plus a 3x6 mark at `markAlpha` in x 1..3, rows 30..35:
+ * detached from the ellipse by six transparent columns, so the trimmed part
+ * runs 109 wide from the mark instead of the ellipse's 100.
+ */
+export async function writeBodyWithMark(
+  dir: string,
+  { markAlpha, bodyAlpha = 255 }: { markAlpha: number; bodyAlpha?: number },
+): Promise<void> {
+  await writeRgbaPart(dir, "body.png", 120, 80, (set) => {
+    ellipse(
+      (x, y, rgb) => set(x, y, rgb, bodyAlpha),
+      { width: 120, height: 80 },
+      60,
+      40,
+      100,
+      60,
+      DARK,
+    );
+    for (let y = 30; y < 36; y++)
+      for (let x = 1; x < 4; x++) set(x, y, DARK, markAlpha);
+  });
+}
+
+/**
  * A blush.png: a pink ellipse with a BLUSH_MARK patch inside its left end, so
  * a mirror shows. The ellipse spans x 4..43 and rows 4..19; the patch, x 6..13
  * and rows 9..14, stays inside it, so the trimmed part is the ellipse's 40x16.

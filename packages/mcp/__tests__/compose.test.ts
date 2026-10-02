@@ -20,6 +20,7 @@ import {
   EYE_MARK_BELOW,
   EYE_MARK_BESIDE,
   EYE_SHADE,
+  writeBodyWithMark,
   writeEyewhite,
   writePartsSet,
   writeSoftNose,
@@ -751,6 +752,48 @@ describe("composeLayersFromParts", () => {
       layout: { face: { cy: -100 } },
     });
     expect(result.layers.find((l) => l.role === "face")?.top).toBeLessThan(0);
+  });
+
+  describe("a mark detached from the body", () => {
+    /** The full parts set with its body.png carrying a detached mark. */
+    async function bodyWithMark(opts: Parameters<typeof writeBodyWithMark>[1]) {
+      const dir = partsDir();
+      await writePartsSet(dir, { omit: ["body.png"] });
+      await writeBodyWithMark(dir, opts);
+      const result = await composeOk({ partsDir: dir, outDir: outDir() });
+      return result.layers.find((l) => l.role === "body")!;
+    }
+    const plainBody = () => full.layers.find((l) => l.role === "body")!;
+
+    it("leaves a faint speck out of the part's box, so the body lands as if it had none", async () => {
+      // Alpha 88 never reaches 128 and its 18 px are under 1 % of the part.
+      const layer = await bodyWithMark({ markAlpha: 88 });
+      const plain = plainBody();
+      expect([layer.left, layer.top, layer.width, layer.height]).toEqual([
+        plain.left,
+        plain.top,
+        plain.width,
+        plain.height,
+      ]);
+      expect((await decodePng(layer.path)).rgba).toEqual(
+        (await decodePng(plain.path)).rgba,
+      );
+    });
+
+    it.each([
+      ["a drawn stroke", { markAlpha: 255 }],
+      [
+        "a part painted wholly under alpha 128",
+        { markAlpha: 88, bodyAlpha: 100 },
+      ],
+    ])("keeps the mark of %s in the part's box", async (_, opts) => {
+      // w sizes the 109-wide trimmed part, so the ellipse's 60 rows come out
+      // shorter than the plain body's.
+      const layer = await bodyWithMark(opts);
+      const plain = plainBody();
+      expect(layer.width).toBe(plain.width);
+      expect(layer.height).toBe(Math.round((60 * plain.width) / 109));
+    });
   });
 
   it("rejects an unknown role in the layout", async () => {
