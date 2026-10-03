@@ -1,7 +1,7 @@
 {
   "name": "@ikijs/editor",
   "version": "0.12.0",
-  "description": "Headless editing core and auto-rigger for .iki 2D puppet models: turns role-named part images, AI-drawn or hand-made, into a rigged character. DOM-free edit commands, undo/redo, atlas and UV math.",
+  "description": "Headless editing core and auto-rigger for .iki 2D puppet models: measures role-named part layers from decoded pixels, AI-drawn or hand-made, and rigs them into a character. DOM-free edit commands, undo/redo, atlas math.",
   "keywords": [
     "iki",
     "live2d",
