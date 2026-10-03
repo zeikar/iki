@@ -2,7 +2,7 @@
   "name": "iki",
   "version": "0.0.0",
   "private": true,
-  "description": "Iki — an open 2D rig puppet animation engine. A from-scratch Live2D alternative for the web.",
+  "description": "Iki — the open Live2D alternative that AI can build: a free, MIT-licensed 2D puppet engine for the web, with an AI auto-rigger and a bundled Claude Code plugin.",
   "keywords": [
     "live2d",
     "inochi2d",
@@ -13,7 +13,13 @@
     "animation",
     "avatar",
     "webgl",
-    "typescript"
+    "typescript",
+    "ai",
+    "generative-ai",
+    "character-generation",
+    "auto-rig",
+    "claude-code",
+    "mcp"
   ],
   "homepage": "https://github.com/zeikar/iki#readme",
   "repository": {

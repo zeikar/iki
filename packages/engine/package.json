@@ -1,7 +1,7 @@
 {
   "name": "@ikijs/engine",
   "version": "0.3.3",
-  "description": "WebGL2 runtime that plays .iki 2D puppet models in the browser — an open-source Live2D alternative for VTuber-style avatar animation",
+  "description": "WebGL2 runtime for .iki 2D puppet characters — Iki, the free, MIT-licensed Live2D and Inochi2D alternative for the web whose characters AI can build. Blink, lip-sync, gaze, head turn and hair physics.",
   "keywords": [
     "iki",
     "live2d",
@@ -14,7 +14,12 @@
     "webgl",
     "webgl2",
     "animation",
-    "typescript"
+    "typescript",
+    "ai",
+    "ai-character",
+    "live2d-alternative",
+    "character-animation",
+    "lip-sync"
   ],
   "main": "dist/index.js",
   "module": "dist/index.mjs",

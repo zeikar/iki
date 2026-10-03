@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Iki — an open 2D rig puppet engine for the web</title>
+    <title>Iki — the open Live2D alternative that AI can build</title>
     <meta
       name="description"
-      content="Iki is an open 2D rig puppet animation engine for the web. Author a character as layered parts wired to parameters; the runtime animates it in WebGL. The model is plain JSON."
+      content="Iki is a free, MIT-licensed Live2D and Inochi2D alternative for the web whose characters an AI agent can build: an image model draws the parts and the auto-rigger makes them blink, talk, turn and nod. The model is open, plain JSON."
     />
     <link
       rel="icon"
@@ -15,13 +15,15 @@
 
     <meta
       property="og:title"
-      content="Iki — an open 2D rig puppet engine for the web"
+      content="Iki — the open Live2D alternative that AI can build"
     />
     <meta
       property="og:description"
-      content="Author a character as layered parts wired to parameters; the runtime animates it in WebGL. The model is plain JSON."
+      content="Free and MIT-licensed. An image model draws the parts, the auto-rigger makes them blink, talk, turn and nod, and the model is open, plain JSON."
     />
     <meta property="og:image" content="https://zeikar.dev/iki/og.png" />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="640" />
     <meta property="og:url" content="https://zeikar.dev/iki/" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -34,7 +36,7 @@
     />
 
     <style>
-      /* Palette lifted from the character the engine is rendering: the navy of
+      /* Palette lifted from Iki's first hero character: the navy of
          her sailor collar as the ground, the amber of her irises as the only
          accent. Nothing else gets a color. */
       :root {
@@ -203,6 +205,12 @@
       .deck strong {
         color: var(--paper);
         font-weight: 500;
+      }
+
+      .deck code {
+        font-family: var(--mono);
+        font-size: 0.9em;
+        color: var(--paper);
       }
 
       .actions {
@@ -436,6 +444,23 @@
         color: var(--muted);
       }
 
+      .install {
+        margin: 0 0 2.5rem;
+        padding: 1rem 1.25rem;
+        overflow-x: auto;
+        background: var(--ink-2);
+        border: 1px solid var(--rule);
+        border-radius: 6px;
+        font-family: var(--mono);
+        font-size: 0.875rem;
+        line-height: 1.7;
+        color: var(--paper);
+      }
+
+      .lede a {
+        color: var(--paper);
+      }
+
       .caveat {
         margin: 2.5rem 0 0;
         padding-left: 1.1rem;
@@ -539,24 +564,24 @@
             src="hero.webp"
             width="720"
             height="886"
-            alt="A rigged character rendered by the Iki engine, head turned slightly and smiling."
+            alt="A character drawn by an image model and rigged by Iki, head turned slightly and smiling."
           />
         </figure>
 
         <div>
-          <h1>Every frame is just numbers you own.</h1>
+          <h1>The open Live2D alternative that AI can build.</h1>
           <p class="deck">
-            Iki is an open 2D rig puppet animation engine for the web. You
-            author a character as layered parts wired to parameters, and the
-            runtime animates it in WebGL. The model is
-            <strong>plain JSON</strong> — readable in a text editor, diffable in
-            git, and small enough for a script to generate.
+            Iki is a free, MIT-licensed 2D puppet engine for the web. Ask its
+            Claude Code plugin for a character: an image model draws the parts,
+            and the auto-rigger makes them blink, talk, turn and nod. The model
+            is <strong>plain JSON</strong> — an open <code>.iki</code> file you
+            own, played in WebGL.
           </p>
           <div class="actions">
-            <a class="btn btn-primary" href="playground/"
+            <a class="btn btn-primary" href="#make">Make a character</a>
+            <a class="btn btn-secondary" href="playground/"
               >Open the playground</a
             >
-            <a class="btn btn-secondary" href="editor/">Open the editor</a>
           </div>
         </div>
       </div>
@@ -641,7 +666,49 @@
         </div>
       </div>
 
-      <section class="shell band">
+      <section class="shell band" id="make">
+        <h2>Ask for a character</h2>
+        <p class="lede">
+          Install the plugin in
+          <a href="https://github.com/anthropics/claude-code">Claude Code</a>,
+          then ask in plain words. It needs an image generator — see the
+          <a href="https://github.com/zeikar/iki/tree/main/plugin#prerequisites"
+            >prerequisites</a
+          >.
+        </p>
+        <pre class="install"><code>/plugin marketplace add zeikar/iki
+/plugin install iki@iki
+
+&gt; make me an iki character: short copper bob, green eyes, school uniform</code></pre>
+        <dl class="facts">
+          <div>
+            <dt>Draw</dt>
+            <dd>
+              An image model draws each part on its own — face, eyes, irises,
+              brows, mouth, nose, front and back hair, torso.
+            </dd>
+          </div>
+          <div>
+            <dt>Compose and check</dt>
+            <dd>
+              <code>compose_layers_from_parts</code> lays the parts out on one
+              canvas, and <code>measure_layers</code> flags the geometry that
+              would break in motion.
+            </dd>
+          </div>
+          <div>
+            <dt>Rig</dt>
+            <dd>
+              <code>auto_rig_from_layers</code> wires eyelid-fold blink, gaze,
+              lip-sync, head turn, nod and tilt, brows, breathing and hair
+              physics into a <code>.iki</code> model. The character at the top
+              of this page was made this way.
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="shell band" style="padding-top: 0">
         <h2>What runs today</h2>
         <p class="lede">
           Iki is early, but none of this is a mockup — every line below is
@@ -649,6 +716,15 @@
         </p>
 
         <dl class="facts">
+          <div>
+            <dt>AI generator</dt>
+            <dd>
+              Rigs a character from role-named PNG or PSD layers — blink, gaze,
+              mouth, head turn, brows and hair physics, wired automatically. It
+              runs as an MCP server and a Claude Code plugin, so an AI agent can
+              go from a prompt to a rigged model without a human in the loop.
+            </dd>
+          </div>
           <div>
             <dt>Runtime</dt>
             <dd>
@@ -662,15 +738,6 @@
             <dd>
               Authors parts, deformers, and physics rigs in the browser, with
               undo and redo on every edit. Imports layered PSDs.
-            </dd>
-          </div>
-          <div>
-            <dt>Generator</dt>
-            <dd>
-              Rigs a character from role-named PNG or PSD layers — blink, gaze,
-              mouth, head turn, and brows, wired automatically. It also runs as
-              an MCP server, so an AI agent can take layers to a rigged model
-              without a human in the loop.
             </dd>
           </div>
           <div>
@@ -688,8 +755,9 @@
         <h2>Packages</h2>
         <p class="lede">
           Published to npm under
-          <code style="font-family: var(--mono)">@ikijs</code>. The engine
-          depends only on the format package, and never on a host.
+          <code style="font-family: var(--mono)">@ikijs</code>, with the Claude
+          Code plugin beside them in the repository. The engine depends only on
+          the format package, and never on a host.
         </p>
 
         <table class="pkgs">
@@ -738,6 +806,17 @@
                 agents
               </td>
             </tr>
+            <tr>
+              <td>
+                <a href="https://github.com/zeikar/iki/tree/main/plugin"
+                  >plugin/</a
+                >
+              </td>
+              <td>
+                Claude Code plugin — the character-generation skills, their
+                agents, and the MCP server, in one install
+              </td>
+            </tr>
           </tbody>
         </table>
 
@@ -745,7 +824,8 @@
           Live2D Cubism is the industry standard and is far more mature than Iki
           in every dimension that matters to an artist. If you need
           production-grade 2D rigging today, use Cubism. Iki exists for people
-          who want an open web format they can script against — read the
+          who want characters an AI agent can build, in a free and open web
+          format they can script against — read the
           <a href="https://github.com/zeikar/iki#how-iki-compares"
             >full comparison</a
           >.

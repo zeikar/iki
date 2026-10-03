@@ -1,7 +1,7 @@
 {
   "name": "@ikijs/editor",
   "version": "0.12.0",
-  "description": "Headless editing core and auto-rigger for .iki 2D puppet models — DOM-free edit commands, undo/redo, atlas and UV math",
+  "description": "Headless editing core and auto-rigger for .iki 2D puppet models: turns role-named part images, AI-drawn or hand-made, into a rigged character. DOM-free edit commands, undo/redo, atlas and UV math.",
   "keywords": [
     "iki",
     "live2d",
@@ -14,7 +14,11 @@
     "editor",
     "avatar",
     "animation",
-    "typescript"
+    "typescript",
+    "ai",
+    "auto-rigging",
+    "character-generation",
+    "live2d-alternative"
   ],
   "main": "dist/index.js",
   "module": "dist/index.mjs",

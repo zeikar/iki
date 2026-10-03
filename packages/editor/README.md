@@ -1,5 +1,7 @@
 # @ikijs/editor
 
+> Part of [Iki](https://github.com/zeikar/iki), the open Live2D alternative that AI can build — free and MIT-licensed, with an open `.iki` format and a [Claude Code plugin](https://github.com/zeikar/iki/tree/main/plugin) that draws and rigs characters.
+
 **Headless** editing core for [`.iki`](https://github.com/zeikar/iki/tree/main/packages/format) models — a document with
 undo/redo, invertible edit commands, atlas layout + UV math, and the auto-rigger.
 

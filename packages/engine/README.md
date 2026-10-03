@@ -1,5 +1,7 @@
 # @ikijs/engine
 
+> Part of [Iki](https://github.com/zeikar/iki), the open Live2D alternative that AI can build — free and MIT-licensed, with an open `.iki` format and a [Claude Code plugin](https://github.com/zeikar/iki/tree/main/plugin) that draws and rigs characters.
+
 WebGL2 runtime that plays a [`.iki`](https://github.com/zeikar/iki/tree/main/packages/format) puppet model in the browser.
 
 The engine is **host-agnostic**: it depends only on
