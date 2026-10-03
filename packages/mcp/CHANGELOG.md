@@ -1,5 +1,14 @@
 # @ikijs/mcp
 
+## 0.13.4
+
+### Patch Changes
+
+- 1d2834e: The npm descriptions, keywords and READMEs now lead with what Iki is: the open Live2D alternative that AI can build — free and MIT-licensed, with an open `.iki` format and a Claude Code plugin that draws and rigs characters. No code changes.
+- Updated dependencies [1d2834e]
+  - @ikijs/format@0.2.1
+  - @ikijs/editor@0.12.1
+
 ## 0.13.3
 
 ### Patch Changes
