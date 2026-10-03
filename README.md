@@ -74,7 +74,7 @@ No install — both demos run in the browser:
   blinks, talks, turns and nods out — through the Claude Code plugin or any MCP
   client. That is the part Iki is really exploring.
 - **Free for commercial use.** MIT: no publication license, no revenue tiers —
-  ship whatever you build, and the characters you make are yours.
+  ship whatever you build with it.
 - **Open format.** The `.iki` model is a plain, documented JSON schema you own —
   which is what makes generating a model tractable in the first place.
 - **Web-native.** WebGL runtime, TypeScript, no native toolchain.
