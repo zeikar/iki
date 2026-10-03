@@ -142,23 +142,46 @@
         padding-block: clamp(1.5rem, 4vw, 3rem) clamp(2rem, 5vw, 4rem);
       }
 
-      .hero figure {
-        margin: 0;
-      }
-
       /* The render is cropped at the canvas edge, so the blouse would otherwise
          end on a hard white line against the navy. Dissolve it into the ground
          instead — the figure reads as continuing past the frame. */
-      .hero img {
-        display: block;
-        width: 100%;
-        height: auto;
+      .hero figure {
+        position: relative;
+        margin: 0;
+        overflow: hidden;
         -webkit-mask-image: linear-gradient(
           to bottom,
           #000 68%,
           transparent 97%
         );
         mask-image: linear-gradient(to bottom, #000 68%, transparent 97%);
+      }
+
+      .hero img {
+        display: block;
+        width: 100%;
+        height: auto;
+        transition: opacity 0.6s ease;
+      }
+
+      /* The live hero (hero.ts) frames the same crop of the 1120 px render as
+         the still — 660 × 812 from (230, 105) — and fades in over it. */
+      .hero canvas {
+        position: absolute;
+        left: -34.85%;
+        top: -12.93%;
+        width: 169.7%;
+        aspect-ratio: 1;
+        opacity: 0;
+        transition: opacity 0.6s ease;
+      }
+
+      .hero figure.is-live canvas {
+        opacity: 1;
+      }
+
+      .hero figure.is-live img {
+        opacity: 0;
       }
 
       h1 {
@@ -745,5 +768,6 @@
         >
       </div>
     </footer>
+    <script type="module" src="hero.js"></script>
   </body>
 </html>

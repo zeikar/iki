@@ -15,6 +15,7 @@ import { cp, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { build } from "vite";
 
 const execFileAsync = promisify(execFile);
 
@@ -57,9 +58,38 @@ for (const { filter, slug } of apps) {
   );
 }
 
-// The landing page is hand-written static HTML with no build step, so it is
-// copied in last — after the app builds, which each empty their own subdirectory.
+// The landing page's one script, the live hero, bundles the engine from source
+// the way the apps do, under a fixed name the hand-written page can reference.
+console.log("building site/hero.ts -> dist/hero.js");
+await build({
+  configFile: false,
+  logLevel: "warn",
+  publicDir: false,
+  resolve: {
+    alias: {
+      "@ikijs/engine": path.join(rootDir, "packages/engine/src/index.ts"),
+      "@ikijs/format": path.join(rootDir, "packages/format/src/index.ts"),
+    },
+  },
+  build: {
+    target: "es2022",
+    outDir,
+    emptyOutDir: false,
+    rollupOptions: {
+      input: path.join(rootDir, "site/hero.ts"),
+      output: { entryFileNames: "hero.js" },
+    },
+  },
+});
+
+// The rest of the landing page is hand-written static HTML with no build step,
+// so it is copied in last — after the app builds, which each empty their own
+// subdirectory. The script's source and tsconfig stay behind.
 console.log("copying site/ -> dist/");
-await cp(path.join(rootDir, "site"), outDir, { recursive: true });
+await cp(path.join(rootDir, "site"), outDir, {
+  recursive: true,
+  filter: (src) =>
+    !src.endsWith(".ts") && path.basename(src) !== "tsconfig.json",
+});
 
 console.log("site assembled in dist/");
