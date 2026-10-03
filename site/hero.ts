@@ -153,7 +153,10 @@ async function play(
     ease(eyes, target, EYE_EASE_S, dt);
     eyeWeight += ((pointer ? 1 : 0) - eyeWeight) * easeStep(EYE_EASE_S, dt);
     motion.update(now);
-    for (const row of rows) showValue(row, player.getParameter(row.param.id));
+    // From the moment the canvas starts fading in over the still.
+    if (figure.classList.contains("is-live")) {
+      for (const row of rows) showValue(row, player.getParameter(row.param.id));
+    }
     rafId = requestAnimationFrame(frame);
   }
 
