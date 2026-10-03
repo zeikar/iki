@@ -5,7 +5,11 @@
  * fetch or texture — so the page never shows an empty frame.
  */
 import { IkiMotion, IkiPlayer } from "@ikijs/engine";
-import { StandardParameter, parseIkiModel } from "@ikijs/format";
+import {
+  StandardParameter,
+  parseIkiModel,
+  type IkiParameter,
+} from "@ikijs/format";
 
 // Full pointer deflection turns the head this many degrees. Short of the ±30
 // limit so the idle sway still shows on top — Charivo's render-iki host uses
@@ -23,6 +27,15 @@ const HEAD_EASE_S = 0.3;
 interface Gaze {
   x: number;
   y: number;
+}
+
+/** One row of the parameter panel under the hero, and the still's value in it. */
+interface ParamRow {
+  el: HTMLElement;
+  val: Element;
+  param: IkiParameter;
+  stillP: string;
+  stillText: string;
 }
 
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -126,6 +139,10 @@ async function play(
     }
   }
 
+  // The panel under the hero says its values produced the frame above, so it
+  // reads the live pose while the live hero shows; the still brings back its own.
+  const rows = paramRows(model.parameters);
+
   let last = performance.now();
   let rafId = 0;
   function frame(now: number): void {
@@ -136,6 +153,7 @@ async function play(
     ease(eyes, target, EYE_EASE_S, dt);
     eyeWeight += ((pointer ? 1 : 0) - eyeWeight) * easeStep(EYE_EASE_S, dt);
     motion.update(now);
+    for (const row of rows) showValue(row, player.getParameter(row.param.id));
     rafId = requestAnimationFrame(frame);
   }
 
@@ -156,6 +174,10 @@ async function play(
     cancelAnimationFrame(rafId);
     player.stop();
     figure.classList.remove("is-live");
+    for (const row of rows) {
+      row.el.style.setProperty("--p", row.stillP);
+      row.val.textContent = row.stillText;
+    }
   }
 
   // Reduced motion turned on mid-visit hands the frame back to the still.
@@ -164,6 +186,34 @@ async function play(
     else resume();
   });
   if (!reducedMotion.matches) resume();
+}
+
+function paramRows(params: readonly IkiParameter[]): ParamRow[] {
+  const byId = new Map(params.map((p) => [p.id, p]));
+  const rows: ParamRow[] = [];
+  for (const el of document.querySelectorAll<HTMLElement>(".param")) {
+    const param = byId.get(el.querySelector(".id")?.textContent ?? "");
+    const val = el.querySelector(".val");
+    // A row the model does not declare keeps the still's value.
+    if (!param || !val) continue;
+    rows.push({
+      el,
+      val,
+      param,
+      stillP: el.style.getPropertyValue("--p"),
+      stillText: val.textContent ?? "",
+    });
+  }
+  return rows;
+}
+
+function showValue(row: ParamRow, value: number): void {
+  const { min, max } = row.param;
+  const p = ((value - min) / (max - min)) * 100;
+  row.el.style.setProperty("--p", `${p.toFixed(1)}%`);
+  // Two decimals with a true minus sign, as the page's still values are set.
+  const digits = Math.abs(value).toFixed(2);
+  row.val.textContent = value < 0 && digits !== "0.00" ? `−${digits}` : digits;
 }
 
 function ease(value: Gaze, target: Gaze, seconds: number, dt: number): void {
