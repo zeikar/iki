@@ -49,15 +49,20 @@ async function play(
   figure: HTMLElement,
   canvas: HTMLCanvasElement,
 ): Promise<void> {
-  const player = new IkiPlayer(canvas);
   // The playground build serves the hero model beside its own page.
   const res = await fetch("playground/hero.iki");
   if (!res.ok) throw new Error(`hero.iki: HTTP ${res.status}`);
   const model = parseIkiModel(await res.json());
-  const { failedTextures } = await player.load(model);
-  // A partly textured character is worse than the still it would replace.
-  if (failedTextures.length > 0) {
-    throw new Error(`${failedTextures.length} texture(s) failed to load`);
+  const player = new IkiPlayer(canvas);
+  try {
+    const { failedTextures } = await player.load(model);
+    // A partly textured character is worse than the still it would replace.
+    if (failedTextures.length > 0) {
+      throw new Error(`${failedTextures.length} texture(s) failed to load`);
+    }
+  } catch (err) {
+    player.destroy();
+    throw err;
   }
 
   let pointer: { x: number; y: number } | undefined;

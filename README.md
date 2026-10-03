@@ -7,7 +7,7 @@
 [![Built with HyperClaude](https://img.shields.io/badge/Built%20with-HyperClaude-D97757?logo=anthropic&logoColor=white)](http://zeikar.dev/hyperclaude/)
 
 <p align="center">
-  <img src="./site/hero.gif" width="360" alt="An Iki character turning its head, blinking and talking, rendered by the engine." />
+  <img src="./.github/assets/hero.gif" width="360" alt="An Iki character turning its head, blinking and talking, rendered by the engine." />
   <br />
   <sub>Parts drawn by an image model and rigged by Iki's auto-rigger, with no hand rigging. <a href="https://zeikar.dev/iki/">See it live</a>.</sub>
 </p>
