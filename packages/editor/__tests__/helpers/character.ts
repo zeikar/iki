@@ -61,8 +61,31 @@ export interface CharacterOptions {
   extras?: boolean;
   /** A back hair drawn wide behind the bangs — ±310 at the eye row, the
    *  silhouette — and both hair layers carrying their opaque runs, banded
-   *  as `FULL_BACK_ROWS` sets out. */
+   *  as `FULL_BACK_ROWS` sets out; the face carries its runs too. */
   fullBack?: boolean;
+  /** As `fullBack`, but the back hair is solid at ±320 over the crown and
+   *  temple bands (58 px past the bangs' widest), so it backs the crown down
+   *  to the plate by more than its whole ride asks: about 1.31 × the front
+   *  hair's 41 px motion against the back hair (54 px), since the bound
+   *  charges a crown vertex row with today's blend down to the row under
+   *  it. */
+  wideBack?: boolean;
+  /** As `wideBack`, plus a parting both layers draw on rows 30–60: a 6 px
+   *  gap in the bangs at the axis (columns 497–502) over a 40 px hole in the
+   *  back hair (columns 480–519). */
+  crownGap?: boolean;
+  /** As `wideBack`, plus the same 6 px gap in the bangs on rows 200–215,
+   *  just under the plate's top (row 200): the back hair is solid behind it,
+   *  but the face (±110 there) lies in front of the back hair. */
+  faceGap?: boolean;
+  /** As `wideBack`, plus a 6 px gap in the bangs, columns 632–637, on rows
+   *  200–215: at least 9 px outside the face's runs on every row the turn's
+   *  check reads there (the face's right end is 610–623 on rows 200–225). */
+  besideFaceGap?: boolean;
+  /** As `wideBack`, plus the same 6 px gap at the axis on rows 197–199, just
+   *  above the plate's top: looking down, the bangs there drop about 3 px
+   *  further than the face and carry the gap over the face's top rows. */
+  plateTopGap?: boolean;
   /** As `fullBack`, but on the crown the back hair reaches above the bangs'
    *  top only over a ±15 px band of columns at the axis; elsewhere its top
    *  lies 40 px (0.15 hh) under the bangs' top in each column. */
@@ -87,6 +110,8 @@ export interface CharacterOptions {
  * - `crown`: the back solid ±310 from row 0, above the bangs' top (row 10)
  *   in every column; the bangs a dome widening to ±262;
  * - `temple`: the back's outer end 5 px inside the bangs' edge;
+ * - under `wideBack` and the gaps built on it, the back solid ±320 over
+ *   both `crown` and `temple`;
  * - `solid`: from the brows down, the eye row (433.5) among them: the back
  *   one solid run ±310 behind the locks (as it is below the bangs' crop);
  * - `gap`: as on bob's row 366, a 3 px sliver of back 2 px outside the
@@ -105,12 +130,30 @@ const FULL_BACK_ROWS = {
 /** The `fullBack` layers' `rowRuns`, one entry per crop row: the bangs'
  *  crop holds canvas rows 10–969, the back's rows 0–999. The back's crown is
  *  as `crown` names: `fullBack`'s, or the `tuft`, `dip` or `shoulderDip`
- *  option's. */
-function fullBackRuns(crown: "full" | "tuft" | "dip" | "shoulder"): {
+ *  option's; `wide`, `crownGap`, `faceGap`, `besideFaceGap` and
+ *  `plateTopGap` are the `wideBack` option's and those built on it. */
+function fullBackRuns(
+  crown:
+    | "full"
+    | "tuft"
+    | "dip"
+    | "shoulder"
+    | "wide"
+    | "crownGap"
+    | "faceGap"
+    | "besideFaceGap"
+    | "plateTopGap",
+): {
   front: number[][];
   back: number[][];
 } {
   const { temple, gap, stroke } = FULL_BACK_ROWS;
+  const wide =
+    crown === "wide" ||
+    crown === "crownGap" ||
+    crown === "faceGap" ||
+    crown === "besideFaceGap" ||
+    crown === "plateTopGap";
   // The bangs' dome: its half-width on row k, from ±200 on its top row (10)
   // to ±262 on row 90 and below.
   const dome = (k: number) =>
@@ -148,6 +191,18 @@ function fullBackRuns(crown: "full" | "tuft" | "dip" | "shoulder"): {
     } else if (k >= stroke[0] && k < stroke[1]) {
       b = [184, 188, 218, 782, 812, 816];
     }
+    if (wide && k < temple[1]) b = [180, 820];
+    // A gap in the bangs, inside their outer ends.
+    if (crown === "crownGap" && k >= 30 && k <= 60) {
+      f = [f[0], 497, 503, f[1]];
+      b = [180, 480, 520, 820];
+    } else if (crown === "faceGap" && k >= 200 && k <= 215) {
+      f = [f[0], 497, 503, f[1]];
+    } else if (crown === "besideFaceGap" && k >= 200 && k <= 215) {
+      f = [f[0], 632, 638, f[1]];
+    } else if (crown === "plateTopGap" && k >= 197 && k <= 199) {
+      f = [f[0], 497, 503, f[1]];
+    }
     if (k >= 10 && k < 970) front.push(f);
     back.push(b);
   }
@@ -167,12 +222,45 @@ export function character(opts: CharacterOptions = {}): {
     tuft = false,
     dip = false,
     shoulderDip = false,
+    wideBack = false,
+    crownGap = false,
+    faceGap = false,
+    besideFaceGap = false,
+    plateTopGap = false,
   } = opts;
-  const fullBack = opts.fullBack === true || tuft || dip || shoulderDip;
+  // The `fullBack` variant an option names, if any.
+  const variant = (
+    [
+      ["tuft", tuft],
+      ["dip", dip],
+      ["shoulder", shoulderDip],
+      ["wide", wideBack],
+      ["crownGap", crownGap],
+      ["faceGap", faceGap],
+      ["besideFaceGap", besideFaceGap],
+      ["plateTopGap", plateTopGap],
+    ] as const
+  ).find(([, on]) => on)?.[0];
+  const fullBack = opts.fullBack === true || variant !== undefined;
   const face = { x: 300, y: 200, w: 401, h: 560 };
+  const halfWidths = faceRows(face.h);
   const layers: LayerInput[] = [
     layer("body", { x: 90, y: 770, w: 820, h: 230 }),
-    layer("face", face, { rowHalfWidths: faceRows(face.h) }),
+    layer("face", face, {
+      rowHalfWidths: halfWidths,
+      // As the measurer records them: one whole-pixel run per row, twice its
+      // half-width wide, from the axis (canvas column 500.5) less the
+      // half-width rounded down — centred on the axis for a half-integer
+      // half-width, on column 500 for an integer one.
+      ...(fullBack
+        ? {
+            rowRuns: halfWidths.map((w) => {
+              const a = Math.floor(face.x + face.w / 2 - w);
+              return [a, a + 2 * w];
+            }),
+          }
+        : {}),
+    }),
     layer("eye_R", { x: 330, y: 400, w: 130, h: 66 }),
     layer("eye_L", { x: 541, y: 400, w: 130, h: 66 }),
     layer("iris_R", { x: 358, y: 396, w: 74, h: 74 }),
@@ -228,11 +316,7 @@ export function character(opts: CharacterOptions = {}): {
     };
   }
   if (hair) {
-    const runs = fullBack
-      ? fullBackRuns(
-          tuft ? "tuft" : dip ? "dip" : shoulderDip ? "shoulder" : "full",
-        )
-      : undefined;
+    const runs = fullBack ? fullBackRuns(variant ?? "full") : undefined;
     layers.push(
       runs
         ? layer(
