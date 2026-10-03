@@ -240,7 +240,7 @@ export interface LayerSetMeasurer {
    * it: only the set's opaque union, this layer's per-row opaque extent and
    * the `LayerInput` it returns outlive the call, so the host may drop `rgba`
    * as soon as it returns. Returns the layer's `LayerInput` — its crop
-   * box, the face's `rowHalfWidths`, the hair layers' `rowRuns`, the nose's
+   * box, the face's `rowHalfWidths`, the face's and hair layers' `rowRuns`, the nose's
    * `denseCore` unless that is a speck of its crop (`isSpeckCore`) — or
    * `null` for an empty layer, one with no pixel at or above
    * `ALPHA_BBOX_THRESHOLD`, which it records nothing for: the host reports
@@ -425,7 +425,9 @@ export function createLayerSetMeasurer(canvas: {
     const rowLeft = new Int32Array(canvasH).fill(canvasW);
     const rowRight = new Int32Array(canvasH).fill(-1);
     const rowRuns: number[][] | undefined =
-      role === "hair_front" || role === "hair_back" ? [] : undefined;
+      role === "face" || role === "hair_front" || role === "hair_back"
+        ? []
+        : undefined;
     for (let y = 0; y < canvasH; y++) {
       // Every opaque pixel lies inside the crop, so only its rows hold runs.
       let runs: number[] | undefined;

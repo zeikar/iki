@@ -107,7 +107,7 @@ describe("createLayerSetMeasurer", () => {
     expect(measurer.finish().layers).toEqual(inputs);
   });
 
-  it("measures each hair layer's opaque runs per crop row, gaps and empty rows included", () => {
+  it("measures the face's and each hair layer's opaque runs per crop row, gaps and empty rows included", () => {
     const measurer = createLayerSetMeasurer({ width: CANVAS, height: CANVAS });
     const inputs = [
       ...strandLayers(),
@@ -143,8 +143,14 @@ describe("createLayerSetMeasurer", () => {
       ...Array(31).fill([10, 28, 72, 90]),
       [],
     ]);
+    // The face plate on rows 20..79, columns 20..79, in a crop from row 19.
+    expect(byRole.get("face")!.rowRuns).toEqual([
+      [],
+      ...Array(60).fill([20, 80]),
+      [],
+    ]);
     for (const l of inputs) {
-      if (l.role !== "hair_front" && l.role !== "hair_back") {
+      if (!["face", "hair_front", "hair_back"].includes(l.role)) {
         expect(l.rowRuns).toBeUndefined();
       }
     }

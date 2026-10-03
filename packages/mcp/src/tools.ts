@@ -376,11 +376,11 @@ async function renderAtlasPage(
  *
  * The head turn is fitted to `input.turnTargets`, on what @ikijs/editor's
  * `createLayerSetMeasurer` measures off the decoded layers (the head
- * half-width, `headEdges`, `strandEdges`, the face's `rowHalfWidths`, the hair
- * layers' opaque runs and the nose's dense core, returned as `noseCore`); what
- * the solve settled on comes back in `turn`. Under `quantizeColors` the nose
- * is atlased alone on a second, lossless page, which the palette would
- * otherwise rim; `atlasBytes` sums both pages.
+ * half-width, `headEdges`, `strandEdges`, the face's `rowHalfWidths`, the face's
+ * and hair layers' opaque runs and the nose's dense core, returned as
+ * `noseCore`); what the solve settled on comes back in `turn`. Under
+ * `quantizeColors` the nose is atlased alone on a second, lossless page, which
+ * the palette would otherwise rim; `atlasBytes` sums both pages.
  *
  * Re-host of examples/editor/src/store.ts `importLayerSet` with the three DOM
  * pixel functions swapped for the sharp-backed ./node-images helpers; the pure

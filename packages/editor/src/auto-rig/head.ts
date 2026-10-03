@@ -78,6 +78,8 @@ export interface HeadFrame {
    *  boundaries `[start0, end0, start1, end1, …]` (its `rowRuns`); `[]` off
    *  its crop, `undefined` when the layer is absent or carries none. */
   hairRuns(role: "hair_front" | "hair_back", y: number): number[] | undefined;
+  /** The face's runs on model row `y`, as `hairRuns` answers them. */
+  faceRuns(y: number): number[] | undefined;
 }
 
 /** The outermost edge of `runs` (model x boundaries) on `side` of the axis:
@@ -494,8 +496,8 @@ export function buildHeadFrame(
     }
   }
 
-  const hairRuns = (
-    role: "hair_front" | "hair_back",
+  const runsOf = (
+    role: "face" | "hair_front" | "hair_back",
     y: number,
   ): number[] | undefined => {
     const l = byRole.get(role);
@@ -503,6 +505,9 @@ export function buildHeadFrame(
     const runs = l.rowRuns[Math.floor(canvasH / 2 - y) - l.bbox.y];
     return runs === undefined ? [] : runs.map((c) => c - canvasW / 2);
   };
+  const hairRuns = (role: "hair_front" | "hair_back", y: number) =>
+    runsOf(role, y);
+  const faceRuns = (y: number) => runsOf("face", y);
 
   return {
     canvasW,
@@ -527,5 +532,6 @@ export function buildHeadFrame(
     hairShell,
     holdBase: headHalf ?? plateHalf,
     hairRuns,
+    faceRuns,
   };
 }

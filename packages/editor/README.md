@@ -135,10 +135,10 @@ rather than its soft feather, and its top edge at its centre x is the bridge top
 the nose tilts 6° about on the turn, its tip toward the far side; absent, the
 crop stands in for both. And it takes the optional `rowRuns` (per crop row, the
 row's alpha ≥ 128 runs as a flat list of canvas columns `[start, end, …]`, each
-end exclusive), measured for `hair_front` and `hair_back` so the turn and the
-nod can tell where back hair is painted behind the front hair; absent, the front
-hair keeps its outline hold on the turn and its crown's ease to the back hair's
-nod looking down.
+end exclusive), measured for `face`, `hair_front` and `hair_back` so the turn
+and the nod can tell where back hair is painted behind the front hair; absent,
+the front hair keeps its outline hold on the turn and its crown's ease to the
+back hair's nod looking down.
 
 `createLayerSetMeasurer(canvas)` measures all of it — `rowHalfWidths`,
 `rowRuns`, `denseCore`, `headHalfWidth`, `headEdges` and `strandEdges` — off

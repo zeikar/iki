@@ -19,11 +19,12 @@ export interface LayerInput {
   cropH: number;
   /** Face only: half the opaque span of each crop row, canvas px (0 = none). */
   rowHalfWidths?: number[];
-  /** `hair_front` / `hair_back` only: per crop row, its opaque (alpha ≥ 128)
+  /** `face` / `hair_front` / `hair_back` only: per crop row, its opaque (alpha ≥ 128)
    *  runs as a flat list of canvas columns `[start0, end0, start1, end1, …]`,
    *  each end exclusive (`[]` for a row with none). The actual pixels, so a
    *  gap in the hair is a gap here: the turn and the nod read off it where
-   *  back hair is painted behind the front hair. */
+   *  back hair is painted behind the front hair, and the crown's turn reads the
+   *  face's so it never bares skin. */
   rowRuns?: number[][];
   /** Nose only: the tight box of its alpha ≥ 128 pixels, canvas px. */
   denseCore?: { x: number; y: number; w: number; h: number };
