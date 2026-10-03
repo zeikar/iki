@@ -25,8 +25,9 @@ interface Gaze {
   y: number;
 }
 
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 const figure = document.querySelector<HTMLElement>(".hero figure");
-if (figure && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+if (figure && !reducedMotion.matches) {
   start(figure).catch((err: unknown) => {
     console.error("Iki: the live hero failed, keeping the still", err);
   });
@@ -114,6 +115,7 @@ async function play(
   }
 
   let last = performance.now();
+  let rafId = 0;
   function frame(now: number): void {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
@@ -122,16 +124,34 @@ async function play(
     ease(eyes, target, EYE_EASE_S, dt);
     eyeWeight += ((pointer ? 1 : 0) - eyeWeight) * easeStep(EYE_EASE_S, dt);
     motion.update(now);
-    requestAnimationFrame(frame);
+    rafId = requestAnimationFrame(frame);
   }
-  // Registered before start() so each pose lands in the frame it is computed.
-  requestAnimationFrame(frame);
-  player.start();
 
-  // Reveal once a frame has painted, so the swap never shows a blank canvas.
-  requestAnimationFrame(() =>
-    requestAnimationFrame(() => figure.classList.add("is-live")),
-  );
+  function resume(): void {
+    last = performance.now();
+    // Registered before start() so each pose lands in the frame it is computed.
+    rafId = requestAnimationFrame(frame);
+    player.start();
+    // Reveal once a frame has painted, so the swap never shows a blank canvas.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (!reducedMotion.matches) figure.classList.add("is-live");
+      }),
+    );
+  }
+
+  function pause(): void {
+    cancelAnimationFrame(rafId);
+    player.stop();
+    figure.classList.remove("is-live");
+  }
+
+  // Reduced motion turned on mid-visit hands the frame back to the still.
+  reducedMotion.addEventListener("change", () => {
+    if (reducedMotion.matches) pause();
+    else resume();
+  });
+  if (!reducedMotion.matches) resume();
 }
 
 function ease(value: Gaze, target: Gaze, seconds: number, dt: number): void {
