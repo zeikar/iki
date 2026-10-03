@@ -27,10 +27,22 @@ interface Gaze {
 
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 const figure = document.querySelector<HTMLElement>(".hero figure");
-if (figure && !reducedMotion.matches) {
-  start(figure).catch((err: unknown) => {
-    console.error("Iki: the live hero failed, keeping the still", err);
-  });
+if (figure) {
+  const launch = (): void => {
+    start(figure).catch((err: unknown) => {
+      console.error("Iki: the live hero failed, keeping the still", err);
+    });
+  };
+  if (!reducedMotion.matches) launch();
+  else {
+    // Nothing is fetched under reduced motion until the visitor turns it off.
+    const onChange = (): void => {
+      if (reducedMotion.matches) return;
+      reducedMotion.removeEventListener("change", onChange);
+      launch();
+    };
+    reducedMotion.addEventListener("change", onChange);
+  }
 }
 
 async function start(figure: HTMLElement): Promise<void> {
