@@ -55,11 +55,15 @@ export const TURN = {
   outlineFollow: 0,
   /** The back hair's slight counter-motion. */
   hairBack: -0.027,
-  /** The ears lag the plate: the far one moves this share of its slide, the
-   *  near one this at its widest reach, its root riding the head (the
-   *  samples' parallax ratios, 0.44 and 0.87). */
+  /** The ears lag the plate: the far one's outer edge moves this share of
+   *  its slide, the near one this at its widest reach, its root riding the
+   *  head (the samples' parallax ratios, 0.44 and 0.87). */
   earFar: 0.44,
   earNear: 0.87,
+  /** The far ear's width at full turn, about its outer edge (the samples'
+   *  median: Haru 0.81 / 0.91, Hiyori 0.90 / 0.85, Mao 0.77 / 0.79; none
+   *  fades). */
+  earFarScale: 0.83,
 } as const;
 
 /** AngleY: screen displacement, hh, + = DOWN (as measured), at +30 (looking

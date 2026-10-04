@@ -672,6 +672,7 @@ export function buildTurn(
     hairOuter: q.outline * face,
     hairBack: A * hh * TURN.hairBack,
     shellScale: q.shell,
+    earFarScale: 1 + A * (TURN.earFarScale - 1),
     ...landmarks,
   };
 }

@@ -1644,39 +1644,70 @@ describe("the jaw cut", () => {
   });
 });
 
+/** The fixture's face narrowed by 25 px but for rows 170…260 of its crop,
+ *  which step out to its drawn width: ears. The frame is built as the
+ *  generator builds it. */
+function withEars(opts: CharacterOptions = {}, targets: TurnTargets = {}) {
+  const { layers, options } = character(opts);
+  const face = layers.find((l) => l.role === "face")!;
+  const rows = face.rowHalfWidths!.map((w, r) =>
+    r >= 170 && r <= 260 ? w : Math.max(10, w - 25),
+  );
+  const eared = layers.map((l) =>
+    l === face ? { ...l, rowHalfWidths: rows } : l,
+  );
+  const turnTargets = { ...options.turnTargets, ...targets };
+  return {
+    m: generateIkiFromLayerSet(eared, CANVAS, { ...options, turnTargets }),
+    frame: buildHeadFrame(eared, {
+      headHalfWidth: turnTargets.headHalfWidth,
+      headEdges:
+        turnTargets.headHalfWidth !== undefined ? options.headEdges : undefined,
+    }),
+  };
+}
+
 describe("the ears", () => {
-  /** The fixture's face narrowed by 25 px but for rows 170…260 of its
-   *  crop, which step out to its drawn width: ears. */
-  function withEars() {
-    const { layers, options } = character();
-    const face = layers.find((l) => l.role === "face")!;
-    const rows = face.rowHalfWidths!.map((w, r) =>
-      r >= 170 && r <= 260 ? w : Math.max(10, w - 25),
+  /** The plate without its head island (its largest): what the other
+   *  islands draw, the ears' roots under the head included — the head's
+   *  edge strays past the line under an ear between its columns. */
+  function withoutHead(model: IkiModel): IkiModel {
+    const part = model.parts.find((p) => p.id === "face")!;
+    const tris = triangles(part.mesh!.indices);
+    const root = Array.from(
+      { length: part.mesh!.vertices.length / 2 },
+      (_, i) => i,
     );
-    const eared = layers.map((l) =>
-      l === face ? { ...l, rowHalfWidths: rows } : l,
-    );
+    const find = (i: number): number =>
+      root[i] === i ? i : (root[i] = find(root[i]));
+    for (const [a, b, c] of tris) {
+      root[find(b)] = find(a);
+      root[find(c)] = find(a);
+    }
+    const size = new Map<number, number>();
+    for (const [a] of tris) size.set(find(a), (size.get(find(a)) ?? 0) + 1);
+    const head = [...size].reduce((p, q) => (q[1] > p[1] ? q : p))[0];
+    const indices = tris.filter(([a]) => find(a) !== head).flat();
     return {
-      m: generateIkiFromLayerSet(eared, CANVAS, options),
-      frame: buildHeadFrame(eared, {
-        headHalfWidth: 262,
-        headEdges: options.headEdges,
-      }),
+      ...model,
+      parts: model.parts.map((p) =>
+        p === part ? { ...p, mesh: { ...p.mesh!, indices } } : p,
+      ),
     };
   }
 
   it("lags the ears behind the face — the far one most — with no seam at rest", () => {
     const { m, frame } = withEars();
-    // On crop row 215 (model y 500 − 200 − 215): the far ear near its outer
-    // rim, the near one at its widest reach, where its lag is whole.
+    // On crop row 215 (model y 500 − 200 − 215): the far ear at its outer
+    // rim, the near one at its widest reach, where each lag is whole.
     const ear = (x: number, ax: number) =>
       landedXAt(m, "face", x, 85, X30(ax)) - x;
     const face = (ax: number) => landedXAt(m, "face", 0.5, 85, X30(ax)) - 0.5;
     for (const ax of [-30, 30]) {
       const s = Math.sign(ax);
-      const far = s < 0 ? -192 : 193;
+      const far = frame.axisX + s * (frame.ears!.outer - 0.5);
       const near = frame.axisX - s * frame.ears!.outer;
-      expect(ear(far, ax) / face(ax)).toBeCloseTo(0.44, 1);
+      expect(ear(far, ax) / face(ax)).toBeCloseTo(0.44, 2);
       expect(ear(near, ax) / face(ax)).toBeCloseTo(0.87, 1);
     }
     // At rest every island lies where it is drawn.
@@ -1719,23 +1750,128 @@ describe("the ears", () => {
       expect(tucked).toBeGreaterThan(0);
     }
   });
+
+  it("narrows the far ear to 0.83 of its width at a full turn", () => {
+    const { m, frame } = withEars();
+    const ears = frame.ears!;
+    // On row 85, from just outside the head's own outline to just inside the
+    // ear's outer rim — read off the ear's island, which the head's edge
+    // covers a few px past that line here.
+    const ear = withoutHead(m);
+    const d0 = ears.attachAt(85) + 2;
+    const d1 = ears.outer - 2;
+    for (const [ax, width] of [
+      [-30, 0.83],
+      [-15, 0.915],
+      [15, 0.915],
+      [30, 0.83],
+    ]) {
+      const s = Math.sign(ax);
+      const at = (d: number) =>
+        landedXAt(ear, "face", frame.axisX + s * d, 85, X30(ax));
+      const span = (s * (at(d1) - at(d0))) / (d1 - d0);
+      expect(Math.abs(span - width), `AngleX ${ax}: ${span}`).toBeLessThan(
+        0.01,
+      );
+    }
+  });
+
+  it("keeps the far ear's tucked strip under the head", () => {
+    // Without hair at silhouetteRatio 0.9 the plate narrows, so the head
+    // moves barely past the ear's outer edge on the line under it: the root
+    // is held there, short of the ear's full narrowing.
+    for (const { m, frame } of [
+      withEars(),
+      withEars({ hair: false }, { silhouetteRatio: 0.9 }),
+    ]) {
+      const ears = frame.ears!;
+      const ear = withoutHead(m);
+      const rest = landVertices(m, "face");
+      for (const ax of [-30, 30]) {
+        const s = Math.sign(ax);
+        const pose = X30(ax);
+        const v = landVertices(m, "face", pose);
+        let tucked = 0;
+        for (let i = 0; i < rest.length / 2; i++) {
+          const [x, y] = [rest[i * 2], rest[i * 2 + 1]];
+          const u = x - frame.axisX;
+          // On the ear island's rows — it runs 2 px past the band either way,
+          // its end rows here at y 36 and 135 — inside the head's own
+          // outline, on the far side.
+          if (y < ears.bottom - 2 || y > ears.top + 2) continue;
+          if (Math.abs(u) >= ears.attachAt(y) - 1) continue;
+          if (s * u <= 0) continue;
+          // Where the head island's own point on that outline lands.
+          const edge = landedXAt(
+            m,
+            "face",
+            frame.axisX + s * ears.attachAt(y),
+            y,
+            pose,
+          );
+          expect(
+            s * (v[i * 2] - edge),
+            `(${x}, ${y}) at AngleX ${ax}`,
+          ).toBeLessThanOrEqual(1e-3);
+          // The ear island's own inner column, EAR_TUCK (0.08 hh) inside the
+          // line — not only the head's vertices there.
+          const tuck = ears.attachAt(y) - 0.08 * frame.hh;
+          if (Math.abs(Math.abs(u) - tuck) < 0.05) tucked++;
+        }
+        expect(tucked).toBeGreaterThan(0);
+        // The ear's own point on the line goes no further than the head's.
+        for (let y = ears.bottom - 2; y <= ears.top + 2; y += 5) {
+          const at = frame.axisX + s * ears.attachAt(y);
+          expect(
+            s *
+              (landedXAt(ear, "face", at, y, pose) -
+                landedXAt(m, "face", at, y, pose)),
+            `row ${y} at AngleX ${ax}`,
+          ).toBeLessThanOrEqual(0.1);
+        }
+      }
+    }
+  });
+
+  it("never widens the far ear, where the head moves less than its outer edge", () => {
+    // Without hair at silhouetteRatio 0.8 the plate narrows so much that on
+    // the line under the ear the head moves less than the ear's outer edge.
+    const { m, frame } = withEars({ hair: false }, { silhouetteRatio: 0.8 });
+    const ears = frame.ears!;
+    const ear = withoutHead(m);
+    for (const ax of [-30, 30]) {
+      const s = Math.sign(ax);
+      for (let y = ears.bottom; y <= ears.top; y += 5) {
+        const d0 = ears.attachAt(y) + 2;
+        const d1 = ears.outer - 2;
+        const at = (d: number) =>
+          landedXAt(ear, "face", frame.axisX + s * d, y, X30(ax));
+        const span = (s * (at(d1) - at(d0))) / (d1 - d0);
+        const label = `row ${y} at AngleX ${ax}: ${span}`;
+        expect(span, label).toBeLessThanOrEqual(1 + 1e-3);
+        expect(span, label).toBeGreaterThan(0.82);
+      }
+    }
+  });
 });
 
 describe("extreme combined poses", () => {
   it("squeezes no face or hair triangle below 40 % when turn, nod, tilt and sway meet", () => {
     const S = [-30, -15, 0, 15, 30];
-    for (const [name, { model }] of [
-      ["default", hero],
-      ["fullBack", fullBack],
-      ["tuft", tuft],
-      ["wideBack", wideBack],
-      ["crownGap", crownGap],
-      ["faceGap", faceGap],
-      ["besideFaceGap", besideFaceGap],
-      ["narrowCap", narrowCap],
-      ["tightLock", tightLock],
+    const all = ["face", "hair_front", "hair_back"];
+    for (const [name, model, ids] of [
+      ["default", hero.model, all],
+      ["fullBack", fullBack.model, all],
+      ["tuft", tuft.model, all],
+      ["wideBack", wideBack.model, all],
+      ["crownGap", crownGap.model, all],
+      ["faceGap", faceGap.model, all],
+      ["besideFaceGap", besideFaceGap.model, all],
+      ["narrowCap", narrowCap.model, all],
+      ["tightLock", tightLock.model, all],
+      ["withEars", withEars().m, ["face"]],
     ] as const) {
-      for (const id of ["face", "hair_front", "hair_back"]) {
+      for (const id of ids) {
         const part = model.parts.find((p) => p.id === id)!;
         const rest = signedAreas(landVertices(model, id), part.mesh!.indices);
         let worst = Infinity;
