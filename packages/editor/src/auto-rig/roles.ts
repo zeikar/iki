@@ -40,6 +40,8 @@ export const ROLE_TABLE: readonly RoleSpec[] = [
   { role: "pupil_R", family: "eye_R" },
   { role: "highlight_L", family: "eye_L" },
   { role: "highlight_R", family: "eye_R" },
+  { role: "lash_lower_L", family: "eye_L" },
+  { role: "lash_lower_R", family: "eye_R" },
   { role: "lash_L", family: "eye_L" },
   { role: "lash_R", family: "eye_R" },
   { role: "brow_L", family: "brow_L" },

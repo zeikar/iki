@@ -50,9 +50,9 @@ const IRIS_W = Math.round(EYE_W * 0.5625);
 const EYEWHITE_SRC = "eyewhite.png";
 /** Luminance below this (0..255) = a dark lash/outline pixel in the eyewhite. */
 const EYE_LASH_LUMA = 120;
-// Of the eye's dark pixels, keep only those in the TOP this-fraction as the lash
-// (drops the lower almond rim/outline) so the lash reads as an upper arc that
-// folds DOWN over the eye on blink, instead of a full ring that shrinks in place.
+// Of the eye's dark pixels, those in the TOP this-fraction are the upper lash,
+// an arc that folds DOWN over the eye on blink instead of a full ring that
+// shrinks in place; those below it are the lower lid's line and lashes.
 const LASH_KEEP_FRACTION = 0.5;
 
 /** The alpha a part's trim cuts at: what it keeps is over this. */
@@ -130,11 +130,15 @@ const NOSE_TIP_AT = 0.86;
 // its outer end (toward the face's edge) at the image's left end and its
 // inner end (toward the nose) at the right. A part drawn the other way round
 // is flipped for free with `mirrorParts`.
-// eye_*  = clean WHITE sclera (lashes recolored white) = the blink clip mask + fold.
+// eye_*  = the WHITE sclera (upper lashes recolored white) = the blink clip mask + fold.
 // iris_* = colored disc on top, clipped to the sclera, drives gaze.
-// lash_* = the dark lashes, a separate layer ABOVE the iris that folds down to
-//          cover the closed-eye seam. eye_* and lash_* are split from a single
-//          `eyewhite.png` (white almond + dark lashes) by prepEyeSplit().
+// lash_lower_* = the lower lid's dark line and lashes, ABOVE the iris (it
+//          covers the iris's bottom edge, as the drawing does) and folding
+//          with the white. Placed on the eye's frame, so it has no layout key.
+// lash_* = the dark upper lashes, a separate layer ABOVE the iris that folds
+//          down to cover the closed-eye seam. eye_*, lash_lower_* and lash_* are
+//          split from a single `eyewhite.png` (white almond + dark lashes) by
+//          prepEyeSplit().
 const DEFAULT_LAYOUT = {
   // Back hair and body sit behind the face. Both are OPTIONAL: a parts dir
   // without them still composes (head-only character).
@@ -198,6 +202,14 @@ const DEFAULT_LAYOUT = {
 
 export type Role = keyof typeof DEFAULT_LAYOUT;
 
+/** The lower lash of each eye, and the eye whose placement it takes. */
+const LOWER_LASH = { lash_lower_L: "eye_L", lash_lower_R: "eye_R" } as const;
+/** The eyewhite's lower lid, split in memory like the sclera and lash. */
+const LOWER_LASH_SRC = "eyewhite_lash_lower.png";
+
+/** A role the composer writes a layer for. */
+export type LayerRole = Role | keyof typeof LOWER_LASH;
+
 /**
  * The merged layout, typed so a non-nose default that drops its `cy` fails to
  * compile: `resolveLayout` builds it from DEFAULT_LAYOUT.
@@ -207,7 +219,7 @@ type ResolvedLayout = Record<Exclude<Role, "nose">, RoleLayout> & {
 };
 
 /** Draw order (back -> front), mirrors @ikijs/editor ROLE_TABLE order. */
-const ORDER: Role[] = [
+const ORDER: LayerRole[] = [
   "hair_back",
   "body",
   "face",
@@ -220,6 +232,8 @@ const ORDER: Role[] = [
   "eye_R",
   "iris_L",
   "iris_R",
+  "lash_lower_L",
+  "lash_lower_R",
   "lash_L",
   "lash_R",
   "brow_L",
@@ -266,7 +280,7 @@ export interface ComposeInput {
 }
 
 export interface ComposedLayer {
-  role: Role;
+  role: LayerRole;
   path: string;
   /** Size of the placed part itself (the file is always CANVAS x CANVAS). */
   width: number;
@@ -280,8 +294,11 @@ export type ComposeResult =
       ok: true;
       outDir: string;
       layers: ComposedLayer[];
-      /** Roles whose optional part was absent from the parts dir. */
-      skipped: Role[];
+      /**
+       * Roles whose optional part was absent from the parts dir, and the lower
+       * lashes when the eyewhite draws no dark lower lid.
+       */
+      skipped: LayerRole[];
       preview: string;
       measure: MeasureReport;
     }
@@ -427,7 +444,7 @@ async function noseSizingOf(png: Buffer): Promise<NoseSizing> {
  * Missing optional part -> null; missing required part -> AutoRigInputError.
  */
 async function partBuffer(
-  role: Role,
+  role: LayerRole,
   cfg: Omit<RoleLayout, "cy">,
   partsDir: string,
   inMemory: Buffer | undefined,
@@ -817,12 +834,20 @@ function detachedAboveWhite(rgba: Buffer, W: number, H: number): Uint8Array {
 }
 
 /**
- * Split eyewhite.png (white almond + dark lashes) into a clean white sclera
- * (the dark outline/lash recolored to white = the blink clip-mask shape) and a
- * dark UPPER-lash-only layer. Both are cropped to the SAME eye bbox so they stay
- * aligned (consumed with noTrim): the lash arc keeps its position at the top of
- * the sclera, so on blink it folds DOWN over the eye rather than the eye shrinking
- * in place.
+ * Split eyewhite.png (white almond + dark lashes) into a sclera (the upper
+ * lash recolored to white; the whole drawing's alpha = the blink clip-mask
+ * shape), a dark UPPER-lash layer and a dark LOWER-lid layer. All are cropped
+ * to the SAME eye bbox so they stay aligned (consumed with noTrim): the lash
+ * arc keeps its position at the top of the sclera, so on blink it folds DOWN
+ * over the eye rather than the eye shrinking in place.
+ *
+ * The lower lid's dark line and lashes stay in the sclera as drawn and are
+ * copied into their own layer, which draws over the iris. Recolored white they
+ * would show as white flicks wherever a lash hangs below the white, and left
+ * in the sclera alone the iris would paint over the line. The sclera keeps
+ * them so its alpha, which the rig measures the eye by, is the drawing's.
+ * `lashLower` is null when the eyewhite draws no dark pixel below the upper
+ * lash's fraction.
  *
  * A light mark drawn detached above the white, such as a double-eyelid crease,
  * is dropped from the sclera (`detachedAboveWhite`). The sclera is the iris's
@@ -836,7 +861,7 @@ function detachedAboveWhite(rgba: Buffer, W: number, H: number): Uint8Array {
  */
 async function prepEyeSplit(
   partsDir: string,
-): Promise<{ sclera: Buffer; lash: Buffer }> {
+): Promise<{ sclera: Buffer; lash: Buffer; lashLower: Buffer | null }> {
   const srcPath = path.join(partsDir, EYEWHITE_SRC);
   if (!fs.existsSync(srcPath)) {
     throw new AutoRigInputError(`missing eyewhite source: ${srcPath}`);
@@ -861,19 +886,24 @@ async function prepEyeSplit(
   if (maxX < 0) {
     throw new AutoRigInputError(`eyewhite is fully transparent: ${srcPath}`);
   }
-  // Keep only the upper lash: dark pixels above this row become the lash layer.
+  // Dark pixels above this row are the upper lash; below it, the lower lid.
   const lashCutoffY = minY + LASH_KEEP_FRACTION * (maxY - minY + 1);
   const detached = detachedAboveWhite(data, W, H);
 
   const sclera = Buffer.from(data);
   const lash = Buffer.from(data);
+  const lashLower = Buffer.from(data);
+  let lowerInk = false;
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const i = (y * W + x) * 4;
       const isDark = data[i + 3] > 0 && luma(data, i) < EYE_LASH_LUMA;
-      if (isDark) sclera[i] = sclera[i + 1] = sclera[i + 2] = 255; // dark -> white
+      const upper = y <= lashCutoffY;
+      if (isDark && upper) sclera[i] = sclera[i + 1] = sclera[i + 2] = 255; // dark -> white
       if (detached[y * W + x]) sclera[i + 3] = 0;
-      if (!(isDark && y <= lashCutoffY)) lash[i + 3] = 0; // keep upper dark only
+      if (!(isDark && upper)) lash[i + 3] = 0;
+      if (isDark && !upper) lowerInk = true;
+      else lashLower[i + 3] = 0;
     }
   }
   const region = {
@@ -885,6 +915,7 @@ async function prepEyeSplit(
   return {
     sclera: await cropToBuffer(sclera, W, H, region),
     lash: await cropToBuffer(lash, W, H, region),
+    lashLower: lowerInk ? await cropToBuffer(lashLower, W, H, region) : null,
   };
 }
 
@@ -922,21 +953,31 @@ export async function composeLayersFromParts(
       ["eyewhite_sclera.png", split.sclera],
       ["eyewhite_lash.png", split.lash],
     ]);
+    if (split.lashLower !== null) {
+      splitSources.set(LOWER_LASH_SRC, split.lashLower);
+    }
 
     // Place every role before writing any: a rejected placement must leave
     // outDir as the last compose left it, not half overwritten.
     const placed: {
-      role: Role;
+      role: LayerRole;
       part: { buf: Buffer; w: number; h: number };
       left: number;
       top: number;
     }[] = [];
-    const skipped: Role[] = [];
+    const skipped: LayerRole[] = [];
     // Compose's verdict on the nose's source part when its core was a speck,
     // for the report; otherwise the report judges the composed nose layer.
     let noseSpeck: NoseSpeck | undefined;
     for (const role of ORDER) {
-      const cfg = layout[role];
+      // A lower lash is placed by its eye's layout, on the sclera's frame.
+      const lower = role === "lash_lower_L" || role === "lash_lower_R";
+      const key: Role = lower ? LOWER_LASH[role] : role;
+      if (lower && split.lashLower === null) {
+        skipped.push(role);
+        continue;
+      }
+      const cfg = lower ? { ...layout[key], src: LOWER_LASH_SRC } : layout[key];
       const inMemory = splitSources.get(cfg.src);
       const part = await partBuffer(
         role,
@@ -957,13 +998,13 @@ export async function composeLayersFromParts(
       // judged again here: the source part's verdict decided how it was sized.
       let left: number;
       let top: number;
-      if (role === "nose") {
+      if (key === "nose") {
         noseSpeck = part.nose?.speck;
         const { core, bounds } = await coreAndBoundsOf(part.buf);
         const box = part.nose?.whole ? bounds : (core ?? bounds);
         ({ left, top } = nosePlacement(layout, box, part.w, part.h));
       } else {
-        ({ left, top } = placement(role, layout[role], part.w, part.h));
+        ({ left, top } = placement(key, layout[key], part.w, part.h));
       }
       // The eye pair's halves are cut from one eyewhite into one frame. Set
       // apart, the blink fold tears — and a lash narrowed inside its sclera

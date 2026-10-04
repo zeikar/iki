@@ -9,8 +9,8 @@ import {
   composeLayersFromParts,
   type ComposeInput,
   type ComposeResult,
+  type LayerRole,
   type LayoutOverride,
-  type Role,
 } from "../src/compose";
 import { layerStats, measureLayers } from "../src/measure";
 import { denseCoreOf } from "../src/measure-turn";
@@ -28,7 +28,7 @@ import {
 } from "./helpers/parts";
 
 /** Draw order the composer walks, back -> front. */
-const ROLES: Role[] = [
+const ROLES: LayerRole[] = [
   "hair_back",
   "body",
   "face",
@@ -41,6 +41,8 @@ const ROLES: Role[] = [
   "eye_R",
   "iris_L",
   "iris_R",
+  "lash_lower_L",
+  "lash_lower_R",
   "lash_L",
   "lash_R",
   "brow_L",
@@ -217,41 +219,109 @@ describe("composeLayersFromParts", () => {
     expect(fs.existsSync(path.join(parts, "eyewhite_lash.png"))).toBe(false);
   });
 
-  it("splits the eyewhite into a white sclera and an upper-lash-only layer", async () => {
+  it("splits the eyewhite into a sclera, an upper lash and a lower lid", async () => {
     const eye = await statsFor(out, "eye_L");
     const lash = await statsFor(out, "lash_L");
+    const lower = await statsFor(out, "lash_lower_L");
+    const rowsOf = async (role: string) => {
+      const png = await decodePng(path.join(out, `${role}.png`));
+      const dark: number[] = [];
+      let inked = 0;
+      for (let y = 0; y < png.height; y++) {
+        for (let x = 0; x < png.width; x++) {
+          const i = (y * png.width + x) * 4;
+          if (png.rgba[i + 3] <= 8) continue;
+          inked++;
+          if (lumaAt(png.rgba, i) < 120) dark.push(y);
+        }
+      }
+      return { dark, inked };
+    };
+    const mid = eye.marginTop + eye.h / 2;
 
-    // The sclera is the blink clip-mask shape: every dark lash pixel of the
-    // eyewhite was recoloured white, so nothing dark survives in it.
-    const sclera = await decodePng(path.join(out, "eye_L.png"));
-    let darkest = 255;
-    for (let i = 0; i < sclera.rgba.length; i += 4) {
-      if (sclera.rgba[i + 3] <= 8) continue;
-      darkest = Math.min(darkest, lumaAt(sclera.rgba, i));
-    }
-    expect(darkest).toBeGreaterThanOrEqual(120);
+    // The sclera is the blink clip-mask shape: the upper lash was recoloured
+    // white, so nothing dark survives in its top half. The lower lid stays as
+    // drawn: whitened, a lash hanging below the white would show as a flick.
+    const sclera = await rowsOf("eye_L");
+    expect(sclera.dark.length).toBeGreaterThan(0);
+    expect(Math.min(...sclera.dark)).toBeGreaterThan(mid);
 
     // The lash inks only the TOP of the shared frame — that is the fold that
     // covers the closed-eye seam, rather than the eye shrinking in place.
-    const lashPng = await decodePng(path.join(out, "lash_L.png"));
-    let lashMaxY = -1;
-    for (let y = 0; y < lashPng.height; y++) {
-      for (let x = 0; x < lashPng.width; x++) {
-        if (lashPng.rgba[(y * lashPng.width + x) * 4 + 3] > 8) lashMaxY = y;
-      }
-    }
-    expect(lashMaxY).toBeGreaterThan(eye.marginTop);
-    expect(lashMaxY).toBeLessThanOrEqual(eye.marginTop + eye.h / 2);
+    const upper = await rowsOf("lash_L");
+    expect(Math.max(...upper.dark)).toBeGreaterThan(eye.marginTop);
+    expect(Math.max(...upper.dark)).toBeLessThanOrEqual(mid);
 
-    // ...and both keep the eyewhite's frame, so the fold cannot tear.
-    expect(lash.marginLeft).toBe(eye.marginLeft);
+    // The lower lid inks only the bottom, all of it dark: it is the ink the
+    // iris would otherwise paint over.
+    const lowerRows = await rowsOf("lash_lower_L");
+    expect(lowerRows.dark.length).toBe(lowerRows.inked);
+    expect(Math.min(...lowerRows.dark)).toBeGreaterThan(mid);
+
+    // ...and all keep the eyewhite's frame, so the fold cannot tear.
+    for (const s of [lash, lower]) expect(s.marginLeft).toBe(eye.marginLeft);
     expect(lash.marginTop).toBe(eye.marginTop);
+    expect(lower.marginTop + lower.h).toBe(eye.marginTop + eye.h);
+    expect(full.layers.find((l) => l.role === "lash_lower_L")).toMatchObject({
+      width: 128,
+      left: 593,
+    });
+  });
+
+  it("places the lower lid by its eye's layout, mirrored with it", async () => {
+    const moved = outDir();
+    await composeOk({
+      partsDir: parts,
+      outDir: moved,
+      layout: {
+        eye_L: { cx: 667 },
+        lash_L: { cx: 667 },
+        eye_R: { cx: 433, w: 120 },
+        lash_R: { cx: 433, w: 120 },
+      },
+    });
+    for (const side of ["L", "R"]) {
+      const eye = await statsFor(moved, `eye_${side}`);
+      const lower = await statsFor(moved, `lash_lower_${side}`);
+      expect(lower.marginLeft).toBe(eye.marginLeft);
+      expect(lower.marginLeft + lower.w).toBe(eye.marginLeft + eye.w);
+      expect(lower.marginTop + lower.h).toBe(eye.marginTop + eye.h);
+    }
+    // Its own key would leave it behind when only the eye moves.
+    const error = await composeError({
+      partsDir: parts,
+      outDir: outDir(),
+      layout: { lash_lower_L: { cx: 667 } } as LayoutOverride,
+    });
+    expect(error).toMatch(/layout\.lash_lower_L: unknown role/);
+  });
+
+  it("writes no lower lid for a white that draws none, and removes an earlier one", async () => {
+    const dir = outDir();
+    await composeOk({ partsDir: parts, outDir: dir });
+    expect(fs.existsSync(path.join(dir, "lash_lower_L.png"))).toBe(true);
+
+    const plain = partsDir();
+    await writePartsSet(plain, { omit: ["eyewhite.png"] });
+    await writeEyewhite(plain, { lowerLid: false });
+    const r = await composeOk({ partsDir: plain, outDir: dir });
+    expect(r.skipped).toEqual(["lash_lower_L", "lash_lower_R"]);
+    expect(r.layers.map((l) => l.role)).toEqual(
+      ROLES.filter((role) => !r.skipped.includes(role)),
+    );
+    for (const side of ["L", "R"]) {
+      expect(fs.existsSync(path.join(dir, `lash_lower_${side}.png`))).toBe(
+        false,
+      );
+    }
   });
 
   it("drops a crease drawn detached above the eye white from the sclera", async () => {
     const creased = partsDir();
     await writePartsSet(creased, { omit: ["eyewhite.png"] });
-    await writeEyewhite(creased, { crease: "short" });
+    // No lower lid: its dark rim, kept in the sclera, would blend into the
+    // edges of the dots under it when resampled.
+    await writeEyewhite(creased, { crease: "short", lowerLid: false });
     const dir = outDir();
     const r = await composeOk({ partsDir: creased, outDir: dir });
 

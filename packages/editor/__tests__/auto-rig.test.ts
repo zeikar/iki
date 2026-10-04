@@ -2348,6 +2348,68 @@ describe("the other drivers", () => {
     expect(right).toEqual(landVertices(model, "eye_R"));
   });
 
+  describe("the lower lash", () => {
+    const { layers, options } = character();
+    // The lower lid's line along the bottom of the white, in its frame.
+    const lower = (side: "L" | "R"): LayerInput => {
+      const eye = layers.find((l) => l.role === `eye_${side}`)!;
+      return {
+        ...eye,
+        role: `lash_lower_${side}`,
+        fileName: `lash_lower_${side}.png`,
+        bbox: { ...eye.bbox, y: eye.bbox.y + 46, h: 20 },
+        cropH: 20,
+      };
+    };
+    const without = generateIkiFromLayerSet(layers, CANVAS, options);
+    const model = generateIkiFromLayerSet(
+      [...layers, lower("L"), lower("R")],
+      CANVAS,
+      options,
+    );
+    const minY = (v: Float32Array) => {
+      let m = Infinity;
+      for (let i = 1; i < v.length; i += 2) m = Math.min(m, v[i]);
+      return m;
+    };
+
+    it("draws over the iris and under the lash, unclipped", () => {
+      const ids = model.parts.map((p) => p.id);
+      expect(
+        ids.slice(ids.indexOf("iris_R") + 1, ids.indexOf("lash_L")),
+      ).toEqual(["lash_lower_L", "lash_lower_R"]);
+      expect(model.parts.find((p) => p.id === "lash_lower_L")!.clip).toBe(
+        undefined,
+      );
+    });
+
+    it("leaves every other part, deformer and parameter as it was", () => {
+      const strip = (m: IkiModel) => ({
+        ...m,
+        parts: m.parts
+          .filter((p) => !p.id.startsWith("lash_lower_"))
+          .map(({ order: _order, ...p }) => p),
+      });
+      expect(strip(model)).toEqual(strip(without));
+    });
+
+    it("folds with the white onto its crease", () => {
+      const shut = { [P.EyeOpenLeft]: 0 };
+      const crease = landVertices(model, "eye_L", shut)[1];
+      const v = landVertices(model, "lash_lower_L", shut);
+      for (let i = 1; i < v.length; i += 2) expect(v[i]).toBeCloseTo(crease, 3);
+      // Half shut, its bottom row stays on the white's.
+      const half = { [P.EyeOpenLeft]: 0.5 };
+      expect(minY(landVertices(model, "lash_lower_L", half))).toBeCloseTo(
+        minY(landVertices(model, "eye_L", half)),
+        3,
+      );
+      expect(landVertices(model, "lash_lower_R", shut)).toEqual(
+        landVertices(model, "lash_lower_R"),
+      );
+    });
+  });
+
   it("hangs the long hair back on a tilt, the same both ways", () => {
     const hair = model.parts.find((p) => p.id === "hair_back")!;
     const bottom = hair.transform.y - hair.height / 2 + 5;

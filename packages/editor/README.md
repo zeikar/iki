@@ -57,7 +57,7 @@ leaves the document untouched.
 ## Auto-rig
 
 `generateIkiFromLayerSet` turns role-named layers (`face`, `eye_L`, `eye_R`,
-`mouth`, plus optional `iris_*`, `brow_*`, `lash_*`, `hair_front`, `hair_back`,
+`mouth`, plus optional `iris_*`, `brow_*`, `lash_*`, `lash_lower_*`, `hair_front`, `hair_back`,
 …) into a rigged model that blinks, gazes, opens its mouth, turns its head over
 a torso that breathes, and emotes with its brows — including a
 hair-sway physics rig when a `hair_front` layer is present.

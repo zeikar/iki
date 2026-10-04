@@ -143,9 +143,12 @@ export async function writeEyewhite(
   {
     tearDuct,
     crease,
+    lowerLid = true,
   }: {
     tearDuct?: "left" | "right";
     crease?: "short" | "long" | "bridged" | "translucent";
+    /** Leave it out for a white with no dark lower lid. */
+    lowerLid?: boolean;
   } = {},
 ): Promise<void> {
   await writeRgbaPart(dir, "eyewhite.png", 72, 48, (set) => {
@@ -187,7 +190,7 @@ export async function writeEyewhite(
     // bbox — row 4 + 0.5*40 = 24. The two rims straddle that line with a gap
     // on either side, so which one survives is not decided by rounding.
     rim(setLash, bounds, 36, 24, 64, 40, 4, (y) => y < 22, DARK);
-    rim(set, bounds, 36, 24, 64, 40, 3, (y) => y > 25, DARK);
+    if (lowerLid) rim(set, bounds, 36, 24, 64, 40, 3, (y) => y > 25, DARK);
   });
 }
 

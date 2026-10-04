@@ -116,15 +116,18 @@ export function motionReach(
 /** The eye white folds shut onto a crease, the upper lid coming `travel` of
  *  the eye's height down; as its clip region closes, the iris is cut away
  *  rather than squashed. Shut, it has no height at all: any band left open
- *  shows a strip of iris under the lash. */
+ *  shows a strip of iris under the lash. A lower lash (`box`, drawn over the
+ *  iris) folds onto the same crease of its `eye`, so it moves with the
+ *  white's rows and closes into the seam under the upper lash. */
 export function blinkFold(
   param: string,
   mesh: IkiMesh,
-  eye: Box,
+  box: Box,
   travel: number,
+  eye: Box = box,
 ): IkiWarp {
   const yc = eye.y1 - travel * bh(eye);
-  return localWarp(param, mesh, eye, [0, 1], ([, y], v) =>
+  return localWarp(param, mesh, box, [0, 1], ([, y], v) =>
     v === 1 ? [0, 0] : [0, yc - y],
   );
 }

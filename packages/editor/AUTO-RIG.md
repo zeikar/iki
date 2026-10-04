@@ -183,14 +183,14 @@ The plate, the blush and both hair layers carry their own AngleX and AngleY
 keyforms (per vertex, under `headDeformer`); each feature family rides its own
 small warp grid, baked from its field at `AngleX, AngleY ∈ {−30, 0, 30}`:
 
-| Family (grid)      | Parts                                                 |
-| ------------------ | ----------------------------------------------------- |
-| `eyeWarp_L/R`      | `eye_*`, `iris_*`, `pupil_*`, `highlight_*`, `lash_*` |
-| `browWarp_L/R`     | `brow_*`                                              |
-| `noseWarp`         | `nose`                                                |
-| `mouthWarp`        | `mouth`, `mouth_open`                                 |
-| — (own keyforms)   | `face`, `blush_*`, `hair_front`, `hair_back`          |
-| — (`bodyDeformer`) | `body`: breath only                                   |
+| Family (grid)      | Parts                                                                 |
+| ------------------ | --------------------------------------------------------------------- |
+| `eyeWarp_L/R`      | `eye_*`, `iris_*`, `pupil_*`, `highlight_*`, `lash_lower_*`, `lash_*` |
+| `browWarp_L/R`     | `brow_*`                                                              |
+| `noseWarp`         | `nose`                                                                |
+| `mouthWarp`        | `mouth`, `mouth_open`                                                 |
+| — (own keyforms)   | `face`, `blush_*`, `hair_front`, `hair_back`                          |
+| — (`bodyDeformer`) | `body`: breath only                                                   |
 
 ## Style knobs and the fit
 
@@ -268,7 +268,9 @@ curvature the plate would need to put the eyes that far in front of its edge.
   coming down `blink` (0.6) of the eye's height (its clip region closes, so
   the iris is cut away, never squashed); the lash comes down onto the crease
   and flattens over the seam, its middle sagging further than its ends so the
-  drawn arch does not close into a smile.
+  drawn arch does not close into a smile. A lower lash — the lower lid's line
+  and lashes, drawn over the iris — folds onto the same crease with the white,
+  so it never parts from the white's lower edge and closes into the seam.
 - **Gaze** — iris, pupil (and half as far, a highlight) translate 0.2 of the
   iris's width sideways and 0.1 up or down, clipped to the white; they sit
   under the eye grid, so the turn carries them.

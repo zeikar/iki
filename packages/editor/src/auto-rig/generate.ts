@@ -394,6 +394,10 @@ function buildPart(
     case "eye_R":
       warps.push(blinkFold(eyeOpen, mesh!, b, style.blink));
       break;
+    case "lash_lower_L":
+    case "lash_lower_R":
+      warps.push(blinkFold(eyeOpen, mesh!, b, style.blink, box(`eye_${side}`)));
+      break;
     case "lash_L":
     case "lash_R":
       warps.push(lashFold(eyeOpen, mesh!, b, box(`eye_${side}`), style.blink));
