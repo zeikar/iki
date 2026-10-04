@@ -49,7 +49,7 @@ You own the character assets. You do not own the packages.
   left-right as it reads them (its `mirrorParts`). Absent until a part comes
   back drawn facing the other way.
 - `<workdir>/style.json` — the `style` knobs you hand to `auto_rig_from_layers`,
-  tuning the rig from the measured Live2D profile (`{}` is the profile itself):
+  tuning the rig from the profile (`{}` is the profile itself):
   `turn` (0–3, default 1: the whole head turn, as a multiple of the
   profile's), `featureLead` (0–3, default 1: how far the features lead the face
   plate), `hairFollow` (0–2, default 1.1: the front hair's share of the face's
@@ -123,7 +123,7 @@ the prompt patterns and the hard-won pitfalls. Then:
    lossless model is ~2.5× larger: 3.18MB against 1.28MB on the hero).
 
    Pass `style` as well when it is not empty — the knobs verbatim — and never
-   `turnTargets`: the rig's default, the Live2D profile, is every character's
+   `turnTargets`: the rig's default profile is every character's
    starting point, and `style` is how it is tuned. The result's `turn` block
    reports what the turn reaches (`turn.achieved`), what this layer set cut
    down to what it can do (`turn.clamped`, which can name an `eyeShift` — the

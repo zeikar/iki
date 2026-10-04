@@ -51,7 +51,7 @@ artist agent applies your findings; the orchestrator arbitrates.
   still looks like itself turned — its face shape, its hairstyle, which side
   hides what. It never supplies a knob's value, nor a place within a knob's
   range: a drawn turn often overstates (one drew its nose leading about 1.6×
-  the Live2D samples' profile), and rounds fitted to it overshot. Nothing
+  the profile's), and rounds fitted to it overshot. Nothing
   measures it. It is drawn at that specific angle, not a generic 3/4 view,
   because a drawing at 45° over-asks a 30° rig by ~1.7× (measured, not
   derived).
@@ -206,24 +206,24 @@ and at the limit (30°): does the head read as turning in depth — the face
 plate sliding, the features leading it (the nose most), the front hair
 following it, the back hair staying behind it — or as a flat cutout sliding
 sideways? `reference-30.png` only checks that the character still looks like
-itself turned. The rig starts every character on the measured Live2D profile,
+itself turned. The rig starts every character on the profile,
 and how far the face turns, the features lead it and the front hair follows it
 are what differs between characters. So a turn amount that reads wrong on the
 renders is a `retune` of a `style.json` knob that names its new value, with
-the evidence from the renders, inside that knob's range in the Live2D samples
+the evidence from the renders, inside that knob's range in the Recommended
 column of the **iki-character** skill's Step 3 knob table: a turn too weak or
 too strong is `style.turn`; features leading too much or too little,
 `style.featureLead`; the front hair following too much or too little,
 `style.hairFollow` (where the front hair draws the head's outline,
-`style.outlineFollow` stays at the samples' 0 — their outline holds — so a
+`style.outlineFollow` stays at 0 — the outline holds — so a
 retune only returns it there; back hair painted behind that edge may add
 motion on top of it). Judge `featureLead` by the eye pair's lead over the face
-plate, not the nose's: the samples agree on the nose's lead over the eyes'
-(1.5–3.0×, the rig 2.0×), so the nose's own lead, on the renders or in
+plate, not the nose's: the nose's lead over the eyes' is the profile's own
+(`noseDepth`, which no knob tunes), so the nose's own lead, on the renders or in
 `reference-30.png`, is no `featureLead` finding. A `style` retune always names
-its new value, never one outside the knob's Live2D samples range, and how far
+its new value, never one outside the knob's recommended range, and how far
 `reference-30.png` turns, leads or follows neither moves a knob nor lowers the
-`turn` score. At the range's end the knob has gone as far as the samples go:
+`turn` score. At the range's end the knob has gone as far as is recommended:
 name no further retune of it. Blink depth — how far the lid comes down at
 `ParamEyeLOpen` 0 — maps to `style.blink` the same way, and the hair's sway
 amplitude, where a render shows it, to `style.sway`.
@@ -279,7 +279,7 @@ Every finding carries a `type`, and the type decides who acts:
   generation, minutes per image. Name only parts that genuinely need it.
 - **`retune`** — the art is fine, its placement, its scale or the rig's
   tuning is wrong. Name the `layout.json` key (e.g. `iris_L.cx`) or the
-  `style.json` knob (e.g. `style.turn`; its default and the Live2D samples'
+  `style.json` knob (e.g. `style.turn`; its default and the recommended
   range a retune stays inside are in the **iki-character** skill's Step 3),
   the direction (for a `style.json` knob, its new value), and the measured
   evidence.
