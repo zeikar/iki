@@ -47,11 +47,14 @@ artist agent applies your findings; the orchestrator arbitrates.
 
 - `reference` — path to the front-facing reference illustration (the target look).
 - `reference-30` — the same character turned to the rig's own `ParamAngleX`
-  limit (30°): the style check you judge the turn poses against by eye — how
-  far this character's face turns, how far its features lead, how far its hair
-  follows. Nothing measures it. It is drawn at that specific angle, not a
-  generic 3/4 view, because a drawing at 45° over-asks a 30° rig by ~1.7x
-  (measured, not derived).
+  limit (30°): a style check you read by eye. It shows whether the character
+  still looks like itself turned — its face shape, its hairstyle, which side
+  hides what. It never supplies a knob's value, nor a place within a knob's
+  range: a drawn turn often overstates (one drew its nose leading about 1.6×
+  the Live2D samples' profile), and rounds fitted to it overshot. Nothing
+  measures it. It is drawn at that specific angle, not a generic 3/4 view,
+  because a drawing at 45° over-asks a 30° rig by ~1.7× (measured, not
+  derived).
 - `layers` — the composed role-layer dir (`face.png`, `eye_L.png`, …, `preview.png`).
 - `renders` — screenshots of the rigged model in the engine: rest, head-turn,
   blink, gaze, the between-stop poses (`ParamAngleX`/`ParamAngleY` at 15°,
@@ -154,9 +157,10 @@ quote them.
 
 ## Step 2 — score the rubric
 
-Score each axis 0–5 against the references (5 = indistinguishable in that
-respect). Judge the **rendered** character, not the flat preview, except where
-an axis is about the source art.
+Score each axis 0–5 against the references — `turn` on the rig's own
+renders, as below — (5 = indistinguishable in that respect). Judge the
+**rendered** character, not the flat preview, except where an axis is about
+the source art.
 
 | Axis      | What you are judging                                         |
 | --------- | ------------------------------------------------------------ |
@@ -197,26 +201,37 @@ canvas's width with shoulders, and shrinking it lowers the neck's top — it is 
 `regenerate` of `body.png` framed down to the waist.
 
 `turn` asks whether the motion reads right, not whether it survives — judged
-by eye against `reference-30.png`, on attributes, not overlap, as above. At
-the between-stop `ParamAngleX` pose (15°) and at the limit: does the head read
-as turning in depth — the face plate sliding, the features leading it (the
-nose most), the back hair staying behind it — or as a flat cutout sliding
-sideways? Then hold it against the reference: does the face turn as far as the
-reference's, do the features lead it as far, does the front hair follow it as
-far? The rig starts every character on the measured Live2D profile, and those
-three are what differs between characters, so each is a `retune` of a
-`style.json` knob, with a direction and the evidence from the renders: a turn
-weaker or stronger than the reference's is `style.turn`; features leading
-more or less, `style.featureLead`; hair following more or less,
-`style.hairFollow` (`style.outlineFollow` where the front hair draws the head's
-outline; back hair painted behind that edge may add motion on top of it). Blink depth — how far the lid comes down at `ParamEyeLOpen` 0 —
-maps to `style.blink` the same way, and the hair's sway amplitude, where a
-render shows it, to `style.sway`.
+by eye on the rig's own renders. At the between-stop `ParamAngleX` pose (15°)
+and at the limit (30°): does the head read as turning in depth — the face
+plate sliding, the features leading it (the nose most), the front hair
+following it, the back hair staying behind it — or as a flat cutout sliding
+sideways? `reference-30.png` only checks that the character still looks like
+itself turned. The rig starts every character on the measured Live2D profile,
+and how far the face turns, the features lead it and the front hair follows it
+are what differs between characters. So a turn amount that reads wrong on the
+renders is a `retune` of a `style.json` knob that names its new value, with
+the evidence from the renders, inside that knob's range in the Live2D samples
+column of the **iki-character** skill's Step 3 knob table: a turn too weak or
+too strong is `style.turn`; features leading too much or too little,
+`style.featureLead`; the front hair following too much or too little,
+`style.hairFollow` (where the front hair draws the head's outline,
+`style.outlineFollow` stays at the samples' 0 — their outline holds — so a
+retune only returns it there; back hair painted behind that edge may add
+motion on top of it). Judge `featureLead` by the eye pair's lead over the face
+plate, not the nose's: the samples agree on the nose's lead over the eyes'
+(1.5–3.0×, the rig 2.0×), so the nose's own lead, on the renders or in
+`reference-30.png`, is no `featureLead` finding. A `style` retune always names
+its new value, never one outside the knob's Live2D samples range, and how far
+`reference-30.png` turns, leads or follows neither moves a knob nor lowers the
+`turn` score. At the range's end the knob has gone as far as the samples go:
+name no further retune of it. Blink depth — how far the lid comes down at
+`ParamEyeLOpen` 0 — maps to `style.blink` the same way, and the hair's sway
+amplitude, where a render shows it, to `style.sway`.
 
 A turn `clamped` names (`eyeShift`) ran out of the art's room, not the knob's:
 raising `style.turn` gains nothing at the face plate's edge or the neck, and at
-the bangs' side strand only slides the far iris under it. A turn weaker than
-the reference there is a `retune` of the placement that gave out (the eye in
+the bangs' side strand only slides the far iris under it. A turn that still
+reads too weak there is a `retune` of the placement that gave out (the eye in
 `layout.json`) or a `regenerate` of `hair_front` with the side strand clear of
 the iris — say which room ran out.
 
@@ -236,9 +251,9 @@ parameters) all leave as measured. A nod motion defect is therefore an
 evidence, never a `style` retune.
 
 The deltas from Step 1 check the render against the rig's report, not whether
-the turn matches the reference: a delta within ±0.05 clears nothing about the
-look, and the `turn` score is the judgement above. A rig can render exactly
-what it reports and still score low against `reference-30.png`.
+the turn reads right: a delta within ±0.05 clears nothing about the look, and
+the `turn` score is the judgement above. A rig can render exactly what it
+reports and still score low on `turn`.
 
 A `strandOverlap` side in `turn-clamped` is evidence to classify, not by
 itself an `escalate` on `packages/editor/src/auto-rig/`, and its `px` is quoted in MEASUREMENTS.
@@ -264,8 +279,10 @@ Every finding carries a `type`, and the type decides who acts:
   generation, minutes per image. Name only parts that genuinely need it.
 - **`retune`** — the art is fine, its placement, its scale or the rig's
   tuning is wrong. Name the `layout.json` key (e.g. `iris_L.cx`) or the
-  `style.json` knob (e.g. `style.turn`; its default and range are in the
-  **iki-character** skill's Step 3), the direction, and the measured evidence.
+  `style.json` knob (e.g. `style.turn`; its default and the Live2D samples'
+  range a retune stays inside are in the **iki-character** skill's Step 3),
+  the direction (for a `style.json` knob, its new value), and the measured
+  evidence.
   A part drawn facing the other way (an eye whose lash stops short of its outer
   corner instead of its tear duct) is a retune too: target `mirror-parts.json`,
   naming the part file. **Free** — recomposing and re-rigging cost nothing, so

@@ -95,9 +95,10 @@ The two seed lines only write a file that is missing, so re-entering or
 restarting the loop keeps the tuning you already paid for — the workdir is
 gitignored, so an overwrite here has no repository copy to recover it from.
 `style.json` is the per-character rig tuning surface: the `style` knobs of
-`auto_rig_from_layers` (their defaults and ranges are in the **iki-character**
-skill, Step 3), where `{}` is the measured Live2D profile every character
-starts from. Only the artist edits it, and only on a critic `retune`.
+`auto_rig_from_layers` (their defaults, and the Live2D samples' ranges a
+retune stays inside, are in the **iki-character** skill, Step 3), where `{}`
+is the measured Live2D profile every character starts from. Only the artist
+edits it, and only on a critic `retune`.
 
 If `<workdir>/reference.png` and `reference-30.png` already exist (a restart),
 reuse them — do not regenerate. Otherwise, generate 2–3 reference candidates
@@ -106,18 +107,21 @@ the user supplies. It must be a single front-facing character in the target
 style. Then run `gen-turn-reference.sh <workdir>/reference.png <workdir>` once
 to produce `<workdir>/reference-30.png`: the same character turned to the
 rig's own `ParamAngleX` limit (30°). It is a style check, nothing more — the
-critic reads it by eye to judge how this character's turn should look, and
-nothing measures it. Drawn at 30° so the comparison is like for like: a
-drawing at 45° over-asks a 30° rig by ~1.7x (measured, not derived). Redo the
-generation if both eyes are not fully visible, the torso turned with the head,
-or any attribute drifted from the front reference.
+critic reads it by eye for whether the character still looks like itself
+turned, and nothing measures it. Nothing fits the rig to it or picks a knob's
+value from it: every turn amount stays inside the Live2D samples' ranges in
+the **iki-character** skill's knob table (Step 3). Drawn at 30° so the
+comparison is like for like: a drawing at 45° over-asks a 30° rig by ~1.7×
+(measured, not derived). Redo the generation if both eyes are not fully
+visible, the torso turned with the head, or any attribute drifted from the
+front reference.
 
 A restarted workdir may still hold a `turn-targets.json` from an earlier
 version of this loop; it is ignored.
 
 Then go to Step 1. `reference.png` and `reference-30.png` are frozen, because
-everything is judged against them and changing either of them mid-loop or on
-a restart invalidates every prior score.
+every round reads them and changing either of them mid-loop or on a restart
+invalidates every prior score.
 
 ### Step 1 — round
 
@@ -301,9 +305,10 @@ rounds, what remains unfixed, and every escalation with your recommendation.
 
 The rig's defaults are not constants tuned by eye: they are the Live2D profile
 measured on the Cubism sample models (`packages/editor/AUTO-RIG.md`). So a turn
-that reads wrong against `reference-30.png` — too weak or too strong, the
-features leading the face too much or too little, the hair following it too
-much or too little — is first a `style` retune, free and per character. A rig
+whose amounts read wrong on the rig's own renders — too weak or too strong,
+the features leading the face too much or too little, the hair following it
+too much or too little — is first a `style` retune, free and per character,
+inside the samples' ranges and never toward what `reference-30.png` shows. A rig
 defect is the package escalation: a seam, a fold, a part detaching from the one
 it sits on, or a nod that slides instead of tipping (no `style` knob reaches
 `ParamAngleY`). A render that disagrees with the rig's own report even on a
