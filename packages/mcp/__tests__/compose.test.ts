@@ -205,8 +205,8 @@ describe("composeLayersFromParts", () => {
     // A part is resized to its layout width and centred on its cx, so both are
     // fixed by the layout, not by the fixture's aspect ratio.
     expect(full.layers.find((l) => l.role === "eye_L")).toMatchObject({
-      width: 128,
-      left: 593,
+      width: 98,
+      left: 587,
     });
     expect(full.preview).toBe(path.join(full.outDir, "preview.png"));
     const preview = await sharp(full.preview).metadata();
@@ -263,8 +263,8 @@ describe("composeLayersFromParts", () => {
     expect(lash.marginTop).toBe(eye.marginTop);
     expect(lower.marginTop + lower.h).toBe(eye.marginTop + eye.h);
     expect(full.layers.find((l) => l.role === "lash_lower_L")).toMatchObject({
-      width: 128,
-      left: 593,
+      width: 98,
+      left: 587,
     });
   });
 
@@ -339,9 +339,9 @@ describe("composeLayersFromParts", () => {
     const r = await composeOk({ partsDir: creased, outDir: dir });
 
     // The frame is still the source's alpha bbox, crease rows and all (68x47,
-    // 128x88 at w 128), so no layout moves.
+    // 98x68 at w 98), so no layout moves.
     for (const role of ["eye_L", "eye_R", "lash_L", "lash_R"]) {
-      expect(r.layers.find((l) => l.role === role)?.height).toBe(88);
+      expect(r.layers.find((l) => l.role === role)?.height).toBe(68);
     }
     const source = await decodePng(path.join(creased, "eyewhite.png"));
     for (const side of ["L", "R"]) {
@@ -522,8 +522,8 @@ describe("composeLayersFromParts", () => {
     // on blush_R's left and on blush_L's right.
     const roles = full.layers.map((l) => l.role);
     for (const [role, cx, markSide] of [
-      ["blush_L", 662, 1],
-      ["blush_R", 438, -1],
+      ["blush_L", 641, 1],
+      ["blush_R", 459, -1],
     ] as const) {
       expect(roles.indexOf(role)).toBeGreaterThan(roles.indexOf("face"));
       expect(roles.indexOf(role)).toBeLessThan(roles.indexOf("nose"));
@@ -576,12 +576,12 @@ describe("composeLayersFromParts", () => {
     ]);
     expect(roles.indexOf("nose")).toBeLessThan(roles.indexOf("mouth"));
     // Its dense core is w wide and centred on cx; with no cy its tip lands
-    // 0.86 of the way from the eye row (475) to the mouth's (619): row 599.
+    // 0.66 of the way from the eye row (475) to the mouth's (594): row 554.
     // The fixture nose is opaque, so its core is the whole part, exactly w.
     const core = await noseCoreIn(out);
-    expect(core.w).toBe(40);
+    expect(core.w).toBe(20);
     expect(Math.abs(core.cx - 550)).toBeLessThanOrEqual(0.5);
-    expect(core.bottom).toBe(599);
+    expect(core.bottom).toBe(554);
   });
 
   it("sizes and places a soft nose by its dense core, not its feather", async () => {
@@ -591,13 +591,13 @@ describe("composeLayersFromParts", () => {
       outDir: dir,
     });
 
-    // ±1 on a soft core: resampling the feather lifts a column next to it over
-    // 128 (41 wide for w 40, 51 for w 50).
+    // ±1 on a soft core: resampling the feather can lift a column next to it
+    // over 128.
     const core = await noseCoreIn(dir);
-    expect(Math.abs(core.w - 40)).toBeLessThanOrEqual(1);
+    expect(Math.abs(core.w - 20)).toBeLessThanOrEqual(1);
     expect(Math.abs(core.cx - 550)).toBeLessThanOrEqual(0.5);
-    expect(core.bottom).toBe(599);
-    // Sized by its trimmed extent, the whole feather would have been 40 wide
+    expect(core.bottom).toBe(554);
+    // Sized by its trimmed extent, the whole feather would have been 20 wide
     // and the core a dot inside it.
     const extent = await statsFor(dir, "nose");
     expect(extent.w).toBeGreaterThan(core.w);
@@ -615,8 +615,8 @@ describe("composeLayersFromParts", () => {
       outDir: dir,
       layout: { mouth: { cy: 633 } },
     });
-    // 475 + 0.86 * (633 - 475) = 610.88: the hero's tip row.
-    expect((await noseCoreIn(dir)).bottom).toBe(611);
+    // 475 + 0.66 * (633 - 475) = 579.28.
+    expect((await noseCoreIn(dir)).bottom).toBe(579);
   });
 
   it("centres the nose's dense core on a given cy", async () => {
@@ -648,14 +648,14 @@ describe("composeLayersFromParts", () => {
     });
     const core = await noseCoreIn(dir);
     expect(Math.abs(core.h - 70)).toBeLessThanOrEqual(1);
-    expect(Math.abs(core.w - 40)).toBeLessThanOrEqual(1);
-    expect(core.bottom).toBe(599);
+    expect(Math.abs(core.w - 20)).toBeLessThanOrEqual(1);
+    expect(core.bottom).toBe(554);
   });
 
   it.each([
     // The feather scales with the core, so a nose's w or h can run the whole
     // part past the canvas although resolveLayout caps both at it.
-    [{ h: 1100 }, "h", "72x1760"],
+    [{ h: 1100 }, "h", "36x1760"],
     [{ w: 1100 }, "w", "1980x2640"],
   ])(
     "rejects a nose core %o whose part would overflow the canvas",
@@ -680,7 +680,7 @@ describe("composeLayersFromParts", () => {
     // The nose draws before the mouth, so it is the first part refused.
     expect(error).toBe(
       "layout.nose.cx/cy (cy unset: its tip row comes from layout.eye_L/eye_R/mouth.cy): " +
-        `the placed part (72x96 at 514,4299977) falls entirely outside the ${CANVAS} canvas`,
+        `the placed part (36x48 at 532,3300118) falls entirely outside the ${CANVAS} canvas`,
     );
   });
 
@@ -693,13 +693,13 @@ describe("composeLayersFromParts", () => {
       outDir: dir,
     });
     const extent = await statsFor(dir, "nose");
-    expect(extent.w).toBe(40);
-    expect(CANVAS - 1 - extent.marginBottom).toBe(599);
+    expect(extent.w).toBe(20);
+    expect(CANVAS - 1 - extent.marginBottom).toBe(554);
   });
 
   it("sizes and places a nose whose dense core is a speck by its whole part, and warns", async () => {
     // Its only pixels at alpha 128 are a 4x3 nostril mark: sized by that, the
-    // 36 px part would have come out 360 px wide. The whole part stands in, as
+    // 36 px part would have come out 180 px wide. The whole part stands in, as
     // for a nose with no core, placed by the same tip rule.
     const dir = outDir();
     const result = await composeOk({
@@ -707,8 +707,8 @@ describe("composeLayersFromParts", () => {
       outDir: dir,
     });
     const extent = await statsFor(dir, "nose");
-    expect(extent.w).toBe(40);
-    expect(CANVAS - 1 - extent.marginBottom).toBe(599);
+    expect(extent.w).toBe(20);
+    expect(CANVAS - 1 - extent.marginBottom).toBe(554);
     const nose = result.measure.warnings.filter((w) => w.startsWith("nose:"));
     expect(nose).toHaveLength(1);
     expect(nose[0]).toMatch(
@@ -1122,7 +1122,7 @@ describe("composeLayersFromParts", () => {
       layout: { eye_L: { w: 140, h: 86 }, lash_L: { w: 120, h: 86 } },
     });
     expect(narrowed).toMatch(
-      /^layout\.lash_L places the lash at 120x86 \(597,432\), but layout\.eye_L places its sclera at 140x86 \(587,432\)/,
+      /^layout\.lash_L places the lash at 120x86 \(576,432\), but layout\.eye_L places its sclera at 140x86 \(566,432\)/,
     );
 
     // An h set on the sclera alone leaves the lash on the part's own aspect.
@@ -1132,7 +1132,7 @@ describe("composeLayersFromParts", () => {
       layout: { eye_R: { h: 90 } },
     });
     expect(halfSet).toMatch(
-      /^layout\.lash_R places the lash at 128x80 .* sclera at 128x90/,
+      /^layout\.lash_R places the lash at 98x61 .* sclera at 98x90/,
     );
   });
 
@@ -1154,11 +1154,11 @@ describe("composeLayersFromParts", () => {
   });
 
   it("accepts an h that lands the pair on the same frame as its aspect", async () => {
-    // The fixture eyewhite crops to 64x40, so 128 wide it is 80 tall anyway.
+    // The fixture eyewhite crops to 64x40, so 98 wide it is 61 tall anyway.
     const r = await composeOk({
       partsDir: parts,
       outDir: outDir(),
-      layout: { eye_R: { h: 80 } },
+      layout: { eye_R: { h: 61 } },
     });
     const eye = r.layers.find((l) => l.role === "eye_R")!;
     const lash = r.layers.find((l) => l.role === "lash_R")!;

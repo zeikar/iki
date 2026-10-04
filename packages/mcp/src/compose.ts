@@ -39,12 +39,12 @@ export const CANVAS = 1100;
 // Iris width as a fraction of the sclera width. Anime irises fill most of the
 // eye opening and are clipped by the lids — the auto-rig clips iris->sclera at
 // runtime, so a large iris cannot spill. The first sample's 32% iris read as a
-// bead floating in white, so the defaults below use 56.25% (72px in a 128px
-// opening) to reduce excess white below the iris. A caller retunes eye size
-// through `layout.eye_L/eye_R.w` and MUST move `layout.iris_L/iris_R.w` with it
-// to keep that ratio.
-const EYE_W = 128;
-const IRIS_W = Math.round(EYE_W * 0.5625);
+// bead floating in white; the defaults below are the hero bob's, 50px in a
+// 98px opening (0.51). A caller retunes eye size through
+// `layout.eye_L/eye_R.w` and MUST move `layout.iris_L/iris_R.w` with it to keep
+// that ratio.
+const EYE_W = 98;
+const IRIS_W = 50;
 
 /** The eyewhite source that prepEyeSplit() splits into sclera + lash. */
 const EYEWHITE_SRC = "eyewhite.png";
@@ -108,17 +108,21 @@ interface Box {
 
 /**
  * Where a nose with no `cy` puts its tip, as a fraction of the way from the
- * eye row down to the mouth's. Tuned on the hero's medium nose: tip row 611
- * between eye row 475 and mouth row 633 (136/158 ≈ 0.86). Centring that nose
- * on the old default row 586 put its tip into the mouth.
+ * eye row down to the mouth's. Bob's: tip row 554 between eye row 475 and
+ * mouth row 594 (79/119 ≈ 0.66), so the default rows land bob's nose where his
+ * own layout placed it.
  */
-const NOSE_TIP_AT = 0.86;
+const NOSE_TIP_AT = 0.66;
 
 // ── DEFAULT LAYOUT (tune per character through `layout`) ──────────────────────
 // These defaults assume the standard framing the character skill prompts for
-// (a front-facing face centered on the canvas). If the rendered model is
-// misaligned, tune cx/cy/w through the `layout` override and re-run — composing
-// is cheap and the parts do not need regenerating.
+// (a front-facing face centered on the canvas). The face and its features are
+// the hero bob's own tuning, which reads more natural than any other character
+// so far; the hair and the torso depend on the hairstyle and on how the torso
+// is framed, so they are older defaults every character retunes from the
+// report. If the rendered model is misaligned, tune cx/cy/w through the
+// `layout` override and re-run — composing is cheap and the parts do not need
+// regenerating.
 //
 // eyeSide reminder: eye_L = character's LEFT eye = screen RIGHT (larger cx).
 // Which way a source faces is fixed by the mirror flags below, and "left eye"
@@ -146,26 +150,27 @@ const DEFAULT_LAYOUT = {
   // The torso, cut off by the canvas bottom, so the character is not a
   // floating head. It rides its own `bodyDeformer`, which only breathes.
   body: { src: "body.png", cx: 550, cy: 1017, w: 840, optional: true },
-  face: { src: "face.png", cx: 550, cy: 475, w: 400 },
+  // The face is drawn without a neck, so its box is the skull and centres
+  // above the eye row (bob's skull at 437 against his eyes' 475).
+  face: { src: "face.png", cx: 550, cy: 437, w: 400 },
   // The cheek blush, one part for both cheeks: blush_R (screen left) takes it
   // as drawn and blush_L mirrors it, like the eyewhite. It draws over the face
-  // and under the nose. Its box sits below each eye, centred just outside the
-  // eye's centre and above the nose tip. Tuned on the hero's face at its
-  // default placement, which narrows fast below the eye row: a 96-wide box at
-  // row 552 ran up to 24 px past the cheek's drawn outline (inside the ears),
-  // and this one, for a 2:1 blush, stays inside it by 1 px at its lower outer
-  // corner. OPTIONAL, and decoration: a parts dir without it composes, and
-  // nothing reports it missing.
-  blush_L: { src: "blush.png", cx: 662, cy: 530, w: 56, optional: true, mirror: true }, // prettier-ignore
-  blush_R: { src: "blush.png", cx: 438, cy: 530, w: 56, optional: true, mirror: false }, // prettier-ignore
+  // and under the nose. Its box sits below each eye, centred 5 px outside the
+  // eye's centre and 55 px under its row, above the nose tip: on bob's face,
+  // which narrows fast below the eye row, a 2:1 blush there stays on the
+  // cheek through the turn, where one 26 px further out reached the ears.
+  // OPTIONAL, and decoration: a parts dir without it composes, and nothing
+  // reports it missing.
+  blush_L: { src: "blush.png", cx: 641, cy: 530, w: 56, optional: true, mirror: true }, // prettier-ignore
+  blush_R: { src: "blush.png", cx: 459, cy: 530, w: 56, optional: true, mirror: false }, // prettier-ignore
   // The nose, drawn on its own (the face is drawn without one): the auto-rig
   // leads the head turn with it and keys the other features' slide on its
   // presence, so without it the features stay on the face plate. `w` is the
   // width of its dense core, and it has no `cy`: its row comes from the tip
   // rule (NOSE_TIP_AT), between the eyes and the mouth, so it follows them
   // when they are retuned. OPTIONAL: a parts dir without it composes.
-  nose: { src: "nose.png", cx: 550, w: 40, optional: true },
-  mouth: { src: "mouth.png", cx: 550, cy: 619, w: 68 },
+  nose: { src: "nose.png", cx: 550, w: 20, optional: true },
+  mouth: { src: "mouth.png", cx: 550, cy: 594, w: 76 },
   // Cross-fades with `mouth` on ParamMouthOpenY (opacity, not scaleY) once the
   // auto-rig sees both roles. Same cx/w as `mouth` so the lip width matches;
   // its top edge (not center) lines up with the closed mouth's top edge since
@@ -174,29 +179,30 @@ const DEFAULT_LAYOUT = {
   mouth_open: {
     src: "mouth_open.png",
     cx: 550,
-    cy: 621,
-    w: 68,
+    cy: 596,
+    w: 76,
     optional: true,
   },
   // eye_* (sclera) and lash_* share the eyewhite's cropped frame via noTrim (so
   // they are NOT re-bboxed independently): the upper lash stays anchored ABOVE
   // the sclera center, so on blink it folds DOWN over the eye like the sample
   // model instead of the whole eye shrinking in place. Same cx/cy/w.
-  eye_L: { src: "eyewhite_sclera.png", cx: 657, cy: 475, w: EYE_W, mirror: true, noTrim: true }, // prettier-ignore
-  eye_R: { src: "eyewhite_sclera.png", cx: 443, cy: 475, w: EYE_W, mirror: false, noTrim: true }, // prettier-ignore
-  iris_L: { src: "iris.png", cx: 653, cy: 475, w: IRIS_W, mirror: false },
-  iris_R: { src: "iris.png", cx: 447, cy: 475, w: IRIS_W, mirror: false },
+  eye_L: { src: "eyewhite_sclera.png", cx: 636, cy: 475, w: EYE_W, mirror: true, noTrim: true }, // prettier-ignore
+  eye_R: { src: "eyewhite_sclera.png", cx: 464, cy: 475, w: EYE_W, mirror: false, noTrim: true }, // prettier-ignore
+  // A little under the white's centre and toward the nose, as bob's sits.
+  iris_L: { src: "iris.png", cx: 631, cy: 480, w: IRIS_W, mirror: false },
+  iris_R: { src: "iris.png", cx: 469, cy: 480, w: IRIS_W, mirror: false },
   lash_L: {
     src: "eyewhite_lash.png",
-    cx: 657,
+    cx: 636,
     cy: 475,
     w: EYE_W,
     mirror: true,
     noTrim: true,
   },
-  lash_R: { src: "eyewhite_lash.png", cx: 443, cy: 475, w: EYE_W, mirror: false, noTrim: true }, // prettier-ignore
-  brow_L: { src: "brow.png", cx: 645, cy: 405, w: 135, mirror: false },
-  brow_R: { src: "brow.png", cx: 455, cy: 405, w: 135, mirror: true },
+  lash_R: { src: "eyewhite_lash.png", cx: 464, cy: 475, w: EYE_W, mirror: false, noTrim: true }, // prettier-ignore
+  brow_L: { src: "brow.png", cx: 645, cy: 405, w: 105, mirror: false },
+  brow_R: { src: "brow.png", cx: 455, cy: 405, w: 105, mirror: true },
   hair_front: { src: "hair_front.png", cx: 550, cy: 425, w: 660 },
 } satisfies Record<string, RoleLayout | NoseLayout>;
 
