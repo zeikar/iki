@@ -68,7 +68,9 @@ not a reshaped face. The face plate translates, changing its width by a few
 percent, the chin leading it; the features lead the plate by their own amounts
 (the nose most, then the brows, eyes and mouth), the eyes foreshortening mildly
 about their own centres; the front hair rides the face where it lies over it and holds the head's
-outline where it draws it, and the back hair stays behind; the neck and the
+outline where it draws it — though on its cap the turn never carries its outer
+edge further outside the back hair painted behind it than the nod alone does —
+and the back hair stays behind; the neck and the
 ears the face layer paints are cut off into islands of the plate's own mesh,
 drawn behind the head — the neck stays (only the chin's shade slides across
 it), the ears lag the face. AngleZ rolls the head 10° about the chin; the torso only

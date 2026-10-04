@@ -23,6 +23,7 @@ import {
   landedCentroidX,
   landedXAt,
   landedYAt,
+  landerFor,
   type ParamValues,
 } from "./helpers/render-oracle";
 
@@ -65,6 +66,8 @@ const wideBack = rig({ wideBack: true });
 const crownGap = rig({ crownGap: true });
 const faceGap = rig({ faceGap: true });
 const besideFaceGap = rig({ besideFaceGap: true });
+const narrowCap = rig({ narrowCap: true });
+const tightLock = rig({ tightLock: true });
 const EYE_Y = 500 - 433.5;
 
 /** The three cues `measure_turn_reference` reads, off where the render puts
@@ -531,6 +534,122 @@ describe("the head turn", () => {
     /** How far the front hair's rest point moves along the turn, hh. */
     const shift = (m: IkiModel, x: number, y: number, ax: number) =>
       (Math.sign(ax) * (edge(m, "hair_front", x, y, ax) - x)) / HH;
+    /** The `character(opts)` layer of a role. */
+    const layerOf = (opts: CharacterOptions, role: string) =>
+      character(opts).layers.find((l) => l.role === role)!;
+    /** Canvas row of the cap's last vertex row: the last of the front hair's
+     *  vertex rows that pairs, with the row above it, to form a cell whose
+     *  rows both lie at least 1.5 eye heights above the eye row — read off
+     *  the eye boxes and the front hair's mesh. */
+    const capBottom = (m: IkiModel) => {
+      const part = (id: string) => m.parts.find((p) => p.id === id)!;
+      const eyes = [part("eye_L"), part("eye_R")];
+      const eyeY = (eyes[0].transform.y + eyes[1].transform.y) / 2;
+      const eyeH = (eyes[0].height + eyes[1].height) / 2;
+      const front = part("hair_front");
+      const v = front.mesh!.vertices;
+      const ys = [...new Set(v.filter((_, i) => i % 2 === 1))]
+        .map((u) => front.transform.y + u * front.height)
+        .sort((a, b) => b - a);
+      let last = -1;
+      for (let r = 1; r < ys.length; r++)
+        if (ys[r] >= eyeY + 1.5 * eyeH) last = r;
+      return Math.round(500 - ys[last]);
+    };
+    /**
+     * The back hair's rest point under a landed point at `pose`, as a canvas
+     * column and row. Above the chin the back hair lands affinely at every
+     * turn, nod and roll — its turn and shell terms linear in x, its nod
+     * uniform, the roll a rotation about the chin, its hang weight 0, sway at
+     * rest — so three of its rest points on the cap's rows fix the map, and
+     * its inverse reads any landed point back.
+     */
+    const backRest = (m: IkiModel, pose: ParamValues) => {
+      const rest = [
+        [-200, rowY(50)],
+        [200, rowY(50)],
+        [0, rowY(250)],
+      ];
+      const land = landerFor(m, "hair_back", pose);
+      const [p0, p1, p2] = rest.map(([x, y]) => {
+        const p = land(x, y);
+        return [p.x, p.y];
+      });
+      const u = [p1[0] - p0[0], p1[1] - p0[1]];
+      const v = [p2[0] - p0[0], p2[1] - p0[1]];
+      const det = u[0] * v[1] - v[0] * u[1];
+      return (x: number, y: number) => {
+        const [dx, dy] = [x - p0[0], y - p0[1]];
+        const a = (dx * v[1] - v[0] * dy) / det;
+        const b = (u[0] * dy - dx * u[1]) / det;
+        const at = (i: 0 | 1) =>
+          rest[0][i] +
+          a * (rest[1][i] - rest[0][i]) +
+          b * (rest[2][i] - rest[0][i]);
+        return { col: at(0) + 500, row: Math.floor(500 - at(1)) };
+      };
+    };
+    /** How far the pixel just inside a boundary at canvas column `c` on
+     *  `side` would have to move to lie in one of the back hair's runs on
+     *  canvas row `row`: 0 where it does; undefined off the back hair's
+     *  crop, where there is no back hair to step past. */
+    const stepPast = (
+      back: LayerInput,
+      row: number,
+      c: number,
+      side: number,
+    ) => {
+      const runs = back.rowRuns![row - back.bbox.y];
+      if (runs === undefined) return undefined;
+      const px = side > 0 ? c - 1 : c;
+      let step = Infinity;
+      for (let i = 0; i < runs.length; i += 2)
+        step = Math.min(step, Math.max(0, runs[i] - px, px + 1 - runs[i + 1]));
+      return step;
+    };
+    /** Where on the back hair the front's outermost pixel on canvas row `k`,
+     *  its boundary at canvas column `ce`, lands (`front` lands the bangs at
+     *  the pose `toBack` reads), and its step past the back hair there. */
+    const landedOnBack = (
+      back: LayerInput,
+      front: ReturnType<typeof landerFor>,
+      toBack: ReturnType<typeof backRest>,
+      k: number,
+      ce: number,
+      side: number,
+    ) => {
+      const p = front(ce - 500, rowY(k));
+      const at = toBack(p.x, p.y);
+      return { ...at, step: stepPast(back, at.row, at.col, side) };
+    };
+    /** The back hair's outer end on the canvas row a landed boundary sits
+     *  over, less where it lands, on `side`: how far inside it the boundary
+     *  lies; undefined off the back hair's crop. */
+    const insideRun = (
+      back: LayerInput,
+      at: { row: number; col: number },
+      side: number,
+    ) => {
+      const runs = back.rowRuns![at.row - back.bbox.y];
+      if (runs === undefined) return undefined;
+      return side > 0 ? runs[runs.length - 1] - at.col : at.col - runs[0];
+    };
+    /** Whether the back hair paints canvas columns [c0, c1) on row k. */
+    const backPaints = (
+      back: LayerInput,
+      k: number,
+      c0: number,
+      c1: number,
+    ) => {
+      const runs = back.rowRuns![k - back.bbox.y] ?? [];
+      for (let i = 0; i < runs.length; i += 2)
+        if (runs[i] <= c0 && c1 <= runs[i + 1]) return true;
+      return false;
+    };
+    /** The keyforms round each offset to 1e-4 of its part's width (0.07 px
+     *  on the bangs, 0.08 px on the back hair): a landed step may read up to
+     *  both past the nod's. */
+    const ROUNDING = 0.15;
 
     it("rides the edge with the face where the back reaches past it and far inside it", () => {
       // Under the eyes, the back solid to ±310 over every row the edge passes
@@ -615,106 +734,266 @@ describe("the head turn", () => {
       }
     });
 
-    it("keeps every riding edge over the back hair when the turn and the nod meet", () => {
-      // The bangs nod further than the back hair, so a row's edge lands over
-      // the back's rows under it looking down, over it looking up: a row of
-      // the solid band rides beside the gap under it or the temple over it.
-      // The crown rides too, over a back hair backing it to the plate
-      // (wideBack) or, short of the unbacked temple rows, part way (fullBack).
-      for (const [name, opts, m, held] of [
-        ["fullBack", { fullBack: true }, full, today],
-        [
-          "wideBack",
-          { wideBack: true },
-          wideBack.model,
-          rig({ wideBack: true }, {}, { drop: ALL_RUNS }).model,
-        ],
-      ] as const) {
-        const { layers } = character(opts);
-        const front = layers.find((l) => l.role === "hair_front")!;
-        const back = layers.find((l) => l.role === "hair_back")!;
-        /** Whether the back hair paints canvas columns [c0, c1) on row k. */
-        const backPaints = (k: number, c0: number, c1: number) => {
-          const runs = back.rowRuns![k - back.bbox.y] ?? [];
-          for (let i = 0; i < runs.length; i += 2)
-            if (runs[i] <= c0 && c1 <= runs[i + 1]) return true;
-          return false;
-        };
-        let riding = 0;
-        for (const [ax, ay] of [
-          [-30, -30],
-          [-30, 30],
-          [30, -30],
-          [30, 30],
-          [-15, -15],
-          [-15, 15],
-          [15, -15],
-          [15, 15],
-        ]) {
-          const pose = { [P.AngleX]: ax, [P.AngleY]: ay };
-          // The back hair nods whole and turns linearly in x: the rest x
-          // under a landed x, and the rest row under a landed y.
-          const bx0 = landedXAt(m, "hair_back", 0, 0, pose);
-          const bx1 = landedXAt(m, "hair_back", 100, 0, pose);
-          const backX = (x: number) => ((x - bx0) * 100) / (bx1 - bx0);
-          const backDy = landedYAt(m, "hair_back", 0, 0, pose);
-          // Every other pixel row of the bangs, each side's outermost pixel.
-          for (let k = front.bbox.y; k < front.bbox.y + front.bbox.h; k += 2) {
-            const runs = front.rowRuns![k - front.bbox.y];
-            for (const side of [-1, 1]) {
-              const ce = side > 0 ? runs[runs.length - 1] : runs[0];
-              const x = ce - 500;
-              const y = rowY(k);
-              // The ride is the turn's: it rides where it lands past today's.
-              if (
-                Math.abs(
-                  edge(m, "hair_front", x, y, ax) -
-                    edge(held, "hair_front", x, y, ax),
-                ) < 0.1
-              )
-                continue;
-              riding++;
-              const row = Math.floor(
-                500 - (landedYAt(m, "hair_front", x, y, pose) - backDy),
-              );
-              const cb = backX(landedXAt(m, "hair_front", x, y, pose)) + 500;
-              // From the edge's own pixel to where it lands (far, going out),
-              // or across the strip it leaves (near, coming in), less the
-              // keyforms' rounding.
-              const [c0, c1] =
-                side > 0
-                  ? [Math.min(ce - 1, cb + 0.1), Math.max(ce, cb - 0.1)]
-                  : [Math.min(ce, cb + 0.1), Math.max(ce + 1, cb - 0.1)];
-              expect(
-                backPaints(row, Math.floor(c0), Math.ceil(c1)),
-                `${name}, row ${k}, side ${side}, AngleX ${ax}, AngleY ${ay}`,
-              ).toBe(true);
-            }
-          }
+    /**
+     * On every other bangs row from the bangs' top down to the cap's last
+     * vertex row (the rows whose centres lie on or above it), on both sides,
+     * at each [AngleX, AngleY, AngleZ] pose: the outermost pixel's step past
+     * the back hair is at most its step at the nod alone (AngleX 0, the same
+     * AngleY and AngleZ), never negative, so how far inside the edge sits
+     * does not count; and on the rows `inside` names, the back hair paints
+     * every pixel between the edge's own pixel and where it lands. A row
+     * whose back hair at rest leaves the edge's own pixel bare is the outline
+     * the front draws itself, which the bound leaves alone (fullBack's
+     * temple band). Returns the edges checked and the rows' sides.
+     */
+    const expectCapBound = (
+      name: string,
+      opts: CharacterOptions,
+      m: IkiModel,
+      poses: number[][],
+      inside: (k: number) => boolean = () => false,
+    ) => {
+      const front = layerOf(opts, "hair_front");
+      const back = layerOf(opts, "hair_back");
+      const edges: { k: number; side: number; ce: number }[] = [];
+      const bottom = capBottom(m);
+      let sides = 0;
+      for (let k = front.bbox.y; k + 0.5 <= bottom; k += 2) {
+        const runs = front.rowRuns![k - front.bbox.y];
+        for (const side of [-1, 1]) {
+          sides++;
+          const ce = side > 0 ? runs[runs.length - 1] : runs[0];
+          if (stepPast(back, k, ce, side) === 0) edges.push({ k, side, ce });
         }
-        expect(riding, name).toBeGreaterThan(0);
+      }
+      const nods = new Map<string, number[]>();
+      for (const [ax, ay, az] of poses) {
+        const nod = { [P.AngleY]: ay, [P.AngleZ]: az };
+        let base = nods.get(`${ay} ${az}`);
+        if (base === undefined) {
+          const toBack = backRest(m, nod);
+          const land = landerFor(m, "hair_front", nod);
+          base = edges.map(({ k, side, ce }) => {
+            const { step } = landedOnBack(back, land, toBack, k, ce, side);
+            // The nod alone keeps every edge over the back hair's crop, so
+            // no step below is compared with none.
+            expect(
+              step,
+              `${name}, row ${k}, side ${side}, AngleY ${ay}, AngleZ ${az}`,
+            ).toBeDefined();
+            return step!;
+          });
+          nods.set(`${ay} ${az}`, base);
+        }
+        const pose = { [P.AngleX]: ax, ...nod };
+        const toBack = backRest(m, pose);
+        const land = landerFor(m, "hair_front", pose);
+        edges.forEach(({ k, side, ce }, i) => {
+          const label = `${name}, row ${k}, side ${side}, AngleX ${ax}, AngleY ${ay}, AngleZ ${az}`;
+          const at = landedOnBack(back, land, toBack, k, ce, side);
+          expect(at.step ?? Infinity, label).toBeLessThanOrEqual(
+            base[i] + ROUNDING,
+          );
+          if (!inside(k)) return;
+          // From the edge's own pixel to where it lands (going out), or
+          // across the strip it leaves (coming in), less the rounding.
+          const cb = at.col;
+          const [c0, c1] =
+            side > 0
+              ? [Math.min(ce - 1, cb + 0.1), Math.max(ce, cb - 0.1)]
+              : [Math.min(ce, cb + 0.1), Math.max(ce + 1, cb - 0.1)];
+          expect(
+            backPaints(back, at.row, Math.floor(c0), Math.ceil(c1)),
+            label,
+          ).toBe(true);
+        });
+      }
+      return { edges: edges.length, sides };
+    };
+
+    it("keeps every cap edge no further outside the back hair than the nod alone puts it", () => {
+      // The bangs nod further than the back hair, so a row's edge lands over
+      // the back's rows under it looking down, over it looking up. The crown
+      // rides over a back hair backing it to the plate (wideBack), but for
+      // its top rows, which rise above the back hair's top looking up; where
+      // the rows under the crown pass over the unbacked temple (fullBack),
+      // they and the crown above them move with the back hair.
+      const poses = [
+        [-30, -30],
+        [-30, 30],
+        [30, -30],
+        [30, 30],
+        [-15, -15],
+        [-15, 15],
+        [15, -15],
+        [15, 15],
+      ].map(([ax, ay]) => [ax, ay, 0]);
+      for (const [name, opts, m] of [
+        ["fullBack", { fullBack: true }, full],
+        ["wideBack", { wideBack: true }, wideBack.model],
+      ] as const) {
+        const { edges } = expectCapBound(name, opts, m, poses);
+        expect(edges, name).toBeGreaterThan(0);
       }
     });
 
-    it("rides the crown whole with the cap over back hair painted past its edges down to the plate", () => {
+    it("never turns the cap's outer edge further outside the back hair than the nod alone puts it, following less where the back hair reaches less", () => {
+      // The bangs' dome lies inside the eyes' outer corners, over a back-hair
+      // dome only 45 px wider down to row 179: looking up, a row's edge meets
+      // back rows that reach about 37 px past it, less than the bangs' motion
+      // against the back hair (41 px; 69 px at hairFollow 2). The nod alone
+      // keeps every edge inside.
+      const opts = { narrowCap: true };
+      const poses: number[][] = [];
+      for (const ax of [-30, -15, 15, 30])
+        for (const ay of [-30, -15, 0, 15, 30])
+          for (const az of [-30, 0, 30]) poses.push([ax, ay, az]);
+      for (const style of [
+        {},
+        { hairFollow: 2 },
+        { hairFollow: 2, turn: 1.25 },
+      ]) {
+        const { model: m } = rig(opts, {}, { style });
+        expect(capBottom(m)).toBe(330);
+        const { edges, sides } = expectCapBound(
+          `narrowCap ${JSON.stringify(style)}`,
+          opts,
+          m,
+          poses,
+          (k) => k < 210,
+        );
+        // Every row's edge is backed at rest.
+        expect(edges).toBe(sides);
+      }
+    });
+
+    it("blends the cap's crown toward the back hair only as far as its back hair asks", () => {
+      // On the crown the bound is the blend alone, and just enough: looking
+      // up and turned, the dome's far edge lands within a pixel or so of its
+      // back run's outer end, and the crown still turns — less far than
+      // without runs, further than the back hair.
+      const opts = { narrowCap: true };
+      const back = layerOf(opts, "hair_back");
+      const front = layerOf(opts, "hair_front");
+      for (const style of [
+        {},
+        { hairFollow: 2 },
+        { hairFollow: 2, turn: 1.25 },
+      ]) {
+        const { model: m } = rig(opts, {}, { style });
+        const held = rig(opts, {}, { style, drop: ALL_RUNS }).model;
+        const turn = style.turn ?? 1;
+        for (const ax of [-30, 30]) {
+          const label = `${JSON.stringify(style)}, AngleX ${ax}`;
+          // A dome row's bangs at the axis (canvas row 130).
+          const y = 370;
+          expect(shift(m, 0, y, ax), label).toBeGreaterThan(
+            -0.027 * turn + 0.01,
+          );
+          expect(shift(m, 0, y, ax), label).toBeLessThan(
+            shift(held, 0, y, ax) - 0.005,
+          );
+          const pose = { [P.AngleX]: ax, [P.AngleY]: 30 };
+          const toBack = backRest(m, pose);
+          const land = landerFor(m, "hair_front", pose);
+          const side = Math.sign(ax);
+          let tightest = Infinity;
+          for (let k = front.bbox.y; k < 210; k += 2) {
+            const runs = front.rowRuns![k - front.bbox.y];
+            const ce = side > 0 ? runs[runs.length - 1] : runs[0];
+            const at = landedOnBack(back, land, toBack, k, ce, side);
+            const inside = insideRun(back, at, side);
+            expect(inside, `${label}, row ${k}`).toBeDefined();
+            tightest = Math.min(tightest, inside!);
+          }
+          expect(tightest, label).toBeGreaterThan(-ROUNDING);
+          expect(tightest, label).toBeLessThan(1.5);
+        }
+      }
+    });
+
+    it("cuts a cap row under the plate's top out toward its edge, keeping the axis's follow and three quarters of each cell", () => {
+      // At hairFollow 2 the temple's edges outrun the solid band's back hair
+      // under them looking down (48 px past them): their rows give up a cut
+      // that grows out from the axis's cell, and blend not at all. Inside
+      // the eyes' outer corners today's follow is the same in every column,
+      // so a cell's width at a full turn is its rest width there.
+      const opts = { narrowCap: true };
+      const style = { hairFollow: 2 };
+      const { model: m } = rig(opts, {}, { style });
+      const held = rig(opts, {}, { style, drop: ALL_RUNS }).model;
+      const part = m.parts.find((p) => p.id === "hair_front")!;
+      const columns = new Set(part.mesh!.vertices.filter((_, i) => i % 2 === 0))
+        .size;
+      const rest = landVertices(m, "hair_front");
+      for (const ax of [-30, 30]) {
+        const turned = landVertices(m, "hair_front", X30(ax));
+        let narrowest = Infinity;
+        for (const k of [290, 330]) {
+          const label = `row ${k}, AngleX ${ax}`;
+          expect(
+            Math.abs(shift(m, 0, 500 - k, ax) - shift(held, 0, 500 - k, ax)),
+            label,
+          ).toBeLessThan(0.002);
+          for (let i = 0; i + 1 < rest.length / 2; i++) {
+            const [x0, x1] = [rest[i * 2], rest[(i + 1) * 2]];
+            if (i % columns === columns - 1) continue;
+            if (Math.round(500 - rest[i * 2 + 1]) !== k) continue;
+            if (Math.abs(x0) > 170 || Math.abs(x1) > 170) continue;
+            const width = (turned[(i + 1) * 2] - turned[i * 2]) / (x1 - x0);
+            expect(width, `${label}, cell at x ${x0}`).toBeGreaterThan(
+              0.75 - 1e-3,
+            );
+            narrowest = Math.min(narrowest, width);
+          }
+        }
+        // The cut narrows the far side's cells: it acts here.
+        expect(narrowest, `AngleX ${ax}`).toBeLessThan(0.99);
+      }
+    });
+
+    it("leaves the rows beside the eyes as today, however little back hair is behind them", () => {
+      // Below the cap the front hair keeps today's motion: at the eye row
+      // each lock's outer edge (±200) has back hair only 2 px past it.
+      const held = rig({ tightLock: true }, {}, { drop: ALL_RUNS }).model;
+      for (const ax of [-30, -15, 15, 30]) {
+        // The far lock's outer edge: column 701 turning toward +x, 300
+        // toward −x.
+        const x = (ax > 0 ? 701 : 300) - 500;
+        expect(
+          edge(tightLock.model, "hair_front", x, EYE_Y, ax),
+          `AngleX ${ax}`,
+        ).toBe(edge(held, "hair_front", x, EYE_Y, ax));
+      }
+    });
+
+    it("rides the crown whole with the cap, but for its top rows, which rise above the back hair looking up", () => {
       // The back hair reaches 58 px past the bangs' edges on every crown and
-      // temple row: the crown's top moves with the fringe, one cap.
+      // temple row: the crown moves with the fringe, one cap. But it starts
+      // only 10 px above the bangs' top, which rise further than that over
+      // it looking up: the crown's top rows move with the back hair.
       for (const ax of [-30, -15, 15, 30]) {
         const a = Math.abs(ax) / 30;
-        for (const y of [250, 400, 489]) {
+        for (const y of [250, 400]) {
           expect(
             shift(wideBack.model, 0, y, ax),
             `y ${y}, AngleX ${ax}`,
           ).toBeCloseTo(a * CORE, 2);
         }
+        expect(shift(wideBack.model, 0, 489, ax), `AngleX ${ax}`).toBeCloseTo(
+          -0.027 * a,
+          2,
+        );
       }
     });
 
-    it("rides the crown part way where the temple rows under it are unbacked, no row further than the one under it", () => {
+    it("holds the crown to the back hair where the rows under it pass over the unbacked temple on the nod, no row further than the one under it", () => {
       // The temple band's back hair ends 5 px inside the bangs' edges, and
-      // the rows under the crown pass over it on the nod: they hold, and the
-      // crown above them rides no further than they do.
-      for (const ax of [-30, 30]) {
+      // the crown rows just above it pass over it on the nod: the nod alone
+      // shows their edges outside the back hair, so they move with it on the
+      // turn, and so does the crown above them.
+      for (const ax of [-30, -15, 15, 30]) {
+        const a = Math.abs(ax) / 30;
         const ys = [300, 320, 340, 360, 380, 400, 420, 440, 460, 480, 489];
         for (let k = 1; k < ys.length; k++) {
           expect(
@@ -722,49 +1001,67 @@ describe("the head turn", () => {
             `y ${ys[k]}, AngleX ${ax}`,
           ).toBeLessThanOrEqual(shift(full, 0, ys[k - 1], ax) + 1e-9);
         }
-        const top = shift(full, 0, 489, ax);
-        const held = shift(today, 0, 489, ax);
-        expect(held, `AngleX ${ax}`).toBeCloseTo(-0.027, 2);
-        expect(top - held, `AngleX ${ax}`).toBeGreaterThanOrEqual(0.05);
-        expect(top, `AngleX ${ax}`).toBeLessThan(0.9 * CORE);
+        for (const y of ys) {
+          expect(
+            Math.abs(shift(full, 0, y, ax) + 0.027 * a),
+            `y ${y}, AngleX ${ax}`,
+          ).toBeLessThan(0.002);
+        }
       }
     });
 
-    it("holds the crown as today over unbacked edges, a parting, and a gap over the face", () => {
-      // A tuft: the back hair's top 40 px under the bangs' beside it. A
-      // parting: a gap in the bangs over a hole in the back hair. A gap just
-      // under the plate's top, over solid back hair: back hair alone would
-      // let it ride, but the face lies in front of it. With the face's runs
-      // left out, its crop stands in.
-      const across = (y: number) => [-100, 0, 100].map((x) => [x, y] as const);
-      for (const [name, opts, m, points] of [
-        [
-          "tuft",
-          { tuft: true },
-          tuft.model,
-          [
+    it("holds the crown to the back hair over a tuft, and as today over a parting and a gap over the face", () => {
+      // A tuft: the back hair's top 40 px under the bangs' beside it, so the
+      // rows under these points pass over its narrower back rows looking up:
+      // they move with the back hair. A parting: a gap in the bangs over a
+      // hole in the back hair, held below the crown's top rows (which move
+      // with the back hair, as wideBack's do) where wideBack's crown rides.
+      // A gap just under the plate's top, over solid back hair: back hair
+      // alone would let it ride, but the face lies in front of it. With the
+      // face's runs left out, its crop stands in.
+      const faceless = (opts: CharacterOptions) =>
+        rig(opts, {}, { drop: (role) => role === "face" }).model;
+      for (const [label, rigged] of [
+        ["tuft", tuft.model],
+        ["tuft, the face's runs left out", faceless({ tuft: true })],
+      ] as const) {
+        for (const ax of [-30, -15, 15, 30]) {
+          const a = Math.abs(ax) / 30;
+          for (const [x, y] of [
             [0, 489],
             [-150, 450],
             [150, 450],
             [-190, 400],
             [190, 400],
-          ],
-        ],
-        ["crownGap", { crownGap: true }, crownGap.model, across(rowY(45))],
-        ["faceGap", { faceGap: true }, faceGap.model, across(rowY(205))],
+          ]) {
+            expect(
+              shift(rigged, x, y, ax),
+              `${label}, (${x}, ${y}), AngleX ${ax}`,
+            ).toBeCloseTo(-0.027 * a, 2);
+          }
+        }
+      }
+      const across = (y: number) => [-100, 0, 100].map((x) => [x, y] as const);
+      // The parting's row lands within a hundredth of a pixel of where the
+      // rig without runs lands it; the gap over the face, exactly there.
+      for (const [name, opts, m, points, exact] of [
+        ["crownGap", { crownGap: true }, crownGap.model, across(410), false],
+        ["faceGap", { faceGap: true }, faceGap.model, across(rowY(205)), true],
       ] as const) {
         const held = rig(opts, {}, { drop: ALL_RUNS }).model;
-        const faceless = rig(opts, {}, { drop: (role) => role === "face" });
         for (const [label, rigged] of [
           [name, m],
-          [`${name}, the face's runs left out`, faceless.model],
+          [`${name}, the face's runs left out`, faceless(opts)],
         ] as const) {
           for (const ax of [-30, -15, 15, 30]) {
             for (const [x, y] of points) {
-              expect(
+              const landed = expect(
                 edge(rigged, "hair_front", x, y, ax),
                 `${label}, (${x}, ${y}), AngleX ${ax}`,
-              ).toBe(edge(held, "hair_front", x, y, ax));
+              );
+              const want = edge(held, "hair_front", x, y, ax);
+              if (exact) landed.toBe(want);
+              else landed.toBeCloseTo(want, 2);
             }
           }
         }
@@ -815,8 +1112,9 @@ describe("the head turn", () => {
         // partway through the turn.
         for (const ax of [15, 30]) expectHeld(besideFaceGap.model, held, ax);
         // Turning toward −x the face turns away faster than the gap's left
-        // end follows it: the two never meet, so the crown rides whole.
-        expect(shift(besideFaceGap.model, 0, 489, -30)).toBeCloseTo(CORE, 2);
+        // end follows it: the two never meet, so the crown rides whole (but
+        // for its top rows, which rise above the back hair looking up).
+        expect(shift(besideFaceGap.model, 0, 400, -30)).toBeCloseTo(CORE, 2);
       });
 
       it("holds when the front hair barely moves and only the face's turn meets the gap", () => {
@@ -840,7 +1138,7 @@ describe("the head turn", () => {
 
       it("rides when the front hair keeps pace with the face and no shell term brings them together", () => {
         const m = rig(opts, {}, { style: { hairFollow: 1 } }).model;
-        expect(shift(m, 0, 489, -30)).toBeCloseTo(0.118, 2);
+        expect(shift(m, 0, 400, -30)).toBeCloseTo(0.118, 2);
       });
     });
   });
@@ -1104,7 +1402,9 @@ describe("the head turn", () => {
     // their cap's top slides on the nod, the whole way (fullBack) or bound
     // by the columns beside a tuft (tuft); their crown rides the turn whole
     // (wideBack) or holds over a gap's rows (crownGap, faceGap,
-    // besideFaceGap).
+    // besideFaceGap); their cap follows less over a back hair reaching
+    // little past it (narrowCap); their locks beside the eyes barely backed
+    // keep today's motion (tightLock).
     for (const [name, m] of [
       ["default", model],
       ["fullBack", fullBack.model],
@@ -1113,6 +1413,8 @@ describe("the head turn", () => {
       ["crownGap", crownGap.model],
       ["faceGap", faceGap.model],
       ["besideFaceGap", besideFaceGap.model],
+      ["narrowCap", narrowCap.model],
+      ["tightLock", tightLock.model],
     ] as const) {
       for (const part of m.parts) {
         if (!part.mesh) continue;
@@ -1430,6 +1732,8 @@ describe("extreme combined poses", () => {
       ["crownGap", crownGap],
       ["faceGap", faceGap],
       ["besideFaceGap", besideFaceGap],
+      ["narrowCap", narrowCap],
+      ["tightLock", tightLock],
     ] as const) {
       for (const id of ["face", "hair_front", "hair_back"]) {
         const part = model.parts.find((p) => p.id === id)!;

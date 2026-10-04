@@ -48,7 +48,10 @@ export const TURN = {
    *  where no back hair paints behind that edge. Where back hair does, the
    *  edge rides further, as far as that back hair stays behind it through
    *  the turn and the nod, up to the face's follow there (`hairFollow`;
-   *  over the far eye's rows, as far as that eye's outer corner goes). */
+   *  over the far eye's rows, as far as that eye's outer corner goes). On
+   *  the cap (the rows above the eyes) it follows less where the turn would
+   *  otherwise carry it further outside its back hair than the nod alone
+   *  does. */
   outlineFollow: 0,
   /** The back hair's slight counter-motion. */
   hairBack: -0.027,
@@ -132,7 +135,10 @@ export interface RigStyle {
    *  `hairFollow` rides it whole). Where back hair does, the edge rides
    *  further, as far as that back hair stays behind it through the turn and
    *  the nod, up to the front hair's follow there (`hairFollow`; over the
-   *  far eye's rows, as far as that eye's outer corner goes). */
+   *  far eye's rows, as far as that eye's outer corner goes). On the cap
+   *  (the rows above the eyes) the edge follows less where the turn would
+   *  otherwise carry it further outside its back hair than the nod alone
+   *  does. */
   outlineFollow?: number;
   /** How far the upper lid comes down, over the eye's height (0.30–0.67). */
   blink?: number;

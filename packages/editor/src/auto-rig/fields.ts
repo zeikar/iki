@@ -320,8 +320,10 @@ export function hairFrontBends(
  * `hairOuter` — on a Live2D model the outline is the back hair's, and holds —
  * the lock easing between. On a row where the back hair paints behind that
  * edge at every turn and nod angle, the edge rides further, up to the face's
- * follow (`outerRide`). Its crown, above the face plate's top, is the top of
- * the head: on the turn it rides with the cap as far as back hair is painted
+ * follow, and on its cap less, so that the turn never carries the edge
+ * further outside the back hair painted behind it than the nod alone does
+ * (`outerRide`). Its crown, above the face plate's top, is the top of the
+ * head: on the turn it rides with the cap as far as back hair is painted
  * behind its edges and gaps at every turn and nod angle, never baring the
  * face, and no row further than the one under it (`crownRide`); elsewhere it
  * eases toward its top to the back hair's motion, so the head's top outline
@@ -368,17 +370,25 @@ function hairFrontField(m: TurnModel): Field {
     );
     return core + (m.hairOuter - core) * out;
   };
-  const ride = outerRide(m, inner, coreAt, followAt);
+  // The cap: the rows above the eyes and off the far eye's band.
+  const ride = outerRide(m, inner, coreAt, followAt, eyeY + 1.5 * eyeH);
   const followOf = (x: number, y: number, s: number) =>
-    followAt(x, y, s) + (ride === undefined ? 0 : ride(x, y, s));
+    followAt(x, y, s) + (ride === undefined ? 0 : ride.lift(x, y, s));
   // The front hair's own motion against the back hair's, along the turn.
   const drift = Math.abs(m.hairBack);
   const crown = crownRide(m, cap, (x, y, s) => followOf(x, y, s) + drift);
+  // On the cap the follow gives up its local cut, then blends toward the
+  // back hair's own motion (a follow of −drift).
+  const boundOf = (x: number, y: number, s: number) => {
+    if (ride === undefined) return followOf(x, y, s);
+    const b = ride.blend(y, s);
+    return (1 - b) * (followOf(x, y, s) + ride.cut(x, y, s)) - b * drift;
+  };
   return (x, y, ax, ay) => {
     const s = Math.sign(ax);
     const a = Math.abs(ax) / 30;
     const rx =
-      s * a * followOf(x, y, s) + a * (m.shellScale - 1) * (x - f.axisX);
+      s * a * boundOf(x, y, s) + a * (m.shellScale - 1) * (x - f.axisX);
     const ry = nodDy(NOD.hairFront, ay, f.hh);
     const bx = back(x, y, ax, ay)[0];
     const by = nodDy(cap, ay, f.hh);
@@ -410,6 +420,24 @@ function gridRow(
   if (snap && Math.abs(v - Math.round(v)) < 1e-3) v = Math.round(v);
   const r = Math.min(n - 2, Math.floor(v));
   return { r, t: v - r };
+}
+
+/** Where model x falls among the vertex columns `xs` (left to right): the
+ *  cell's left column, `c`, and its share `t` of the way across it. */
+function gridCol(xs: number[], x: number): { c: number; t: number } {
+  let c = 0;
+  while (c < xs.length - 2 && xs[c + 1] < x) c++;
+  return { c, t: clamp((x - xs[c]) / (xs[c + 1] - xs[c]), 0, 1) };
+}
+
+/** The pixel rows, [first, end), indexed from the hair's top `ys[0]`, that
+ *  overlap the cells either side of vertex row r — none at or past `limit`. */
+function rowWindow(ys: number[], r: number, limit: number): [number, number] {
+  const n = ys.length;
+  return [
+    Math.max(0, Math.floor(ys[0] - ys[Math.max(0, r - 1)])),
+    Math.min(limit, Math.ceil(ys[0] - ys[Math.min(n - 1, r + 1)])),
+  ];
 }
 
 /** The crown's blend at each of the front hair's vertex rows `ys` (top to
@@ -536,40 +564,109 @@ function paints(runs: number[], px: number): boolean {
 
 type Follow = (x: number, y: number, s: number) => number;
 
+/** The front hair's outer edge against the back hair behind it, on the
+ *  turn (see `outerRide`). */
+interface OuterRide {
+  /** How much further than `followAt` the edge rides. */
+  lift: Follow;
+  /** On the cap, the follow a row gives up out toward its edge (≤ 0). */
+  cut: Follow;
+  /** On the cap, the share of a row's follow that blends toward the back
+   *  hair's own motion. */
+  blend: (y: number, s: number) => number;
+}
+
+/** A bound edge of the cap, as a vertex row bounds it: its side, its own
+ *  column, the column the render reads the row at for it, and how far its
+ *  back hair's run reaches past it and inside it, the least over the nod. */
+interface CapEdge {
+  side: -1 | 1;
+  x: number;
+  at: number;
+  outward: number;
+  inward: number;
+}
+
 /**
- * How much further than `followAt` the front hair's outer edge rides at
- * (x, y) turning toward s, where the back hair paints behind that edge at
- * every angle of the turn and the nod; `undefined` unless both hair layers
- * carry runs.
+ * The front hair's outer edge against the back hair painted behind it, at
+ * (x, y) turning toward s; `undefined` unless both hair layers carry runs.
  *
  * On a pixel row, take the back hair's run holding the front's outermost
- * pixel on a side, on each back row the row passes over on the nod: `c_in`
- * the least it reaches inside the edge, `c_out` the least past it (both 0
- * where the back hair is transparent there on any of them). Both layers take
- * the shell's width term, and the back hair drifts against the turn by
- * |hairBack|. On the far side the edge goes out, and stays over that run's
- * outer end while its follow is at most shellScale·c_out − drift; on the
- * near side it comes in, and the strip it leaves is that run while its
- * follow is at most shellScale·c_in − drift. The full turn binds both, and
- * the face's follow caps them.
+ * pixel on a side, on each back row the row passes over on the nod, read at
+ * the edge's rest column: `c_in` the least it reaches inside the edge,
+ * `c_out` the least past it (both 0 where the back hair is transparent there
+ * on any of them, or where the edge rises above the back hair's top looking
+ * up). Both layers take the shell's width term, and the back hair drifts
+ * against the turn by |hairBack|; above the chin both roll rigidly with the
+ * head, so the roll changes nothing between them.
  *
- * The render interpolates linearly between the mesh's vertices, so each
- * vertex row takes the smallest allowance among the pixel rows within one
- * row interval either side, and the innermost of their edges: its ride is
- * what the allowance leaves over today's follow there, ramped from 0 at the
- * eyes' outer corners (`inner`) to 1 at that edge, and 1 beyond — a linear
- * interpolation of that concave ramp never exceeds it. A vertex row whose
- * edges nothing covers rides nothing more: today's hold.
+ * `lift`: how much further than `followAt` the edge rides where the back
+ * hair stays behind it. On the far side the edge goes out, and stays over
+ * that run's outer end while its follow is at most shellScale·c_out − drift;
+ * on the near side it comes in, and the strip it leaves is that run while
+ * its follow is at most shellScale·c_in − drift. The full turn binds both,
+ * and the face's follow caps them. The render interpolates linearly between
+ * the mesh's vertices, so each vertex row takes the smallest allowance among
+ * the pixel rows within one row interval either side, and the innermost of
+ * their edges: its ride is what the allowance leaves over today's follow
+ * there, ramped from 0 at the eyes' outer corners (`inner`) to 1 at that
+ * edge, and 1 beyond — a linear interpolation of that concave ramp never
+ * exceeds it. A vertex row whose edges nothing covers rides nothing more:
+ * today's hold.
+ *
+ * `cut` and `blend`: on its cap — the cells whose two vertex rows both lie
+ * at or above `capLimit`, above the eyes and off the far eye's band — the
+ * turn puts the edge no further outside the back hair than the nod alone
+ * puts it. A cap row and side is bound where the back hair at rest paints
+ * the pixel just inside the edge; elsewhere the front draws the outline
+ * itself, and nothing bounds it. A bound edge moves against the back hair by
+ * w × (its follow + drift), w the crown's blend at the vertex row (0 bounds
+ * nothing), so its follow must lie in [−shellScale·c_back ÷ w − drift,
+ * shellScale·c_fwd ÷ w − drift]: c_fwd the reach the way it moves against
+ * the back hair (c_out turning toward its side, c_in away), c_back the
+ * other. Where a reach is 0 the nod alone already shows the edge outside, so
+ * the turn may add nothing; the back hair's own motion, a follow of −drift,
+ * lies in every interval. The render reads a vertex row for a point between
+ * rows at one column of the point's cell (its TL→BR split): at or toward −x
+ * of the point on the row above, toward +x on the row below — inside the
+ * edge on the row above and outside it on the row below on the +x side, the
+ * reverse on −x — so each vertex row holds each bound edge in its window
+ * where the render reads it there.
+ *
+ * On a cap row at or below the plate's top, where today's follow exceeds an
+ * interval's upper end, the row first gives up a local cut: growing cell by
+ * cell from the axis's cell out to the first vertex column at or past the
+ * outermost bound edge in its window, constant beyond, each cell taking a
+ * share proportional to a quarter of its width at a full turn (of its rest
+ * width where the turn widens it), scaled to the least that meets every
+ * bound edge and never past that quarter: no cell narrows below 3/4 of
+ * today's width. Then each row blends toward the back hair's motion by the
+ * least share that brings every bound edge in its window, on both sides,
+ * inside its interval — on a crown row, the whole bound — and going up from
+ * the plate's top no crown row blends less than the one under it. Both are
+ * linear between vertex columns, so the render carries them. `crownRide`
+ * still reads today's follow (`followAt` + `lift`), so its extra weight is
+ * today's; the cut and the blend only lower the motion along the turn, so
+ * its own bound still holds where that weight rides.
+ *
+ * So at every angle of the turn, the nod and the roll the cap's edge goes no
+ * further outside the back hair than the nod alone puts it. Below the cap
+ * the front hair keeps today's motion, so the lock over the far eye still
+ * goes as far as that eye's corner and the turn solve's far-iris bound is
+ * untouched; and the sway springs, which swing each layer by its own height,
+ * are bounded by nothing.
  */
 function outerRide(
   m: TurnModel,
   inner: number,
   coreAt: Follow,
   followAt: Follow,
-): Follow | undefined {
+  capLimit: number,
+): OuterRide | undefined {
   const f = m.frame;
-  const ys = m.hairFrontGrid?.ys;
-  if (ys === undefined) return undefined;
+  const grid = m.hairFrontGrid;
+  if (grid === undefined) return undefined;
+  const { xs, ys } = grid;
   const top = ys[0];
   // Both layers must carry runs: `hairRuns` answers undefined on every row
   // of a layer without them, so any row tells.
@@ -581,11 +678,14 @@ function outerRide(
   }
   const drift = Math.abs(m.hairBack);
   const sides = [-1, 1] as const;
-  // Per pixel row of the front hair's crop and side (−x, +x): the edge's
-  // offset from the axis (NaN without one there), and the follow the back
-  // hair allows it turning toward that side (far) and away from it (near).
   const n = ys.length;
   const count = Math.round(top - ys[n - 1]);
+  // The cap's last vertex row (0: no cap), and its pixel rows: those whose
+  // centres lie on or above that row.
+  let last = 0;
+  while (last + 1 < n && ys[last + 1] >= capLimit) last++;
+  const capRows =
+    last === 0 ? 0 : Math.min(count, Math.floor(top - ys[last] - 0.5) + 1);
   // On the nod a front row passes over the back hair's rows: down by the
   // bangs' nod less the back hair's looking down, up by theirs looking up
   // (the crown, easing to the cap's smaller nod, passes over fewer). The
@@ -597,9 +697,13 @@ function outerRide(
     { length: Math.ceil(count + below) - j0 },
     (_, j) => f.hairRuns("hair_back", top - (j + j0) - 0.5)!,
   );
+  // Per pixel row of the front hair's crop and side (−x, +x): the edge's
+  // offset from the axis (NaN without one there), its back hair's least
+  // reaches past it and inside it, and on the cap whether it is bound.
   const offset = sides.map(() => new Float64Array(count).fill(NaN));
-  const far = sides.map(() => new Float64Array(count));
-  const near = sides.map(() => new Float64Array(count));
+  const reachOut = sides.map(() => new Float64Array(count));
+  const reachIn = sides.map(() => new Float64Array(count));
+  const bound = sides.map(() => new Uint8Array(count));
   for (let i = 0; i < count; i++) {
     const y = top - i - 0.5;
     const front = f.hairRuns("hair_front", y)!;
@@ -616,8 +720,10 @@ function outerRide(
         inward = Math.min(inward, c.inward);
       }
       offset[k][i] = side * (edge - f.axisX);
-      far[k][i] = m.shellScale * outward - drift;
-      near[k][i] = m.shellScale * inward - drift;
+      reachOut[k][i] = outward;
+      reachIn[k][i] = inward;
+      if (i < capRows && runReach(backRows[i - j0], edge, side).inward > 0)
+        bound[k][i] = 1;
     });
   }
   // Per vertex row and side: the innermost edge in its window, and the ride
@@ -625,18 +731,16 @@ function outerRide(
   const end = new Float64Array(n * 2);
   const lift = new Float64Array(n * 4);
   for (let r = 0; r < n; r++) {
-    // The pixel rows overlapping the cells either side of the vertex row.
-    const i0 = Math.max(0, Math.floor(top - ys[Math.max(0, r - 1)]));
-    const i1 = Math.min(count, Math.ceil(top - ys[Math.min(n - 1, r + 1)]));
+    const [i0, i1] = rowWindow(ys, r, count);
     sides.forEach((side, k) => {
       let d = Infinity;
-      let allowFar = Infinity;
-      let allowNear = Infinity;
+      let outward = Infinity;
+      let inward = Infinity;
       for (let i = i0; i < i1; i++) {
         if (Number.isNaN(offset[k][i])) continue;
         d = Math.min(d, offset[k][i]);
-        allowFar = Math.min(allowFar, far[k][i]);
-        allowNear = Math.min(allowNear, near[k][i]);
+        outward = Math.min(outward, reachOut[k][i]);
+        inward = Math.min(inward, reachIn[k][i]);
       }
       end[r * 2 + k] = d;
       if (d === Infinity || d <= inner) return;
@@ -644,7 +748,7 @@ function outerRide(
       sides.forEach((s, j) => {
         const allow = Math.min(
           coreAt(x, ys[r], s),
-          s === side ? allowFar : allowNear,
+          m.shellScale * (s === side ? outward : inward) - drift,
         );
         lift[(r * 2 + k) * 2 + j] = Math.max(0, allow - followAt(x, ys[r], s));
       });
@@ -656,7 +760,7 @@ function outerRide(
       ? 0
       : v * Math.min(1, (d - inner) / (end[r * 2 + k] - inner));
   };
-  return (x, y, s) => {
+  const liftAt: Follow = (x, y, s) => {
     const d = Math.abs(x - f.axisX);
     if (s === 0 || d <= inner) return 0;
     const k = x < f.axisX ? 0 : 1;
@@ -665,6 +769,168 @@ function outerRide(
     // own row's ride alone.
     const { r, t } = gridRow(ys, y, true);
     return rowRide(r, k, j, d) * (1 - t) + rowRide(r + 1, k, j, d) * t;
+  };
+
+  // --- the cap ---
+  const nc = xs.length;
+  /** Linear between vertex columns, as the render reads a row's values. */
+  const along = (v: ArrayLike<number>, x: number) => {
+    const { c, t } = gridCol(xs, x);
+    return v[c] + (v[c + 1] - v[c]) * t;
+  };
+  /** Where the render reads vertex row r for the point (x, y), within x's
+   *  cell: at or toward −x of x in the cell under r, toward +x in the cell
+   *  above it; undefined where r has no weight there. */
+  const readAt = (r: number, x: number, y: number): number | undefined => {
+    const { c, t: fx } = gridCol(xs, x);
+    const dx = xs[c + 1] - xs[c];
+    if (r + 1 < n && y <= ys[r] && y >= ys[r + 1]) {
+      const fy = (ys[r] - y) / (ys[r] - ys[r + 1]);
+      if (fy >= 1) return undefined;
+      return fx <= fy ? xs[c] : xs[c] + ((fx - fy) / (1 - fy)) * dx;
+    }
+    if (r > 0 && y > ys[r] && y < ys[r - 1]) {
+      const fy = (ys[r - 1] - y) / (ys[r - 1] - ys[r]);
+      return fx <= fy ? xs[c] + (fx / fy) * dx : xs[c + 1];
+    }
+    return undefined;
+  };
+  // Turning toward s a bound edge moves against the back hair toward s: out
+  // past its run on the side it turns toward, in on the other. Its reach
+  // that way, and the other.
+  const ahead = (e: CapEdge, s: number) =>
+    s === e.side ? e.outward : e.inward;
+  const behind = (e: CapEdge, s: number) =>
+    s === e.side ? e.inward : e.outward;
+  /**
+   * The local cut on vertex row r turning toward s, on `side` (its bound
+   * edges `mine`; `today` the row's follow at each vertex column): each
+   * cell's quarter of its width at a full turn (of its rest width where the
+   * turn widens it), summed cell by cell from the axis's cell out to the
+   * first vertex column at or past the outermost of those edges, constant
+   * beyond, and scaled to the least that brings every edge to its interval's
+   * upper end, never past that quarter. Per vertex column; 0 on the other
+   * side.
+   */
+  const capCut = (
+    r: number,
+    s: number,
+    side: -1 | 1,
+    today: number[],
+    mine: CapEdge[],
+  ): Float64Array => {
+    const reach = Math.max(...mine.map((e) => side * (e.x - f.axisX)));
+    const quarter = new Float64Array(nc);
+    const cols = xs
+      .map((_, c) => c)
+      .filter((c) => (xs[c] < f.axisX ? -1 : 1) === side);
+    if (side < 0) cols.reverse();
+    let total = 0;
+    let x0 = f.axisX;
+    let d0 = s * followAt(f.axisX, ys[r], s);
+    let open = true;
+    for (const c of cols) {
+      if (open) {
+        const d = (m.shellScale - 1) * (xs[c] - f.axisX) + s * today[c];
+        const rest = side * (xs[c] - x0);
+        const full = rest + side * (d - d0);
+        total += Math.max(0, Math.min(full, rest)) / 4;
+        x0 = xs[c];
+        d0 = d;
+        open = side * (xs[c] - f.axisX) < reach;
+      }
+      quarter[c] = total;
+    }
+    let scale = 0;
+    for (const e of mine) {
+      const need = along(today, e.at) - (m.shellScale * ahead(e, s) - drift);
+      if (need <= 0) continue;
+      const q = along(quarter, e.at);
+      scale = Math.max(scale, q > 0 ? need / q : 1);
+    }
+    scale = Math.min(1, scale);
+    return quarter.map((q) => scale * q);
+  };
+  // Per vertex row and direction: the cut at each vertex column, and the
+  // blend.
+  const cuts = new Float64Array(n * 2 * nc);
+  const blend = new Float64Array(n * 2);
+  const wr = ys.map((y) => crownBlend(m, y));
+  for (let r = 0; r <= last && capRows > 0; r++) {
+    const w = wr[r];
+    if (w <= 0) continue;
+    // The bound edges in the row's window, each where the render reads the
+    // row for it.
+    const edges: CapEdge[] = [];
+    const [i0, i1] = rowWindow(ys, r, capRows);
+    for (let i = i0; i < i1; i++) {
+      sides.forEach((side, k) => {
+        if (bound[k][i] === 0) return;
+        const x = f.axisX + side * offset[k][i];
+        const at = readAt(r, x, top - i - 0.5);
+        if (at === undefined) return;
+        edges.push({
+          side,
+          x,
+          at,
+          outward: reachOut[k][i],
+          inward: reachIn[k][i],
+        });
+      });
+    }
+    if (edges.length === 0) continue;
+    sides.forEach((s, j) => {
+      // Today's follow at each vertex column, and after the cut.
+      const today = xs.map((x) => followAt(x, ys[r], s) + liftAt(x, ys[r], s));
+      const after = today.slice();
+      if (w >= 1) {
+        for (const side of sides) {
+          const mine = edges.filter((e) => e.side === side);
+          if (mine.length === 0) continue;
+          const cut = capCut(r, s, side, today, mine);
+          for (let c = 0; c < nc; c++) after[c] -= cut[c];
+        }
+      }
+      let b = 0;
+      for (const e of edges) {
+        const rel = w * (along(after, e.at) + drift);
+        const hi = m.shellScale * ahead(e, s);
+        const lo = -m.shellScale * behind(e, s);
+        if (rel > hi) b = Math.max(b, 1 - hi / rel);
+        else if (rel < lo) b = Math.max(b, 1 - lo / rel);
+      }
+      blend[r * 2 + j] = b;
+      for (let c = 0; c < nc; c++)
+        cuts[(r * 2 + j) * nc + c] = after[c] - today[c];
+    });
+  }
+  // Up from the plate's top, no crown row blends less than the one under it.
+  for (let j = 0; j < 2; j++) {
+    for (let r = n - 2; r >= 0; r--) {
+      if (wr[r] < 1)
+        blend[r * 2 + j] = Math.max(blend[r * 2 + j], blend[(r + 1) * 2 + j]);
+    }
+  }
+  const cutRow = (r: number, j: number, x: number) =>
+    r > last
+      ? 0
+      : along(cuts.subarray((r * 2 + j) * nc, (r * 2 + j + 1) * nc), x);
+  return {
+    lift: liftAt,
+    // Between vertex rows, as the render interpolates; a vertex reads its own
+    // row's alone.
+    cut: (x, y, s) => {
+      if (s === 0) return 0;
+      const j = s < 0 ? 0 : 1;
+      const { r, t } = gridRow(ys, y, true);
+      return cutRow(r, j, x) * (1 - t) + cutRow(r + 1, j, x) * t;
+    },
+    blend: (y, s) => {
+      if (s === 0) return 0;
+      const j = s < 0 ? 0 : 1;
+      const { r, t } = gridRow(ys, y, true);
+      return blend[r * 2 + j] * (1 - t) + blend[(r + 1) * 2 + j] * t;
+    },
   };
 }
 
@@ -751,8 +1017,7 @@ function crownRide(
     return rel[at];
   };
   const cellR = (x: number, y: number, k: number) => {
-    let c = 0;
-    while (c < xs.length - 2 && xs[c + 1] < x) c++;
+    const { c } = gridCol(xs, x);
     const { r } = gridRow(ys, y);
     return Math.max(
       relOf(r, c, k),
@@ -861,8 +1126,7 @@ function crownRide(
     const out = wr.slice();
     for (let r = 0; r < n; r++) {
       if (wr[r] >= 1) continue;
-      const i0 = Math.max(0, Math.floor(top - ys[Math.max(0, r - 1)]));
-      const i1 = Math.min(count, Math.ceil(top - ys[Math.min(n - 1, r + 1)]));
+      const [i0, i1] = rowWindow(ys, r, count);
       let least = Infinity;
       for (let i = i0; i < i1; i++) least = Math.min(least, slackAt(i, k));
       out[r] = wr[r] + clamp(least, 0, 1 - wr[r]);

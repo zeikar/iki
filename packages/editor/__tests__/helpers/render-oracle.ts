@@ -228,6 +228,11 @@ function latticeOf(part: IkiPart) {
   return { cols, rows, stride, left, top, w, h };
 }
 
+/** How one rest point's landing reads off its part's landed vertices: the
+ *  triangle and weights `landedAt` reads it through, which depend on the
+ *  rest point alone. */
+type PointRead = (landed: Float32Array) => { x: number; y: number };
+
 /**
  * Where the point that sits at model-space `(restX, restY)` on the part's REST
  * geometry renders: barycentric over the landed vertices of the mesh triangle
@@ -246,6 +251,21 @@ function landedAt(
   params: ParamValues,
 ): { x: number; y: number } {
   const part = partOf(model, partId);
+  return pointRead(
+    model,
+    part,
+    restX,
+    restY,
+  )(landVertices(model, partId, params));
+}
+
+/** The triangle read `landedAt` lands a rest point through. */
+function pointRead(
+  model: IkiModel,
+  part: IkiPart,
+  restX: number,
+  restY: number,
+): PointRead {
   const t = part.transform;
   // The rest point is taken back into the mesh's local frame through the
   // part's rest placement, which the generator writes as a translate alone.
@@ -255,11 +275,10 @@ function landedAt(
     (t.scaleY ?? 1) !== 1
   ) {
     throw new Error(
-      `render-oracle: landedXAt / landedYAt read a part placed by translate alone; "${partId}" rests rotated or scaled`,
+      `render-oracle: landedXAt / landedYAt read a part placed by translate alone; "${part.id}" rests rotated or scaled`,
     );
   }
-  if (!isLattice(part))
-    return landedOnTriangles(model, part, restX, restY, params);
+  if (!isLattice(part)) return readOnTriangles(model, part, restX, restY);
   const g = latticeOf(part);
   // Lattice fractions: u along the columns (0 at the left edge), v down the
   // rows (0 at the top).
@@ -269,22 +288,24 @@ function landedAt(
   const row = Math.max(0, Math.min(g.rows - 1, Math.floor(v)));
   const fx = Math.max(0, Math.min(1, u - col));
   const fy = Math.max(0, Math.min(1, v - row));
-  const landed = landVertices(model, partId, params);
-  // One coordinate (0 = x, 1 = y) of the triangle's barycentric read.
-  const read = (axis: 0 | 1): number => {
-    const at = (r: number, c: number) => landed[(r * g.stride + c) * 2 + axis];
-    const tl = at(row, col);
-    const br = at(row + 1, col + 1);
-    // The cell's diagonal runs TL→BR, so the lower-left triangle [BL, BR, TL]
-    // is the one with fx <= fy.
-    if (fx <= fy) {
-      const bl = at(row + 1, col);
-      return tl + fy * (bl - tl) + fx * (br - bl);
-    }
-    const tr = at(row, col + 1);
-    return tl + fx * (tr - tl) + fy * (br - tr);
+  return (landed) => {
+    // One coordinate (0 = x, 1 = y) of the triangle's barycentric read.
+    const read = (axis: 0 | 1): number => {
+      const at = (r: number, c: number) =>
+        landed[(r * g.stride + c) * 2 + axis];
+      const tl = at(row, col);
+      const br = at(row + 1, col + 1);
+      // The cell's diagonal runs TL→BR, so the lower-left triangle
+      // [BL, BR, TL] is the one with fx <= fy.
+      if (fx <= fy) {
+        const bl = at(row + 1, col);
+        return tl + fy * (bl - tl) + fx * (br - bl);
+      }
+      const tr = at(row, col + 1);
+      return tl + fx * (tr - tl) + fy * (br - tr);
+    };
+    return { x: read(0), y: read(1) };
   };
-  return { x: read(0), y: read(1) };
 }
 
 function isLattice(part: IkiPart): boolean {
@@ -297,20 +318,19 @@ function isLattice(part: IkiPart): boolean {
 }
 
 /**
- * `landedAt` for a mesh that is not a lattice (the face plate's two islands):
- * the point is read off the LAST-drawn triangle containing it at rest — the
- * one on top, which is what renders there — and, off the mesh, off the
- * triangle it is nearest to, its barycentric weights clamped.
+ * `pointRead` for a mesh that is not a lattice (the face plate's islands, the
+ * front hair's bent columns): the point is read off the LAST-drawn triangle
+ * containing it at rest — the one on top, which is what renders there — and,
+ * off the mesh, off the triangle it is nearest to, its barycentric weights
+ * clamped.
  */
-function landedOnTriangles(
+function readOnTriangles(
   model: IkiModel,
   part: IkiPart,
   restX: number,
   restY: number,
-  params: ParamValues,
-): { x: number; y: number } {
+): PointRead {
   const rest = landVertices(model, part.id);
-  const landed = landVertices(model, part.id, params);
   const idx = part.mesh!.indices;
   let best: { t: number; w: [number, number, number]; score: number } | null =
     null;
@@ -341,9 +361,45 @@ function landedOnTriangles(
   const sum = clamped[0] + clamped[1] + clamped[2];
   const [u, v, ww] = clamped.map((x) => x / sum);
   const [a, b, c] = [idx[t], idx[t + 1], idx[t + 2]];
-  return {
+  return (landed) => ({
     x: u * landed[a * 2] + v * landed[b * 2] + ww * landed[c * 2],
     y: u * landed[a * 2 + 1] + v * landed[b * 2 + 1] + ww * landed[c * 2 + 1],
+  });
+}
+
+/** Each model's parts' point reads, by rest point: they hold at every pose
+ *  of that model (off a lattice, a read rests on the model's rest landing). */
+const pointReads = new WeakMap<
+  IkiModel,
+  WeakMap<IkiPart, Map<string, PointRead>>
+>();
+
+/**
+ * `landedAt` for many rest points at one pose: the part's vertices land once,
+ * and each rest point reads off them through the triangle and weights
+ * `landedAt` finds for it (kept per model and part across poses) — the same
+ * numbers, without landing the part again for every point.
+ */
+export function landerFor(
+  model: IkiModel,
+  partId: string,
+  params: ParamValues = {},
+): (restX: number, restY: number) => { x: number; y: number } {
+  const part = partOf(model, partId);
+  const landed = landVertices(model, partId, params);
+  let parts = pointReads.get(model);
+  if (parts === undefined) pointReads.set(model, (parts = new WeakMap()));
+  let reads = parts.get(part);
+  if (reads === undefined) parts.set(part, (reads = new Map()));
+  const known = reads;
+  return (restX, restY) => {
+    const key = `${restX} ${restY}`;
+    let read = known.get(key);
+    if (read === undefined) {
+      read = pointRead(model, part, restX, restY);
+      known.set(key, read);
+    }
+    return read(landed);
   };
 }
 

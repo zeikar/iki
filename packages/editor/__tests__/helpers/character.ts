@@ -70,6 +70,18 @@ export interface CharacterOptions {
    *  charges a crown vertex row with today's blend down to the row under
    *  it. */
   wideBack?: boolean;
+  /** As `wideBack`, but on the crown band the bangs are a dome inside the
+   *  eyes' outer corners — half-width 100 on row 10, widening 0.3 px per row
+   *  to 160 on row 210 — over a back-hair dome painted 45 px past the bangs'
+   *  edge on every row from row 0 to 179: looking up, a row's edge meets
+   *  back rows that reach about 37 px past it. From row 180 the back is
+   *  solid ±320 into the temple, so the temple's rows, looking up, meet back
+   *  hair past their edges. */
+  narrowCap?: boolean;
+  /** As `fullBack`, but on the solid band (the eye rows, below the cap) each
+   *  lock's outer edge sits at ±200 (canvas columns 300 and 701), 30 px past
+   *  the eyes' outer corners, over back hair solid out to 2 px past them. */
+  tightLock?: boolean;
   /** As `wideBack`, plus a parting both layers draw on rows 30–60: a 6 px
    *  gap in the bangs at the axis (columns 497–502) over a 40 px hole in the
    *  back hair (columns 480–519). */
@@ -112,8 +124,13 @@ export interface CharacterOptions {
  * - `temple`: the back's outer end 5 px inside the bangs' edge;
  * - under `wideBack` and the gaps built on it, the back solid ±320 over
  *   both `crown` and `temple`;
+ * - under `narrowCap`, `temple` as `wideBack`'s, and on `crown` the bangs a
+ *   dome ±100 on row 10 widening 0.3 px per row (±160 by row 210), the back
+ *   a dome 45 px wider from row 0 to 179, then solid ±320;
  * - `solid`: from the brows down, the eye row (433.5) among them: the back
  *   one solid run ±310 behind the locks (as it is below the bangs' crop);
+ *   under `tightLock`, the locks' outer edges at ±200 (columns 300 and 701)
+ *   and the back solid 2 px past them;
  * - `gap`: as on bob's row 366, a 3 px sliver of back 2 px outside the
  *   bangs' edge, then nothing until 8 px inside it;
  * - `stroke`: as on the hero's row 610, the back solid from inside the
@@ -130,8 +147,9 @@ const FULL_BACK_ROWS = {
 /** The `fullBack` layers' `rowRuns`, one entry per crop row: the bangs'
  *  crop holds canvas rows 10–969, the back's rows 0–999. The back's crown is
  *  as `crown` names: `fullBack`'s, or the `tuft`, `dip` or `shoulderDip`
- *  option's; `wide`, `crownGap`, `faceGap`, `besideFaceGap` and
- *  `plateTopGap` are the `wideBack` option's and those built on it. */
+ *  option's; `wide`, `crownGap`, `faceGap`, `besideFaceGap`, `plateTopGap`
+ *  and `narrowCap` are the `wideBack` option's and those built on it;
+ *  `tightLock` is `fullBack`'s crown over its own solid band. */
 function fullBackRuns(
   crown:
     | "full"
@@ -142,18 +160,21 @@ function fullBackRuns(
     | "crownGap"
     | "faceGap"
     | "besideFaceGap"
-    | "plateTopGap",
+    | "plateTopGap"
+    | "narrowCap"
+    | "tightLock",
 ): {
   front: number[][];
   back: number[][];
 } {
-  const { temple, gap, stroke } = FULL_BACK_ROWS;
+  const { temple, solid, gap, stroke } = FULL_BACK_ROWS;
   const wide =
     crown === "wide" ||
     crown === "crownGap" ||
     crown === "faceGap" ||
     crown === "besideFaceGap" ||
-    crown === "plateTopGap";
+    crown === "plateTopGap" ||
+    crown === "narrowCap";
   // The bangs' dome: its half-width on row k, from ±200 on its top row (10)
   // to ±262 on row 90 and below.
   const dome = (k: number) =>
@@ -190,8 +211,18 @@ function fullBackRuns(
       b = [233, 236, 246, 754, 764, 767];
     } else if (k >= stroke[0] && k < stroke[1]) {
       b = [184, 188, 218, 782, 812, 816];
+    } else if (crown === "tightLock" && k >= solid[0] && k < solid[1]) {
+      f = [300, 347, 654, 701];
+      b = [298, 703];
     }
     if (wide && k < temple[1]) b = [180, 820];
+    if (crown === "narrowCap" && k < temple[0]) {
+      // The bangs' dome, inside the eyes' outer corners, and the back's
+      // dome 45 px wider on every row from row 0 to 179 (then wideBack's).
+      const w = Math.round(100 + 0.3 * (k - 10));
+      f = [500 - w, 500 + w];
+      if (k < 180) b = [500 - w - 45, 500 + w + 45];
+    }
     // A gap in the bangs, inside their outer ends.
     if (crown === "crownGap" && k >= 30 && k <= 60) {
       f = [f[0], 497, 503, f[1]];
@@ -227,6 +258,8 @@ export function character(opts: CharacterOptions = {}): {
     faceGap = false,
     besideFaceGap = false,
     plateTopGap = false,
+    narrowCap = false,
+    tightLock = false,
   } = opts;
   // The `fullBack` variant an option names, if any.
   const variant = (
@@ -239,6 +272,8 @@ export function character(opts: CharacterOptions = {}): {
       ["faceGap", faceGap],
       ["besideFaceGap", besideFaceGap],
       ["plateTopGap", plateTopGap],
+      ["narrowCap", narrowCap],
+      ["tightLock", tightLock],
     ] as const
   ).find(([, on]) => on)?.[0];
   const fullBack = opts.fullBack === true || variant !== undefined;
