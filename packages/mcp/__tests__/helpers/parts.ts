@@ -144,11 +144,14 @@ export async function writeEyewhite(
     tearDuct,
     crease,
     lowerLid = true,
+    faintLowerSpeck = false,
   }: {
     tearDuct?: "left" | "right";
     crease?: "short" | "long" | "bridged" | "translucent";
     /** Leave it out for a white with no dark lower lid. */
     lowerLid?: boolean;
+    /** Dark residue under alpha 8 below the white, inside its frame. */
+    faintLowerSpeck?: boolean;
   } = {},
 ): Promise<void> {
   await writeRgbaPart(dir, "eyewhite.png", 72, 48, (set) => {
@@ -191,6 +194,10 @@ export async function writeEyewhite(
     // on either side, so which one survives is not decided by rounding.
     rim(setLash, bounds, 36, 24, 64, 40, 4, (y) => y < 22, DARK);
     if (lowerLid) rim(set, bounds, 36, 24, 64, 40, 3, (y) => y > 25, DARK);
+    // The frame's lower-left corner, outside the almond.
+    if (faintLowerSpeck)
+      for (let y = 40; y <= 43; y++)
+        for (let x = 5; x <= 8; x++) set(x, y, DARK, 4);
   });
 }
 

@@ -268,6 +268,19 @@ describe("composeLayersFromParts", () => {
     });
   });
 
+  it("writes no lower lid from dark residue too faint for the rig to count", async () => {
+    const faint = partsDir();
+    await writePartsSet(faint, { omit: ["eyewhite.png"] });
+    await writeEyewhite(faint, { lowerLid: false, faintLowerSpeck: true });
+    const dir = outDir();
+    const r = await composeOk({ partsDir: faint, outDir: dir });
+    // Written, it would hold no pixel at alpha 8, and the rig refuses an
+    // empty layer.
+    expect(r.skipped).toEqual(["lash_lower_L", "lash_lower_R"]);
+    expect(r.measure.empty).toEqual([]);
+    expect(fs.existsSync(path.join(dir, "lash_lower_L.png"))).toBe(false);
+  });
+
   it("places the lower lid by its eye's layout, mirrored with it", async () => {
     const moved = outDir();
     await composeOk({

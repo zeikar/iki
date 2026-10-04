@@ -17,7 +17,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
-import { ALPHA_OPAQUE } from "@ikijs/editor";
+import { ALPHA_OPAQUE, detectAlphaBbox as scanAlphaBbox } from "@ikijs/editor";
 import { cropToBuffer, decodePng } from "./node-images";
 import { measureDir, type MeasureReport, type NoseSpeck } from "./measure";
 import { denseCoreOf, isSpeckCore } from "./measure-turn";
@@ -398,6 +398,15 @@ async function coreAndBoundsOf(
     core: denseCoreOf(data, info.width, info.height),
     bounds: { x: 0, y: 0, w: info.width, h: info.height },
   };
+}
+
+/** Whether a part keeps a pixel the auto-rig counts as coverage. */
+async function hasCoverage(png: Buffer): Promise<boolean> {
+  const { data, info } = await sharp(png)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return scanAlphaBbox(data, info.width, info.height) !== null;
 }
 
 /** What a nose part's layout sizes, decided on the trimmed source part. */
@@ -987,7 +996,9 @@ export async function composeLayersFromParts(
         // The split halves are cut from eyewhite.png, the file a caller names.
         mirrored.has(inMemory === undefined ? cfg.src : EYEWHITE_SRC),
       );
-      if (part === null) {
+      // A lower lid too faint for the alpha the rig reads coverage at, or
+      // that the resize erased, would be a layer it refuses as empty.
+      if (part === null || (lower && !(await hasCoverage(part.buf)))) {
         skipped.push(role);
         continue;
       }
