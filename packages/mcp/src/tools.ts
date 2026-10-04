@@ -252,7 +252,7 @@ export interface AutoRigInput {
   /** Head-turn cues to fit the rig to, as `measure_turn_reference` reports
    *  them. */
   turnTargets?: AutoRigTurnTargets;
-  /** Per-character tuning from the Live2D profile's defaults (see
+  /** Per-character tuning from the profile's defaults (see
    *  @ikijs/editor's `RigStyle`). */
   style?: RigStyle;
 }

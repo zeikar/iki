@@ -1,6 +1,6 @@
 /**
  * The head's motion as one displacement field per family, read off the
- * Live2D profile (`profile.ts`). A turn is parallax: the plate translates,
+ * profile (`profile.ts`). A turn is parallax: the plate translates,
  * each feature leads it by its own amount (and the eyes foreshorten about
  * their own centres), the front hair rides it, the back hair drifts slightly
  * against it, and the neck under the jaw does not move. A nod is the same,
@@ -101,8 +101,8 @@ function spin(
   ];
 }
 
-/** The head's own plate: a translation, the chin leading it, the width
- *  changing a few percent (a little more at the jaw). */
+/** The head's own plate: a translation, the chin leading it, its width as
+ *  the profile and the fit give it. */
 export function faceField(m: TurnModel): Field {
   const f = m.frame;
   return (x, y, ax, ay) => {
@@ -373,7 +373,7 @@ export function hairFrontBends(
  * The front hair: over the face its bangs and the inner parts of its side
  * locks ride the face (and over the far eye, as far as that eye's corner
  * goes); out at the head's outline its outer edge follows only as far as
- * `hairOuter` — on a Live2D model the outline is the back hair's, and holds —
+ * `hairOuter` — the outline is the back hair's, and holds —
  * the lock easing between. On a row where the back hair paints behind that
  * edge at every turn and nod angle, the edge rides further, up to the face's
  * follow, and on its cap less, so that the turn never carries the edge
@@ -515,7 +515,7 @@ function renderedCrownBlend(
 /** The most back-hair cover, hh, a crown column may lose at its top when the
  *  cap's top slides looking down, beyond what it loses at the back hair's
  *  own nod (the slide without runs): a pixel or two, so the slide opens no
- *  notch in the head's top. The rest of the samples' slide is the art's to
+ *  notch in the head's top. The rest of the cap's slide is the art's to
  *  earn, with a back hair drawn up past the front hair's top. */
 const CAP_COVER_LOSS = 0.01;
 

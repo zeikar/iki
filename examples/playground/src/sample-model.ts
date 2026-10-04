@@ -352,7 +352,7 @@ const LOCK_PARAM_MAX = 60;
 // pose is unchanged; each lock pulls inward on the turn that makes its side recede.
 const LOCK_TURN_TRACK = 42;
 
-// --- side-lock strand (Hiyori-style smooth, single-piece lock) --------------
+// --- side-lock strand (smooth, single-piece lock) ---------------------------
 // A single conceptual strand is SLICED into many short bands, each band riding
 // one matrix deformer in a parent chain (seg0 → seg1 → … off the head). Adjacent
 // bands SHARE the joint vertex row, and each segment's pivot sits exactly on its

@@ -3,7 +3,7 @@
  * mouth, hair sway, and the hang of hair and the neck's stillness under a
  * roll. Each is a per-vertex warp in the part's own ±0.5 space or a binding,
  * applied before the part's turn grid, so the turn carries it. Amplitudes are
- * the Live2D profile's (`profile.ts`).
+ * the profile's (`profile.ts`).
  */
 
 import {

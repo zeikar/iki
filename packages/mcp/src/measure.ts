@@ -490,7 +490,7 @@ export async function measureDir(
     ["hair_back", "without it the silhouette is flat behind the face"],
     [
       "nose",
-      "without it the head still turns on the Live2D profile, but there is no nose to lead it, and no turn fit to the art (`turnTargets` is inert, no `turn` report)",
+      "without it the head still turns on the default profile, but there is no nose to lead it, and no turn fit to the art (`turnTargets` is inert, no `turn` report)",
     ],
   ]) {
     if (layers[role] === undefined) warnings.push(`${role}: missing — ${why}.`);

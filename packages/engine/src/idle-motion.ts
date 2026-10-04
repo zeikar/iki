@@ -7,11 +7,10 @@ import { clamp } from "./math";
 
 const BLINK_INTERVAL_MIN_MS = 1500;
 const BLINK_INTERVAL_MAX_MS = 6000;
-// A blink closes fast and opens slower, with a moment shut in between. Live2D's
-// CubismEyeBlink defaults are 100 ms closing / 50 ms closed / 150 ms opening
-// (linear); the human blink-kinematics literature has the down-phase at roughly
-// a third of the whole and the up-phase decelerating into the open pose. These
-// three are a judgement inside the 150–180 ms range.
+// A blink closes fast and opens slower, with a moment shut in between. The
+// human blink-kinematics literature has the down-phase at roughly a third of
+// the whole and the up-phase decelerating into the open pose. These three are
+// a judgement inside the 150–180 ms range.
 const BLINK_CLOSE_MS = 60;
 const BLINK_HOLD_MS = 20;
 const BLINK_OPEN_MS = 100;

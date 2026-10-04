@@ -304,8 +304,8 @@ export interface TurnParams {
   follow: number;
   /** Its outer edge's share (the head's outline where it draws it). */
   outline: number;
-  /** The eyes' foreshortening per unit of turn (1 = the profile's
-   *  0.85 / 1.085 at the profile's turn). */
+  /** The eyes' foreshortening per unit of turn (1 = the profile's, at the
+   *  profile's turn). */
   fore: number;
   /** The hair's width at full turn (the silhouette). */
   shell: number;

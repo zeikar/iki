@@ -1,7 +1,7 @@
 /**
  * `generateIkiFromLayerSet`: role layers in, a rigged `.iki` out.
  *
- * The rig's shape follows a Live2D default rig (`profile.ts`): a torso that
+ * The rig's shape is a 2D head rig's usual one (`profile.ts`): a torso that
  * only breathes; a head deformer that rolls about the chin and breathes; one
  * small warp grid per feature (each eye, each brow, the nose, the mouth),
  * translating and foreshortening it by its own lead over the plate; and the
