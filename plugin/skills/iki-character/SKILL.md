@@ -163,6 +163,7 @@ Call `auto_rig_from_layers` with the layer paths `compose_layers_from_parts` ret
     { "path": "iki-char/layers/eye_R.png" },
     { "path": "iki-char/layers/iris_L.png" },
     { "path": "iki-char/layers/iris_R.png" },
+    // only when the compose wrote them (an eyewhite with no dark lower lid writes none)
     { "path": "iki-char/layers/lash_lower_L.png" },
     { "path": "iki-char/layers/lash_lower_R.png" },
     { "path": "iki-char/layers/lash_L.png" },
