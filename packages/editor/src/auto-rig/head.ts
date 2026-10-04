@@ -6,7 +6,6 @@
  */
 
 import { boxOfLayer, clamp, cx, cy, type Box } from "./layout";
-import { HH_PER_EYE_TO_CHIN } from "./profile";
 import type { HeadEdges, LayerInput } from "./types";
 
 export interface Neck {
@@ -46,7 +45,7 @@ export interface HeadFrame {
   mouthY: number;
   /** The chin tip — the jaw outline's lowest point — model y. */
   chinY: number;
-  /** The profile's head unit, px: `HH_PER_EYE_TO_CHIN` × eye row → chin. */
+  /** The profile's head unit `hh`, px: the eye row → the chin tip. */
   hh: number;
   /** Half the face plate's painted width on row `y`. */
   paintedHalfAt(y: number): number;
@@ -398,7 +397,7 @@ export function buildHeadFrame(
         return face.y1;
       };
       const chin = chinY;
-      const shade = JAW_SHADE * HH_PER_EYE_TO_CHIN * Math.max(1, eyeY - chin);
+      const shade = JAW_SHADE * Math.max(1, eyeY - chin);
       // Where the band thins to nothing: CUT_LOW + 1 columns short of the
       // furthest the cut may draw its end. Without a slide, at the neck's
       // outline.
@@ -474,7 +473,7 @@ export function buildHeadFrame(
     }
   }
 
-  const hh = HH_PER_EYE_TO_CHIN * Math.max(1, eyeY - chinY);
+  const hh = Math.max(1, eyeY - chinY);
 
   const headHalf = opts.headHalfWidth;
   const hairShell = headHalf !== undefined;

@@ -23,6 +23,7 @@ import {
   detectAlphaBbox,
   type IrisStrand,
 } from "@ikijs/editor";
+import { TURN } from "../../editor/src/auto-rig/profile";
 
 // Minimal valid model used across several tests.
 function validModel() {
@@ -877,7 +878,7 @@ describe("autoRigFromLayers", () => {
     expect(rows[rows.length - 1].dx).toBeLessThan(upper[0].dx - 0.5);
   });
 
-  it("a face that tapers to its chin narrows its plate a little more at the jaw than at the cheeks", async () => {
+  it("a face that tapers to its chin keeps its plate's width down the jaw, as at the cheeks", async () => {
     const dir = tmpDir();
     const paths = await writeJawFaceLayers(dir);
     const out = path.join(dir, "model.iki");
@@ -890,8 +891,8 @@ describe("autoRigFromLayers", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // The plate's width at full turn, row by row, off two columns 30 apart:
-    // the profile's 0.985 on the upper face, 0.96 down the jaw — the face
-    // translating rather than reshaping, the jaw giving a little more.
+    // the profile's TURN.widthUpper on the upper face, TURN.widthJaw down the
+    // jaw — the face translating rather than reshaping.
     const left = faceTurnDxByRow(out, -15);
     const right = faceTurnDxByRow(out, 15);
     const width = (y: number) => {
@@ -904,9 +905,8 @@ describe("autoRigFromLayers", () => {
       .filter((y) => right.some((r) => Math.abs(r.y - y) < 1e-6));
     const top = width(Math.max(...ys));
     const bottom = width(Math.min(...ys));
-    expect(top).toBeCloseTo(0.985, 2);
-    expect(bottom).toBeLessThan(top - 0.01);
-    expect(bottom).toBeGreaterThan(0.95);
+    expect(top).toBeCloseTo(TURN.widthUpper, 2);
+    expect(bottom).toBeCloseTo(TURN.widthJaw, 2);
   });
 
   it("measures the head half-width off the layers' alpha, ink included", async () => {
@@ -1063,7 +1063,7 @@ describe("autoRigFromLayers", () => {
     const big = await autoRigFromLayers({
       layers,
       outputPath: bigPath,
-      turnTargets: { eyeShift: 1.2 * e },
+      turnTargets: { eyeShift: 1.1 * e },
     });
     expect(small.ok && big.ok).toBe(true);
     if (!small.ok || !big.ok) return;
@@ -1072,7 +1072,7 @@ describe("autoRigFromLayers", () => {
     // (Fitted on the fields, reported off the written mesh: within 0.005 on
     // this 100 px fixture.)
     expect(small.turn!.achieved.eyeShift).toBeCloseTo(0.5 * e, 2);
-    expect(big.turn!.achieved.eyeShift).toBeCloseTo(1.2 * e, 2);
+    expect(big.turn!.achieved.eyeShift).toBeCloseTo(1.1 * e, 2);
     // Both were fractions of the head measured off the layers (40), not of the
     // face plate (31).
     expect(small.turn!.holdBase).toBe(small.headHalfWidth);

@@ -15,7 +15,7 @@ import {
   type TurnTargets,
 } from "@ikijs/editor";
 import { buildHeadFrame, type HeadFrame } from "../src/auto-rig/head";
-import { AMPLITUDE } from "../src/auto-rig/profile";
+import { AMPLITUDE, NOD, ROLL_DEG, TURN } from "../src/auto-rig/profile";
 import type { GenerateOptions } from "../src/auto-rig/types";
 import { CANVAS, character, type CharacterOptions } from "./helpers/character";
 import {
@@ -322,8 +322,8 @@ describe("generateIkiFromLayerSet: the model", () => {
   });
 });
 
-/** The fixture's profile unit: 1.017 × (eye row 67 → chin −192.6). */
-const HH = 1.017 * (67 + 192.625);
+/** The fixture's profile unit: eye row 67 → chin −192.6. */
+const HH = 67 + 192.625;
 const X30 = (ax: number) => ({ [P.AngleX]: ax });
 
 describe("the head turn", () => {
@@ -333,7 +333,8 @@ describe("the head turn", () => {
     expect(report).toBeDefined();
     expect(report!.clamped).toEqual([]);
     expect(report!.holdBase).toBe(262);
-    // The far eye narrows to 0.85 and the near one widens to 1.085.
+    // The far eye narrows to TURN.eyeFarScale and the near one widens to
+    // TURN.eyeNearScale.
     expect(report!.achieved.farEyeRatio).toBeCloseTo(
       DEFAULT_TURN_TARGETS.farEyeRatio,
       2,
@@ -355,16 +356,19 @@ describe("the head turn", () => {
       const s = Math.sign(ax);
       const at = (x: number, y: number) =>
         landedXAt(model, "face", x, y, X30(ax)) - x;
-      // The cheek edges on the widest row move together, about 0.12 hh.
+      // The cheek edges on the widest row move together, TURN.face, and the
+      // plate keeps its width (TURN.widthUpper) ...
       const [l, r] = [at(-195, 20), at(195, 20)];
-      expect((s * (l + r)) / 2 / HH).toBeCloseTo(0.118, 2);
-      expect(1 + (r - l) / 390).toBeGreaterThan(0.98);
-      // The jaw narrows a little more (0.96).
+      expect((s * (l + r)) / 2 / HH).toBeCloseTo(TURN.face, 2);
+      expect(1 + (r - l) / 390).toBeCloseTo(TURN.widthUpper, 2);
+      // ... down the jaw too (TURN.widthJaw).
       const [jl, jr] = [at(-85, -130), at(85, -130)];
-      expect(1 + (jr - jl) / 170).toBeGreaterThan(0.95);
-      expect(1 + (jr - jl) / 170).toBeLessThan(0.99);
-      // The chin tip leads the plate: 0.194 hh.
-      expect((s * at(0.5, -190)) / HH).toBeCloseTo(0.194, 2);
+      expect(1 + (jr - jl) / 170).toBeCloseTo(TURN.widthJaw, 2);
+      // The chin tip leads the plate by TURN.chinLead.
+      expect((s * at(0.5, -190)) / HH).toBeCloseTo(
+        TURN.face + TURN.chinLead,
+        2,
+      );
     }
   });
 
@@ -422,13 +426,13 @@ describe("the head turn", () => {
       HH;
     for (const ax of [-30, 30]) {
       const [far, near] = ax < 0 ? ["eye_R", "eye_L"] : ["eye_L", "eye_R"];
-      expect(shift(far, ax)).toBeCloseTo(0.192, 2);
-      expect(shift(near, ax)).toBeCloseTo(0.23, 2);
+      expect(shift(far, ax)).toBeCloseTo(TURN.eyeFar, 2);
+      expect(shift(near, ax)).toBeCloseTo(TURN.eyeNear, 2);
       const [bf, bn] = ax < 0 ? ["brow_R", "brow_L"] : ["brow_L", "brow_R"];
-      expect(shift(bf, ax)).toBeCloseTo(0.213, 2);
-      expect(shift(bn, ax)).toBeCloseTo(0.243, 2);
-      expect(shift("mouth", ax)).toBeCloseTo(0.213, 1);
-      expect(shift("nose", ax)).toBeGreaterThan(0.28);
+      expect(shift(bf, ax)).toBeCloseTo(TURN.browFar, 2);
+      expect(shift(bn, ax)).toBeCloseTo(TURN.browNear, 2);
+      expect(shift("mouth", ax)).toBeCloseTo(TURN.mouth, 1);
+      expect(shift("nose", ax)).toBeGreaterThan(TURN.nose - 0.02);
     }
     expect(report!.depths.eye).toBeLessThan(report!.depths.nose);
     expect(report!.depths.mouth).toBeLessThan(report!.depths.nose);
@@ -440,12 +444,12 @@ describe("the head turn", () => {
         landedXAt(model, id, x0, EYE_Y, X30(ax))) /
       (x1 - x0);
     // eye_R rests at x −170…−40, eye_L at 41…171.
-    expect(width("eye_R", -160, -50, -30)).toBeCloseTo(0.85, 2);
-    expect(width("eye_L", 51, 161, -30)).toBeCloseTo(1.085, 2);
-    expect(width("eye_L", 51, 161, 30)).toBeCloseTo(0.85, 2);
+    expect(width("eye_R", -160, -50, -30)).toBeCloseTo(TURN.eyeFarScale, 2);
+    expect(width("eye_L", 51, 161, -30)).toBeCloseTo(TURN.eyeNearScale, 2);
+    expect(width("eye_L", 51, 161, 30)).toBeCloseTo(TURN.eyeFarScale, 2);
   });
 
-  it("narrows and tilts the mouth a little, far corner up", () => {
+  it("keeps the mouth's width and holds it level", () => {
     const at = (x: number, ax: number) => ({
       x: landedXAt(model, "mouth", x, -100.5, X30(ax)),
       y: landedYAt(model, "mouth", x, -100.5, X30(ax)),
@@ -453,10 +457,14 @@ describe("the head turn", () => {
     for (const ax of [-30, 30]) {
       const a = at(-30, ax);
       const b = at(30, ax);
-      expect(Math.hypot(b.x - a.x, b.y - a.y) / 60).toBeCloseTo(0.975, 2);
+      expect(Math.hypot(b.x - a.x, b.y - a.y) / 60).toBeCloseTo(
+        TURN.mouthWidth,
+        2,
+      );
       const tilt = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
-      // Turning toward +x the far corner is +x's, and it rises: CCW.
-      expect(tilt * Math.sign(ax)).toBeCloseTo(4.4, 0);
+      // Turning toward +x the far corner is +x's: it rises (CCW) by
+      // TURN.mouthTiltDeg, which holds the mouth level.
+      expect(tilt * Math.sign(ax)).toBeCloseTo(TURN.mouthTiltDeg, 0);
     }
   });
 
@@ -484,19 +492,18 @@ describe("the head turn", () => {
       const shift = (x: number, y: number) =>
         (s * (landedXAt(model, "hair_front", x, y, p) - x)) / HH;
       // Over the face — the fringe, and a lock beside the jaw — it rides
-      // 1.1 × the plate's 0.118 hh.
-      expect(shift(0, 250)).toBeCloseTo(1.1 * 0.118, 2);
-      expect(shift(-150, -300)).toBeCloseTo(1.1 * 0.118, 2);
-      // The outline it draws at the eye row holds, as the samples' back
-      // hair does.
+      // TURN.hairFollow × the plate's TURN.face.
+      expect(shift(0, 250)).toBeCloseTo(TURN.hairFollow * TURN.face, 2);
+      expect(shift(-150, -300)).toBeCloseTo(TURN.hairFollow * TURN.face, 2);
+      // The outline it draws at the eye row holds.
       expect(Math.abs(shift(-261, EYE_Y))).toBeLessThan(0.005);
       expect(Math.abs(shift(260, EYE_Y))).toBeLessThan(0.005);
       // The crown eases to the back hair's slight counter-motion.
-      expect(shift(0, 490)).toBeCloseTo(-0.027, 2);
+      expect(shift(0, 490)).toBeCloseTo(TURN.hairBack, 2);
       const rest = landVertices(model, "hair_back");
       const turned = landVertices(model, "hair_back", p);
       for (let i = 0; i < rest.length; i += 2) {
-        expect((s * (turned[i] - rest[i])) / HH).toBeCloseTo(-0.027, 3);
+        expect((s * (turned[i] - rest[i])) / HH).toBeCloseTo(TURN.hairBack, 3);
         expect(turned[i + 1]).toBeCloseTo(rest[i + 1], 3);
       }
     }
@@ -521,9 +528,9 @@ describe("the head turn", () => {
     const today = rig({ fullBack: true }, {}, { drop: ALL_RUNS }).model;
     /** Model y of canvas row k's centre. */
     const rowY = (k: number) => 500 - k - 0.5;
-    const DRIFT = 0.027 * HH;
+    const DRIFT = -TURN.hairBack * HH;
     /** The face's follow at the edge below the eye band, hh at ±30. */
-    const CORE = 1.1 * 0.118;
+    const CORE = TURN.hairFollow * TURN.face;
     const edge = (
       m: IkiModel,
       role: string,
@@ -653,11 +660,11 @@ describe("the head turn", () => {
 
     it("rides the edge with the face where the back reaches past it and far inside it", () => {
       // Under the eyes, the back solid to ±310 over every row the edge passes
-      // over on the nod (43 px down to 26 px up, one mesh row either side):
-      // 48 px past the edge less the 7.1 px drift, and far inside it, both
-      // more than the face's 34.3 px follow, so both edges may ride it whole.
+      // over on the nod (42 px down to 23 px up, one mesh row either side):
+      // 48 px past the edge less the 3.1 px drift, and far inside it, both
+      // more than the face's 31.2 px follow, so both edges may ride it whole.
       // The mesh carries the ride's kink at the edge between two columns, so
-      // the edge lands a little short of it (today's hold is 0.045 hh).
+      // the edge lands a little short of it (today's hold is 0.041 hh).
       const y = rowY(530);
       for (const ax of [-30, 30]) {
         const s = Math.sign(ax);
@@ -840,9 +847,9 @@ describe("the head turn", () => {
     it("never turns the cap's outer edge further outside the back hair than the nod alone puts it, following less where the back hair reaches less", () => {
       // The bangs' dome lies inside the eyes' outer corners, over a back-hair
       // dome only 45 px wider down to row 179: looking up, a row's edge meets
-      // back rows that reach about 37 px past it, less than the bangs' motion
-      // against the back hair (41 px; 69 px at hairFollow 2). The nod alone
-      // keeps every edge inside.
+      // back rows that reach about 37 px past it, more than the bangs' motion
+      // against the back hair at the profile's follow (34 px), less than at
+      // hairFollow 2 (65 px). The nod alone keeps every edge inside.
       const opts = { narrowCap: true };
       const poses: number[][] = [];
       for (const ax of [-30, -15, 15, 30])
@@ -871,7 +878,10 @@ describe("the head turn", () => {
       // On the crown the bound is the blend alone, and just enough: looking
       // up and turned, the dome's far edge lands within a pixel or so of its
       // back run's outer end, and the crown still turns — less far than
-      // without runs, further than the back hair.
+      // without runs, further than the back hair. At the profile's own follow
+      // this back hair leaves the dome room, so nothing binds: the crown rides
+      // with the cap, no less far than without runs, still inside its back
+      // run.
       const opts = { narrowCap: true };
       const back = layerOf(opts, "hair_back");
       const front = layerOf(opts, "hair_front");
@@ -883,16 +893,22 @@ describe("the head turn", () => {
         const { model: m } = rig(opts, {}, { style });
         const held = rig(opts, {}, { style, drop: ALL_RUNS }).model;
         const turn = style.turn ?? 1;
+        const binds = style.hairFollow !== undefined;
         for (const ax of [-30, 30]) {
           const label = `${JSON.stringify(style)}, AngleX ${ax}`;
           // A dome row's bangs at the axis (canvas row 130).
           const y = 370;
           expect(shift(m, 0, y, ax), label).toBeGreaterThan(
-            -0.027 * turn + 0.01,
+            TURN.hairBack * turn + 0.01,
           );
-          expect(shift(m, 0, y, ax), label).toBeLessThan(
-            shift(held, 0, y, ax) - 0.005,
-          );
+          if (binds)
+            expect(shift(m, 0, y, ax), label).toBeLessThan(
+              shift(held, 0, y, ax) - 0.005,
+            );
+          else
+            expect(shift(m, 0, y, ax), label).toBeGreaterThan(
+              shift(held, 0, y, ax) - 0.005,
+            );
           const pose = { [P.AngleX]: ax, [P.AngleY]: 30 };
           const toBack = backRest(m, pose);
           const land = landerFor(m, "hair_front", pose);
@@ -907,7 +923,7 @@ describe("the head turn", () => {
             tightest = Math.min(tightest, inside!);
           }
           expect(tightest, label).toBeGreaterThan(-ROUNDING);
-          expect(tightest, label).toBeLessThan(1.5);
+          if (binds) expect(tightest, label).toBeLessThan(1.5);
         }
       }
     });
@@ -981,7 +997,7 @@ describe("the head turn", () => {
           ).toBeCloseTo(a * CORE, 2);
         }
         expect(shift(wideBack.model, 0, 489, ax), `AngleX ${ax}`).toBeCloseTo(
-          -0.027 * a,
+          TURN.hairBack * a,
           2,
         );
       }
@@ -1003,7 +1019,7 @@ describe("the head turn", () => {
         }
         for (const y of ys) {
           expect(
-            Math.abs(shift(full, 0, y, ax) + 0.027 * a),
+            Math.abs(shift(full, 0, y, ax) - TURN.hairBack * a),
             `y ${y}, AngleX ${ax}`,
           ).toBeLessThan(0.002);
         }
@@ -1037,7 +1053,7 @@ describe("the head turn", () => {
             expect(
               shift(rigged, x, y, ax),
               `${label}, (${x}, ${y}), AngleX ${ax}`,
-            ).toBeCloseTo(-0.027 * a, 2);
+            ).toBeCloseTo(TURN.hairBack * a, 2);
           }
         }
       }
@@ -1068,10 +1084,10 @@ describe("the head turn", () => {
       }
     });
 
-    it("holds the crown over a gap just above the plate's top that the nod carries over the face", () => {
-      // Looking down, the bangs on rows 197–199 drop about 3 px further than
-      // the face, over its top rows: the crown row whose window reaches the
-      // gap holds, the face's runs read or its crop standing in.
+    it("holds the crown over a gap just above the plate's top, through the nod", () => {
+      // Looking down, the bangs on rows 197–199 drop as far as the face's top,
+      // the gap just above it: the crown row whose window reaches the gap
+      // holds, the face's runs read or its crop standing in.
       const opts = { plateTopGap: true };
       const held = rig(opts, {}, { drop: ALL_RUNS }).model;
       for (const [label, drop] of [
@@ -1138,7 +1154,7 @@ describe("the head turn", () => {
 
       it("rides when the front hair keeps pace with the face and no shell term brings them together", () => {
         const m = rig(opts, {}, { style: { hairFollow: 1 } }).model;
-        expect(shift(m, 0, 400, -30)).toBeCloseTo(0.118, 2);
+        expect(shift(m, 0, 400, -30)).toBeCloseTo(TURN.face, 2);
       });
     });
   });
@@ -1149,10 +1165,10 @@ describe("the head turn", () => {
     const dy = (id: string, x: number, y: number, pose: ParamValues) =>
       (landedYAt(model, id, x, y, pose) - y) / HH;
     // Screen-down is −y here.
-    expect(dy("face", 0, 290, down)).toBeCloseTo(-0.17, 1);
-    expect(dy("face", 0.5, -190, down)).toBeCloseTo(-0.109, 2);
-    expect(dy("face", 0.5, -190, up)).toBeCloseTo(0.0875, 2);
-    expect(dy("iris_L", 106, EYE_Y, down)).toBeCloseTo(-0.202, 2);
+    expect(dy("face", 0, 290, down)).toBeCloseTo(-NOD.faceTop.down, 1);
+    expect(dy("face", 0.5, -190, down)).toBeCloseTo(-NOD.chin.down, 2);
+    expect(dy("face", 0.5, -190, up)).toBeCloseTo(-NOD.chin.up, 2);
+    expect(dy("iris_L", 106, EYE_Y, down)).toBeCloseTo(-NOD.eye.down, 2);
   });
 
   describe("the hair on the nod", () => {
@@ -1166,29 +1182,38 @@ describe("the head turn", () => {
         ["fullBack", fullBack.model],
         ["tuft", tuft.model],
       ] as const) {
-        expect(drop(m, "hair_front", 0, 150, -30), name).toBeCloseTo(0.189, 2);
-        expect(drop(m, "hair_front", 0, 150, 30), name).toBeCloseTo(-0.11, 2);
+        expect(drop(m, "hair_front", 0, 150, -30), name).toBeCloseTo(
+          NOD.hairFront.down,
+          2,
+        );
+        expect(drop(m, "hair_front", 0, 150, 30), name).toBeCloseTo(
+          NOD.hairFront.up,
+          2,
+        );
         expect(drop(m, "hair_back", -350, -300, -30), name).toBeCloseTo(
-          0.025,
+          NOD.hairBack.down,
           2,
         );
         expect(drop(m, "hair_back", -350, -300, 30), name).toBeCloseTo(
-          -0.011,
+          NOD.hairBack.up,
           2,
         );
       }
     });
 
     it("slides the cap's top with the face over a back hair drawn up past it, today's without runs", () => {
-      // Just under the bangs' top (490): looking down, the samples' 0.174
+      // Just under the bangs' top (490): looking down, the profile's cap top
       // over a back hair painted above it in every column, the back hair's
-      // own 0.025 with no runs to tell; looking up, 0.035 either way.
+      // own nod with no runs to tell; looking up, the cap top's either way.
       for (const [name, m, down] of [
-        ["fullBack", fullBack.model, 0.174],
-        ["default", model, 0.025],
+        ["fullBack", fullBack.model, NOD.hairFrontTop.down],
+        ["default", model, NOD.hairBack.down],
       ] as const) {
         expect(drop(m, "hair_front", 0, 489, -30), name).toBeCloseTo(down, 2);
-        expect(drop(m, "hair_front", 0, 489, 30), name).toBeCloseTo(-0.035, 2);
+        expect(drop(m, "hair_front", 0, 489, 30), name).toBeCloseTo(
+          NOD.hairFrontTop.up,
+          2,
+        );
       }
     });
 
@@ -1260,11 +1285,11 @@ describe("the head turn", () => {
     it("slides the whole cap's top as far as its least-covered crown column allows", () => {
       const m = tuft.model;
       // The columns beside the tuft, their back hair's top 40 px under the
-      // bangs', let the top slide about 0.01 hh past today's 0.025 (as many
-      // whole rows as that leaves), and the tuft does not lift it: the axis
-      // column slides as they do.
+      // bangs', let the top slide about 0.01 hh past today's, the back
+      // hair's own nod (as many whole rows as that leaves), and the tuft
+      // does not lift it: the axis column slides as they do.
       const d = drop(m, "hair_front", 0, 489, -30);
-      expect(d).toBeCloseTo(0.025 + 0.01, 2);
+      expect(d).toBeCloseTo(NOD.hairBack.down + 0.01, 2);
       for (const x of [-100, 100]) {
         expect(drop(m, "hair_front", x, 489, -30), `x ${x}`).toBeCloseTo(d, 4);
       }
@@ -1280,7 +1305,7 @@ describe("the head turn", () => {
       // dip alone, bared by the back hair's own nod, binds the one slide.
       const { model: m } = rig({ dip: true });
       const d = drop(m, "hair_front", 0, 489, -30);
-      expect(d).toBeCloseTo(0.025 + 0.01, 2);
+      expect(d).toBeCloseTo(NOD.hairBack.down + 0.01, 2);
       expect(drop(m, "hair_front", -200, 489, -30)).toBeCloseTo(d, 4);
       expectBound(crownLosses({ dip: true }, m), true);
     });
@@ -1291,12 +1316,15 @@ describe("the head turn", () => {
       // bare all but two rows of it at the back hair's own slide: within
       // the 0.01 hh budget, so it holds nothing.
       const { model: m } = rig({ shoulderDip: true });
-      expect(drop(m, "hair_front", 0, 489, -30)).toBeCloseTo(0.174, 2);
+      expect(drop(m, "hair_front", 0, 489, -30)).toBeCloseTo(
+        NOD.hairFrontTop.down,
+        2,
+      );
       expectBound(crownLosses({ shoulderDip: true }, m), false);
     });
   });
 
-  it("rolls the head a third of AngleZ about the chin", () => {
+  it("rolls the head by the profile's roll about the chin", () => {
     for (const z of [-30, 30]) {
       const pose = { [P.AngleZ]: z };
       const l = {
@@ -1308,8 +1336,8 @@ describe("the head turn", () => {
         y: landedYAt(model, "iris_L", 106, EYE_Y, pose),
       };
       const roll = (Math.atan2(r.y - l.y, r.x - l.x) * 180) / Math.PI;
-      // AngleZ is clockwise-positive.
-      expect(roll).toBeCloseTo(-z / 3, 1);
+      // AngleZ is clockwise-positive; ±30 rolls the head ROLL_DEG.
+      expect(roll).toBeCloseTo((-z / 30) * ROLL_DEG, 1);
       // The chin is the pivot.
       expect(landedXAt(model, "face", 0.5, -192, pose)).toBeCloseTo(0.5, 0);
     }
@@ -1529,11 +1557,12 @@ describe("the jaw cut", () => {
     expect(
       Math.abs(stroke(waist - 1) - frame.cutAt(0.5 - (waist - 1))),
     ).toBeLessThan(2.5);
-    // Given the chin's slide at a full turn (51 px on the fixture), the band
-    // still runs deep under the chin, but the cut draws its end that slide
-    // and 2 px short of the outline: past there, only the fringe margin
-    // (thinned there to under 1.4 px) and the cut's low filter over three
-    // columns of the V (about 1.7 px) lie under the stroke.
+    // Given a chin's slide at a full turn (51 px, where the fixture's fringe
+    // margin has thinned), the band still runs deep under the chin, but the
+    // cut draws its end that slide and 2 px short of the outline: past there,
+    // only the fringe margin (thinned there to under 1.4 px) and the cut's low
+    // filter over three columns of the V (about 1.7 px) lie under the stroke.
+    // The profile's own slide is checked end to end below.
     const slide = 51;
     const turned = buildHeadFrame(layers, {
       headHalfWidth: 262,
@@ -1677,6 +1706,10 @@ function withEars(opts: CharacterOptions = {}, targets: TurnTargets = {}) {
 }
 
 describe("the ears", () => {
+  /** The silhouette ratio a head without hair fits at a shellScale of
+   *  `shell`: its plate's width at full turn, scaled. */
+  const shellRatio = (shell: number) => shell * TURN.widthUpper;
+
   /** The plate without its head island (its largest): what the other
    *  islands draw, the ears' roots under the head included — the head's
    *  edge strays past the line under an ear between its columns. */
@@ -1716,8 +1749,8 @@ describe("the ears", () => {
       const s = Math.sign(ax);
       const far = frame.axisX + s * (frame.ears!.outer - 0.5);
       const near = frame.axisX - s * frame.ears!.outer;
-      expect(ear(far, ax) / face(ax)).toBeCloseTo(0.44, 2);
-      expect(ear(near, ax) / face(ax)).toBeCloseTo(0.87, 1);
+      expect(ear(far, ax) / face(ax)).toBeCloseTo(TURN.earFar, 2);
+      expect(ear(near, ax) / face(ax)).toBeCloseTo(TURN.earNear, 1);
     }
     // At rest every island lies where it is drawn.
     const v = landVertices(m, "face");
@@ -1760,7 +1793,7 @@ describe("the ears", () => {
     }
   });
 
-  it("narrows the far ear to 0.83 of its width at a full turn", () => {
+  it("narrows the far ear to the profile's width at a full turn", () => {
     const { m, frame } = withEars();
     const ears = frame.ears!;
     // On row 85, from just outside the head's own outline to just inside the
@@ -1769,11 +1802,12 @@ describe("the ears", () => {
     const ear = withoutHead(m);
     const d0 = ears.attachAt(85) + 2;
     const d1 = ears.outer - 2;
+    const half = (1 + TURN.earFarScale) / 2;
     for (const [ax, width] of [
-      [-30, 0.83],
-      [-15, 0.915],
-      [15, 0.915],
-      [30, 0.83],
+      [-30, TURN.earFarScale],
+      [-15, half],
+      [15, half],
+      [30, TURN.earFarScale],
     ]) {
       const s = Math.sign(ax);
       const at = (d: number) =>
@@ -1843,15 +1877,15 @@ describe("the ears", () => {
   });
 
   it("moves the far ear's tucked strip no further than the head over it", () => {
-    // Without hair at silhouetteRatio 0.925 (a shellScale of 0.94) the plate
-    // narrows on the turn about half as fast as the far ear does, while the
-    // head still moves well past the ear's outer edge on the line under it;
-    // at 0.785 (a shellScale of 0.8, the narrowest) the solve limits the
-    // narrowing to where the head there still moves as far as that edge.
+    // Without hair at a shellScale of 0.94 the plate narrows on the turn
+    // slower than the far ear does, while the head still moves well past
+    // the ear's outer edge on the line under it; at 0.8 (the narrowest) the
+    // solve limits the narrowing to where the head there still moves as far
+    // as that edge.
     for (const { m, frame } of [
       withEars(),
-      withEars({ hair: false }, { silhouetteRatio: 0.925 }),
-      withEars({ hair: false }, { silhouetteRatio: 0.785 }),
+      withEars({ hair: false }, { silhouetteRatio: shellRatio(0.94) }),
+      withEars({ hair: false }, { silhouetteRatio: shellRatio(0.8) }),
     ]) {
       const ears = frame.ears!;
       const ear = withoutHead(m);
@@ -1889,25 +1923,28 @@ describe("the ears", () => {
   });
 
   it("narrows a fitted silhouette only as far as the head still covers the far ear's slide", () => {
-    // Without hair at silhouetteRatio 0.785 (a shellScale of 0.8) the plate
-    // would narrow so much that on the line under the ear the head moved
-    // less than the ear's outer edge: the solve stops short, and says so.
+    // Without hair at a shellScale of 0.8 the plate would narrow so much
+    // that on the line under the ear the head moved less than the ear's
+    // outer edge: the solve stops short, and says so.
     const { m, frame, report } = withEars(
       { hair: false },
-      { silhouetteRatio: 0.785 },
+      { silhouetteRatio: shellRatio(0.8) },
     );
     expect(report.clamped).toContain("silhouetteRatio");
-    expect(report.achieved.silhouetteRatio).toBeGreaterThan(0.785 + 0.01);
+    expect(report.achieved.silhouetteRatio).toBeGreaterThan(
+      shellRatio(0.8) + 0.01,
+    );
     const ears = frame.ears!;
     const ear = withoutHead(m);
     for (const ax of [-30, 30]) {
       const s = Math.sign(ax);
-      // The outer edge keeps its 0.44 of the plate's slide (row 85).
+      // The outer edge keeps its TURN.earFar of the plate's slide (row 85).
       const far = frame.axisX + s * (ears.outer - 0.5);
       const rim = landedXAt(m, "face", far, 85, X30(ax)) - far;
       const plate = landedXAt(m, "face", 0.5, 85, X30(ax)) - 0.5;
-      expect(rim / plate, `AngleX ${ax}`).toBeCloseTo(0.44, 2);
-      // ... and the ear narrows, to no less than 0.83, and never widens.
+      expect(rim / plate, `AngleX ${ax}`).toBeCloseTo(TURN.earFar, 2);
+      // ... and the ear narrows, to no less than TURN.earFarScale, and never
+      // widens.
       for (let y = ears.bottom; y <= ears.top; y += 5) {
         const d0 = ears.attachAt(y) + 2;
         const d1 = ears.outer - 2;
@@ -1916,13 +1953,19 @@ describe("the ears", () => {
         const span = (s * (at(d1) - at(d0))) / (d1 - d0);
         const label = `row ${y} at AngleX ${ax}: ${span}`;
         expect(span, label).toBeLessThanOrEqual(1 + 1e-3);
-        expect(span, label).toBeGreaterThanOrEqual(0.83 - 0.01);
+        expect(span, label).toBeGreaterThanOrEqual(TURN.earFarScale - 0.01);
       }
     }
     // Where the head already covers it, the fit is the caller's.
-    const covered = withEars({ hair: false }, { silhouetteRatio: 0.925 });
+    const covered = withEars(
+      { hair: false },
+      { silhouetteRatio: shellRatio(0.94) },
+    );
     expect(covered.report.clamped).not.toContain("silhouetteRatio");
-    expect(covered.report.achieved.silhouetteRatio).toBeCloseTo(0.925, 2);
+    expect(covered.report.achieved.silhouetteRatio).toBeCloseTo(
+      shellRatio(0.94),
+      2,
+    );
   });
 });
 
@@ -2292,9 +2335,9 @@ describe("the other drivers", () => {
     for (let i = 1; i < v.length; i += 2) ys.add(Math.round(v[i] * 100) / 100);
     expect(ys.size).toBe(1);
     const crease = [...ys][0];
-    // The upper lid comes down 0.58 of the eye's height (it rests at y 100,
-    // 66 px tall).
-    expect(crease).toBeCloseTo(100 - 0.58 * 66, 1);
+    // The upper lid comes down AMPLITUDE.blink of the eye's height (it rests
+    // at y 100, 66 px tall).
+    expect(crease).toBeCloseTo(100 - AMPLITUDE.blink * 66, 1);
     const lash = landVertices(model, "lash_L", shut);
     let lashBottom = Infinity;
     for (let i = 1; i < lash.length; i += 2)
@@ -2313,9 +2356,9 @@ describe("the other drivers", () => {
       .pivot;
     for (const z of [-30, 30]) {
       for (const x of [-350, 350]) {
-        // Where the head's roll alone (a third of AngleZ) would take the
+        // Where the head's roll alone (ROLL_DEG at ±30) would take the
         // point.
-        const a = (-z / 3) * (Math.PI / 180);
+        const a = (-z / 30) * ROLL_DEG * (Math.PI / 180);
         const rigid = px + (x - px) * Math.cos(a) - (bottom - py) * Math.sin(a);
         const landed = landedXAt(model, "hair_back", x, bottom, {
           [P.AngleZ]: z,
@@ -2332,7 +2375,7 @@ describe("the other drivers", () => {
     const pivot = m.deformers!.find((d) => d.id === "headDeformer") as {
       pivot: { x: number; y: number };
     };
-    const a = (-10 * Math.PI) / 180;
+    const a = (-ROLL_DEG * Math.PI) / 180;
     const [x, y] = [0, 200];
     const rigid =
       pivot.pivot.x +
@@ -2354,11 +2397,11 @@ describe("the other drivers", () => {
         top.transform.x,
         3,
       );
-      // The profile's tip travel at full sway: 0.06 hh.
+      // The profile's tip travel at full sway: AMPLITUDE.sway.
       expect(
         (landedXAt(model, id, top.transform.x, endY, sway) - top.transform.x) /
           HH,
-      ).toBeCloseTo(0.06, 2);
+      ).toBeCloseTo(AMPLITUDE.sway, 2);
     }
   });
 
@@ -2393,8 +2436,8 @@ describe("the other drivers", () => {
     const b = { [P.Breath]: 1 };
     const lift = (id: string, x: number, y: number) =>
       (landedYAt(model, id, x, y, b) - landedYAt(model, id, x, y)) / HH;
-    expect(lift("face", 0, 250)).toBeCloseTo(0.016, 3);
-    expect(lift("body", 0, -400)).toBeCloseTo(0.025, 3);
-    expect(lift("face", 0, -240)).toBeCloseTo(0.025, 3);
+    expect(lift("face", 0, 250)).toBeCloseTo(AMPLITUDE.breathHead, 3);
+    expect(lift("body", 0, -400)).toBeCloseTo(AMPLITUDE.breathBody, 3);
+    expect(lift("face", 0, -240)).toBeCloseTo(AMPLITUDE.breathBody, 3);
   });
 });

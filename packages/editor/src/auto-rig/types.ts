@@ -4,7 +4,9 @@
  * `layer-measure.ts`; everything here is already-decoded geometry.
  */
 
-import type { RigStyle } from "./profile";
+import { TURN, type RigStyle } from "./profile";
+
+const round2 = (v: number) => Math.round(v * 100) / 100;
 
 /** One role layer, as a host measured it off its decoded pixels. */
 export interface LayerInput {
@@ -73,12 +75,11 @@ export class TurnTargetError extends Error {
 }
 
 /**
- * The Live2D profile's own turn (`profile.ts`), in the cues' units — what a
- * rig with no `turnTargets` renders on a head whose silhouette at the eye row
- * is back hair about 1 hh (eye row → chin) wide. eyeShift: the eye pair moves
- * 0.211 hh at ±30 and that silhouette's centre −0.009 hh, over a 1 hh head
- * half-width, 0.22. farEyeRatio: the far eye narrows to 0.85 and the near one
- * widens to 1.085, and the cue is their ratio, 0.78. silhouetteRatio: the
+ * The profile's own turn (`profile.ts`), in the cues' units — what a rig with
+ * no `turnTargets` renders on a head whose silhouette at the eye row is back
+ * hair about 1 hh (eye row → chin) wide. eyeShift: the eye pair's mean shift
+ * at ±30 less the back hair's drift, over a 1 hh head half-width.
+ * farEyeRatio: the far eye's width over the near one's. silhouetteRatio: the
  * silhouette holds its width.
  *
  * With no target given the rig renders the profile itself, whatever the cues
@@ -87,7 +88,11 @@ export class TurnTargetError extends Error {
  */
 export const DEFAULT_TURN_TARGETS: Readonly<
   Required<Pick<TurnTargets, "eyeShift" | "farEyeRatio" | "silhouetteRatio">>
-> = Object.freeze({ eyeShift: 0.22, farEyeRatio: 0.78, silhouetteRatio: 1 });
+> = Object.freeze({
+  eyeShift: round2((TURN.eyeFar + TURN.eyeNear) / 2 - TURN.hairBack),
+  farEyeRatio: round2(TURN.eyeFarScale / TURN.eyeNearScale),
+  silhouetteRatio: 1,
+});
 
 /** How far each feature family stands in front of the plate, as the depth a
  *  rotation would need to give its shift at ±30 (shift / sin 30°), in head

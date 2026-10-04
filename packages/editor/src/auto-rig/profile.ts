@@ -1,138 +1,210 @@
 /**
- * The Live2D default-rig profile the auto-rig reproduces: how far each region
- * of a head moves at the extremes of each head parameter, measured on the
- * Cubism sample models (Haru, Hiyori, Mao, Natori — medians; see
- * `packages/editor/AUTO-RIG.md` for the method). Lengths are in the
- * profile's head unit `hh` (≈ eye row to chin, see `HH_PER_EYE_TO_CHIN`);
- * every curve is linear in its parameter, so one keyform per extreme carries
- * it exactly.
+ * How far each region of a head moves at the extremes of each head
+ * parameter. The rules are a 2D rig's usual ones. A turn is parallax, not a
+ * reshaped face: the face plate translates, the features in front of it lead
+ * it by their depth (the nose most), the chin leads it too, the front hair
+ * rides the face, the back hair drifts a little the other way, and the neck
+ * and the torso stay where they are. A nod is the same parallax vertically;
+ * a roll turns the head about the chin. Every curve is linear in its
+ * parameter, so one keyform per extreme carries it exactly.
  *
- * The turn is read through parallax, not a reshaped face: the face plate
- * TRANSLATES (its width changes by 1–4 %), the features in front of it lead
- * it, the hair over it rides with it, the back hair behind it and the neck
- * under it stay where they are.
+ * The magnitudes are our own values, `PROFILE_VALUES`, picked by eye on our
+ * own characters (`packages/editor/AUTO-RIG.md`); what the rig reads —
+ * `TURN`, `NOD`, `ROLL_DEG` and `AMPLITUDE` — is derived from them. Lengths
+ * are in the head unit `hh`, the eye row → chin tip at rest.
  */
 
-/** hh per (eye row → chin tip) at rest. The profile's own factor is 1.0446
- *  with the eye row at the iris centroid; the rig reads the eye row off the
- *  iris crops' centres, which sit a few pixels higher on a drawn iris, and
- *  this factor puts the hero at the profile's own 264.5 render px. */
-export const HH_PER_EYE_TO_CHIN = 1.017;
-
-/** AngleX ±30, hh along the turn ("far" = the side the face turns toward). */
-export const TURN = {
-  /** The face plate's translation (its cheek edges, 0.118 / 0.126). */
-  face: 0.118,
-  /** The chin tip's lead over the plate (it moves 0.194). */
-  chinLead: 0.076,
-  /** The plate's width at full turn: eye and cheek rows, then the jaw. */
-  widthUpper: 0.985,
-  widthJaw: 0.96,
-  eyeFar: 0.192,
-  eyeNear: 0.23,
-  /** Each eye's width at full turn, about its own centre. */
-  eyeFarScale: 0.85,
-  eyeNearScale: 1.085,
-  browFar: 0.213,
-  browNear: 0.243,
-  nose: 0.301,
-  mouth: 0.213,
-  mouthWidth: 0.975,
-  /** The mouth's far corner rises (its near end drops) by this much. */
-  mouthTiltDeg: 4.4,
-  /** The front hair (bangs and side locks) rides the face at this share of
-   *  its translation (bangs 1.18×, side locks at the eye row ≈ 1.0×). */
-  hairFollow: 1.1,
-  /** The head's outline at the eye row holds (−0.014 / −0.004 hh): where the
-   *  front hair draws it, its outer edge follows the face this much on a row
-   *  where no back hair paints behind that edge. Where back hair does, the
-   *  edge rides further, as far as that back hair stays behind it through
-   *  the turn and the nod, up to the face's follow there (`hairFollow`;
-   *  over the far eye's rows, as far as that eye's outer corner goes). On
-   *  the cap (the rows above the eyes) it follows less where the turn would
-   *  otherwise carry it further outside its back hair than the nod alone
-   *  does. */
-  outlineFollow: 0,
-  /** The back hair's slight counter-motion. */
-  hairBack: -0.027,
-  /** The ears lag the plate: the far one's outer edge moves this share of
-   *  its slide, the near one this at its widest reach, its root riding the
-   *  head (the samples' parallax ratios, 0.44 and 0.87). */
-  earFar: 0.44,
-  earNear: 0.87,
-  /** The far ear's width at full turn, about its outer edge, where the head
-   *  leaves it room (the samples' median: Haru 0.81 / 0.91, Hiyori 0.90 /
-   *  0.85, Mao 0.77 / 0.79; none fades); less where it does not. */
-  earFarScale: 0.83,
-} as const;
-
-/** AngleY: screen displacement, hh, + = DOWN (as measured), at +30 (looking
- *  up) and −30 (looking down). */
-export const NOD = {
-  faceTop: { up: -0.081, down: 0.178 },
-  chin: { up: -0.0875, down: 0.109 },
-  eye: { up: -0.167, down: 0.202 },
-  /** Eye height at the extreme, about the eye's centre. */
-  eyeHeight: { up: 0.994, down: 0.96 },
-  brow: { up: -0.167, down: 0.223 },
-  nose: { up: -0.207, down: 0.193 },
-  mouth: { up: -0.172, down: 0.177 },
-  hairFront: { up: -0.11, down: 0.189 },
-  /** The front hair's cap top. The samples' cap top moves 1.215× their face's
-   *  centroid looking down (Mao 1.236, Haru 1.626, Hiyori 1.194, Natori
-   *  0.730) and 0.415× looking up (0.385, 0.430, 0.400, 0.487); each ratio
-   *  times the plate's own nod halfway between its top and the chin (0.1435
-   *  down, 0.084 up). Looking down, the rig slides it only as far as the
-   *  back hair covers the crown behind it. */
-  hairFrontTop: { up: -0.035, down: 0.174 },
-  hairBack: { up: -0.011, down: 0.025 },
-} as const;
-
-/** AngleZ ±30 rolls the head this many degrees (the eye line turns 9.9°),
- *  about the chin — the top of the neck. */
-export const ROLL_DEG = 10;
-
-/** Everything else, at each parameter's extreme. */
-export const AMPLITUDE = {
-  /** Iris travel, in iris widths (X 0.045 hh, Y 0.031 hh on the samples). */
-  gazeX: 0.17,
-  gazeY: 0.11,
-  /** How far the upper lid comes down, over the eye's height (Haru 0.30,
-   *  Mao 0.58, Hiyori 0.67). */
-  blink: 0.58,
+/** The values the profile is derived from, each at its parameter's extreme
+ *  (±30 for the head angles). */
+export interface ProfileValues {
+  /** AngleX: the face plate translates this far, hh. */
+  slide: number;
+  /** AngleX: a feature on the face — an eye, a brow, the mouth, the chin
+   *  tip — leads the plate by this, hh. */
+  lead: number;
+  /** AngleX: the nose leads the plate this many times `lead`. */
+  noseDepth: number;
+  /** AngleX: the front hair rides the face at this share of its slide. */
+  hairFollow: number;
+  /** AngleX: the far eye and the far ear narrow to 1 − fore of their width,
+   *  the near eye widens to 1 + fore / 2; each eye's and brow's lead scales
+   *  with its eye's width. */
+  fore: number;
+  /** The back hair takes this share of the plate's motion: against it on the
+   *  turn, with it on the nod. */
+  backShare: number;
+  /** AngleX: the far ear's outer edge moves this share of the plate's slide
+   *  (the near ear rides the head). */
+  earFar: number;
+  /** AngleY −30 (looking down): the plate's top drops this far, hh. */
+  nodDown: number;
+  /** AngleY +30 (looking up): the plate rises this far, whole, hh. */
+  nodUp: number;
+  /** AngleY: a feature on the face leads the plate's nod at mid-face by this
+   *  either way, hh; the nose `noseDepth` times it. */
+  nodLead: number;
+  /** AngleY −30: the chin drops this share of the plate's top. */
+  chinShare: number;
+  /** AngleZ ±30 rolls the head this many degrees about the chin. */
+  rollDeg: number;
+  /** The iris travels this many iris widths sideways, half as far up and
+   *  down. */
+  gaze: number;
+  /** How far the upper lid comes down, over the eye's height. */
+  blink: number;
   /** A single mouth drawing opens to this height over its rest width. */
-  mouthOpenHeight: 0.77,
-  /** The mouth widens this much open. */
-  mouthOpenWidth: 1.15,
-  /** Brow raise / lower, hh. */
-  brow: 0.089,
-  /** Breath lifts the shoulders and the head, hh. */
-  breathBody: 0.025,
-  breathHead: 0.016,
-  /** Hair tip travel at full sway (±20), hh (the keyform ranges at ±1 have a
-   *  median of 0.05–0.06 hh). */
-  sway: 0.06,
-  /** The neck under the face reaches this far above the jaw, hh — what the
-   *  chin uncovers as it slides off it. */
-  hiddenNeck: 0.3,
-} as const;
+  mouthOpen: number;
+  /** The mouth widens to this much of its width open. */
+  mouthWiden: number;
+  /** A brow raises and lowers this far, hh. */
+  brow: number;
+  /** A breath lifts the shoulders this far, hh, and the head two thirds of
+   *  it. */
+  breath: number;
+  /** A hair tip travels this far at full sway (±20), hh. */
+  sway: number;
+}
+
+/** The values: round numbers picked by eye on our own characters (Bob and
+ *  the long-haired one), each against its neighbours on a coarse grid in a
+ *  blind A/B judged by a fresh agent and by us (2026-10); `AUTO-RIG.md` has
+ *  the record. */
+export const PROFILE_VALUES: ProfileValues = {
+  slide: 0.12,
+  lead: 0.1,
+  noseDepth: 2,
+  hairFollow: 1,
+  fore: 0.2,
+  backShare: 0.1,
+  earFar: 0.5,
+  nodDown: 0.18,
+  nodUp: 0.1,
+  nodLead: 0.06,
+  chinShare: 0.75,
+  rollDeg: 14,
+  gaze: 0.2,
+  blink: 0.6,
+  mouthOpen: 0.8,
+  mouthWiden: 1.2,
+  brow: 0.15,
+  breath: 0.03,
+  sway: 0.08,
+};
+
+/** What the rig reads, derived from `v`. */
+export function deriveProfile(v: ProfileValues) {
+  const farLead = v.lead * (1 - v.fore / 2);
+  const nearLead = v.lead * (1 + v.fore / 2);
+  /** AngleX ±30, hh along the turn ("far" = the side the face turns toward). */
+  const turn = {
+    /** The face plate's translation. */
+    face: v.slide,
+    /** The chin tip's lead over the plate. */
+    chinLead: v.lead,
+    /** The plate's width at full turn: eye and cheek rows, then the jaw. The
+     *  plate translates; it does not narrow. */
+    widthUpper: 1,
+    widthJaw: 1,
+    eyeFar: v.slide + farLead,
+    eyeNear: v.slide + nearLead,
+    /** Each eye's width at full turn, about its own centre. */
+    eyeFarScale: 1 - v.fore,
+    eyeNearScale: 1 + v.fore / 2,
+    browFar: v.slide + farLead,
+    browNear: v.slide + nearLead,
+    nose: v.slide + v.noseDepth * v.lead,
+    mouth: v.slide + v.lead,
+    mouthWidth: 1,
+    /** The mouth's far corner rises (its near end drops) by this much: it
+     *  stays level. */
+    mouthTiltDeg: 0,
+    /** The front hair (bangs and side locks) rides the face at this share of
+     *  its translation. */
+    hairFollow: v.hairFollow,
+    /** The head's outline at the eye row holds: where the front hair draws
+     *  it, its outer edge follows the face this much on a row where no back
+     *  hair paints behind that edge. Where back hair does, the edge rides
+     *  further, as far as that back hair stays behind it through the turn and
+     *  the nod, up to the face's follow there (`hairFollow`; over the far
+     *  eye's rows, as far as that eye's outer corner goes). On the cap (the
+     *  rows above the eyes) it follows less where the turn would otherwise
+     *  carry it further outside its back hair than the nod alone does. */
+    outlineFollow: 0,
+    /** The back hair's slight counter-motion. */
+    hairBack: -v.backShare * v.slide,
+    /** The ears lag the plate: the far one's outer edge moves this share of
+     *  its slide; the near one rides the head. */
+    earFar: v.earFar,
+    earNear: 1,
+    /** The far ear's width at full turn, about its outer edge, where the head
+     *  leaves it room; less where it does not. */
+    earFarScale: 1 - v.fore,
+  };
+  // The plate's nod halfway between its top and the chin, looking down.
+  const mid = (v.nodDown * (1 + v.chinShare)) / 2;
+  const feature = (depth: number) => ({
+    up: -(v.nodUp + depth * v.nodLead),
+    down: mid + depth * v.nodLead,
+  });
+  /** AngleY: screen displacement, hh, + = DOWN, at +30 (looking up) and −30
+   *  (looking down). */
+  const nod = {
+    faceTop: { up: -v.nodUp, down: v.nodDown },
+    chin: { up: -v.nodUp, down: v.chinShare * v.nodDown },
+    eye: feature(1),
+    /** Eye height at the extreme, about the eye's centre: it holds. */
+    eyeHeight: { up: 1, down: 1 },
+    brow: feature(1),
+    nose: feature(v.noseDepth),
+    mouth: feature(1),
+    hairFront: { up: -v.hairFollow * v.nodUp, down: v.hairFollow * v.nodDown },
+    /** The front hair's cap top: half the plate's rise looking up; looking
+     *  down the plate's top, which the rig slides only as far as the back
+     *  hair covers the crown behind it. */
+    hairFrontTop: { up: -v.nodUp / 2, down: v.nodDown },
+    hairBack: { up: -v.backShare * v.nodUp, down: v.backShare * v.nodDown },
+  };
+  /** Everything else, at each parameter's extreme. */
+  const amplitude = {
+    /** Iris travel, in iris widths. */
+    gazeX: v.gaze,
+    gazeY: v.gaze / 2,
+    /** How far the upper lid comes down, over the eye's height. */
+    blink: v.blink,
+    /** A single mouth drawing opens to this height over its rest width. */
+    mouthOpenHeight: v.mouthOpen,
+    /** The mouth widens this much open. */
+    mouthOpenWidth: v.mouthWiden,
+    /** Brow raise / lower, hh. */
+    brow: v.brow,
+    /** Breath lifts the shoulders and the head, hh. */
+    breathBody: v.breath,
+    breathHead: (v.breath * 2) / 3,
+    /** Hair tip travel at full sway (±20), hh. */
+    sway: v.sway,
+    /** The neck under the face reaches this far above the jaw, hh — what the
+     *  chin uncovers as it slides off it: half again the chin's full-turn
+     *  slide, to the next 0.05. */
+    hiddenNeck: Math.ceil(30 * (v.slide + v.lead) - 1e-9) / 20,
+  };
+  return { TURN: turn, NOD: nod, ROLL_DEG: v.rollDeg, AMPLITUDE: amplitude };
+}
+
+export const { TURN, NOD, ROLL_DEG, AMPLITUDE } = deriveProfile(PROFILE_VALUES);
 
 /**
- * Per-character tuning, starting from the profile: only the quantities the
- * Live2D samples themselves disagree on by more than their own median
- * (style, not construction). `turn`, `featureLead` and `sway` multiply the
- * profile (1 = as measured); `hairFollow`, `outlineFollow` and `blink`
- * replace its value.
+ * Per-character tuning, starting from the profile. `turn`, `featureLead` and
+ * `sway` multiply the profile (1 = the profile); `hairFollow`,
+ * `outlineFollow` and `blink` replace its value. `AUTO-RIG.md` lists the
+ * ranges that read well.
  */
 export interface RigStyle {
-  /** The whole turn — plate, features and hair (the samples' face slides
-   *  0.05–0.25 hh). Ignored when a `turnTargets.eyeShift` is given, which
-   *  fits it instead. */
+  /** The whole turn — plate, features and hair. Ignored when a
+   *  `turnTargets.eyeShift` is given, which fits it instead. */
   turn?: number;
-  /** How far the features lead the plate (the nose leads it 2.2–4.4×). */
+  /** How far the features lead the plate. */
   featureLead?: number;
-  /** The front hair's share of the face's turn (the samples' 1.0–1.37;
-   *  profile 1.1). */
+  /** The front hair's share of the face's turn. */
   hairFollow?: number;
   /** Its outer edge's share, where the front hair draws the head's outline
    *  and no back hair paints behind that edge (profile 0: the outline holds;
@@ -144,9 +216,9 @@ export interface RigStyle {
    *  otherwise carry it further outside its back hair than the nod alone
    *  does. */
   outlineFollow?: number;
-  /** How far the upper lid comes down, over the eye's height (0.30–0.67). */
+  /** How far the upper lid comes down, over the eye's height. */
   blink?: number;
-  /** Hair sway amplitude (0.02–0.36 hh at the extremes). */
+  /** Hair sway amplitude. */
   sway?: number;
 }
 

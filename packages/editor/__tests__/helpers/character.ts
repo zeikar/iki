@@ -95,8 +95,8 @@ export interface CharacterOptions {
    *  check reads there (the face's right end is 610–623 on rows 200–225). */
   besideFaceGap?: boolean;
   /** As `wideBack`, plus the same 6 px gap at the axis on rows 197–199, just
-   *  above the plate's top: looking down, the bangs there drop about 3 px
-   *  further than the face and carry the gap over the face's top rows. */
+   *  above the plate's top: looking down, the bangs there drop as far as the
+   *  face's top, the gap just above it. */
   plateTopGap?: boolean;
   /** As `fullBack`, but on the crown the back hair reaches above the bangs'
    *  top only over a ±15 px band of columns at the axis; elsewhere its top
@@ -104,7 +104,7 @@ export interface CharacterOptions {
   tuft?: boolean;
   /** As `fullBack`, but the back hair's top dips 4 px under the bangs' top
    *  (row 10) over a ±15 px band of columns at the axis, as at a parting:
-   *  less than the back hair's own nod (6.6 px), so it binds the cap's
+   *  less than the back hair's own nod (4.7 px), so it binds the cap's
    *  slide only through the back hair's posed place, its nod lower. */
   dip?: boolean;
   /** As `fullBack`, but over columns 255–285, on the dome's shoulder, the
