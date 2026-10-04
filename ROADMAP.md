@@ -26,13 +26,13 @@ deliberately deferred.
    - `generateIkiFromLayerSet` (`@ikijs/editor`) rigs role-named layers (`face`, `eye_L/R`, `mouth`, plus optional iris / brow / lash / hair) into a model that blinks, gazes, talks, turns, and emotes
    - PSD import in the editor; the `auto_rig_from_layers` tool in [`@ikijs/mcp`](./packages/mcp) so an agent can go from PNGs to a renderable `.iki` on disk
    - A Claude skill chains image generation → layer compose → rig in one gesture
-   - Head turn as parallax, from a Live2D default-rig profile measured on the Cubism sample models: the face plate translates, the chin and the features lead it, the front hair rides the face and holds the head's outline where it draws it, and the back hair stays behind
+   - Head turn as parallax, by a profile of our own values picked by eye: the face plate translates, the chin and the features lead it, the front hair rides the face and holds the head's outline where it draws it, and the back hair stays behind
    - Neck and ears: the ones the face layer paints are cut into islands of the plate's own mesh, drawn behind the head — the neck stays under the sliding chin, the ears lag the face
    - Head nod: `AngleY` moves each region by the profile's own values
-   - Head tilt: `AngleZ` rolls the head 10° about the chin, clockwise-positive to match Live2D
-   - Torso: `body` rides a `bodyDeformer` that only breathes — a turn leaves it where it is, as on the samples
+   - Head tilt: `AngleZ` rolls the head 14° about the chin, clockwise-positive to match Live2D
+   - Torso: `body` rides a `bodyDeformer` that only breathes — a turn leaves it where it is
    - Keyforms at 0 and ±30 only, since every profile curve is linear in its angle: each feature family rides its own `warp2d` grid over the 3×3 of turn × nod, and the plate, the blush and both hair layers carry their own keyforms
-   - Per-character `style` knobs scale the profile only where the samples themselves disagree: the turn's amount, the features' lead, how far the front hair follows the face and at the outline, the blink and the sway
+   - Per-character `style` knobs scale the profile: the turn's amount, the features' lead, how far the front hair follows the face and at the outline, the blink and the sway
    - Deferred: ML segmentation of a single flat illustration (today the parts arrive as separate layers)
 7. **Physics / secondary motion** — done
    - Spring-mass-damper rigs (`model.physics`) driven by the `PhysicsMotion` peer driver

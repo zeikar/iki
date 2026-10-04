@@ -62,18 +62,17 @@ leaves the document untouched.
 a torso that breathes, and emotes with its brows — including a
 hair-sway physics rig when a `hair_front` layer is present.
 
-The rig reproduces a Live2D default rig, measured on the Cubism sample models
-(the numbers are in `auto-rig/profile.ts`): the turn reads through parallax,
-not a reshaped face. The face plate translates, changing its width by a few
-percent, the chin leading it; the features lead the plate by their own amounts
-(the nose most, then the brows, eyes and mouth), the eyes foreshortening mildly
+The rig turns the head by parallax, not a reshaped face, with values of our
+own picked by eye (`auto-rig/profile.ts`, `AUTO-RIG.md`). The face plate
+translates, the chin leading it; the features lead the plate by their depth
+(the nose most, then the eyes, brows and mouth), the eyes foreshortening mildly
 about their own centres; the front hair rides the face where it lies over it and holds the head's
 outline where it draws it — though on its cap the turn never carries its outer
 edge further outside the back hair painted behind it than the nod alone does —
 and the back hair stays behind; the neck and the
 ears the face layer paints are cut off into islands of the plate's own mesh,
 drawn behind the head — the neck stays (only the chin's shade slides across
-it), the ears lag the face, the far one narrowing. AngleZ rolls the head 10° about the chin; the torso only
+it), the ears lag the face, the far one narrowing. AngleZ rolls the head 14° about the chin; the torso only
 breathes.
 
 On a layer set with a `nose`, `options.turnTargets` — the cues a 30° reference
@@ -82,7 +81,7 @@ whether the silhouette holds) — are **fitted** each by the one knob it reads:
 the turn's amount, the eyes' foreshortening, the hair's width, a feature's own
 shift. With none given the profile itself renders (`DEFAULT_TURN_TARGETS`
 expresses it in the cues' units). `options.style` tunes a character from the
-profile where the Live2D samples themselves disagree: the whole turn, the
+profile: the whole turn, the
 features' lead, the front hair's follow and its outline's, the blink and the
 hair sway. The turn
 is bounded by the art: the far eye stays inside the plate's outline and, given

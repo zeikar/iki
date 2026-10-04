@@ -6,7 +6,7 @@
 
 - 41d5dc4: **A model rigged from this release moves differently on the head turn in two cases: its front hair's cap, when its hair layers carry `rowRuns` (as the layer measurer gives them) and the bound bites, and its far ear, when its plate paints ear islands.** Models rigged earlier are untouched until they are rigged again, and the `.iki` format does not change. A layer set without `rowRuns` keeps its front hair, and a plate without ear islands keeps its face.
   - **The cap.** On the front hair's cap (the rows above the far eye's), the turn never carries the outer edge further outside the back hair painted behind it than the nod alone puts it. That holds at every angle of the turn, the nod and the roll (the hair's sway springs are not bounded). The cap follows less than before where that back hair reaches less, and where the nod alone keeps the cap inside the back hair, it now never leaves it. The nod's own motion is unchanged. Rows the nod alone already shows outside the back hair, and rows whose back hair does not paint just inside their edge, are exempt; see AUTO-RIG.md. Below the cap the front hair moves as before.
-  - **The far ear.** It narrows to 0.83 of its width at ±30, as the Live2D samples' does, where the head leaves it room, while its outer edge keeps its lag; where the room runs out (as at a clamped fit's limit) it narrows less, and it never widens. Where a fitted turn would narrow a head too far to cover the far ear's slide, the turn solve narrows it only as far as the head still covers it, and reports the limit as clamped.
+  - **The far ear.** It narrows to 0.83 of its width at ±30 where the head leaves it room, while its outer edge keeps its lag; where the room runs out (as at a clamped fit's limit) it narrows less, and it never widens. Where a fitted turn would narrow a head too far to cover the far ear's slide, the turn solve narrows it only as far as the head still covers it, and reports the limit as clamped.
 
 ## 0.12.1
 
@@ -32,7 +32,7 @@
 - 40592b7: **Every model rigged from this release with a `hair_front` moves its front hair differently.** Its cap's top now rises with the face looking up. Where the layer measurer gives the hair layers' opaque runs, its outer edge also rides with the face on the turn, and its top slides with the face on the nod, as far as back hair is painted behind them. Models rigged earlier are untouched until they are rigged again, and the `.iki` format does not change.
   - `createLayerSetMeasurer` records `LayerInput.rowRuns` for `hair_front` and `hair_back`: each crop row's opaque runs (alpha ≥ 128) as canvas columns. It is a new optional field, validated like `rowHalfWidths`. A layer set without it keeps today's turn and down-nod; only the up-nod change applies.
   - **Turn.** On each row, the front hair's outer edge rides with the face only as far as the back hair's connected run behind that edge reaches, at every angle of the turn, up to the front hair's own follow there (over the far eye, as far as that eye's corner goes). A row nothing covers keeps the hold the profile's `outlineFollow` gives.
-  - **Nod.** The cap's top slides with the face as one value for the whole cap: up to 0.174 hh looking down (the Live2D samples' median, 1.215× the plate's mid-height nod) and 0.035 hh looking up. The down value is capped so that no crown column bares more than 0.01 hh of rows the back hair leaves empty, beyond what the back hair's own 0.025 nod already bares. A back hair that falls short of the cap's top near the crown, such as at a parting dip, holds the slide near 0.025; one drawn up past the front hair's top earns the full slide.
+  - **Nod.** The cap's top slides with the face as one value for the whole cap: up to 0.174 hh looking down and 0.035 hh looking up. The down value is capped so that no crown column bares more than 0.01 hh of rows the back hair leaves empty, beyond what the back hair's own 0.025 nod already bares. A back hair that falls short of the cap's top near the crown, such as at a parting dip, holds the slide near 0.025; one drawn up past the front hair's top earns the full slide.
 
 ## 0.10.1
 
@@ -51,8 +51,7 @@
 - 7a9b3c0: **Every model rigged from this release on turns, nods, rolls, blinks and
   sways differently, and models rigged earlier are untouched until they are
   rigged again.** The auto-rig (`generateIkiFromLayerSet`, and so
-  `auto_rig_from_layers`) is rewritten to reproduce a Live2D default rig,
-  measured on the Cubism sample models and described in
+  `auto_rig_from_layers`) is rewritten to the parallax model described in
   [`packages/editor/AUTO-RIG.md`](packages/editor/AUTO-RIG.md). There is no
   `.iki` format change.
 
@@ -623,8 +622,7 @@
   `ParamAngleZ` (−30..30) and gives `headDeformer` a `rotate` binding of one
   degree per degree about the neck pivot. Positive AngleZ rolls the head
   clockwise on screen — the top of the head toward the viewer's right — which is
-  Live2D's convention (its sample motions give AngleZ the sign of AngleX 214 times
-  out of 222) and the same sense as the rig's existing lean into a turn, so a
+  Live2D's convention and the same sense as the rig's existing lean into a turn, so a
   host's head-tracking roll maps onto AngleZ 1:1. The two rotations sum, as two
   rolls about one pivot should.
 

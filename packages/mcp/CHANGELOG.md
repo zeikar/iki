@@ -54,7 +54,7 @@
 
 ### Patch Changes
 
-- c8d0f83: The `measure_layers` "nose: missing" warning, the `compose_layers_from_parts` description and the README now describe the 0.12 rig: a layer set without a `nose` still turns its head on the Live2D profile — what it lacks is the nose leading the turn and the turn fit (`turnTargets` is inert, no `turn` report).
+- c8d0f83: The `measure_layers` "nose: missing" warning, the `compose_layers_from_parts` description and the README now describe the 0.12 rig: a layer set without a `nose` still turns its head on the default profile — what it lacks is the nose leading the turn and the turn fit (`turnTargets` is inert, no `turn` report).
 
 ## 0.12.0
 
@@ -63,8 +63,7 @@
 - 7a9b3c0: **Every model rigged from this release on turns, nods, rolls, blinks and
   sways differently, and models rigged earlier are untouched until they are
   rigged again.** The auto-rig (`generateIkiFromLayerSet`, and so
-  `auto_rig_from_layers`) is rewritten to reproduce a Live2D default rig,
-  measured on the Cubism sample models and described in
+  `auto_rig_from_layers`) is rewritten to the parallax model described in
   [`packages/editor/AUTO-RIG.md`](packages/editor/AUTO-RIG.md). There is no
   `.iki` format change.
 
