@@ -178,7 +178,9 @@ the prompt patterns and the hard-won pitfalls. Then:
   source, so both eyes and both lashes flip together, free.
 - `eye_*` and `lash_*` are split from one source and MUST keep identical
   `cx`/`cy`/`w`/`h`. An override that moves one of the pair and not the other would
-  pull them apart, so `compose_layers_from_parts` rejects it: set both.
+  pull them apart, so `compose_layers_from_parts` rejects it: set both. The
+  lower lid (`lash_lower_*`) is cut from the same source and has no key: it
+  follows the `eye_*` entry.
 
 ## Report
 
