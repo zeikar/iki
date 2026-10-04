@@ -141,7 +141,7 @@ first, then ears, then head:
   pixel at the neck's outline — rather than the chin painted there: under the
   chin that is the neck below the shade band the head carries; past the band's
   end, whatever shade the neck keeps under the jaw. It is drawn first, so the head slides over it; its vertices
-  take no part in the nod, undo the head's roll (within a fraction of a pixel
+  take no part in the nod, undo the head's roll (within about a pixel
   between its keyed extremes), and rise with the shoulders on a breath. On the
   turn its outline and its base stay, but the shade under the chin slides
   sideways with the chin: from 0.2 of the neck's height under the chin up

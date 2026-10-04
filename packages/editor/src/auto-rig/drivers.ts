@@ -30,8 +30,8 @@ export const SWAY_RANGE = 20;
 const SWAY_CURVE = 1.4;
 /** The share of a roll the long hair gives back by hanging. */
 const HAIR_HANG = 0.35;
-/** Roll stops for the hang and the neck: a 10° roll, which the linear blend
- *  between 0 and ±30 carries within a fraction of a pixel. */
+/** Roll stops for the hang and the neck: the profile's roll (`ROLL_DEG`),
+ *  which the linear blend between 0 and ±30 carries within about a pixel. */
 export const Z_STOPS = [-30, 0, 30];
 
 type Vec = [number, number];
