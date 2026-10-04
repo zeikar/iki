@@ -60,9 +60,9 @@ export const TURN = {
    *  head (the samples' parallax ratios, 0.44 and 0.87). */
   earFar: 0.44,
   earNear: 0.87,
-  /** The far ear's width at full turn, about its outer edge (the samples'
-   *  median: Haru 0.81 / 0.91, Hiyori 0.90 / 0.85, Mao 0.77 / 0.79; none
-   *  fades). */
+  /** The far ear's width at full turn, about its outer edge, where the head
+   *  leaves it room (the samples' median: Haru 0.81 / 0.91, Hiyori 0.90 /
+   *  0.85, Mao 0.77 / 0.79; none fades); less where it does not. */
   earFarScale: 0.83,
 } as const;
 

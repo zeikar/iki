@@ -8,14 +8,20 @@
  * farEyeRatio by the eyes' foreshortening, silhouetteRatio by the hair's
  * width, noseShift and mouthShift by those features' own shift. The room the
  * art leaves — the far eye inside the plate's outline, the far iris clear of
- * the bangs' side strand, the nose and mouth inside the plate — caps the
- * turn (or that feature) and says so in `clamped`.
+ * the bangs' side strand, the nose and mouth inside the plate, the far ear's
+ * slide under the head — caps the turn (or that feature, or the plate's
+ * narrowing) and says so in `clamped`.
  */
 
 import type { HeadFrame } from "./head";
 import { cy, type Box } from "./layout";
 import { roleSpec, type Family } from "./roles";
-import { chinSlide, familyField, type TurnModel } from "./fields";
+import {
+  chinSlide,
+  familyField,
+  farEarCovered,
+  type TurnModel,
+} from "./fields";
 import { TURN, type ResolvedStyle } from "./profile";
 import {
   TurnTargetError,
@@ -443,6 +449,22 @@ export function fitTurn(
       );
     }
     p.shell = bisect((k) => at(k) - s, SHELL_RANGE[0], SHELL_RANGE[1]);
+  }
+  // ... narrowing the plate (without hair) only as far as the head still
+  // covers the far ear's slide on the line under it: its outer edge keeps
+  // its lag, and its tucked strip stays under the head. A wider shell moves
+  // that line further, so the least that covers it is found by halving.
+  const covered = (shell: number) => farEarCovered(build({ ...p, shell }));
+  if (!covered(p.shell) && covered(Math.max(1, p.shell))) {
+    let lo = p.shell;
+    let hi = Math.max(1, p.shell);
+    for (let i = 0; i < 50; i++) {
+      const mid = (lo + hi) / 2;
+      if (covered(mid)) hi = mid;
+      else lo = mid;
+    }
+    p.shell = hi;
+    clamped.push("silhouetteRatio");
   }
 
   // The nose and the mouth: each its own shift, inside the plate — as the

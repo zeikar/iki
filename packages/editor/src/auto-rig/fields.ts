@@ -133,13 +133,13 @@ export function faceField(m: TurnModel): Field {
 /**
  * The ears the plate paints: on the head, but behind the face, so they lag
  * its slide, and nod with it. The far one's outer edge lags most, and the
- * ear narrows about it (to `earFarScale` of its width at a full turn): its
- * root follows the head further, sliding a little under the cheek, but
- * never further than the head moves on the line under the ear, so its
- * tucked strip stays under the head — wherever the head moves at least as
- * far there as the ear's outer edge. Where it moves less, the far ear moves
- * rigidly and never widens: its root then outruns the head on that line by
- * the difference, and its tucked strip slides out by as much. The near
+ * ear narrows about it (to `earFarScale` of its width at a full turn, where
+ * the head leaves it room): its root follows the head further, sliding a
+ * little under the cheek, but never further than the head moves on the line
+ * under the ear — so where the head leaves less room, it narrows less — and
+ * its tucked strip no further than the head over it, so it stays covered. The
+ * turn solve keeps the head moving at least as far on that line as the
+ * ear's outer edge (`farEarCovered`), so the ear never widens. The near
  * one's root — what lies inside the head's own outline, tucked under it —
  * moves as the head moves it there, and the ear eases evenly out to its own
  * lag at its widest reach: it widens a little rather than sliding out from
@@ -163,12 +163,17 @@ export function earField(m: TurnModel): Field {
       // as the ear's narrowing takes it, but no further than the head there
       // — and where the head moves less than the rim, not at all: the ear
       // never widens.
-      const root = s * face(f.axisX + s * attach, y, 30 * s, 0)[0];
+      const root = earRoot(m, face, y, s);
       const lead = Math.max(
         0,
         Math.min((1 - m.earFarScale) * span, root - rim),
       );
-      return [s * a * (rim + (lead * (ears.outer - d)) / span), dy];
+      let along = rim + (lead * (ears.outer - d)) / span;
+      // The tucked strip, inside that line, no further than the head over
+      // it: the narrowing's slope can outrun a head narrowing less there
+      // (and should the head not cover the rim, this still keeps it).
+      if (d < attach) along = Math.min(along, s * face(x, y, 30 * s, 0)[0]);
+      return [s * a * along, dy];
     }
     if (d <= attach) return [face(x, y, ax, 0)[0], dy];
     const root = face(f.axisX + Math.sign(x - f.axisX) * attach, y, ax, 0)[0];
@@ -176,6 +181,35 @@ export function earField(m: TurnModel): Field {
     const t = Math.min(1, (d - attach) / span);
     return [root + (rim - root) * t, dy];
   };
+}
+
+/** The head's motion along a full turn toward s on the line under the ears
+ *  at model y (the plate's `face` field), px. */
+function earRoot(m: TurnModel, face: Field, y: number, s: number): number {
+  const f = m.frame;
+  return s * face(f.axisX + s * f.ears!.attachAt(y), y, 30 * s, 0)[0];
+}
+
+/**
+ * Whether the head covers the far ear's slide: on every row of the ear
+ * islands (the band and the 2 px they run past it either way), the head
+ * moves at least as far along a full turn, either way, on the line under the
+ * ear as the far ear's outer edge does (`TURN.earFar` of the plate's slide).
+ * True without ear islands.
+ */
+export function farEarCovered(m: TurnModel): boolean {
+  const ears = m.frame.ears;
+  if (ears === undefined) return true;
+  const face = faceField(m);
+  const rim = TURN.earFar * m.face;
+  const y0 = ears.bottom - 2;
+  const y1 = ears.top + 2;
+  const n = Math.max(1, Math.ceil(y1 - y0));
+  for (let i = 0; i <= n; i++) {
+    const y = y0 + ((y1 - y0) * i) / n;
+    for (const s of [-1, 1]) if (earRoot(m, face, y, s) < rim) return false;
+  }
+  return true;
 }
 
 /** How far the chin slides at a full turn, px. */

@@ -43,7 +43,7 @@ curve is linear in its angle on each side of rest, so the keyforms at 0 and
 | brows far / near     | 0.213 / 0.243                                                                                                                                                                     |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | nose                 | 0.301                                                                                                                                                                             | its tip swings a further 6° to the far side about the bridge top                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | mouth                | 0.213                                                                                                                                                                             | 0.975 of its width, far corner up 4.4°                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ears                 | far 0.44× the plate at its outer edge; near 0.87× at its widest reach                                                                                                             | behind the face: the far one narrows about its outer edge to 0.83 of its width, its root sliding under the cheek but never further than the head moves there; the near one's root rides the head, so it widens a little rather than sliding out from behind it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ears                 | far 0.44× the plate at its outer edge; near 0.87× at its widest reach                                                                                                             | behind the face: the far one narrows about its outer edge to 0.83 of its width where the head leaves it room (less where it does not, never wider), its root sliding under the cheek but never further than the head moves there; the near one's root rides the head, so it widens a little rather than sliding out from behind it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | front hair           | 1.1 × the plate over the face; 0 at the outline it draws, more on each row where the back hair paints behind that edge through every turn and nod, up to its follow over the face | eased evenly between the eyes' outer corners and the outline; over the far eye, on the eye's rows, as far as that eye's corner goes; its crown rides with the cap as far as back hair is painted behind its edges and gaps through every turn and nod (never where the face lies behind a gap), no crown row further than the one under it; elsewhere it eases into the back hair's turn toward its top. On its cap (its rows above the far eye's), the turn — alone or with the nod and the roll — never puts the outer edge further outside the back hair painted behind it than the nod alone puts it. Where the nod alone keeps it inside, the edge never leaves the back hair. The nod's own motion is the cap slide's. A cap row whose back hair at rest leaves its edge's own pixel bare draws the outline itself and is not bound (in a cell it shares with a blended row it eases toward the back hair's motion). |
 | back hair            | −0.027                                                                                                                                                                            | a slight counter-drift: the head moves in front of it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | neck (under the jaw) | 0                                                                                                                                                                                 | the chin slides over it; the chin's shade on it slides with the chin (see below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -125,17 +125,18 @@ first, then ears, then head:
   outer edge moves 0.44 of it (the samples' outer edges: Haru 0.44, Mao
   0.39), and the ear narrows evenly about that edge to 0.83 of its width at a
   full turn, the samples' median (Haru 0.81 / 0.91, Hiyori 0.90 / 0.85, Mao
-  0.77 / 0.79; none fades). So, wherever the head moves at least as far as
-  that edge on the line under the ear, the root moves further, toward the
-  head's slide, but never past the head's own motion there: its tuck slides
-  under the head and stays under it. Where the head moves less (a plate
-  without hair narrowing on the turn), the far ear moves rigidly, at its
-  outer edge's 0.44, and never widens; there its root outruns the head on
-  that line by the difference, and its tuck slides out by as much. The near
-  ear's root — what lies inside that line — moves as the head moves it
-  there, and the ear eases evenly out to 0.87 of the slide at its widest
-  reach: it widens a little rather than sliding out from under the head, so
-  its tuck never shows. Both nod with the face. A column of the head island
+  0.77 / 0.79; none fades), where the head leaves it room. So the root moves
+  further, toward the head's slide, but never past the head's own motion on
+  the line under the ear, and its tuck never past the head's motion over it,
+  so it stays covered; where the head leaves less room, the ear narrows less,
+  never wider than drawn. The outer edge keeps its 0.44 everywhere: where a
+  fitted turn would narrow the head (a plate without hair) so far that it
+  moved less than that edge on that line, the turn solve limits the
+  narrowing (reported as clamped) — on the row where that binds, the ear
+  keeps its width — so the ear never widens. The near ear's root — what lies inside that line —
+  moves as the head moves it there, and the ear eases evenly out to 0.87 of
+  the slide at its widest reach: it widens a little rather than sliding out
+  from under the head, so its tuck never shows. Both nod with the face. A column of the head island
   that lies wholly outside the head collapses and fans no cells.
 
 The face layer carries a neck when, below its widest row, the plate settles
@@ -181,14 +182,17 @@ what the cues then read. A given cue is fitted by the one knob it reads:
 - `farEyeRatio` (far/near eye width, over the same at rest) by the eyes'
   foreshortening — the profile's 0.85 / 1.085 is 0.78;
 - `silhouetteRatio` by the hair layers' width at full turn (0.8–1.2), or the
-  plate's when no hair draws the silhouette;
+  plate's when no hair draws the silhouette — a plate with ear islands
+  narrowed only as far as the far ear allows (below), past which it is
+  clamped;
 - `noseShift` / `mouthShift` by that feature's own shift (no slower than the
   plate under it, no further than its room).
 
 A cue out of its knob's reach is refused (`TurnTargetError`, naming the
-attainable range), except `eyeShift`, which is clamped. `DEFAULT_TURN_TARGETS`
-is the profile's turn in the cues' units for a head whose silhouette at the
-eye row is back hair about 1 hh wide: 0.22 / 0.78 / 1. The eye cue subtracts
+attainable range), except `eyeShift`, and a `silhouetteRatio` past the far
+ear's room, which are clamped. `DEFAULT_TURN_TARGETS` is the profile's turn
+in the cues' units for a head whose silhouette at the eye row is back hair
+about 1 hh wide: 0.22 / 0.78 / 1. The eye cue subtracts
 the silhouette's own shift, so a head whose side locks draw its silhouette —
 and ride the face, as they should — reads a smaller eyeShift (the hero: 0.08)
 for the same turn.
@@ -205,7 +209,11 @@ nose or without one):
   is painted — best effort: a strand that leaves less than half the profile's
   turn is left to overlap, and `strandOverlap.held` is `false`;
 - the nose and the mouth keep 5 % of their row's half-width inside the plate
-  (a profile shift past that is cut, and listed in `clamped`).
+  (a profile shift past that is cut, and listed in `clamped`);
+- on every row of the ear islands, the head moves at least as far on the far
+  ear's line as that ear's outer edge (0.44 of the plate's slide), or its
+  tucked strip would show: without hair, a fitted `silhouetteRatio` narrows
+  the plate only that far (the rest is cut, and listed in `clamped`).
 
 The report is measured, not predicted: every cue is re-read the way the engine
 draws it — each part's mesh vertices through its baked grid, or its own

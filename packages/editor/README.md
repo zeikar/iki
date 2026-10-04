@@ -97,9 +97,11 @@ how much it covers at rest, and whether the bound held.
 An `eyeShift` you passed that runs past the room the art leaves the far eye —
 the face plate's edge, or the bangs' strand — is **clamped** and the rig is
 built, since that room is a fact about these layers, not about the reference;
-so is the profile's own turn where the art has less room than it needs. Every
-other target you passed that this layer set cannot reach **throws**, naming the
-field and the range it could have had: a `farEyeRatio` or `silhouetteRatio`
+so is the profile's own turn where the art has less room than it needs, and
+a `silhouetteRatio` that would narrow a plate drawn without hair too far for
+its head to cover the far ear's slide (see AUTO-RIG.md). Every other target
+you passed that this layer set cannot reach **throws**, naming the field and
+the range it could have had: a `farEyeRatio` or `silhouetteRatio`
 out of the rig's reach, or a `noseShift` / `mouthShift` outside what that
 feature can reach. Pass `options.onTurnSolved` to see what the turn settled on
 and which targets were clamped.

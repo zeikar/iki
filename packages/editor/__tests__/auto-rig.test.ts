@@ -1657,8 +1657,17 @@ function withEars(opts: CharacterOptions = {}, targets: TurnTargets = {}) {
     l === face ? { ...l, rowHalfWidths: rows } : l,
   );
   const turnTargets = { ...options.turnTargets, ...targets };
+  let report: TurnSolveReport | undefined;
+  const m = generateIkiFromLayerSet(eared, CANVAS, {
+    ...options,
+    turnTargets,
+    onTurnSolved: (r) => {
+      report = r;
+    },
+  });
   return {
-    m: generateIkiFromLayerSet(eared, CANVAS, { ...options, turnTargets }),
+    m,
+    report: report!,
     frame: buildHeadFrame(eared, {
       headHalfWidth: turnTargets.headHalfWidth,
       headEdges:
@@ -1833,14 +1842,72 @@ describe("the ears", () => {
     }
   });
 
-  it("never widens the far ear, where the head moves less than its outer edge", () => {
-    // Without hair at silhouetteRatio 0.8 the plate narrows so much that on
-    // the line under the ear the head moves less than the ear's outer edge.
-    const { m, frame } = withEars({ hair: false }, { silhouetteRatio: 0.8 });
+  it("moves the far ear's tucked strip no further than the head over it", () => {
+    // Without hair at silhouetteRatio 0.925 (a shellScale of 0.94) the plate
+    // narrows on the turn about half as fast as the far ear does, while the
+    // head still moves well past the ear's outer edge on the line under it;
+    // at 0.785 (a shellScale of 0.8, the narrowest) the solve limits the
+    // narrowing to where the head there still moves as far as that edge.
+    for (const { m, frame } of [
+      withEars(),
+      withEars({ hair: false }, { silhouetteRatio: 0.925 }),
+      withEars({ hair: false }, { silhouetteRatio: 0.785 }),
+    ]) {
+      const ears = frame.ears!;
+      const ear = withoutHead(m);
+      const tuck = 0.08 * frame.hh;
+      // The keyforms round each offset to 1e-4 of the plate's box.
+      const eps = 1e-4 * m.parts.find((p) => p.id === "face")!.width;
+      const rest = landVertices(m, "face");
+      for (const ax of [-30, -15, 15, 30]) {
+        const s = Math.sign(ax);
+        const pose = X30(ax);
+        const v = landVertices(m, "face", pose);
+        for (let i = 0; i < rest.length / 2; i++) {
+          const [x, y] = [rest[i * 2], rest[i * 2 + 1]];
+          const u = x - frame.axisX;
+          // On the ear island's rows, inside the head's own outline, on the
+          // far side; the head island is drawn last, so the read is its.
+          if (y < ears.bottom - 2 || y > ears.top + 2) continue;
+          if (Math.abs(u) >= ears.attachAt(y) - 1) continue;
+          if (s * u <= 0) continue;
+          expect(
+            s * (v[i * 2] - landedXAt(m, "face", x, y, pose)),
+            `(${x}, ${y}) at AngleX ${ax}`,
+          ).toBeLessThanOrEqual(eps);
+        }
+        // The ear island's own point at its inner end on row 85.
+        const at = frame.axisX + s * (ears.attachAt(85) - tuck);
+        expect(
+          s *
+            (landedXAt(ear, "face", at, 85, pose) -
+              landedXAt(m, "face", at, 85, pose)),
+          `row 85 at AngleX ${ax}`,
+        ).toBeLessThanOrEqual(eps);
+      }
+    }
+  });
+
+  it("narrows a fitted silhouette only as far as the head still covers the far ear's slide", () => {
+    // Without hair at silhouetteRatio 0.785 (a shellScale of 0.8) the plate
+    // would narrow so much that on the line under the ear the head moved
+    // less than the ear's outer edge: the solve stops short, and says so.
+    const { m, frame, report } = withEars(
+      { hair: false },
+      { silhouetteRatio: 0.785 },
+    );
+    expect(report.clamped).toContain("silhouetteRatio");
+    expect(report.achieved.silhouetteRatio).toBeGreaterThan(0.785 + 0.01);
     const ears = frame.ears!;
     const ear = withoutHead(m);
     for (const ax of [-30, 30]) {
       const s = Math.sign(ax);
+      // The outer edge keeps its 0.44 of the plate's slide (row 85).
+      const far = frame.axisX + s * (ears.outer - 0.5);
+      const rim = landedXAt(m, "face", far, 85, X30(ax)) - far;
+      const plate = landedXAt(m, "face", 0.5, 85, X30(ax)) - 0.5;
+      expect(rim / plate, `AngleX ${ax}`).toBeCloseTo(0.44, 2);
+      // ... and the ear narrows, to no less than 0.83, and never widens.
       for (let y = ears.bottom; y <= ears.top; y += 5) {
         const d0 = ears.attachAt(y) + 2;
         const d1 = ears.outer - 2;
@@ -1849,9 +1916,13 @@ describe("the ears", () => {
         const span = (s * (at(d1) - at(d0))) / (d1 - d0);
         const label = `row ${y} at AngleX ${ax}: ${span}`;
         expect(span, label).toBeLessThanOrEqual(1 + 1e-3);
-        expect(span, label).toBeGreaterThan(0.82);
+        expect(span, label).toBeGreaterThanOrEqual(0.83 - 0.01);
       }
     }
+    // Where the head already covers it, the fit is the caller's.
+    const covered = withEars({ hair: false }, { silhouetteRatio: 0.925 });
+    expect(covered.report.clamped).not.toContain("silhouetteRatio");
+    expect(covered.report.achieved.silhouetteRatio).toBeCloseTo(0.925, 2);
   });
 });
 
