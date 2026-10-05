@@ -118,9 +118,11 @@ const NOSE_TIP_AT = 0.66;
 // These defaults assume the standard framing the character skill prompts for
 // (a front-facing face centered on the canvas). The face and its features are
 // the hero bob's own tuning, which reads more natural than any other character
-// so far; the hair and the torso depend on the hairstyle and on how the torso
-// is framed, so they are older defaults every character retunes from the
-// report. If the rendered model is misaligned, tune cx/cy/w through the
+// so far — but for the blush, which bob does not wear: its placement was
+// picked on bob's face (below). The features' defaults are proportions of the
+// face (resolveLayout carries them with a moved or scaled face). The hair and
+// the torso depend on the hairstyle and on how the torso is framed, so they are
+// older defaults every character retunes from the report. If the rendered model is misaligned, tune cx/cy/w through the
 // `layout` override and re-run — composing is cheap and the parts do not need
 // regenerating.
 //
@@ -311,16 +313,45 @@ export type ComposeResult =
   | { ok: false; error: string };
 
 /**
+ * The roles drawn on the face, but the nose (resolveLayout places it on its
+ * own). Their defaults are placed relative to the face's: a layout that moves
+ * or scales the face carries them with it.
+ */
+const FACE_FEATURES = [
+  "blush_L",
+  "blush_R",
+  "mouth",
+  "mouth_open",
+  "eye_L",
+  "eye_R",
+  "iris_L",
+  "iris_R",
+  "lash_L",
+  "lash_R",
+  "brow_L",
+  "brow_R",
+] as const satisfies readonly Exclude<Role, "nose">[];
+
+/**
  * Merge caller overrides onto the defaults. Input boundary: an unknown role, a
  * non-finite centre or an out-of-range width fails fast, path-qualified, before
  * any decode. `w` is capped at CANVAS so a part sized whole can never exceed
  * the canvas width (a nose, sized by its core, is checked in partBuffer);
  * `cx`/`cy` are unbounded here because a part may legitimately hang off an
  * edge — assertOnCanvas() rejects the one that lands nowhere on it.
+ *
+ * The face's override applies first. Each feature's default is then moved
+ * with the face's centre and scaled by its width against the default face's,
+ * so the defaults are proportions of the face; a feature's own override still
+ * names canvas px.
  */
 function resolveLayout(overrides: LayoutOverride | undefined): ResolvedLayout {
   const resolved: ResolvedLayout = { ...DEFAULT_LAYOUT };
   if (overrides === undefined) return resolved;
+  const sets = new Map<
+    Role,
+    { cx?: number; cy?: number; w?: number; h?: number }
+  >();
   for (const [role, override] of Object.entries(overrides)) {
     if (!Object.prototype.hasOwnProperty.call(DEFAULT_LAYOUT, role)) {
       throw new AutoRigInputError(
@@ -351,11 +382,32 @@ function resolveLayout(overrides: LayoutOverride | undefined): ResolvedLayout {
       }
       set[field] = value;
     }
-    // The nose's entry may lack a cy, so it merges on its own; every other
-    // role's stays a RoleLayout.
-    const key = role as Role;
-    if (key === "nose") resolved.nose = { ...resolved.nose, ...set };
-    else resolved[key] = { ...resolved[key], ...set };
+    sets.set(role as Role, set);
+  }
+  const face = { ...resolved.face, ...sets.get("face") };
+  resolved.face = face;
+  const base = DEFAULT_LAYOUT.face;
+  const scale = face.w / base.w;
+  const x = (cx: number) => face.cx + (cx - base.cx) * scale;
+  const w = (width: number) => Math.max(1, Math.round(width * scale));
+  for (const role of FACE_FEATURES) {
+    const d = DEFAULT_LAYOUT[role];
+    const cy = face.cy + (d.cy - base.cy) * scale;
+    resolved[role] = { ...d, cx: x(d.cx), cy, w: w(d.w), ...sets.get(role) };
+  }
+  // The nose has no default cy (the tip rule places it, off the eye and
+  // mouth rows above), so it merges on its own.
+  const nose = DEFAULT_LAYOUT.nose;
+  resolved.nose = {
+    ...nose,
+    cx: x(nose.cx),
+    w: w(nose.w),
+    ...sets.get("nose"),
+  };
+  for (const [role, set] of sets) {
+    if (role === "face" || role === "nose") continue;
+    if ((FACE_FEATURES as readonly Role[]).includes(role)) continue;
+    resolved[role] = { ...resolved[role], ...set };
   }
   return resolved;
 }

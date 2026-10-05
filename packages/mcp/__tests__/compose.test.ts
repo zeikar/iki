@@ -827,14 +827,56 @@ describe("composeLayersFromParts", () => {
 
   it("allows a part that only hangs off an edge", async () => {
     // `body` runs off the canvas bottom by design at its default cy — the test
-    // is intersection with the canvas, not containment in it.
+    // is intersection with the canvas, not containment in it. The face's
+    // features ride up with it and stay on the canvas.
     const dir = outDir();
     const result = await composeOk({
       partsDir: parts,
       outDir: dir,
-      layout: { face: { cy: -100 } },
+      layout: { face: { cy: 100 } },
     });
     expect(result.layers.find((l) => l.role === "face")?.top).toBeLessThan(0);
+  });
+
+  it("moves and scales the features' defaults with the face", async () => {
+    // The face 1.2x as wide and moved by (50, 50): eye_L's default (86, 38)
+    // from the face's centre becomes (103.2, 45.6), 98 wide becomes 118.
+    const dir = outDir();
+    const r = await composeOk({
+      partsDir: parts,
+      outDir: dir,
+      layout: { face: { cx: 600, cy: 487, w: 480 } },
+    });
+    const at = (role: string) => r.layers.find((l) => l.role === role)!;
+    const eye = at("eye_L");
+    expect(eye.width).toBe(118);
+    expect(eye.left).toBe(Math.round(703.2 - 118 / 2));
+    expect(eye.top).toBe(Math.round(532.6 - eye.height / 2));
+    expect(at("lash_lower_L")).toMatchObject({ left: eye.left, top: eye.top });
+    // The mouth moves the same way; the hair does not follow the face.
+    const mouth = at("mouth");
+    expect(mouth.width).toBe(Math.round(76 * 1.2));
+    expect(mouth.left).toBe(Math.round(600 - mouth.width / 2));
+    expect(at("hair_front").left).toBe(
+      full.layers.find((l) => l.role === "hair_front")!.left,
+    );
+    // A feature's own override still names canvas px.
+    const pinned = await composeOk({
+      partsDir: parts,
+      outDir: outDir(),
+      layout: {
+        face: { cx: 600, cy: 487, w: 480 },
+        mouth: { cx: 550, cy: 594, w: 76 },
+      },
+    });
+    const box = (l: { left: number; top: number; width: number }) => [
+      l.left,
+      l.top,
+      l.width,
+    ];
+    expect(box(pinned.layers.find((l) => l.role === "mouth")!)).toEqual(
+      box(full.layers.find((l) => l.role === "mouth")!),
+    );
   });
 
   describe("a mark detached from the body", () => {
