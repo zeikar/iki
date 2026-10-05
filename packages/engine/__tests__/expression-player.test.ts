@@ -369,7 +369,7 @@ describe("ExpressionPlayer replace", () => {
     },
   );
 
-  it("takes over a multiply past the max on a blinking EyeOpen without a step, its start still following the blink", () => {
+  it("takes over a multiply past the max on a blinking EyeOpen without a step, the base's share of its start still following the blink", () => {
     // EyeOpen's base is what idle's blink wrote: a new value every frame.
     const blink = [1, 0.75, 0.5, 0.25, 0, 0.25, 0.5, 0.75];
     const { player, step } = makeStage(
@@ -401,13 +401,60 @@ describe("ExpressionPlayer replace", () => {
 
     player.play("B");
     expect(eye(0, 0.75).e).toBeCloseTo(0.875, 12);
-    // The start keeps A's folded scale, 1.25, on the live blink, shifted by
-    // the -0.0625 it was off at the switch; B leaves E alone, so E eases
-    // back to the blink itself.
+    // The start is half the live blink and half A's end, pinned at the max
+    // it showed at the switch; B leaves E alone, so E eases back to the
+    // blink itself.
     for (let k = 1; k <= 8; k++) {
       const { b, e } = eye(1 / 16);
-      const start = clamp01(1.25 * b - 0.0625);
+      const start = 0.5 * b + 0.5;
       expect(e).toBeCloseTo(start + (b - start) * smoothstep(k / 8), 12);
+    }
+    expect(step(1 / 16).has("E")).toBe(false);
+  });
+
+  it("replaces a multiply held at the max from the max when the base drops right after the switch, moving only by the fade", () => {
+    // Multiply 2 shows 1 over a base of 1, and still 1 over 0.5.
+    const { player, step } = makeStage(
+      [
+        expr("A", { E: [2, "multiply"] }, CUT),
+        expr("B", { W: 1 }, { fadeIn: 0.5 }),
+      ],
+      [param("E", 0, 1, 1), param("W")],
+    );
+    player.play("A");
+    expect(step(1 / 16, { E: 1 }).get("E")).toBe(1);
+    expect(step(1 / 16, { E: 1 }).get("E")).toBe(1);
+
+    player.play("B");
+    let prev = step(0, { E: 0.5 }).get("E")!;
+    expect(prev).toBe(1);
+    for (let k = 1; k <= 8; k++) {
+      const e = step(1 / 16, { E: 0.5 }).get("E")!;
+      expect(e).toBe(1 - 0.5 * smoothstep(k / 8));
+      expect(e).toBeLessThanOrEqual(prev);
+      prev = e;
+    }
+    expect(prev).toBe(0.5); // B's fadeIn is over: E is the base itself
+  });
+
+  it("stops a multiply held at the max from the max while the base moves, as the pose it stops shows", () => {
+    const { player, step } = makeStage(
+      [expr("A", { E: [2, "multiply"] }, { fadeIn: 0, fadeOut: 0.5 })],
+      [param("E", 0, 1, 1)],
+    );
+    player.play("A");
+    expect(step(1 / 16, { E: 1 }).get("E")).toBe(1);
+
+    player.stop();
+    expect(step(0, { E: 1 }).get("E")).toBe(1);
+    // Over a base of 0.5 or more A still shows 1, so E eases from 1 to the
+    // moving base.
+    const bases = [0.75, 0.5, 0.625, 1, 0.5, 0.875, 0.75, 0.5];
+    for (let k = 1; k <= 8; k++) {
+      const b = bases[k - 1];
+      expect(step(1 / 16, { E: b }).get("E")).toBe(
+        1 + (b - 1) * smoothstep(k / 8),
+      );
     }
     expect(step(1 / 16).has("E")).toBe(false);
   });

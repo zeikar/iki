@@ -83,11 +83,10 @@ function weight({ seconds, elapsed }: Fade): number {
 interface Held {
   id: string;
   /**
-   * Its last write minus the unclamped mix of the same ends at the same
-   * weight: 0 unless an end was past the parameter's range. A fold adds it
-   * back (see {@link ExpressionPlayer.begin}).
+   * Its base on the last apply, where a fold matches the screen (see
+   * {@link ExpressionPlayer.begin}); NaN before the first apply.
    */
-  shift: number;
+  base: number;
 }
 
 /**
@@ -100,7 +99,8 @@ interface Held {
  * fades back to base over the playing expression's `fadeOut`. Either one
  * interrupting a fade starts from where that fade got to, as a replacing
  * motion clip does, so the screen never jumps or dips toward base; unlike a
- * clip's, that starting pose keeps following the live base (see {@link Line}).
+ * clip's, that starting pose keeps following the live base (see {@link Line}),
+ * save a part of it the screen showed held at a range limit, which stays there.
  * Each target is taken over the base, never over what is on screen, so an
  * `add` never stacks on itself however often it is replayed.
  *
@@ -176,30 +176,31 @@ export class ExpressionPlayer {
    * fade has reached, and start a fade from it toward `pose`. Folding keeps
    * this to one `from` and one fade however fast the plays come.
    *
-   * The lines mix unclamped, but {@link apply} clamps each end before it
-   * mixes, so the two part where an end was past the parameter's range.
-   * Adding each id's {@link Held.shift} to the folded offset closes that
-   * gap at the base of the last apply: the new fade starts on what was shown
-   * there, and the folded scale still follows the live base from it.
+   * {@link apply} clamps each end before it mixes, so each end folds in as
+   * the screen showed it at the last apply's base ({@link pinned}): the new
+   * fade starts on what was on screen, an end held at a range limit stays
+   * there as the base moves, and the rest still follow the live base. Should
+   * the base move so far that the old pose would have left the limit, the
+   * start holds it instead: a little off, but continuous, and it fades out.
    */
   private begin(pose: Pose, seconds: number): void {
     if (this.fade) {
       const { lines } = this.fade.pose;
       const w = weight(this.fade);
       const from = new Map<string, Line>();
-      for (const { id, shift } of this.held) {
-        const a = this.from.get(id) ?? BASE;
-        const b = lines.get(id) ?? BASE;
+      for (const { id, base } of this.held) {
+        const a = this.pinned(id, this.from.get(id) ?? BASE, base);
+        const b = this.pinned(id, lines.get(id) ?? BASE, base);
         from.set(id, {
           scale: mix(a.scale, b.scale, w),
-          offset: mix(a.offset, b.offset, w) + shift,
+          offset: mix(a.offset, b.offset, w),
         });
       }
       this.from = from;
     }
     this.fade = { pose, seconds, elapsed: 0 };
     this.held = [...new Set([...this.from.keys(), ...pose.lines.keys()])].map(
-      (id) => ({ id, shift: 0 }),
+      (id) => ({ id, base: NaN }),
     );
   }
 
@@ -228,11 +229,10 @@ export class ExpressionPlayer {
     for (const held of this.held) {
       const { id } = held;
       const base = frame.get(id) ?? rest(id);
-      const start = at(this.from.get(id) ?? BASE, base);
-      const end = at(lines.get(id) ?? BASE, base);
-      const shown = mix(this.displayed(id, start), this.displayed(id, end), w);
-      frame.set(id, shown);
-      held.shift = shown - mix(start, end, w);
+      held.base = base;
+      const start = this.displayed(id, at(this.from.get(id) ?? BASE, base));
+      const end = this.displayed(id, at(lines.get(id) ?? BASE, base));
+      frame.set(id, mix(start, end, w));
     }
     if (w < 1) return;
     // The fade is done and the screen is its target alone. An id only `from`
@@ -245,7 +245,7 @@ export class ExpressionPlayer {
       this.held = [];
     } else if (this.from.size > 0) {
       this.from.clear();
-      // Kept entries carry their shift into the next fold.
+      // Kept entries carry their last base into the next fold.
       this.held = this.held.filter(({ id }) => lines.has(id));
     }
   }
@@ -259,5 +259,20 @@ export class ExpressionPlayer {
   private displayed(id: string, value: number): number {
     const param = this.params.get(id);
     return param ? clamp(value, param.min, param.max) : value;
+  }
+
+  /**
+   * `line`, or, where its value at `base` is past the parameter's range, the
+   * constant line at the limit it crossed: the line as the screen shows it
+   * there. An id the model does not declare pins nothing, and nor does a NaN
+   * base (no apply yet), which compares false both ways.
+   */
+  private pinned(id: string, line: Line, base: number): Line {
+    const param = this.params.get(id);
+    if (!param) return line;
+    const value = at(line, base);
+    if (value > param.max) return { scale: 0, offset: param.max };
+    if (value < param.min) return { scale: 0, offset: param.min };
+    return line;
   }
 }
