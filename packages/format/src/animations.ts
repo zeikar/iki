@@ -5,14 +5,18 @@
  * The motion group that loops. Its clips replace the procedural head sway and
  * gaze; blink and breath stay procedural, so its curves may not animate
  * `EyeOpenLeft`, `EyeOpenRight` or `Breath`. Every other group plays one-shot.
+ * A `"smooth"` curve comes to rest at its first and last key, so for a
+ * seamless loop start and end it at a turning point (where the motion
+ * naturally slows), or mark it `"linear"`.
  */
 export const IDLE_MOTION_GROUP = "Idle";
 
 /**
  * Seconds an absent `fadeIn` or `fadeOut` stands for: on an
- * {@link IkiExpression} as is, on an {@link IkiMotionClip} capped at the clip's
- * `duration`. An explicit `0` is instant. A player reads absence through this
- * one constant, so every host fades a model the same way.
+ * {@link IkiExpression} as is, on an {@link IkiMotionClip} capped at half the
+ * clip's `duration`, so two absent fades never overlap. An explicit `0` is
+ * instant. A player reads absence through this one constant, so every host
+ * fades a model the same way.
  */
 export const DEFAULT_FADE_SECONDS = 0.4;
 
@@ -90,14 +94,14 @@ export interface IkiMotionClip {
   /** Seconds, `> 0`. */
   duration: number;
   /** Seconds, `>= 0` and `<= duration`; `0` is instant. Absent means
-   *  {@link DEFAULT_FADE_SECONDS}, capped at `duration`. Starts from the
+   *  {@link DEFAULT_FADE_SECONDS}, capped at `duration / 2`. Starts from the
    *  current pose: the base, or the replaced clip's last output when this
    *  play replaces a running clip. */
   fadeIn?: number;
   /** Seconds, `>= 0` and `<= duration`; `0` is instant. Absent means
-   *  {@link DEFAULT_FADE_SECONDS}, capped at `duration`. May overlap `fadeIn`
-   *  (`fadeIn + fadeOut > duration` is valid); the clip then peaks below full
-   *  weight. */
+   *  {@link DEFAULT_FADE_SECONDS}, capped at `duration / 2`. May overlap
+   *  `fadeIn` (`fadeIn + fadeOut > duration` is valid); the clip then peaks
+   *  below full weight. */
   fadeOut?: number;
   /** Non-empty. */
   curves: IkiMotionCurve[];

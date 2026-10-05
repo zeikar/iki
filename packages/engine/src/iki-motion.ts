@@ -105,7 +105,10 @@ export class IkiMotion {
     this.sink = sink;
     this.rest = (id) => restPose.get(id);
     this.clips = new ClipPlayer(model.motions, model.parameters);
-    this.expressions = new ExpressionPlayer(model.expressions);
+    this.expressions = new ExpressionPlayer(
+      model.expressions,
+      model.parameters,
+    );
     const idleKeeps: (id: string) => boolean = this.clips.hasIdleLoop
       ? (id) => !HEAD_AND_GAZE.has(id)
       : () => true;

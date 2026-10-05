@@ -2,8 +2,9 @@ import {
   DEFAULT_FADE_SECONDS,
   type IkiExpression,
   type IkiExpressionParameter,
+  type IkiParameter,
 } from "@ikijs/format";
-import { lerp, smoothstep } from "./math";
+import { clamp, lerp, smoothstep } from "./math";
 
 /**
  * A parameter's value as a line in its base: `scale · base + offset`. Every
@@ -78,6 +79,17 @@ function weight({ seconds, elapsed }: Fade): number {
   return elapsed >= seconds ? 1 : smoothstep(elapsed / seconds);
 }
 
+/** An id the player writes on every apply. */
+interface Held {
+  id: string;
+  /**
+   * Its last write minus the unclamped mix of the same ends at the same
+   * weight: 0 unless an end was past the parameter's range. A fold adds it
+   * back (see {@link ExpressionPlayer.begin}).
+   */
+  shift: number;
+}
+
 /**
  * Plays a model's expressions into a per-update frame map. Internal to
  * {@link IkiMotion}, which owns the frame: the base rule below only holds
@@ -99,6 +111,7 @@ export class ExpressionPlayer {
   /** Every expression parameter, deduplicated, insertion-ordered. */
   readonly parameterIds: readonly string[];
   private readonly poses: Map<string, Pose & { expression: IkiExpression }>;
+  private readonly params: Map<string, IkiParameter>;
 
   /** Undefined while nothing is held. */
   private fade: Fade | undefined = undefined;
@@ -108,10 +121,14 @@ export class ExpressionPlayer {
    */
   private from = new Map<string, Line>();
   /** Every id `from` or the fade drives: what each apply writes. */
-  private held: string[] = [];
+  private held: Held[] = [];
 
-  constructor(expressions: IkiExpression[] | undefined) {
+  constructor(
+    expressions: IkiExpression[] | undefined,
+    parameters: IkiParameter[],
+  ) {
     const list = expressions ?? [];
+    this.params = new Map(parameters.map((p) => [p.id, p]));
     this.poses = new Map(
       list.map((expression) => [
         expression.id,
@@ -158,30 +175,39 @@ export class ExpressionPlayer {
    * Freeze what is on screen into {@link from}, at the weight the current
    * fade has reached, and start a fade from it toward `pose`. Folding keeps
    * this to one `from` and one fade however fast the plays come.
+   *
+   * The lines mix unclamped, but {@link apply} clamps each end before it
+   * mixes, so the two part where an end was past the parameter's range.
+   * Adding each id's {@link Held.shift} to the folded offset closes that
+   * gap at the base of the last apply: the new fade starts on what was shown
+   * there, and the folded scale still follows the live base from it.
    */
   private begin(pose: Pose, seconds: number): void {
     if (this.fade) {
       const { lines } = this.fade.pose;
       const w = weight(this.fade);
       const from = new Map<string, Line>();
-      for (const id of this.held) {
+      for (const { id, shift } of this.held) {
         const a = this.from.get(id) ?? BASE;
         const b = lines.get(id) ?? BASE;
         from.set(id, {
           scale: mix(a.scale, b.scale, w),
-          offset: mix(a.offset, b.offset, w),
+          offset: mix(a.offset, b.offset, w) + shift,
         });
       }
       this.from = from;
     }
     this.fade = { pose, seconds, elapsed: 0 };
-    this.held = [...new Set([...this.from.keys(), ...pose.lines.keys()])];
+    this.held = [...new Set([...this.from.keys(), ...pose.lines.keys()])].map(
+      (id) => ({ id, shift: 0 }),
+    );
   }
 
   /**
    * Advance `dtS` seconds and write every held id into `frame`: the pose on
    * screen when the fade began, lerped toward the fade's target by its
-   * weight. An id the target does not drive goes to base.
+   * weight, each end clamped to the parameter's range. An id the target does
+   * not drive goes to base.
    *
    * `frame` holds what earlier stages wrote this update. A parameter id's base
    * is its frame value, else `rest(id)` — the parameter's resting value,
@@ -199,10 +225,14 @@ export class ExpressionPlayer {
     fade.elapsed += dtS;
     const w = weight(fade);
     const { lines } = fade.pose;
-    for (const id of this.held) {
+    for (const held of this.held) {
+      const { id } = held;
       const base = frame.get(id) ?? rest(id);
       const start = at(this.from.get(id) ?? BASE, base);
-      frame.set(id, mix(start, at(lines.get(id) ?? BASE, base), w));
+      const end = at(lines.get(id) ?? BASE, base);
+      const shown = mix(this.displayed(id, start), this.displayed(id, end), w);
+      frame.set(id, shown);
+      held.shift = shown - mix(start, end, w);
     }
     if (w < 1) return;
     // The fade is done and the screen is its target alone. An id only `from`
@@ -215,7 +245,19 @@ export class ExpressionPlayer {
       this.held = [];
     } else if (this.from.size > 0) {
       this.from.clear();
-      this.held = [...lines.keys()];
+      // Kept entries carry their shift into the next fold.
+      this.held = this.held.filter(({ id }) => lines.has(id));
     }
+  }
+
+  /**
+   * A value as the screen shows it: clamped to the parameter's range, as the
+   * store clamps every write; an id the model does not declare as is. A fade
+   * mixes these, so it leaves a value held past the max from the max at once
+   * instead of sitting there until the mix gets back inside the range.
+   */
+  private displayed(id: string, value: number): number {
+    const param = this.params.get(id);
+    return param ? clamp(value, param.min, param.max) : value;
   }
 }

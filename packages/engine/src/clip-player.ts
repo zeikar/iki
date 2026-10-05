@@ -75,17 +75,18 @@ export function sampleCurve(
 /**
  * The clip's fade-in and fade-out weights at `t` seconds into it, each easing
  * along {@link smoothstep} and clamped to `[0, 1]`. A zero fade gives 1 — no
- * fade on that side. An absent one lasts `DEFAULT_FADE_SECONDS`, capped at the
- * clip's duration so that, like a declared fade, it fits inside the clip: the
- * fade-out then never starts before t = 0, so a replacing clip's first frame
- * (wOut = 1) is still the old pose. Exported for the tests; not part of the
- * package entry.
+ * fade on that side. An absent one lasts `DEFAULT_FADE_SECONDS`, capped at
+ * half the clip's duration: two absent fades never overlap, so a short clip
+ * still reaches full weight, and, like a declared fade, each fits inside the
+ * clip: the fade-out never starts before t = 0, so a replacing clip's first
+ * frame (wOut = 1) is still the old pose. Exported for the tests; not part of
+ * the package entry.
  */
 export function fadeWeights(
   clip: IkiMotionClip,
   t: number,
 ): { wIn: number; wOut: number } {
-  const fallback = Math.min(DEFAULT_FADE_SECONDS, clip.duration);
+  const fallback = Math.min(DEFAULT_FADE_SECONDS, clip.duration / 2);
   const fadeIn = clip.fadeIn ?? fallback;
   const fadeOut = clip.fadeOut ?? fallback;
   return {

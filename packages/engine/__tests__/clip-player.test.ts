@@ -126,19 +126,45 @@ describe("fadeWeights", () => {
     expect(fadeWeights(c, duration)).toEqual({ wIn: 1, wOut: 0 });
   });
 
-  it("caps an absent fade at a shorter clip's duration, so the clip starts at full fade-out weight", () => {
+  it("caps an absent fade at half a shorter clip's duration, so the clip starts at full fade-out weight and reaches full weight", () => {
     const duration = DEFAULT_FADE_SECONDS / 2;
     const c = clip({ X: [[0, 1]] }, { duration });
-    // Both fades span the whole clip.
+    // Each fade spans half the clip; they meet at the midpoint.
     expect(fadeWeights(c, 0)).toEqual({ wIn: 0, wOut: 1 });
-    expect(fadeWeights(c, duration / 2)).toEqual({ wIn: 0.5, wOut: 0.5 });
+    expect(fadeWeights(c, duration / 4).wIn).toBeCloseTo(0.5, 12);
+    expect(fadeWeights(c, duration / 2)).toEqual({ wIn: 1, wOut: 1 });
     expect(fadeWeights(c, duration)).toEqual({ wIn: 1, wOut: 0 });
     // Either side alone absent takes the same cap.
     const fadeInOnly = clip({ X: [[0, 1]] }, { duration, fadeIn: 0 });
-    expect(fadeWeights(fadeInOnly, duration / 2)).toEqual({
-      wIn: 1,
-      wOut: 0.5,
-    });
+    expect(fadeWeights(fadeInOnly, duration / 2)).toEqual({ wIn: 1, wOut: 1 });
+    expect(fadeWeights(fadeInOnly, (3 * duration) / 4).wOut).toBeCloseTo(
+      0.5,
+      12,
+    );
+  });
+
+  it("reaches full weight at the midpoint of a 0.3 s clip with absent fades", () => {
+    const c = clip({ X: [[0, 1]] }, { duration: 0.3 });
+    expect(fadeWeights(c, 0.3 / 2)).toEqual({ wIn: 1, wOut: 1 });
+  });
+
+  it("splits a 0.6 s clip's absent fades into 0.3 s each", () => {
+    const c = clip({ X: [[0, 1]] }, { duration: 0.6 });
+    const fade = 0.6 / 2;
+    expect(fadeWeights(c, fade / 2).wIn).toBeCloseTo(0.5, 12);
+    expect(fadeWeights(c, fade)).toEqual({ wIn: 1, wOut: 1 });
+    expect(fadeWeights(c, 0.6 - fade / 2).wOut).toBeCloseTo(0.5, 12);
+  });
+
+  it("keeps explicit fades as written, so overlapping ones still peak below 1", () => {
+    const c = clip(
+      { X: [[0, 1]] },
+      { duration: 0.3, fadeIn: 0.3, fadeOut: 0.3 },
+    );
+    const { wIn, wOut } = fadeWeights(c, 0.3 / 2);
+    expect(wIn).toBeCloseTo(0.5, 12);
+    expect(wOut).toBeCloseTo(0.5, 12);
+    expect(wIn * wOut).toBeLessThan(1);
   });
 });
 
@@ -300,7 +326,7 @@ describe("ClipPlayer one-shot", () => {
     ["fadeIn == duration", { fadeIn: 1, fadeOut: 0.25 }],
     ["overlapping fades", { fadeIn: 0.75, fadeOut: 0.75 }],
     ["default fades", {}],
-    // Both absent fades are capped at this clip's duration.
+    // Both absent fades are capped at half this clip's duration.
     [
       "default fades on a clip shorter than them",
       { duration: DEFAULT_FADE_SECONDS / 2 },
@@ -496,6 +522,16 @@ describe("ClipPlayer one-shot", () => {
     // exactly): base, once, then nothing.
     expect(step(d).get("X")).toBe(0);
     expect(step(d).has("X")).toBe(false);
+  });
+
+  it("plays a clip shorter than both default fades at full value at its midpoint", () => {
+    const { player, step } = makeStage(
+      { Nod: [clip({ X: [[0, 8]] }, { duration: 0.3 })] },
+      [param("X")],
+    );
+    player.play("Nod", 0);
+    expect(step(0).get("X")).toBe(0);
+    expect(step(0.3 / 2).get("X")).toBeCloseTo(8, 12);
   });
 
   it("fades a replaced curve that overshot its max from the max, not the raw value", () => {

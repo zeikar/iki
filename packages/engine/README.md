@@ -113,7 +113,8 @@ index the model does not declare.
 Fades ease: a weight follows a smoothstep over the fade's seconds, so it
 starts and lands without a jolt and still takes exactly that long. A fade the
 model leaves out lasts `DEFAULT_FADE_SECONDS` from `@ikijs/format` (on a clip,
-at most its duration); `0` cuts. Clip curves are smooth, a monotone cubic that
+at most half its duration, so two left out never overlap and the clip reaches
+full weight); `0` cuts. Clip curves are smooth, a monotone cubic that
 never overshoots its keys, unless a curve says `"linear"`. The `Idle` loop
 ignores fades, so its clips join without a dip.
 

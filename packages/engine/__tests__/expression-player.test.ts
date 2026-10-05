@@ -51,7 +51,7 @@ function makeStage(
   expressions: IkiExpression[] | undefined,
   params: IkiParameter[],
 ) {
-  const player = new ExpressionPlayer(expressions);
+  const player = new ExpressionPlayer(expressions, params);
   const byId = new Map(params.map((p) => [p.id, p]));
   const clampTo = (id: string, v: number) => {
     const p = byId.get(id)!;
@@ -78,12 +78,15 @@ function makeStage(
 
 describe("ExpressionPlayer surface", () => {
   it("reports every expression parameter once, in insertion order", () => {
-    const player = new ExpressionPlayer([
-      expr("A", { X: 1, Y: [2, "multiply"] }),
-      expr("B", { Y: 1, Z: [0, "overwrite"], W: 1 }),
-    ]);
+    const player = new ExpressionPlayer(
+      [
+        expr("A", { X: 1, Y: [2, "multiply"] }),
+        expr("B", { Y: 1, Z: [0, "overwrite"], W: 1 }),
+      ],
+      [],
+    );
     expect(player.parameterIds).toEqual(["X", "Y", "Z", "W"]);
-    expect(new ExpressionPlayer(undefined).parameterIds).toEqual([]);
+    expect(new ExpressionPlayer(undefined, []).parameterIds).toEqual([]);
   });
 
   it("writes nothing while no expression is held", () => {
@@ -91,6 +94,18 @@ describe("ExpressionPlayer surface", () => {
     expect(step(1 / 16).size).toBe(0);
     player.stop();
     expect(step(1 / 16).size).toBe(0);
+  });
+
+  it("writes an id the model does not declare unclamped", () => {
+    const player = new ExpressionPlayer(
+      [expr("A", { Q: 500, X: 500 }, CUT)],
+      [param("X", 0, 1)],
+    );
+    player.play("A");
+    const frame = new Map<string, number>();
+    player.apply(0, frame, () => 0);
+    expect(frame.get("Q")).toBe(500);
+    expect(frame.get("X")).toBe(1);
   });
 });
 
@@ -184,6 +199,19 @@ describe("ExpressionPlayer fades", () => {
     expect(step(d / 2).has("X")).toBe(false);
   });
 
+  it("eases in toward a value past the max over the whole fadeIn, reaching the max only at its end", () => {
+    // Raw 0.5 + 1.5 = 2; the screen can show 1 at most.
+    const { player, step, run } = makeStage(
+      [expr("A", { P: 1.5 }, { fadeIn: 1 })],
+      [param("P", 0, 1, 0.5)],
+    );
+    player.play("A");
+    expect(step(0).get("P")).toBe(0.5);
+    expect(run(8, 1 / 16).get("P")).toBe(0.75); // t = 0.5: half of 0.5 -> 1
+    expect(run(4, 1 / 16).get("P")).toBe(0.5 + 0.5 * (27 / 32)); // t = 0.75
+    expect(run(4, 1 / 16).get("P")).toBe(1); // t = 1
+  });
+
   it("switches on and off in a single frame with zero fades", () => {
     const { player, step } = makeStage(
       [expr("A", { X: 5 }, CUT), expr("B", { Y: [3, "overwrite"] }, CUT)],
@@ -265,6 +293,123 @@ describe("ExpressionPlayer replace", () => {
     }
     expect(prev).toBe(0.6); // laugh's 0.5 s fadeIn is over
     expect(run(16, dt).get("MouthOpen")).toBe(0.6);
+  });
+
+  it("replaces an expression held past the max from the max on screen, leaving it at once", () => {
+    const d = DEFAULT_FADE_SECONDS;
+    const n = 64;
+    const dt = d / n;
+    const { player, step, run, displayed } = makeStage(
+      [expr("A", { P: 1.5 }), expr("B", { Q: 1 })],
+      [param("P", 0, 1, 0.5), param("Q")],
+    );
+    player.play("A");
+    run(n + 1, dt);
+    expect(displayed.get("P")).toBe(1); // raw 2, shown 1
+
+    player.play("B");
+    let prev = step(0).get("P")!;
+    expect(prev).toBe(1);
+    for (let k = 1; k <= n; k++) {
+      const p = step(dt).get("P")!;
+      expect(p).toBeCloseTo(1 - 0.5 * smoothstep(k / n), 12);
+      expect(p).toBeLessThanOrEqual(prev);
+      // Off the max by a quarter of the fade, as the ease alone allows.
+      if (k === n / 4) expect(displayed.get("P")).toBeLessThan(1);
+      prev = p;
+    }
+    step(dt); // past the fade, whichever frame summed dt lands it on
+    expect(displayed.get("P")).toBe(0.5);
+  });
+
+  it.each([
+    ["a replace", (p: ExpressionPlayer) => p.play("B"), 1],
+    ["a stop", (p: ExpressionPlayer) => p.stop(), undefined],
+  ])(
+    "takes over a fade toward a value past the max from what it showed, without a step (%s)",
+    (_, interrupt, q) => {
+      // Raw 0.5 + 1.5 = 2: A's fade-in shows 0.5 -> 1, its clamped ends.
+      const dt = 1 / 64;
+      const { player, step, displayed } = makeStage(
+        [
+          expr("A", { P: 1.5 }, { fadeIn: 1, fadeOut: 0.5 }),
+          expr("B", { Q: 1 }, { fadeIn: 0.5 }),
+        ],
+        [param("P", 0, 1, 0.5), param("Q")],
+      );
+      // The steepest frame step either ease allows, 1.5 · dt / fade times
+      // the span it moves: 0.5 over A's 1 s, then 0.25 over 0.5 s.
+      const bound = 1.5 * dt * 0.5 + 1e-12;
+      const ps: number[] = [];
+      const record = (frameDt: number) => {
+        const frame = step(frameDt);
+        ps.push(displayed.get("P")!);
+        return frame;
+      };
+
+      player.play("A");
+      record(0);
+      for (let k = 0; k < 32; k++) record(dt);
+      expect(ps.at(-1)).toBe(0.75); // A at w = 0.5
+
+      interrupt(player);
+      record(0);
+      expect(ps.at(-1)).toBeCloseTo(0.75, 12);
+      for (let k = 1; k <= 32; k++) {
+        record(dt);
+        expect(ps.at(-1)).toBeCloseTo(0.75 - 0.25 * smoothstep(k / 32), 12);
+      }
+      expect(ps.at(-1)).toBe(0.5); // base, its last write
+      const frame = record(dt);
+      expect(frame.has("P")).toBe(false);
+      expect(frame.get("Q")).toBe(q); // B's add in full, or nothing
+      for (let i = 1; i < ps.length; i++) {
+        expect(Math.abs(ps[i] - ps[i - 1])).toBeLessThanOrEqual(bound);
+      }
+    },
+  );
+
+  it("takes over a multiply past the max on a blinking EyeOpen without a step, its start still following the blink", () => {
+    // EyeOpen's base is what idle's blink wrote: a new value every frame.
+    const blink = [1, 0.75, 0.5, 0.25, 0, 0.25, 0.5, 0.75];
+    const { player, step } = makeStage(
+      [
+        expr("A", { E: [1.5, "multiply"] }, { fadeIn: 1 }),
+        expr("B", { W: 1 }, { fadeIn: 0.5 }),
+      ],
+      [param("E", 0, 1, 1), param("W")],
+    );
+    const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+    let n = 0;
+    /** One frame under the blink: its base and the EyeOpen written over it. */
+    const eye = (dt: number, base = blink[n++ % blink.length]) => ({
+      b: base,
+      e: step(dt, { E: base }).get("E")!,
+    });
+
+    player.play("A");
+    let last = NaN;
+    for (let k = 1; k <= 8; k++) {
+      const { b, e } = eye(1 / 16);
+      const w = smoothstep(k / 16);
+      expect(e).toBeCloseTo(b + (clamp01(1.5 * b) - b) * w, 12);
+      last = e;
+    }
+    // The last frame's base was 0.75: A at w = 0.5 showed 0.875, though
+    // its unclamped mix was 0.9375.
+    expect(last).toBe(0.875);
+
+    player.play("B");
+    expect(eye(0, 0.75).e).toBeCloseTo(0.875, 12);
+    // The start keeps A's folded scale, 1.25, on the live blink, shifted by
+    // the -0.0625 it was off at the switch; B leaves E alone, so E eases
+    // back to the blink itself.
+    for (let k = 1; k <= 8; k++) {
+      const { b, e } = eye(1 / 16);
+      const start = clamp01(1.25 * b - 0.0625);
+      expect(e).toBeCloseTo(start + (b - start) * smoothstep(k / 8), 12);
+    }
+    expect(step(1 / 16).has("E")).toBe(false);
   });
 
   it("takes an id only the replaced expression drove to base over the newcomer's fadeIn, writes it there once, then leaves it alone", () => {
