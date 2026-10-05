@@ -40,3 +40,6 @@ deliberately deferred.
    - Auto-rig emits hair-sway rigs automatically when a `hair_front` layer is present — one behind the head turn, one behind the tilt — and both hair layers swing on them through root-pinned warps
    - Deferred: warp-aware chains, auto-generated chain rigs
 8. **Clipping masks** — done (stencil-based; e.g. an iris clipped to the sclera so it never spills at extreme gaze)
+9. **Expressions and motions** — in progress
+   - Slice 1 — done: optional `expressions` and `motions` in the `.iki` format, the engine players on `IkiMotion`, and play buttons in the playground
+   - Next: auto-rig defaults and expression parameters, then the Charivo adapter

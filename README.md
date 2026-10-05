@@ -173,6 +173,9 @@ any host can drive any model without per-model wiring. `Left`/`Right` in those
 ids name the **character's** side, so the character's left eye is the part at
 positive x (the viewer's right).
 
+A model can also declare expressions and motion clips, each with a description.
+A host plays an expression by its id and a clip by its group and index.
+
 > **Stability:** `IKI_FORMAT_VERSION` identifies the `.iki` contract, and from
 > 1.0 on, any breaking schema change bumps it. Until then the v1 schema is still
 > settling: a 0.x release may tighten validation and reject a model an earlier
