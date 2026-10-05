@@ -15,7 +15,8 @@ export const IKI_FORMAT_VERSION = 1;
 
 /**
  * The motion group that loops. Its clips replace the procedural head sway and
- * gaze; blink and breath stay procedural. Every other group plays one-shot.
+ * gaze; blink and breath stay procedural, so its curves may not animate
+ * `EyeOpenLeft`, `EyeOpenRight` or `Breath`. Every other group plays one-shot.
  */
 export const IDLE_MOTION_GROUP = "Idle";
 
@@ -407,7 +408,8 @@ export interface IkiExpressionParameter {
 export interface IkiExpression {
   /** Non-empty; unique across the model's expressions. */
   id: string;
-  /** Non-empty. The semantic layer a host's picker (e.g. an LLM) chooses by. */
+  /** Contains a non-whitespace character. The semantic layer a host's picker
+   *  (e.g. an LLM) chooses by. */
   description: string;
   /** Seconds, finite and `>= 0`. Absent means 0 (no fade). */
   fadeIn?: number;
@@ -433,7 +435,8 @@ export interface IkiMotionCurve {
 
 /** One clip in a motion group; a host addresses it as (group, index). */
 export interface IkiMotionClip {
-  /** Non-empty. The semantic layer a host's picker (e.g. an LLM) chooses by. */
+  /** Contains a non-whitespace character. The semantic layer a host's picker
+   *  (e.g. an LLM) chooses by. */
   description: string;
   /** Seconds, `> 0`. */
   duration: number;
@@ -469,7 +472,8 @@ export interface IkiModel {
   expressions?: IkiExpression[];
   /**
    * Optional motion clips keyed by non-empty group name, each a non-empty list.
-   * The {@link IDLE_MOTION_GROUP} group loops; all others play one-shot.
+   * The {@link IDLE_MOTION_GROUP} group loops and may not animate blink or
+   * breath; all others play one-shot.
    */
   motions?: Record<string, IkiMotionClip[]>;
 }

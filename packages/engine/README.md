@@ -125,7 +125,8 @@ default.
 
 A model that declares an `Idle` motion group loops its clips in place of the
 procedural head sway and gaze (`AngleX/Y/Z`, `EyeballX/Y`); blink and breath
-stay procedural. A head or gaze parameter the `Idle` clips don't animate is
+stay procedural, and the format rejects an `Idle` curve on `EyeOpen` or
+`Breath`. A head or gaze parameter the `Idle` clips don't animate is
 left unwritten by idle; a one-shot or an expression can still drive it.
 
 ## Rendering notes

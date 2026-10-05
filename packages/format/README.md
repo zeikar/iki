@@ -84,12 +84,14 @@ rigs, and named expressions and motion clips for a host to play. See [`src/types
 ### Expressions and motions
 
 `expressions` are named parameter poses; `motions` are keyframed clips grouped
-by name (`Record<string, IkiMotionClip[]>`). Both require a non-empty
+by name (`Record<string, IkiMotionClip[]>`). Both require a non-blank
 `description`, the text a host (or an LLM) picks by. An expression parameter
 blends with `add` (the default), `multiply` or `overwrite`. Times are in seconds and clip
 curves are linear `[t, value]` keys, strictly increasing and inside
 `[0, duration]`. A clip's `fadeIn` and `fadeOut` are each no longer than the clip. The
-`Idle` group (`IDLE_MOTION_GROUP`) loops; every other group plays once.
+`Idle` group (`IDLE_MOTION_GROUP`) loops; blink and breath stay procedural under
+it, so its curves may not animate `EyeOpen` L/R or `Breath`. Every other group
+plays once and may animate them.
 
 ### Side convention
 

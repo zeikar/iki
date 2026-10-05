@@ -9,9 +9,10 @@ A model can declare expressions and motion clips, and the engine plays them.
   `add`, `multiply` or `overwrite`, with fades) and `motions` (linear keyframe
   clips, grouped by name) fields on `IkiModel`, each entry with a required
   description, and `IDLE_MOTION_GROUP` (`"Idle"`). A clip's `fadeIn` and
-  `fadeOut` may not exceed its duration. The change is additive, but earlier
-  versions silently dropped these keys, so a model carrying malformed ones now
-  fails to load (v1 is unstable before 1.0).
+  `fadeOut` may not exceed its duration, and an `Idle` clip may not animate
+  blink or breath. The change is additive, but earlier versions silently
+  dropped these keys, so a model carrying malformed ones now fails to load (v1
+  is unstable before 1.0).
 - `@ikijs/engine`: `IkiMotion` gains `playExpression(id)`, `stopExpression()`
   and `playMotion(group, index)`. `playMotion` replaces a running one-shot, and
   the new clip fades in from the old one's last pose. Each frame runs idle,

@@ -3,7 +3,15 @@ import {
   IKI_FORMAT_VERSION,
   IkiFormatError,
   parseIkiModel,
+  StandardParameter,
 } from "@ikijs/format";
+
+/** The ids the procedural idle keeps under a declared Idle group. */
+const BLINK_AND_BREATH = [
+  StandardParameter.EyeOpenLeft,
+  StandardParameter.EyeOpenRight,
+  StandardParameter.Breath,
+];
 
 function model(expressions?: unknown) {
   const m: Record<string, unknown> = {
@@ -13,6 +21,13 @@ function model(expressions?: unknown) {
     parameters: [
       { id: "ParamA", name: "A", min: -1, max: 1, default: 0 },
       { id: "ParamMouthOpenY", name: "Mouth", min: 0, max: 1, default: 0 },
+      ...BLINK_AND_BREATH.map((id) => ({
+        id,
+        name: id,
+        min: 0,
+        max: 1,
+        default: 1,
+      })),
     ],
     parts: [],
   };
@@ -64,6 +79,11 @@ describe("expressions — accepted", () => {
     expect(parseIkiModel(model([e])).expressions).toEqual([e]);
   });
 
+  it("keeps a padded description as given", () => {
+    const e = expr({ description: "  a smile\n" });
+    expect(parseIkiModel(model([e])).expressions).toEqual([e]);
+  });
+
   it("accepts an empty list", () => {
     expect(parseIkiModel(model([])).expressions).toEqual([]);
   });
@@ -90,6 +110,12 @@ describe("expressions — rejected", () => {
     rejects(
       [expr({ description: "" })],
       "expressions[0].description must be a non-empty string",
+    );
+  });
+  it("whitespace-only description", () => {
+    rejects(
+      [expr({ description: " \t\n" })],
+      "expressions[0].description must contain a non-whitespace character",
     );
   });
   it("empty id", () => {
@@ -215,6 +241,24 @@ describe("motions — accepted", () => {
     expect("fadeOut" in parsed).toBe(false);
   });
 
+  it("accepts blink and breath curves in a one-shot group", () => {
+    const motions = {
+      Wink: [
+        clip({
+          curves: BLINK_AND_BREATH.map((parameter) => ({
+            parameter,
+            keys: [
+              [0, 1],
+              [1, 0],
+              [2, 1],
+            ],
+          })),
+        }),
+      ],
+    };
+    expect(parseIkiModel(motionModel(motions)).motions).toEqual(motions);
+  });
+
   it("accepts an empty record", () => {
     expect(parseIkiModel(motionModel({})).motions).toEqual({});
   });
@@ -254,6 +298,27 @@ describe("motions — rejected", () => {
     rejectsMotions(
       { Nod: [clip({ description: undefined })] },
       'motions["Nod"][0].description must be a non-empty string',
+    );
+  });
+  it("whitespace-only description", () => {
+    rejectsMotions(
+      { Nod: [clip({ description: "   " })] },
+      'motions["Nod"][0].description must contain a non-whitespace character',
+    );
+  });
+  it.each(BLINK_AND_BREATH)("Idle curve on %s", (parameter) => {
+    rejectsMotions(
+      {
+        Idle: [
+          clip({
+            curves: [
+              { parameter: "ParamA", keys: [[0, 0]] },
+              { parameter, keys: [[0, 1]] },
+            ],
+          }),
+        ],
+      },
+      `motions["Idle"][0].curves[1].parameter "${parameter}" stays procedural: an Idle clip may not animate blink or breath`,
     );
   });
   it("zero duration", () => {

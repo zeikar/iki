@@ -1,11 +1,13 @@
 // Validation for the animation fields of a model (expressions, motions).
 // Kept apart from validate.ts: they share only the declared-parameter set.
-import type {
-  IkiExpression,
-  IkiExpressionBlend,
-  IkiExpressionParameter,
-  IkiMotionClip,
-  IkiMotionCurve,
+import { StandardParameter } from "./parameters";
+import {
+  IDLE_MOTION_GROUP,
+  type IkiExpression,
+  type IkiExpressionBlend,
+  type IkiExpressionParameter,
+  type IkiMotionClip,
+  type IkiMotionCurve,
 } from "./types";
 import { IkiFormatError, isObject, num, str } from "./validate-primitives";
 
@@ -14,6 +16,24 @@ const EXPRESSION_BLENDS: ReadonlySet<string> = new Set([
   "multiply",
   "overwrite",
 ]);
+
+// A declared Idle group replaces only the procedural head sway and gaze, and
+// its loop is written after the procedural idle: an Idle curve on these would
+// overwrite the blink or breath on every frame.
+const IDLE_PROCEDURAL: ReadonlySet<string> = new Set([
+  StandardParameter.EyeOpenLeft,
+  StandardParameter.EyeOpenRight,
+  StandardParameter.Breath,
+]);
+
+// A host (or an LLM) picks an entry by its description, so it needs real text.
+function parseDescription(value: unknown, path: string): string {
+  const description = str(value, path);
+  if (description.trim() === "") {
+    throw new IkiFormatError(`${path} must contain a non-whitespace character`);
+  }
+  return description;
+}
 
 function parseFadeSeconds(value: unknown, path: string): number {
   const seconds = num(value, path);
@@ -65,7 +85,7 @@ function parseExpression(
   }
   const expression: IkiExpression = {
     id: str(value.id, `${path}.id`),
-    description: str(value.description, `${path}.description`),
+    description: parseDescription(value.description, `${path}.description`),
     parameters: [],
   };
   if (value.fadeIn !== undefined) {
@@ -146,11 +166,15 @@ function parseMotionClip(
   value: unknown,
   path: string,
   declaredIds: ReadonlySet<string>,
+  idle: boolean,
 ): IkiMotionClip {
   if (!isObject(value)) {
     throw new IkiFormatError(`${path} must be an object`);
   }
-  const description = str(value.description, `${path}.description`);
+  const description = parseDescription(
+    value.description,
+    `${path}.description`,
+  );
   const duration = num(value.duration, `${path}.duration`);
   if (duration <= 0) {
     throw new IkiFormatError(`${path}.duration must be > 0`);
@@ -178,6 +202,11 @@ function parseMotionClip(
     if (!declaredIds.has(parameter)) {
       throw new IkiFormatError(
         `${at}.parameter "${parameter}" is not a declared parameter`,
+      );
+    }
+    if (idle && IDLE_PROCEDURAL.has(parameter)) {
+      throw new IkiFormatError(
+        `${at}.parameter "${parameter}" stays procedural: an Idle clip may not animate blink or breath`,
       );
     }
     if (seen.has(parameter)) {
@@ -210,9 +239,12 @@ export function parseMotions(
       if (!Array.isArray(clips) || clips.length === 0) {
         throw new IkiFormatError(`${at} must be a non-empty array`);
       }
+      const idle = group === IDLE_MOTION_GROUP;
       return [
         group,
-        clips.map((c, i) => parseMotionClip(c, `${at}[${i}]`, declaredIds)),
+        clips.map((c, i) =>
+          parseMotionClip(c, `${at}[${i}]`, declaredIds, idle),
+        ),
       ];
     }),
   );

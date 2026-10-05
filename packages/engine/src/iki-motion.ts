@@ -56,7 +56,8 @@ const HEAD_AND_GAZE: ReadonlySet<string> = new Set([
  * and EyeballX/Y writes are dropped. A head or gaze parameter the Idle clips
  * don't animate is left unwritten by idle and rests where it is (a one-shot or
  * an expression can still drive it). Blink (EyeOpen L/R) and Breath stay
- * procedural. Without an `Idle` group the procedural idle runs whole.
+ * procedural: the format rejects an Idle curve on them. Without an `Idle`
+ * group the procedural idle runs whole.
  *
  * The host schedules; this class has no timers, rAF, DOM, or Date.now.
  *
