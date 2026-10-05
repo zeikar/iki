@@ -131,25 +131,41 @@ export class ExpressionPlayer {
     frame: Map<string, number>,
     rest: (id: string) => number,
   ): void {
-    const entries = this.active
-      ? [...this.released, this.active]
-      : this.released;
-    // What earlier stages wrote this update, else rest. Each entry writes back
-    // into the frame, so the next entry's base is this one's result and the
-    // entries chain in order.
-    const base = (id: string): number => frame.get(id) ?? rest(id);
-    for (const entry of entries) entry.elapsed += dtS;
-    for (const entry of entries) {
-      const w = weight(entry);
-      for (const { parameter, value, blend } of entry.expression.parameters) {
-        const b = base(parameter);
-        frame.set(parameter, lerp(b, blended(b, value, blend), w));
-      }
-    }
+    // IkiMotion calls this every frame for every model; most hold nothing.
+    if (!this.active && this.released.length === 0) return;
+    for (const entry of this.released) applyEntry(entry, dtS, frame, rest);
+    if (this.active) applyEntry(this.active, dtS, frame, rest);
     // A release that reached 0 has just written its parameters at base (a
     // lerp by 0 is exact). Dropping it now makes that its last write, so a
     // parameter nothing else writes rests at its default instead of being
     // held.
-    this.released = this.released.filter((e) => weight(e) > 0);
+    if (!this.released.every(stillFading)) {
+      this.released = this.released.filter(stillFading);
+    }
+  }
+}
+
+/** False once a released entry's weight has reached 0. */
+function stillFading(entry: Entry): boolean {
+  return weight(entry) > 0;
+}
+
+/**
+ * Advance one entry `dtS` seconds and write its parameters over the frame. An
+ * id's base is what earlier stages, and the entries before this one, wrote
+ * this update, else rest: each entry writes back into the frame, so the
+ * entries chain in order.
+ */
+function applyEntry(
+  entry: Entry,
+  dtS: number,
+  frame: Map<string, number>,
+  rest: (id: string) => number,
+): void {
+  entry.elapsed += dtS;
+  const w = weight(entry);
+  for (const { parameter, value, blend } of entry.expression.parameters) {
+    const b = frame.get(parameter) ?? rest(parameter);
+    frame.set(parameter, lerp(b, blended(b, value, blend), w));
   }
 }
