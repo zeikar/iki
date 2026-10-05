@@ -63,6 +63,8 @@ export interface ProfileValues {
   breath: number;
   /** A hair tip travels this far at full sway (±20), hh. */
   sway: number;
+  /** At Cheek 0 the blush shows at this opacity; at Cheek 1, as drawn. */
+  blushRest: number;
 }
 
 /** The values: round numbers picked by eye on our own characters (Bob and
@@ -89,6 +91,7 @@ export const PROFILE_VALUES: ProfileValues = {
   brow: 0.15,
   breath: 0.03,
   sway: 0.08,
+  blushRest: 0.4,
 };
 
 /** What the rig reads, derived from `v`. */
@@ -182,6 +185,8 @@ export function deriveProfile(v: ProfileValues) {
     breathHead: (v.breath * 2) / 3,
     /** Hair tip travel at full sway (±20), hh. */
     sway: v.sway,
+    /** The blush's opacity at Cheek 0; at Cheek 1 it is as drawn. */
+    blushRest: v.blushRest,
     /** The neck under the face reaches this far above the jaw, hh — what the
      *  chin uncovers as it slides off it: half again the chin's full-turn
      *  slide, to the next 0.05. */

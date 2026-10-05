@@ -46,6 +46,8 @@ export const StandardParameter = {
   BrowLeftAngle: "ParamBrowLAngle",
   /** Right brow tilt (-1 .. 1, CCW-positive). */
   BrowRightAngle: "ParamBrowRAngle",
+  /** Cheek blush strength (0 .. 1), raised by an expression. */
+  Cheek: "ParamCheek",
   /** Horizontal hair sway. Physics OUTPUT — driven by the spring, not set by the host. */
   HairSwayX: "ParamHairSwayX",
   /** Hair sway behind a head tilt. Physics OUTPUT — driven by the spring, not set by the host. */

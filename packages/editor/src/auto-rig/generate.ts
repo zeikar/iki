@@ -476,6 +476,15 @@ function buildPart(
       });
       extra = [(AMPLITUDE.mouthOpenWidth - 1) * (bw(b) / 2), 0];
       break;
+    case "blush_L":
+    case "blush_R":
+      bindings.push({
+        parameter: P.Cheek,
+        channel: "opacity",
+        from: AMPLITUDE.blushRest,
+        to: 1,
+      });
+      break;
     case "hair_front":
     case "hair_back":
       if (byRole.has("hair_front")) {
@@ -677,6 +686,9 @@ function declareParameters(roles: Set<string>): IkiParameter[] {
   if (roles.has("brow_R")) {
     add(P.BrowRightY, "Brow R Y", -1, 1, 0);
     add(P.BrowRightAngle, "Brow R Angle", -1, 1, 0);
+  }
+  if (roles.has("blush_L") || roles.has("blush_R")) {
+    add(P.Cheek, "Cheek", 0, 1, 0);
   }
   add(P.Breath, "Breath", 0, 1, 0);
   if (roles.has("hair_front")) {

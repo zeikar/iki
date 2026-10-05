@@ -2494,6 +2494,29 @@ describe("the other drivers", () => {
     expect(moved("highlight_L")).toBeCloseTo(moved("iris_L") / 2, 1);
   });
 
+  it("fades the blush on Cheek, faint at rest and as drawn at 1", () => {
+    const { model: m } = rig({ extras: true });
+    expect(m.parameters.find((p) => p.id === P.Cheek)).toEqual({
+      id: P.Cheek,
+      name: "Cheek",
+      min: 0,
+      max: 1,
+      default: 0,
+    });
+    for (const id of ["blush_L", "blush_R"]) {
+      expect(m.parts.find((p) => p.id === id)!.bindings).toEqual([
+        {
+          parameter: P.Cheek,
+          channel: "opacity",
+          from: AMPLITUDE.blushRest,
+          to: 1,
+        },
+      ]);
+    }
+    // No blush, no Cheek.
+    expect(model.parameters.some((p) => p.id === P.Cheek)).toBe(false);
+  });
+
   it("breathes: the shoulders and the neck lift, the head a little less", () => {
     const b = { [P.Breath]: 1 };
     const lift = (id: string, x: number, y: number) =>

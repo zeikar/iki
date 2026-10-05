@@ -217,6 +217,10 @@ const STANDARD_PARAMETER_INFO: StandardParameterInfo[] = [
     description: "Right brow tilt/angle (-1 .. 1).",
   },
   {
+    id: StandardParameter.Cheek,
+    description: "Cheek blush strength (0 .. 1), raised by an expression.",
+  },
+  {
     id: StandardParameter.HairSwayX,
     description:
       "Horizontal hair-sway driver. Physics OUTPUT — driven by the spring, hosts should not set it directly.",
