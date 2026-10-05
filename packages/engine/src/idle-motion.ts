@@ -1,6 +1,6 @@
 import { StandardParameter } from "@ikijs/format";
 import { MAX_DT_MS } from "./frame-clock";
-import { clamp } from "./math";
+import { clamp, lerp } from "./math";
 
 // --- Module-internal timing/easing constants -----------------------------------
 // These are intentionally private; tests assert observable behavior, not config.
@@ -40,10 +40,6 @@ const SWAY_Z_AMP_DEG = 1.1;
 const SWAY_Z_PERIOD_MS = 11300;
 
 // --- Small pure helpers -------------------------------------------------------
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
 
 /**
  * Eye-open value over one blink, `phase` ∈ [0, 1]: 1 at both ends, 0 across the

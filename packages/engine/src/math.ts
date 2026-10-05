@@ -9,3 +9,11 @@
 export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
+
+/**
+ * Linear interpolation from `a` (at `t = 0`) to `b` (at `t = 1`). Exact at
+ * `t = 0` and when `a === b`; at `t = 1` it can differ from `b` by rounding.
+ */
+export function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
