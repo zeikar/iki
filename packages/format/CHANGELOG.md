@@ -1,5 +1,52 @@
 # @ikijs/format
 
+## 0.3.0
+
+### Minor Changes
+
+- 5ebfc15: An auto-rigged model fades its blush on `ParamCheek` and declares default
+  expressions and head motions.
+  - `@ikijs/format`: adds `StandardParameter.Cheek` (`ParamCheek`), the cheek
+    blush's strength, 0 .. 1, raised by an expression.
+  - `@ikijs/editor`: `generateIkiFromLayerSet` declares `ParamCheek` (0 .. 1,
+    default 0) when a `blush_L` or `blush_R` layer is present and binds each
+    blush part's opacity to it, from 0.4 at rest to 1, as drawn. **A rigged
+    blush now rests at 0.4 opacity**, so an existing character with a blush
+    looks fainter at rest once re-rigged; Cheek 1 shows it as before. Every
+    rigged model now also carries `expressions` and `motions`: the one-clip
+    head motion groups `Nod`, `Shake` and `Tilt`, and up to six described
+    expressions (`smile`, `laugh`, `angry`, `sad`, `surprised`, `shy`). An
+    expression whose look rests on a missing part is left out (`shy` needs a
+    blush, `angry` and `sad` need brows), and a kept one keeps only its terms
+    on parameters the model declares. The values were picked by eye on our own
+    characters (`AUTO-RIG.md`).
+  - `@ikijs/mcp`: `list_standard_parameters` lists `ParamCheek` (17 entries).
+    `describe_iki` summarises a model's expressions (`{ id, description }`) and
+    motion clips (each group's clip descriptions, by index); `IkiSummary` gains
+    the required fields `expressions` and `motions`, empty when a model
+    declares none. `auto_rig_from_layers` writes the Cheek binding and the
+    default expressions and motions above.
+
+- 0ed051c: A model can declare expressions and motion clips, and the engine plays them.
+  - `@ikijs/format`: adds the optional `expressions` (parameter values blended
+    `add`, `multiply` or `overwrite`, with fades) and `motions` (keyframe clips,
+    grouped by name, whose curves are `smooth` monotone cubics by default or
+    `linear`) fields on `IkiModel`, each entry with a required description,
+    `IDLE_MOTION_GROUP` (`"Idle"`), and `DEFAULT_FADE_SECONDS`, the length of a
+    fade left out (on a clip, at most half its duration; `0` is instant). A
+    clip's `fadeIn` and `fadeOut` may not exceed its duration, and an `Idle`
+    clip may not animate blink or breath. The change is additive, but earlier
+    versions silently dropped these keys, so a model carrying malformed ones now
+    fails to load (v1 is unstable before 1.0).
+  - `@ikijs/engine`: `IkiMotion` gains `playExpression(id)`, `stopExpression()`
+    and `playMotion(group, index)`. Replacing an expression or a running
+    one-shot fades in from the current pose. Fades ease in and out along a
+    smoothstep. Each frame runs idle, then clips, then expressions, then
+    physics and chains; the host writes its own signals (lip-sync) after
+    `update()` and wins. A declared `Idle` group replaces the procedural head
+    sway and gaze, while blink and breath stay. Models without these fields
+    behave as before.
+
 ## 0.2.1
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@ikijs/editor",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Headless editing core and auto-rigger for .iki 2D puppet models: measures role-named part layers from decoded pixels, AI-drawn or hand-made, and rigs them into a character. DOM-free edit commands, undo/redo, atlas math.",
   "keywords": [
     "iki",
