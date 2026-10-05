@@ -1,5 +1,6 @@
 import { IkiMotion, IkiPlayer } from "@ikijs/engine";
-import { parseIkiModel } from "@ikijs/format";
+import { type IkiModel, parseIkiModel } from "@ikijs/format";
+import { heroDemoAnimations } from "./demo-animations";
 import { sampleModel } from "./sample-model";
 
 const canvas = document.getElementById("iki") as HTMLCanvasElement;
@@ -75,6 +76,9 @@ function buildControls(): void {
 // --- Idle motion loop ----------------------------------------------------------
 
 let idleRafId: number | undefined;
+// The running loop's drivers, which the play buttons drive too; undefined
+// while the loop is stopped.
+let motion: IkiMotion | undefined;
 
 function startIdle(): void {
   // Idempotent: do nothing if already running.
@@ -88,14 +92,15 @@ function startIdle(): void {
   // The drivers read the live pose straight off the player and write through
   // mirrorParam so the sliders track them; the player renders on its OWN
   // render loop (drivers/rendering decoupled — no same-frame render guarantee).
-  const motion = new IkiMotion(
+  const drivers = new IkiMotion(
     parsedModel,
     (id) => player.getParameter(id),
     mirrorParam,
   );
+  motion = drivers;
 
   function frame(): void {
-    motion.update(performance.now());
+    drivers.update(performance.now());
     idleRafId = requestAnimationFrame(frame);
   }
   idleRafId = requestAnimationFrame(frame);
@@ -106,6 +111,7 @@ function stopIdle(): void {
     cancelAnimationFrame(idleRafId);
     idleRafId = undefined;
   }
+  motion = undefined;
 }
 
 // Build the "Idle" toggle once, outside buildControls(), so it survives every
@@ -177,6 +183,11 @@ modelLabel.append(modelLabelText, modelSelect);
 modelRow.append(modelLabel, fileInput);
 panel.insertBefore(modelRow, controls);
 
+// The play buttons for the loaded model, between the picker and the sliders;
+// buildAnimationControls() refills it on every load.
+const animations = document.createElement("div");
+panel.insertBefore(animations, controls);
+
 // Monotonic token so a slow fetch can't clobber a newer selection: only the
 // most recent switchModel call is allowed to load and restart the drivers.
 let modelSwitchSeq = 0;
@@ -198,15 +209,33 @@ async function fetchModel(file: string): Promise<unknown> {
   return res.json();
 }
 
+// hero.iki declares no expressions or motions yet, so the playground adds its
+// own demo set to give the play buttons something to show; `demo` says it did.
+// A hero.iki that declares either loads exactly as given.
+async function fetchHero(): Promise<{ raw: unknown; demo: boolean }> {
+  const raw = await fetchModel("hero.iki");
+  // Not parsed yet: a non-object is left for parseIkiModel to reject.
+  if (
+    typeof raw !== "object" ||
+    raw === null ||
+    "expressions" in raw ||
+    "motions" in raw
+  ) {
+    return { raw, demo: false };
+  }
+  return { raw: { ...raw, ...heroDemoAnimations }, demo: true };
+}
+
 async function switchModel(which: string, file?: File): Promise<void> {
   const seq = ++modelSwitchSeq;
   try {
     let raw: unknown = sampleModel;
-    if (which === "hero") raw = await fetchModel("hero.iki");
+    let demo = false;
+    if (which === "hero") ({ raw, demo } = await fetchHero());
     if (which === "local")
       raw = file ? JSON.parse(await file.text()) : cachedLocalRaw;
     if (seq !== modelSwitchSeq) return; // superseded while fetching
-    await loadModel(raw);
+    await loadModel(raw, demo);
     if (seq !== modelSwitchSeq) return; // superseded while loading
     if (which === "local" && file) {
       cachedLocalRaw = raw;
@@ -240,8 +269,9 @@ async function switchModel(which: string, file?: File): Promise<void> {
 // untrusted .iki source. IkiFormatError is thrown here if the model is malformed.
 // load() resolves to a report of any textures that failed to decode/upload; the
 // rest of the model still renders. Controls are rebuilt against whatever
-// parameters the loaded model declares.
-async function loadModel(rawModel: unknown): Promise<void> {
+// parameters the loaded model declares. `demo` says fetchHero() added the
+// playground's demo set, so the play buttons can say they are not the file's.
+async function loadModel(rawModel: unknown, demo: boolean): Promise<void> {
   const parsed = parseIkiModel(rawModel);
   const { failedTextures, superseded } = await player.load(parsed);
   // A newer load() overtook this one, so the player never adopted `parsed`.
@@ -250,6 +280,7 @@ async function loadModel(rawModel: unknown): Promise<void> {
   if (superseded) return;
   parsedModel = parsed;
   buildControls();
+  buildAnimationControls(parsed, demo);
   if (failedTextures.length > 0) {
     console.warn(
       `Iki: ${failedTextures.length} texture(s) failed to load`,
@@ -258,18 +289,103 @@ async function loadModel(rawModel: unknown): Promise<void> {
   }
 }
 
+// One button per expression and per motion clip. The model is the catalog:
+// the buttons come only from what it declares, never from a fixed list.
+function buildAnimationControls(model: IkiModel, demo: boolean): void {
+  animations.replaceChildren();
+  const expressions = model.expressions ?? [];
+  const groups = Object.entries(model.motions ?? {});
+  if (expressions.length === 0 && groups.length === 0) {
+    animations.append(note("This model declares no expressions or motions."));
+    return;
+  }
+  if (expressions.length > 0) {
+    animations.append(
+      buttonRow("Expressions", [
+        ...expressions.map((e) =>
+          playButton(e.id, e.description, (m) => m.playExpression(e.id)),
+        ),
+        playButton("Stop", undefined, (m) => m.stopExpression()),
+      ]),
+    );
+  }
+  if (groups.length > 0) {
+    animations.append(
+      buttonRow(
+        "Motions",
+        groups.flatMap(([group, clips]) =>
+          clips.map((clip, i) =>
+            playButton(
+              clips.length > 1 ? `${group} ${i}` : group,
+              clip.description,
+              (m) => m.playMotion(group, i),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  if (demo) {
+    animations.append(
+      note("The playground added this demo set; it is not in hero.iki."),
+    );
+  }
+}
+
+function buttonRow(title: string, buttons: HTMLButtonElement[]): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "control";
+  const heading = document.createElement("div");
+  heading.className = "row-title";
+  heading.textContent = title;
+  const list = document.createElement("div");
+  list.className = "buttons";
+  list.append(...buttons);
+  row.append(heading, list);
+  return row;
+}
+
+function playButton(
+  label: string,
+  title: string | undefined,
+  play: (motion: IkiMotion) => void,
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  if (title) button.title = title;
+  button.addEventListener("click", () => {
+    // Clips and expressions only run inside the motion loop, so a press with
+    // it stopped turns it back on first instead of doing nothing.
+    if (!idleCheckbox.checked) {
+      idleCheckbox.checked = true;
+      startIdle();
+    }
+    if (motion) play(motion);
+  });
+  return button;
+}
+
+function note(text: string): HTMLElement {
+  const line = document.createElement("div");
+  line.className = "control note";
+  line.textContent = text;
+  return line;
+}
+
 // Start on the hero: it exercises the whole runtime — warp, clipping masks,
 // physics, hair chains — where the vector sample only covers plain quads. It
 // has to be fetched, and a switch's rollback is no use when nothing is on
 // screen yet, so a failure falls back to the inline sample: the simpler model
 // is a better first frame than an empty canvas.
 try {
-  await loadModel(await fetchModel("hero.iki"));
+  const { raw, demo } = await fetchHero();
+  await loadModel(raw, demo);
 } catch (err) {
   console.error("Iki: hero load failed, falling back to the sample", err);
   loadedModelValue = "vector";
   modelSelect.value = "vector";
-  await loadModel(sampleModel);
+  await loadModel(sampleModel, false);
 }
 
 // Checkbox is on by default; start the idle loop after the first model load.
@@ -303,7 +419,7 @@ if (import.meta.env.DEV) {
     },
     load: (rawModel: unknown) => {
       pauseIdleForDevOp();
-      return loadModel(rawModel);
+      return loadModel(rawModel, false);
     },
     nextFrame: () =>
       new Promise<void>((resolve) =>
