@@ -2,13 +2,15 @@
  * The expressions and motions every auto-rigged model declares, each with a
  * description a host (an LLM, say) picks it by.
  *
- * The values are our own, picked by eye on our own characters. A term's
+ * The values are our own, picked by eye on Bob and the long-haired character
+ * (2026-10) from soft, medium and strong candidates. A term's
  * blend follows its parameter: EyeOpen multiplies, so the procedural blink
  * keeps running under it (at 0 the eyes stay shut); MouthOpenY overwrites,
  * and a host's lip-sync, written after the expression, wins; everything else
- * adds onto a parameter that rests at 0, clamped to its range. No entry sets
- * a fade, so each plays with the format's `DEFAULT_FADE_SECONDS`, capped at
- * half a clip; no curve sets an interpolation, so each is smooth.
+ * adds onto a parameter that rests at 0, clamped to its range. Only Shake
+ * sets a fade; everything else plays with the format's
+ * `DEFAULT_FADE_SECONDS`, capped at half a clip. No curve sets an
+ * interpolation, so each is smooth.
  */
 
 import {
@@ -55,9 +57,9 @@ const EXPRESSIONS: IkiExpression[] = [
     description:
       "Smiling and pleased: warm, friendly, content. For greetings, thanks, agreement and gentle happiness.",
     parameters: [
-      { parameter: P.MouthForm, value: 0.8, blend: "add" },
-      ...browsY(0.2),
-      cheek(0.3),
+      { parameter: P.MouthForm, value: 1, blend: "add" },
+      ...browsY(0.25),
+      cheek(0.4),
     ],
   },
   {
@@ -68,9 +70,9 @@ const EXPRESSIONS: IkiExpression[] = [
       { parameter: P.EyeOpenLeft, value: 0, blend: "multiply" },
       { parameter: P.EyeOpenRight, value: 0, blend: "multiply" },
       { parameter: P.MouthForm, value: 1, blend: "add" },
-      { parameter: P.MouthOpen, value: 0.6, blend: "overwrite" },
-      ...browsY(0.3),
-      cheek(0.5),
+      { parameter: P.MouthOpen, value: 0.8, blend: "overwrite" },
+      ...browsY(0.4),
+      cheek(0.65),
     ],
   },
   {
@@ -78,9 +80,9 @@ const EXPRESSIONS: IkiExpression[] = [
     description:
       "Angry or annoyed, frowning. For irritation, frustration, indignation or scolding.",
     parameters: [
-      ...browsY(-0.4),
-      ...browsTilt(0.6),
-      { parameter: P.MouthForm, value: -0.7, blend: "add" },
+      ...browsY(-0.5),
+      ...browsTilt(0.8),
+      { parameter: P.MouthForm, value: -0.9, blend: "add" },
     ],
   },
   {
@@ -88,9 +90,9 @@ const EXPRESSIONS: IkiExpression[] = [
     description:
       "Sad or disappointed, downcast. For sorrow, regret, apology or sympathy.",
     parameters: [
-      ...browsY(0.25),
-      ...browsTilt(-0.6),
-      { parameter: P.MouthForm, value: -0.6, blend: "add" },
+      ...browsY(0.35),
+      ...browsTilt(-0.8),
+      { parameter: P.MouthForm, value: -0.8, blend: "add" },
     ],
   },
   {
@@ -98,8 +100,8 @@ const EXPRESSIONS: IkiExpression[] = [
     description:
       "Surprised, mouth dropped open: startled, amazed. For shock, sudden news or disbelief.",
     parameters: [
-      ...browsY(0.6),
-      { parameter: P.MouthOpen, value: 0.7, blend: "overwrite" },
+      ...browsY(0.8),
+      { parameter: P.MouthOpen, value: 0.9, blend: "overwrite" },
     ],
   },
   {
@@ -109,9 +111,9 @@ const EXPRESSIONS: IkiExpression[] = [
     parameters: [
       cheek(1),
       // Gaze down.
-      { parameter: P.EyeballY, value: -0.5, blend: "add" },
-      { parameter: P.MouthForm, value: 0.3, blend: "add" },
-      ...browsTilt(-0.2),
+      { parameter: P.EyeballY, value: -0.65, blend: "add" },
+      { parameter: P.MouthForm, value: 0.4, blend: "add" },
+      ...browsTilt(-0.25),
     ],
   },
 ];
@@ -144,8 +146,8 @@ export const DEFAULT_MOTIONS: Record<string, IkiMotionClip[]> = {
           parameter: P.AngleY,
           keys: [
             [0, 0],
-            [0.3, -14],
-            [0.6, 3],
+            [0.3, -18],
+            [0.6, 4],
             [0.8, -1],
             [1, 0],
           ],
@@ -157,15 +159,18 @@ export const DEFAULT_MOTIONS: Record<string, IkiMotionClip[]> = {
     {
       description: "Shakes the head no: disagreement, refusal, disbelief.",
       duration: 1.2,
+      // The first swing peaks at 0.2 s, which the default fade would still
+      // be damping.
+      fadeIn: 0.15,
       curves: [
         {
           parameter: P.AngleX,
           keys: [
             [0, 0],
-            [0.2, -14],
-            [0.45, 14],
-            [0.7, -12],
-            [0.95, 8],
+            [0.2, -18],
+            [0.45, 18],
+            [0.7, -16],
+            [0.95, 10],
             [1.2, 0],
           ],
         },
@@ -182,8 +187,8 @@ export const DEFAULT_MOTIONS: Record<string, IkiMotionClip[]> = {
           parameter: P.AngleZ,
           keys: [
             [0, 0],
-            [0.35, 15],
-            [1, 15],
+            [0.35, 20],
+            [1, 20],
             [1.4, 0],
           ],
         },
