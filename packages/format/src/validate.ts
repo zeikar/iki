@@ -24,6 +24,7 @@ import {
   type IkiWarp,
   type IkiWarpDeformer,
 } from "./types";
+import { parseExpressions } from "./validate-animations";
 import { IkiFormatError, isObject, num, str } from "./validate-primitives";
 
 const TRANSFORM_CHANNELS: ReadonlySet<IkiTransformChannel> = new Set([
@@ -1268,6 +1269,12 @@ export function parseIkiModel(input: unknown): IkiModel {
     }
   }
 
+  // Spread only when declared, so a model without expressions gains no key.
+  const animations =
+    input.expressions !== undefined
+      ? { expressions: parseExpressions(input.expressions, declaredIds) }
+      : {};
+
   return {
     version,
     name: str(input.name, "name"),
@@ -1278,6 +1285,7 @@ export function parseIkiModel(input: unknown): IkiModel {
     deformers,
     physics,
     physicsChains,
+    ...animations,
   };
 }
 
