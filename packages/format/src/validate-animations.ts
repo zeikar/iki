@@ -8,7 +8,8 @@ import {
   type IkiExpressionParameter,
   type IkiMotionClip,
   type IkiMotionCurve,
-} from "./types";
+  type IkiMotionInterpolation,
+} from "./animations";
 import { IkiFormatError, isObject, num, str } from "./validate-primitives";
 
 const EXPRESSION_BLENDS: ReadonlySet<string> = new Set([
@@ -16,6 +17,8 @@ const EXPRESSION_BLENDS: ReadonlySet<string> = new Set([
   "multiply",
   "overwrite",
 ]);
+
+const INTERPOLATIONS: ReadonlySet<string> = new Set(["linear", "smooth"]);
 
 // A declared Idle group replaces only the procedural head sway and gaze, and
 // its loop is written after the procedural idle: an Idle curve on these would
@@ -215,7 +218,22 @@ function parseMotionClip(
       );
     }
     seen.add(parameter);
-    return { parameter, keys: parseMotionKeys(c.keys, `${at}.keys`, duration) };
+    const curve: IkiMotionCurve = {
+      parameter,
+      keys: parseMotionKeys(c.keys, `${at}.keys`, duration),
+    };
+    if (c.interpolation !== undefined) {
+      if (
+        typeof c.interpolation !== "string" ||
+        !INTERPOLATIONS.has(c.interpolation)
+      ) {
+        throw new IkiFormatError(
+          `${at}.interpolation must be one of ${[...INTERPOLATIONS].join(", ")}`,
+        );
+      }
+      curve.interpolation = c.interpolation as IkiMotionInterpolation;
+    }
+    return curve;
   });
   return clip;
 }

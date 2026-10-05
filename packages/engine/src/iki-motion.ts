@@ -46,10 +46,10 @@ const HEAD_AND_GAZE: ReadonlySet<string> = new Set([
  * expression: those and the one-shot), else its resting value
  * `clamp(default, min, max)`. So an `add` on a brow cannot accumulate across
  * frames, and an expression composes with the blink and a clip-driven head.
- * When an expression's release completes or a one-shot ends, the ids it drove
+ * When an expression's stop completes or a one-shot ends, the ids it drove
  * are written once more at base and then dropped; so are the ids only a
- * replaced clip held, once the clip replacing it finishes its fade-in. A
- * parameter nothing else writes therefore rests at its default.
+ * replaced clip or expression held, once the one replacing it finishes its
+ * fade-in. A parameter nothing else writes therefore rests at its default.
  *
  * Idle replacement: when the model declares an `Idle` motion group, its clips
  * loop in place of the procedural head sway and gaze — IdleMotion's AngleX/Y/Z
@@ -132,17 +132,18 @@ export class IkiMotion {
   }
 
   /**
-   * Make expression `id` active, fading it in over its `fadeIn` and releasing
-   * the active one over that one's `fadeOut`. Returns false, and changes
-   * nothing, for an id the model does not declare. Playing the active id
-   * again changes nothing and returns true; playing one still fading out
-   * brings that same entry back from its current weight, so it never stacks.
+   * Make expression `id` active, fading it in over its `fadeIn` from the
+   * current pose: it replaces the active one and blends from that one's
+   * current output, as {@link playMotion} does, so nothing dips toward base on
+   * the way. Returns false, and changes nothing, for an id the model does not
+   * declare. Playing the active id again changes nothing and returns true; an
+   * expression never stacks on itself.
    */
   playExpression(id: string): boolean {
     return this.expressions.play(id);
   }
 
-  /** Release the active expression, if any, over its `fadeOut`. */
+  /** Fade the active expression, if any, back to base over its `fadeOut`. */
   stopExpression(): void {
     this.expressions.stop();
   }
@@ -165,8 +166,8 @@ export class IkiMotion {
    * 1. Idle writes blink, breath (and head and gaze, unless replaced) into
    *    this update's frame.
    * 2. The clip stage writes the `Idle` loop, then the one-shot over it.
-   * 3. The expression stage writes released expressions oldest first, then
-   *    the active one.
+   * 3. The expression stage writes the active expression, fading in from the
+   *    pose it replaced, or a stop fading back to base.
    * 4. The frame goes to `sink`, each id exactly once, in the order its first
    *    writer gave it: an expression on EyeOpenL is flushed in idle's slot.
    * 5. Physics, then chains. They read their inputs through `read`, so the

@@ -10,6 +10,7 @@ import type {
 import { IDLE_MOTION_GROUP, StandardParameter } from "@ikijs/format";
 import { IdleMotion, IkiMotion, ParameterStore } from "@ikijs/engine";
 import { MAX_DT_MS } from "../src/frame-clock";
+import { smoothstep } from "../src/math";
 
 // --- Fixture ------------------------------------------------------------------
 
@@ -48,15 +49,23 @@ const HEAD_DEFORMER: IkiDeformer = {
   ],
 };
 
+/** Explicit zero fades: the clip or expression cuts in and out. */
+const CUT = { fadeIn: 0, fadeOut: 0 };
+
+/** A one-curve clip holding `value`, cut in and out. */
 function clip(parameter: string, value: number): IkiMotionClip {
   return {
     description: "test clip",
     duration: 1,
+    ...CUT,
     curves: [{ parameter, keys: [[0, value]] }],
   };
 }
 
-/** A one-curve clip rising linearly from `from` at 0 s to `to` at `duration`. */
+/**
+ * A one-curve clip rising linearly from `from` at 0 s to `to` at `duration`,
+ * cut in and out.
+ */
 function ramp(
   parameter: string,
   from: number,
@@ -66,6 +75,7 @@ function ramp(
   return {
     description: "test ramp",
     duration,
+    ...CUT,
     curves: [
       {
         parameter,
@@ -73,6 +83,7 @@ function ramp(
           [0, from],
           [duration, to],
         ],
+        interpolation: "linear",
       },
     ],
   };
@@ -142,8 +153,8 @@ function animatedModel(): IkiModel {
 /**
  * Ramps on all three layers, so a value says how far each has advanced: the
  * Idle loop on AngleX (10 per s), the one-shot "Look" on AngleY (3, then 10
- * per s), and "rise" adding 1 to BrowLY over a 1 s fade-in. With the Idle
- * group the procedural head is dropped, so nothing else writes those ids.
+ * per s), and "rise" adding 1 to BrowLY over a 1 s eased fade-in. With the
+ * Idle group the procedural head is dropped, so nothing else writes those ids.
  */
 function timedModel(): IkiModel {
   return model({
@@ -272,9 +283,11 @@ describe("IkiMotion frame order", () => {
     const { motion, store, step } = harness(
       model({
         expressions: [
-          expression("lean", [
-            { parameter: StandardParameter.AngleZ, value: 5 },
-          ]),
+          expression(
+            "lean",
+            [{ parameter: StandardParameter.AngleZ, value: 5 }],
+            CUT,
+          ),
         ],
         motions: { Tilt: [clip(StandardParameter.AngleZ, 10)] },
       }),
@@ -314,7 +327,7 @@ describe("IkiMotion frame order", () => {
           expression(
             "raise",
             [{ parameter: StandardParameter.BrowLeftY, value: 0.3 }],
-            { fadeOut: 0.25 },
+            { fadeIn: 0, fadeOut: 0.25 },
           ),
         ],
       }),
@@ -359,6 +372,7 @@ describe("IkiMotion frame order", () => {
               value: 0.5,
               blend: "multiply" as const,
             })),
+            CUT,
           ),
           expression(
             "held",
@@ -367,6 +381,7 @@ describe("IkiMotion frame order", () => {
               value: 0.5,
               blend: "overwrite" as const,
             })),
+            CUT,
           ),
         ],
       });
@@ -401,13 +416,17 @@ describe("IkiMotion frame order", () => {
     const { motion, store, step } = harness(
       model({
         expressions: [
-          expression("open", [
-            {
-              parameter: StandardParameter.MouthOpen,
-              value: 1,
-              blend: "overwrite",
-            },
-          ]),
+          expression(
+            "open",
+            [
+              {
+                parameter: StandardParameter.MouthOpen,
+                value: 1,
+                blend: "overwrite",
+              },
+            ],
+            CUT,
+          ),
         ],
       }),
     );
@@ -514,7 +533,10 @@ describe("IkiMotion player clock", () => {
   function expectAdvancedBy(writes: Write[], s: number): void {
     expect(only(writes, StandardParameter.AngleX)).toBeCloseTo(10 * s, 9);
     expect(only(writes, StandardParameter.AngleY)).toBeCloseTo(3 + 10 * s, 9);
-    expect(only(writes, StandardParameter.BrowLeftY)).toBeCloseTo(s, 9);
+    expect(only(writes, StandardParameter.BrowLeftY)).toBeCloseTo(
+      smoothstep(s),
+      9,
+    );
   }
 
   it("dt is 0 on the first update: a clip played before it is sampled at t = 0", () => {

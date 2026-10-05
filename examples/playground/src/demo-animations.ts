@@ -10,12 +10,8 @@ import {
 // main.ts) so the play buttons have something to show. It is not in hero.iki.
 // Every entry drives only parameters hero.iki declares; the vector sample lacks
 // the brows and AngleZ, so this is for the hero alone. Every magnitude was
-// picked by eye on the hero, so tune them here.
-
-/** Seconds. Expressions ease in a little faster than they let go. */
-const EXPRESSION_FADE = { fadeIn: 0.25, fadeOut: 0.35 };
-/** Seconds. Each stays no longer than the shortest clip (Nod, 1 s). */
-const CLIP_FADE = { fadeIn: 0.15, fadeOut: 0.2 };
+// picked by eye on the hero, so tune them here. No entry sets a fade, so each
+// plays with the format's DEFAULT_FADE_SECONDS, and its curves are smooth.
 
 /** Both brows up (+) or down (−), in BrowY units (hero: ±27 px at ±1). */
 function browsY(y: number): IkiExpressionParameter[] {
@@ -43,7 +39,6 @@ const expressions: IkiExpression[] = [
   {
     id: "smile",
     description: "A warm, closed-mouth smile with the brows lifted a little.",
-    ...EXPRESSION_FADE,
     parameters: [
       { parameter: P.MouthForm, value: 0.8, blend: "add" },
       ...browsY(0.2),
@@ -52,7 +47,6 @@ const expressions: IkiExpression[] = [
   {
     id: "laugh",
     description: "A big laugh: eyes squeezed shut, mouth open in a wide smile.",
-    ...EXPRESSION_FADE,
     parameters: [
       { parameter: P.EyeOpenLeft, value: 0, blend: "multiply" },
       { parameter: P.EyeOpenRight, value: 0, blend: "multiply" },
@@ -63,7 +57,6 @@ const expressions: IkiExpression[] = [
   {
     id: "angry",
     description: "Angry: brows lowered and drawn down at the middle, a frown.",
-    ...EXPRESSION_FADE,
     parameters: [
       ...browsY(-0.4),
       ...browsTilt(0.6),
@@ -73,7 +66,6 @@ const expressions: IkiExpression[] = [
   {
     id: "sad",
     description: "Sad: brows raised at the middle, the mouth turned down.",
-    ...EXPRESSION_FADE,
     parameters: [
       ...browsY(0.25),
       ...browsTilt(-0.6),
@@ -83,7 +75,6 @@ const expressions: IkiExpression[] = [
   {
     id: "surprised",
     description: "Surprised: brows shot up, mouth dropped open.",
-    ...EXPRESSION_FADE,
     parameters: [
       ...browsY(0.6),
       { parameter: P.MouthOpen, value: 0.7, blend: "overwrite" },
@@ -100,7 +91,6 @@ const motions: Record<string, IkiMotionClip[]> = {
       description:
         "One nod yes: the head dips, comes back up past level, settles.",
       duration: 1,
-      ...CLIP_FADE,
       curves: [
         {
           parameter: P.AngleY,
@@ -119,7 +109,6 @@ const motions: Record<string, IkiMotionClip[]> = {
     {
       description: "A head shake no: side to side twice, dying away.",
       duration: 1.2,
-      ...CLIP_FADE,
       curves: [
         {
           parameter: P.AngleX,
@@ -140,7 +129,6 @@ const motions: Record<string, IkiMotionClip[]> = {
       description:
         "A curious head tilt: the head leans over, holds, comes back.",
       duration: 1.4,
-      ...CLIP_FADE,
       curves: [
         {
           parameter: P.AngleZ,

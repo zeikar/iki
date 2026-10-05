@@ -1,21 +1,39 @@
 import { describe, expect, it } from "vitest";
-import type { IkiMotionClip, IkiParameter } from "@ikijs/format";
-import { ClipPlayer, fadeWeights, sampleCurve } from "../src/clip-player";
+import {
+  DEFAULT_FADE_SECONDS,
+  type IkiMotionClip,
+  type IkiMotionInterpolation,
+  type IkiParameter,
+} from "@ikijs/format";
+import { ClipPlayer, fadeWeights } from "../src/clip-player";
+import { smoothstep } from "../src/math";
 
 // --- Test harness ------------------------------------------------------------
 // Times are dyadic fractions (1/16, 1/64, ...) wherever a test lands on a fade
-// edge or a clip end, so float accumulation cannot move a frame across it.
+// edge or a clip end, so float accumulation cannot move a frame across it, and
+// a smoothstep of a dyadic fraction is itself exact.
 
 function param(id: string, min = -100, max = 100, def = 0): IkiParameter {
   return { id, min, max, default: def };
 }
 
-/** A fade left out of `opts` is omitted from the clip, as the validator emits it. */
+/** Explicit zero fades: the clip cuts in and out. */
+const CUT = { fadeIn: 0, fadeOut: 0 };
+
+/**
+ * A fade left out of `opts` is omitted from the clip, as the validator emits
+ * it, and so is `interpolation` (it applies to every curve when given).
+ */
 function clip(
   curves: Record<string, [number, number][]>,
-  opts: { duration: number; fadeIn?: number; fadeOut?: number },
+  opts: {
+    duration: number;
+    fadeIn?: number;
+    fadeOut?: number;
+    interpolation?: IkiMotionInterpolation;
+  },
 ): IkiMotionClip {
-  const { duration, ...fades } = opts;
+  const { duration, interpolation, ...fades } = opts;
   return {
     description: "test clip",
     duration,
@@ -23,6 +41,7 @@ function clip(
     curves: Object.entries(curves).map(([parameter, keys]) => ({
       parameter,
       keys,
+      ...(interpolation ? { interpolation } : {}),
     })),
   };
 }
@@ -59,60 +78,26 @@ function makeStage(
   return { player, step, run, displayed };
 }
 
-// --- sampleCurve -------------------------------------------------------------
-
-describe("sampleCurve", () => {
-  const keys: [number, number][] = [
-    [0.5, 2],
-    [1, 4],
-    [2, 0],
-  ];
-
-  it("holds the first value before the first key", () => {
-    expect(sampleCurve(keys, 0)).toBe(2);
-    expect(sampleCurve(keys, -1)).toBe(2);
-  });
-
-  it("returns a key's value exactly on it", () => {
-    expect(sampleCurve(keys, 0.5)).toBe(2);
-    expect(sampleCurve(keys, 1)).toBe(4);
-    expect(sampleCurve(keys, 2)).toBe(0);
-  });
-
-  it("interpolates linearly between keys", () => {
-    expect(sampleCurve(keys, 0.75)).toBe(3);
-    expect(sampleCurve(keys, 1.5)).toBe(2);
-    expect(sampleCurve(keys, 1.75)).toBe(1);
-  });
-
-  it("holds the last value after the last key", () => {
-    expect(sampleCurve(keys, 3)).toBe(0);
-  });
-
-  it("holds a single key's value everywhere", () => {
-    const one: [number, number][] = [[1, 7]];
-    expect(sampleCurve(one, 0)).toBe(7);
-    expect(sampleCurve(one, 1)).toBe(7);
-    expect(sampleCurve(one, 5)).toBe(7);
-  });
-});
-
 // --- fadeWeights -------------------------------------------------------------
 
 describe("fadeWeights", () => {
-  it("ramps the fade-in from 0 to 1 over fadeIn", () => {
-    const c = clip({ X: [[0, 1]] }, { duration: 2, fadeIn: 0.5 });
+  it("eases the fade-in from 0 to 1 over fadeIn", () => {
+    const c = clip({ X: [[0, 1]] }, { duration: 2, fadeIn: 0.5, fadeOut: 0 });
     expect(fadeWeights(c, 0)).toEqual({ wIn: 0, wOut: 1 });
+    expect(fadeWeights(c, 0.125)).toEqual({ wIn: 5 / 32, wOut: 1 });
     expect(fadeWeights(c, 0.25)).toEqual({ wIn: 0.5, wOut: 1 });
+    expect(fadeWeights(c, 0.375)).toEqual({ wIn: 27 / 32, wOut: 1 });
     expect(fadeWeights(c, 0.5)).toEqual({ wIn: 1, wOut: 1 });
     expect(fadeWeights(c, 1)).toEqual({ wIn: 1, wOut: 1 });
   });
 
-  it("ramps the fade-out from 1 to 0 over the last fadeOut seconds", () => {
-    const c = clip({ X: [[0, 1]] }, { duration: 2, fadeOut: 0.5 });
+  it("eases the fade-out from 1 to 0 over the last fadeOut seconds", () => {
+    const c = clip({ X: [[0, 1]] }, { duration: 2, fadeIn: 0, fadeOut: 0.5 });
     expect(fadeWeights(c, 1)).toEqual({ wIn: 1, wOut: 1 });
     expect(fadeWeights(c, 1.5)).toEqual({ wIn: 1, wOut: 1 });
+    expect(fadeWeights(c, 1.625)).toEqual({ wIn: 1, wOut: 27 / 32 });
     expect(fadeWeights(c, 1.75)).toEqual({ wIn: 1, wOut: 0.5 });
+    expect(fadeWeights(c, 1.875)).toEqual({ wIn: 1, wOut: 5 / 32 });
     expect(fadeWeights(c, 2)).toEqual({ wIn: 1, wOut: 0 });
   });
 
@@ -122,14 +107,38 @@ describe("fadeWeights", () => {
     expect(fadeWeights(c, 3)).toEqual({ wIn: 1, wOut: 0 });
   });
 
-  it("gives 1 for a zero or absent fade", () => {
-    const zero = clip({ X: [[0, 1]] }, { duration: 2, fadeIn: 0, fadeOut: 0 });
-    const absent = clip({ X: [[0, 1]] }, { duration: 2 });
-    for (const c of [zero, absent]) {
-      expect(fadeWeights(c, 0)).toEqual({ wIn: 1, wOut: 1 });
-      expect(fadeWeights(c, 2)).toEqual({ wIn: 1, wOut: 1 });
-      expect(fadeWeights(c, 3)).toEqual({ wIn: 1, wOut: 1 });
-    }
+  it("gives 1 for a zero fade", () => {
+    const c = clip({ X: [[0, 1]] }, { duration: 2, ...CUT });
+    expect(fadeWeights(c, 0)).toEqual({ wIn: 1, wOut: 1 });
+    expect(fadeWeights(c, 2)).toEqual({ wIn: 1, wOut: 1 });
+    expect(fadeWeights(c, 3)).toEqual({ wIn: 1, wOut: 1 });
+  });
+
+  it("reads an absent fade as DEFAULT_FADE_SECONDS", () => {
+    const d = DEFAULT_FADE_SECONDS;
+    const duration = 4 * d;
+    const c = clip({ X: [[0, 1]] }, { duration });
+    expect(fadeWeights(c, 0)).toEqual({ wIn: 0, wOut: 1 });
+    expect(fadeWeights(c, d / 2).wIn).toBe(0.5);
+    expect(fadeWeights(c, d)).toEqual({ wIn: 1, wOut: 1 });
+    expect(fadeWeights(c, duration - d)).toEqual({ wIn: 1, wOut: 1 });
+    expect(fadeWeights(c, duration - d / 2).wOut).toBeCloseTo(0.5, 12);
+    expect(fadeWeights(c, duration)).toEqual({ wIn: 1, wOut: 0 });
+  });
+
+  it("caps an absent fade at a shorter clip's duration, so the clip starts at full fade-out weight", () => {
+    const duration = DEFAULT_FADE_SECONDS / 2;
+    const c = clip({ X: [[0, 1]] }, { duration });
+    // Both fades span the whole clip.
+    expect(fadeWeights(c, 0)).toEqual({ wIn: 0, wOut: 1 });
+    expect(fadeWeights(c, duration / 2)).toEqual({ wIn: 0.5, wOut: 0.5 });
+    expect(fadeWeights(c, duration)).toEqual({ wIn: 1, wOut: 0 });
+    // Either side alone absent takes the same cap.
+    const fadeInOnly = clip({ X: [[0, 1]] }, { duration, fadeIn: 0 });
+    expect(fadeWeights(fadeInOnly, duration / 2)).toEqual({
+      wIn: 1,
+      wOut: 0.5,
+    });
   });
 });
 
@@ -185,8 +194,8 @@ describe("ClipPlayer.play", () => {
     const { player, step } = makeStage(
       {
         Nod: [
-          clip({ X: [[0, 5]] }, { duration: 1 }),
-          clip({ Z: [[0, 7]] }, { duration: 1 }),
+          clip({ X: [[0, 5]] }, { duration: 1, ...CUT }),
+          clip({ Z: [[0, 7]] }, { duration: 1, ...CUT }),
         ],
       },
       [param("X"), param("Z")],
@@ -223,7 +232,8 @@ describe("ClipPlayer one-shot", () => {
     for (let k = 1; k <= 12; k++) {
       expect(step(1 / 16).get("X")).toBeCloseTo(4, 12);
     }
-    expect(step(1 / 16).get("X")).toBeCloseTo(1 + 3 * 0.75, 12); // t = 0.8125
+    // wOut = s(0.75), then s(0.5): eased, not 0.75 then 0.5 in a line.
+    expect(step(1 / 16).get("X")).toBeCloseTo(1 + 3 * (27 / 32), 12); // t = 0.8125
     expect(step(1 / 16).get("X")).toBeCloseTo(1 + 3 * 0.5, 12); // t = 0.875
   });
 
@@ -257,8 +267,9 @@ describe("ClipPlayer one-shot", () => {
       },
       [param("X", -8, 8), param("Y", -8, 8)],
     );
-    // Curve slope 4/s, plus the whole 16-wide value span over each 0.5 s fade.
-    const bound = dt * (4 + 16 / 0.5 + 16 / 0.5) + 1e-9;
+    // The eased two-key curve's steepest slope, 1.5 × 8/2 s, plus the whole
+    // 16-wide value span over each 0.5 s fade at smoothstep's steepest, 1.5×.
+    const bound = dt * (1.5 * 4 + (1.5 * 16) / 0.5 + (1.5 * 16) / 0.5) + 1e-9;
     const xs: number[] = [];
     const ys: number[] = [];
     const record = (frameDt: number) => {
@@ -288,6 +299,12 @@ describe("ClipPlayer one-shot", () => {
     ["fadeOut == duration", { fadeIn: 0.25, fadeOut: 1 }],
     ["fadeIn == duration", { fadeIn: 1, fadeOut: 0.25 }],
     ["overlapping fades", { fadeIn: 0.75, fadeOut: 0.75 }],
+    ["default fades", {}],
+    // Both absent fades are capped at this clip's duration.
+    [
+      "default fades on a clip shorter than them",
+      { duration: DEFAULT_FADE_SECONDS / 2 },
+    ],
   ])(
     "a zero-dt apply right after a replace writes the old clip's displayed pose (%s)",
     (_, fades) => {
@@ -311,19 +328,20 @@ describe("ClipPlayer one-shot", () => {
       );
       player.play("Old", 0);
       step(0);
-      run(6, 1 / 16); // t = 0.375: X = 3, Y = -5
-      expect(displayed.get("X")).toBeCloseTo(3, 12);
+      run(6, 1 / 16); // t = 0.375: X = 8 · s(0.375) on the eased curve, Y = -5
+      const oldX = 8 * smoothstep(0.375);
+      expect(displayed.get("X")).toBeCloseTo(oldX, 12);
       expect(displayed.get("Y")).toBeCloseTo(-5, 12);
 
       player.play("New", 0);
       const frame = step(0);
-      expect(frame.get("X")).toBeCloseTo(3, 12);
+      expect(frame.get("X")).toBeCloseTo(oldX, 12);
       expect(frame.get("Y")).toBeCloseTo(-5, 12);
       expect(frame.get("Z")).toBeCloseTo(3, 12); // New's own id starts at base
     },
   );
 
-  it("(c) an id only the old clip animated fades linearly to base over fadeIn, is written at base once, then never again", () => {
+  it("(c) an id only the old clip animated eases to base over fadeIn, is written at base once, then never again", () => {
     const { player, step, run } = makeStage(
       {
         Old: [
@@ -347,7 +365,10 @@ describe("ClipPlayer one-shot", () => {
     for (let k = 0; k < 32; k++) {
       const t = k / 64;
       const frame = step(k === 0 ? 0 : 1 / 64);
-      expect(frame.get("Y")).toBeCloseTo(1 + (6 - 1) * (1 - t / 0.5), 12);
+      expect(frame.get("Y")).toBeCloseTo(
+        1 + (6 - 1) * (1 - smoothstep(t / 0.5)),
+        12,
+      );
     }
     expect(step(1 / 64).get("Y")).toBeCloseTo(1, 12); // t = 0.5: base, once
     for (let k = 0; k < 120; k++) {
@@ -359,7 +380,7 @@ describe("ClipPlayer one-shot", () => {
     const dt = 1 / 64;
     const { player, step } = makeStage(
       {
-        Old: [clip({ Y: [[0, 10]] }, { duration: 4 })],
+        Old: [clip({ Y: [[0, 10]] }, { duration: 4, ...CUT })],
         New: [clip({ X: [[0, 5]] }, { duration: 1, fadeIn: 1, fadeOut: 0.5 })],
       },
       [param("X", -20, 20), param("Y", -20, 20)],
@@ -369,13 +390,17 @@ describe("ClipPlayer one-shot", () => {
     expect(step(1 / 16).get("Y")).toBe(10);
 
     player.play("New", 0);
-    // Y = lerp(0, 10, (1 - wIn) * wOut); its steepest slope is 20/s at t = 0.5.
+    // Y = lerp(0, 10, (1 - wIn) * wOut); its steepest slope is just under
+    // 20/s, near t = 0.59, where both eased weights fall at once.
     const bound = dt * 20 + 1e-9;
     let prev = 10;
     for (let k = 0; k < 64; k++) {
       const t = k * dt;
       const y = step(k === 0 ? 0 : dt).get("Y")!;
-      expect(y).toBeCloseTo(10 * (1 - t) * Math.min(1, (1 - t) / 0.5), 12);
+      expect(y).toBeCloseTo(
+        10 * (1 - smoothstep(t)) * smoothstep((1 - t) / 0.5),
+        12,
+      );
       expect(Math.abs(y - prev)).toBeLessThanOrEqual(bound);
       prev = y;
     }
@@ -416,9 +441,9 @@ describe("ClipPlayer one-shot", () => {
     // first play would have ended 1 s after the replay; this one runs 2 s.
     for (let k = 1; k < 32; k++) {
       const t = k / 16;
-      const wIn = Math.min(1, t / 0.5);
-      const wOut = Math.min(1, (2 - t) / 0.5);
-      const s = 4 * t;
+      const wIn = smoothstep(t / 0.5);
+      const wOut = smoothstep((2 - t) / 0.5);
+      const s = 8 * smoothstep(t / 2); // the eased two-key curve
       expect(step(1 / 16).get("X")).toBeCloseTo((4 + (s - 4) * wIn) * wOut, 12);
     }
     expect(step(1 / 16).get("X")).toBe(0); // t = 2: the end frame
@@ -446,18 +471,37 @@ describe("ClipPlayer one-shot", () => {
     for (let k = 0; k < 16; k++) {
       const t = k / 16;
       const frame = step(k === 0 ? 0 : 1 / 16);
-      const w = Math.min(1, t / 0.625) * Math.min(1, (1 - t) / 0.625);
+      const w = smoothstep(t / 0.625) * smoothstep((1 - t) / 0.625);
+      const y = -4 + 16 * smoothstep(t); // the eased two-key curve
       expect(frame.get("X")).toBeCloseTo(2 + (10 - 2) * w, 12);
-      expect(frame.get("Y")).toBeCloseTo(1 + (-4 + 16 * t - 1) * w, 12);
+      expect(frame.get("Y")).toBeCloseTo(1 + (y - 1) * w, 12);
       peak = Math.max(peak, frame.get("X")!);
     }
     expect(peak).toBeLessThan(10);
   });
 
+  it("fades a clip with absent fades in and out over DEFAULT_FADE_SECONDS", () => {
+    const d = DEFAULT_FADE_SECONDS;
+    const { player, step } = makeStage(
+      { Nod: [clip({ X: [[0, 8]] }, { duration: 4 * d })] },
+      [param("X")],
+    );
+    player.play("Nod", 0);
+    expect(step(0).get("X")).toBe(0);
+    expect(step(d / 2).get("X")).toBeCloseTo(4, 12); // half of the default
+    expect(step(d / 2).get("X")).toBeCloseTo(8, 12);
+    expect(step(2 * d).get("X")).toBeCloseTo(8, 12); // the fade-out starts
+    expect(step(d / 2).get("X")).toBeCloseTo(4, 12);
+    // Past the end (summed steps of a tuned default need not land on it
+    // exactly): base, once, then nothing.
+    expect(step(d).get("X")).toBe(0);
+    expect(step(d).has("X")).toBe(false);
+  });
+
   it("fades a replaced curve that overshot its max from the max, not the raw value", () => {
     const { player, step, run, displayed } = makeStage(
       {
-        Old: [clip({ X: [[0, 15]] }, { duration: 4 })],
+        Old: [clip({ X: [[0, 15]] }, { duration: 4, ...CUT })],
         New: [
           clip({ X: [[0, 0]] }, { duration: 2, fadeIn: 0.5, fadeOut: 0.5 }),
         ],
@@ -470,14 +514,14 @@ describe("ClipPlayer one-shot", () => {
 
     player.play("New", 0);
     expect(step(0).get("X")).toBe(10);
-    expect(run(4, 1 / 16).get("X")).toBeCloseTo(5, 12); // t = 0.25: half of 10, not of 15
+    expect(run(4, 1 / 16).get("X")).toBeCloseTo(5, 12); // t = 0.25: w = 0.5 of 10, not of 15
   });
 
   it("cuts to an incoming clip's own output on the next apply when its fadeIn is zero", () => {
     const { player, step } = makeStage(
       {
-        Old: [clip({ X: [[0, 8]], Y: [[0, 6]] }, { duration: 4 })],
-        New: [clip({ X: [[0, -3]] }, { duration: 1, fadeOut: 0.5 })],
+        Old: [clip({ X: [[0, 8]], Y: [[0, 6]] }, { duration: 4, ...CUT })],
+        New: [clip({ X: [[0, -3]] }, { duration: 1, fadeIn: 0, fadeOut: 0.5 })],
       },
       [param("X", -10, 10), param("Y", -10, 10, 2)],
     );
@@ -494,7 +538,11 @@ describe("ClipPlayer one-shot", () => {
 
   it("cuts a clip's own ids to base on its end frame when its fadeOut is zero", () => {
     const { player, step, run } = makeStage(
-      { Nod: [clip({ X: [[0, 8]] }, { duration: 0.5, fadeIn: 0.125 })] },
+      {
+        Nod: [
+          clip({ X: [[0, 8]] }, { duration: 0.5, fadeIn: 0.125, fadeOut: 0 }),
+        ],
+      },
       [param("X", -10, 10, 1)],
     );
     player.play("Nod", 0);
@@ -507,9 +555,9 @@ describe("ClipPlayer one-shot", () => {
   it("fades from the pose on screen when a second play lands before the next apply", () => {
     const { player, step, run } = makeStage(
       {
-        Old: [clip({ Y: [[0, 6]] }, { duration: 4 })],
-        A: [clip({ X: [[0, 2]] }, { duration: 1, fadeIn: 0.5 })],
-        B: [clip({ X: [[0, -2]] }, { duration: 1, fadeIn: 0.5 })],
+        Old: [clip({ Y: [[0, 6]] }, { duration: 4, ...CUT })],
+        A: [clip({ X: [[0, 2]] }, { duration: 1, fadeIn: 0.5, fadeOut: 0 })],
+        B: [clip({ X: [[0, -2]] }, { duration: 1, fadeIn: 0.5, fadeOut: 0 })],
       },
       [param("X", -10, 10), param("Y", -10, 10, 1)],
     );
@@ -520,7 +568,7 @@ describe("ClipPlayer one-shot", () => {
     player.play("A", 0);
     player.play("B", 0);
     expect(step(0).get("Y")).toBeCloseTo(6, 12);
-    expect(run(4, 1 / 16).get("Y")).toBeCloseTo(1 + 5 * 0.5, 12); // t = 0.25
+    expect(run(4, 1 / 16).get("Y")).toBeCloseTo(1 + 5 * 0.5, 12); // t = 0.25: s(0.5)
     expect(run(4, 1 / 16).get("Y")).toBeCloseTo(1, 12); // t = 0.5: base, once
     expect(step(1 / 16).has("Y")).toBe(false);
   });
@@ -536,7 +584,7 @@ describe("ClipPlayer.apply", () => {
   it("blends a one-shot from the frame value when one is present, else from rest", () => {
     const upstream = makeStage(motions, [param("X", -100, 100, 4)]);
     upstream.player.play("Nod", 0);
-    expect(upstream.step(0.5, { X: 2 }).get("X")).toBe(6); // 2 + (10 - 2) * 0.5
+    expect(upstream.step(0.5, { X: 2 }).get("X")).toBe(6); // 2 + (10 - 2) * s(0.5)
 
     const fromRest = makeStage(motions, [param("X", -100, 100, 4)]);
     fromRest.player.play("Nod", 0);
@@ -552,8 +600,8 @@ describe("ClipPlayer.apply", () => {
     const fromRest = makeStage(short, [param("X", -100, 100, 3)]);
     fromRest.player.play("Nod", 0);
     fromRest.step(0);
-    // t = 7/16: wOut = 0.25, so 3 + (10 - 3) * 0.25.
-    expect(fromRest.run(7, 1 / 16).get("X")).toBe(4.75);
+    // t = 7/16: wOut = s(0.25) = 5/32, so 3 + (10 - 3) * 5/32.
+    expect(fromRest.run(7, 1 / 16).get("X")).toBe(3 + 35 / 32);
     expect(fromRest.step(1 / 16).get("X")).toBe(3);
     for (let k = 0; k < 5; k++) {
       expect(fromRest.step(1 / 16).has("X")).toBe(false);
@@ -563,11 +611,41 @@ describe("ClipPlayer.apply", () => {
     upstream.player.play("Nod", 0);
     upstream.step(0, { X: -2 });
     for (let k = 0; k < 6; k++) upstream.step(1 / 16, { X: -2 });
-    expect(upstream.step(1 / 16, { X: -2 }).get("X")).toBe(1); // -2 + 12 * 0.25
+    expect(upstream.step(1 / 16, { X: -2 }).get("X")).toBe(-2 + 12 * (5 / 32));
     expect(upstream.step(1 / 16, { X: -2 }).get("X")).toBe(-2);
     for (let k = 0; k < 5; k++) {
       expect(upstream.step(1 / 16, { X: -2 }).get("X")).toBe(-2);
     }
+  });
+
+  it("samples a curve without interpolation smooth, and one marked linear in a straight line", () => {
+    const keys: [number, number][] = [
+      [0, 0],
+      [1, 8],
+    ];
+    const { player, step, run } = makeStage(
+      {
+        Nod: [
+          {
+            description: "test clip",
+            duration: 2,
+            ...CUT,
+            curves: [
+              { parameter: "X", keys },
+              { parameter: "Y", keys, interpolation: "linear" },
+              { parameter: "Z", keys, interpolation: "smooth" },
+            ],
+          },
+        ],
+      },
+      [param("X"), param("Y"), param("Z")],
+    );
+    player.play("Nod", 0);
+    step(0);
+    const quarter = run(4, 1 / 16); // t = 0.25
+    expect(quarter.get("X")).toBe(8 * (5 / 32)); // 8 · s(0.25)
+    expect(quarter.get("Y")).toBe(2);
+    expect(quarter.get("Z")).toBe(8 * (5 / 32));
   });
 
   it("loops a two-clip Idle group clip 0 -> clip 1 -> clip 0, at full weight", () => {
@@ -623,7 +701,7 @@ describe("ClipPlayer.apply", () => {
                 [1e-6, 1],
               ],
             },
-            { duration: 1e-6 },
+            { duration: 1e-6, interpolation: "linear" },
           ),
           clip(
             {
@@ -632,7 +710,7 @@ describe("ClipPlayer.apply", () => {
                 [1e-6, 3],
               ],
             },
-            { duration: 1e-6 },
+            { duration: 1e-6, interpolation: "linear" },
           ),
         ],
       },
@@ -660,7 +738,7 @@ describe("ClipPlayer.apply", () => {
                 [1, 4],
               ],
             },
-            { duration: 1 },
+            { duration: 1, interpolation: "linear" },
           ),
         ],
         Wave: [
@@ -681,7 +759,7 @@ describe("ClipPlayer.apply", () => {
     for (let k = 1; k < 8; k++) {
       loopT += 1 / 16;
       const t = k / 16;
-      const w = Math.min(1, t / 0.125) * Math.min(1, (0.5 - t) / 0.125);
+      const w = smoothstep(t / 0.125) * smoothstep((0.5 - t) / 0.125);
       const base = idleX(loopT);
       expect(step(1 / 16).get("X")).toBeCloseTo(base + (9 - base) * w, 12);
     }
@@ -711,19 +789,24 @@ describe("ClipPlayer.apply", () => {
       },
       [param("X")],
     );
-    const loopX = (loopT: number) => 4 * (loopT % 1);
+    // The curve is smooth (absent interpolation): an eased 0 -> 4 each pass.
+    const curveX = (t: number) => 4 * smoothstep(t);
+    const loopX = (loopT: number) => curveX(loopT % 1);
     step(0);
-    expect(run(8, 1 / 16).get("X")).toBe(loopX(0.5));
+    expect(run(8, 1 / 16).get("X")).toBeCloseTo(loopX(0.5), 12);
 
     expect(player.play("Idle", 0)).toBe(true);
     for (let k = 1; k < 16; k++) {
       const t = k / 16;
-      const w = Math.min(1, t / 0.25) * Math.min(1, (1 - t) / 0.25);
+      const w = smoothstep(t / 0.25) * smoothstep((1 - t) / 0.25);
       const base = loopX(0.5 + t);
-      expect(step(1 / 16).get("X")).toBeCloseTo(base + (4 * t - base) * w, 12);
+      expect(step(1 / 16).get("X")).toBeCloseTo(
+        base + (curveX(t) - base) * w,
+        12,
+      );
     }
-    expect(step(1 / 16).get("X")).toBe(loopX(1.5)); // the end frame
-    expect(step(1 / 16).get("X")).toBe(loopX(1.5625)); // the loop alone again
+    expect(step(1 / 16).get("X")).toBeCloseTo(loopX(1.5), 12); // the end frame
+    expect(step(1 / 16).get("X")).toBeCloseTo(loopX(1.5625), 12); // the loop alone again
   });
 
   it("eases an id only the replaced clip held toward the Idle loop's moving base", () => {
@@ -739,10 +822,10 @@ describe("ClipPlayer.apply", () => {
                 [2, 8],
               ],
             },
-            { duration: 2 },
+            { duration: 2, interpolation: "linear" },
           ),
         ],
-        Old: [clip({ Y: [[0, 10]] }, { duration: 4 })],
+        Old: [clip({ Y: [[0, 10]] }, { duration: 4, ...CUT })],
         New: [
           clip({ X: [[0, 3]] }, { duration: 2, fadeIn: 0.5, fadeOut: 0.5 }),
         ],
@@ -755,8 +838,9 @@ describe("ClipPlayer.apply", () => {
     expect(run(16, dt).get("Y")).toBe(10); // the loop is at 0.25
 
     player.play("New", 0);
-    // Y = lerp(loop, 10, 1 - wIn): the loop's slope plus the 10-wide gap over fadeIn.
-    const bound = dt * (4 + 10 / 0.5) + 1e-9;
+    // Y = lerp(loop, 10, 1 - wIn): the loop's slope plus the 10-wide gap over
+    // fadeIn at smoothstep's steepest, 1.5×.
+    const bound = dt * (4 + (1.5 * 10) / 0.5) + 1e-9;
     let prev = displayed.get("Y")!;
     let loopT = 0.25;
     for (let k = 0; k <= 32; k++) {
@@ -764,7 +848,7 @@ describe("ClipPlayer.apply", () => {
       const t = k * dt;
       const y = step(k === 0 ? 0 : dt).get("Y")!;
       const base = loopY(loopT);
-      expect(y).toBeCloseTo(base + (10 - base) * (1 - t / 0.5), 12);
+      expect(y).toBeCloseTo(base + (10 - base) * (1 - smoothstep(t / 0.5)), 12);
       expect(Math.abs(y - prev)).toBeLessThanOrEqual(bound);
       prev = y;
     }

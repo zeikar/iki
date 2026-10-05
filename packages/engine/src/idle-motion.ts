@@ -1,6 +1,6 @@
 import { StandardParameter } from "@ikijs/format";
 import { MAX_DT_MS } from "./frame-clock";
-import { clamp, lerp } from "./math";
+import { clamp, lerp, smoothstep } from "./math";
 
 // --- Module-internal timing/easing constants -----------------------------------
 // These are intentionally private; tests assert observable behavior, not config.
@@ -50,10 +50,7 @@ const SWAY_Z_PERIOD_MS = 11300;
 export function blinkEnvelope(phase: number): number {
   const ms = phase * BLINK_DURATION_MS;
   if (ms <= 0) return 1;
-  if (ms < BLINK_CLOSE_MS) {
-    const t = ms / BLINK_CLOSE_MS;
-    return 1 - t * t * (3 - 2 * t);
-  }
+  if (ms < BLINK_CLOSE_MS) return 1 - smoothstep(ms / BLINK_CLOSE_MS);
   if (ms <= BLINK_CLOSE_MS + BLINK_HOLD_MS) return 0; // inclusive: the close point is exactly 0 for any retune
   if (ms < BLINK_DURATION_MS) {
     const t = (ms - BLINK_CLOSE_MS - BLINK_HOLD_MS) / BLINK_OPEN_MS;

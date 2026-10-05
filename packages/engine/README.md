@@ -97,16 +97,25 @@ The model is the catalog: a host lists what it can play from
 `model.expressions` (ids) and `model.motions` (group names and clip indices).
 `IkiMotion` has no getters for them.
 
-- `playExpression(id)` fades the expression in over its `fadeIn` and releases
-  the active one over that one's `fadeOut`. One is active at a time; playing
-  one that is still fading out brings it back instead of stacking it.
-- `stopExpression()` releases the active expression over its `fadeOut`.
+- `playExpression(id)` fades the expression in over its `fadeIn`, from the
+  current pose: it replaces the active one and blends from that one's current
+  output, as a replacing clip does, so the face never dips toward base on the
+  way. One is active at a time, and replaying one never stacks it.
+- `stopExpression()` fades back to base over the active expression's
+  `fadeOut`.
 - `playMotion(group, index)` starts a clip one-shot, at once. It replaces a
   running one-shot, and the new clip fades in from the old one's last pose.
   There is no queue.
 
 Both `play` methods return `false`, and change nothing, for an id, group or
 index the model does not declare.
+
+Fades ease: a weight follows a smoothstep over the fade's seconds, so it
+starts and lands without a jolt and still takes exactly that long. A fade the
+model leaves out lasts `DEFAULT_FADE_SECONDS` from `@ikijs/format` (on a clip,
+at most its duration); `0` cuts. Clip curves are smooth, a monotone cubic that
+never overshoots its keys, unless a curve says `"linear"`. The `Idle` loop
+ignores fades, so its clips join without a dip.
 
 Each `update(now)` runs in a fixed order: `IdleMotion`, then the `Idle` loop
 and the one-shot over it, then expressions, then physics and chains. Physics
@@ -119,9 +128,9 @@ update, so lip-sync written before `update()` would be overwritten.
 A clip or expression composes over a base, never over a parameter's current
 value. The base is what an earlier stage wrote in the same update, else the
 resting value `clamp(default, min, max)`. So an `add` cannot accumulate across
-frames, a `multiply` on `EyeOpen` keeps the blink, and when an expression's
-release or a one-shot ends, a parameter nothing else writes rests at its
-default.
+frames, a `multiply` on `EyeOpen` keeps the blink, and a parameter nothing
+else writes rests at its default once the expressions let go of it (a stop, or
+a replace by one that doesn't drive it) or a one-shot ends.
 
 A model that declares an `Idle` motion group loops its clips in place of the
 procedural head sway and gaze (`AngleX/Y/Z`, `EyeballX/Y`); blink and breath

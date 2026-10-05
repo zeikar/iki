@@ -79,19 +79,25 @@ const model: IkiModel = {
 Beyond flat parts the schema also carries triangle meshes with per-vertex UV,
 per-vertex and per-control-point warp keyforms (1D and 2D parameter grids),
 matrix and warp deformer hierarchies, clipping masks, spring/chain physics
-rigs, and named expressions and motion clips for a host to play. See [`src/types.ts`](https://github.com/zeikar/iki/tree/main/packages/format/src/types.ts) — every field is documented there.
+rigs, and named expressions and motion clips for a host to play. See [`src/types.ts`](https://github.com/zeikar/iki/tree/main/packages/format/src/types.ts) and [`src/animations.ts`](https://github.com/zeikar/iki/tree/main/packages/format/src/animations.ts) — every field is documented there.
 
 ### Expressions and motions
 
 `expressions` are named parameter poses; `motions` are keyframed clips grouped
 by name (`Record<string, IkiMotionClip[]>`). Both require a non-blank
 `description`, the text a host (or an LLM) picks by. An expression parameter
-blends with `add` (the default), `multiply` or `overwrite`. Times are in seconds and clip
-curves are linear `[t, value]` keys, strictly increasing and inside
-`[0, duration]`. A clip's `fadeIn` and `fadeOut` are each no longer than the clip. The
-`Idle` group (`IDLE_MOTION_GROUP`) loops; blink and breath stay procedural under
-it, so its curves may not animate `EyeOpen` L/R or `Breath`. Every other group
-plays once and may animate them.
+blends with `add` (the default), `multiply` or `overwrite`. Times are in
+seconds. A clip curve's `[t, value]` keys are strictly increasing and inside
+`[0, duration]`, and its `interpolation` is `smooth` (the default: a monotone
+cubic that never overshoots its keys and eases out of the first and into the
+last) or `linear`. A clip's `fadeIn` and `fadeOut` are each no longer than the
+clip. A fade left out, on an expression or a clip, lasts `DEFAULT_FADE_SECONDS`
+(at most the clip's duration); `0` is instant. An expression's `fadeIn` also
+times a replace, from the replaced expression's current output; its `fadeOut`
+applies only when it is stopped, back to the base. The `Idle` group
+(`IDLE_MOTION_GROUP`) loops; blink and breath stay procedural under it, so its
+curves may not animate `EyeOpen` L/R or `Breath`. Every other group plays once
+and may animate them.
 
 ### Side convention
 

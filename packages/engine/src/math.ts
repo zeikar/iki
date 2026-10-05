@@ -17,3 +17,13 @@ export function clamp(value: number, min: number, max: number): number {
 export function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
+
+/**
+ * Smoothstep `x²(3 − 2x)` of `x` clamped to `[0, 1]`: 0 at 0, 1 at 1, with zero
+ * slope at both ends, so a fade along it starts and lands without a kink.
+ * Exact at 0, 1/2 and 1.
+ */
+export function smoothstep(x: number): number {
+  const t = clamp(x, 0, 1);
+  return t * t * (3 - 2 * t);
+}

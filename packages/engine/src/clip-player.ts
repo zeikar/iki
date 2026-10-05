@@ -1,46 +1,96 @@
 import {
+  DEFAULT_FADE_SECONDS,
   IDLE_MOTION_GROUP,
   type IkiMotionClip,
   type IkiMotionCurve,
   type IkiParameter,
 } from "@ikijs/format";
-import { clamp, lerp } from "./math";
+import { clamp, lerp, smoothstep } from "./math";
 
 // --- Small pure helpers ------------------------------------------------------
 
 /**
- * A curve's value at `t` seconds: linear between the keys either side of `t`,
- * holding the first key's value before it and the last key's value after it.
- * Exported for the tests; not part of the package entry.
+ * The slope at each key of a `"smooth"` curve, by Steffen's monotone cubic
+ * (M. Steffen, "A simple method for monotonic interpolation in one
+ * dimension", 1990): each inner key's slope is capped by the slopes of the two
+ * lines either side, so no segment overshoots its keys, and it is zero where
+ * those lines change direction or one is flat. Chosen over Fritsch–Carlson
+ * because it is one closed form per key, with no second pass to rescale. The
+ * first and last key get slope zero (not Steffen's own end rule) so the curve
+ * meets the holds before and after it without a kink. Exported for the tests;
+ * not part of the package entry.
  */
-export function sampleCurve(keys: IkiMotionCurve["keys"], t: number): number {
+export function curveSlopes(keys: IkiMotionCurve["keys"]): number[] {
+  const slopes = keys.map(() => 0);
+  for (let i = 1; i < keys.length - 1; i++) {
+    const [t0, v0] = keys[i - 1];
+    const [t1, v1] = keys[i];
+    const [t2, v2] = keys[i + 1];
+    const h0 = t1 - t0;
+    const h1 = t2 - t1;
+    const s0 = (v1 - v0) / h0;
+    const s1 = (v2 - v1) / h1;
+    // The slope at key i of the parabola through the three keys.
+    const p = (s0 * h1 + s1 * h0) / (h0 + h1);
+    slopes[i] =
+      (Math.sign(s0) + Math.sign(s1)) *
+      Math.min(Math.abs(s0), Math.abs(s1), Math.abs(p) / 2);
+  }
+  return slopes;
+}
+
+/**
+ * A curve's value at `t` seconds, holding the first key's value before it and
+ * the last key's value after it. Between two keys it is a straight line, or,
+ * given the keys' `slopes` ({@link curveSlopes}), the cubic Hermite through
+ * them. Exported for the tests; not part of the package entry.
+ */
+export function sampleCurve(
+  keys: IkiMotionCurve["keys"],
+  t: number,
+  slopes?: readonly number[],
+): number {
   const first = keys[0];
   if (t <= first[0]) return first[1];
   const last = keys[keys.length - 1];
   if (t >= last[0]) return last[1];
   // first[0] < t < last[0], so the scan stops on a key after `t`; `<=` puts a
-  // `t` exactly on a key at the start of its segment, where the lerp is exact.
+  // `t` exactly on a key at the start of its segment, where both forms are
+  // exact.
   let i = 1;
   while (keys[i][0] <= t) i++;
   const [t0, v0] = keys[i - 1];
   const [t1, v1] = keys[i];
-  return lerp(v0, v1, (t - t0) / (t1 - t0));
+  const h = t1 - t0;
+  const u = (t - t0) / h;
+  if (!slopes) return lerp(v0, v1, u);
+  // The Hermite basis regrouped: the eased move between the two values, plus
+  // each key's slope term, which vanishes at both ends of the segment.
+  return (
+    lerp(v0, v1, smoothstep(u)) +
+    h * u * (1 - u) * (slopes[i - 1] * (1 - u) - slopes[i] * u)
+  );
 }
 
 /**
- * The clip's fade-in and fade-out weights at `t` seconds into it, each clamped
- * to `[0, 1]`. A zero (or absent) fade gives 1 — no fade on that side.
- * Exported for the tests; not part of the package entry.
+ * The clip's fade-in and fade-out weights at `t` seconds into it, each easing
+ * along {@link smoothstep} and clamped to `[0, 1]`. A zero fade gives 1 — no
+ * fade on that side. An absent one lasts `DEFAULT_FADE_SECONDS`, capped at the
+ * clip's duration so that, like a declared fade, it fits inside the clip: the
+ * fade-out then never starts before t = 0, so a replacing clip's first frame
+ * (wOut = 1) is still the old pose. Exported for the tests; not part of the
+ * package entry.
  */
 export function fadeWeights(
   clip: IkiMotionClip,
   t: number,
 ): { wIn: number; wOut: number } {
-  const fadeIn = clip.fadeIn ?? 0;
-  const fadeOut = clip.fadeOut ?? 0;
+  const fallback = Math.min(DEFAULT_FADE_SECONDS, clip.duration);
+  const fadeIn = clip.fadeIn ?? fallback;
+  const fadeOut = clip.fadeOut ?? fallback;
   return {
-    wIn: fadeIn > 0 ? clamp(t / fadeIn, 0, 1) : 1,
-    wOut: fadeOut > 0 ? clamp((clip.duration - t) / fadeOut, 0, 1) : 1,
+    wIn: fadeIn > 0 ? smoothstep(t / fadeIn) : 1,
+    wOut: fadeOut > 0 ? smoothstep((clip.duration - t) / fadeOut) : 1,
   };
 }
 
@@ -82,6 +132,8 @@ export class ClipPlayer {
   readonly parameterIds: readonly string[];
   private readonly motions: Record<string, IkiMotionClip[]>;
   private readonly params: Map<string, IkiParameter>;
+  /** Key slopes of every `"smooth"` curve; a linear curve has no entry. */
+  private readonly slopes: Map<IkiMotionCurve, readonly number[]>;
 
   private readonly idleClips: readonly IkiMotionClip[];
   private readonly idleLength: number;
@@ -102,13 +154,16 @@ export class ClipPlayer {
     this.hasIdleLoop = Object.hasOwn(this.motions, IDLE_MOTION_GROUP);
     this.idleClips = this.hasIdleLoop ? this.motions[IDLE_MOTION_GROUP] : [];
     this.idleLength = this.idleClips.reduce((sum, c) => sum + c.duration, 0);
-    this.parameterIds = [
-      ...new Set(
-        Object.values(this.motions).flatMap((clips) =>
-          clips.flatMap((c) => c.curves.map((curve) => curve.parameter)),
-        ),
-      ),
-    ];
+    const curves = Object.values(this.motions).flatMap((clips) =>
+      clips.flatMap((c) => c.curves),
+    );
+    this.parameterIds = [...new Set(curves.map((curve) => curve.parameter))];
+    // Worked out once here, so a frame only evaluates the cubic.
+    this.slopes = new Map(
+      curves
+        .filter((curve) => curve.interpolation !== "linear")
+        .map((curve) => [curve, curveSlopes(curve.keys)]),
+    );
   }
 
   /**
@@ -177,7 +232,7 @@ export class ClipPlayer {
       }
     }
     for (const curve of clip.curves) {
-      frame.set(curve.parameter, sampleCurve(curve.keys, this.idleTime));
+      frame.set(curve.parameter, this.sample(curve, this.idleTime));
     }
   }
 
@@ -215,7 +270,7 @@ export class ClipPlayer {
       last.set(id, this.displayed(id, value));
     };
     for (const curve of clip.curves) {
-      write(curve.parameter, sampleCurve(curve.keys, slot.t));
+      write(curve.parameter, this.sample(curve, slot.t));
     }
     for (const id of from.keys()) if (!last.has(id)) write(id, undefined);
     slot.last = last;
@@ -224,6 +279,11 @@ export class ClipPlayer {
     // id only `from` held was just written at base, to rounding: drop them so
     // they are not written again.
     if (wIn >= 1) from.clear();
+  }
+
+  /** The curve at `t`, smooth unless it is marked `"linear"`. */
+  private sample(curve: IkiMotionCurve, t: number): number {
+    return sampleCurve(curve.keys, t, this.slopes.get(curve));
   }
 
   /**

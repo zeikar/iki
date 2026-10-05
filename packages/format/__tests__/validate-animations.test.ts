@@ -235,10 +235,31 @@ describe("motions — accepted", () => {
     expect(parseIkiModel(motionModel(motions)).motions).toEqual(motions);
   });
 
-  it("keeps absent fades absent", () => {
+  it("keeps absent fades and interpolation absent", () => {
     const parsed = parseIkiModel(motionModel({ A: [clip()] })).motions!.A[0];
     expect("fadeIn" in parsed).toBe(false);
     expect("fadeOut" in parsed).toBe(false);
+    expect("interpolation" in parsed.curves[0]).toBe(false);
+  });
+
+  it.each(["linear", "smooth"])("round-trips interpolation %s", (mode) => {
+    const motions = {
+      A: [
+        clip({
+          curves: [
+            {
+              parameter: "ParamA",
+              keys: [
+                [0, 0],
+                [2, 1],
+              ],
+              interpolation: mode,
+            },
+          ],
+        }),
+      ],
+    };
+    expect(parseIkiModel(motionModel(motions)).motions).toEqual(motions);
   });
 
   it("accepts blink and breath curves in a one-shot group", () => {
@@ -355,6 +376,20 @@ describe("motions — rejected", () => {
     rejectsMotions(
       { Nod: [clip({ curves: [{ parameter: "Nope", keys: [[0, 0]] }] })] },
       'motions["Nod"][0].curves[0].parameter "Nope" is not a declared parameter',
+    );
+  });
+  it.each([["cubic"], [""], [1], [null]])("interpolation %j", (mode) => {
+    rejectsMotions(
+      {
+        Nod: [
+          clip({
+            curves: [
+              { parameter: "ParamA", keys: [[0, 0]], interpolation: mode },
+            ],
+          }),
+        ],
+      },
+      'motions["Nod"][0].curves[0].interpolation must be one of linear, smooth',
     );
   });
   it("duplicate curve parameter", () => {

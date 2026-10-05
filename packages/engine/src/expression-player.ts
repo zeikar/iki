@@ -1,54 +1,81 @@
-import type { IkiExpression, IkiExpressionBlend } from "@ikijs/format";
-import { lerp } from "./math";
+import {
+  DEFAULT_FADE_SECONDS,
+  type IkiExpression,
+  type IkiExpressionParameter,
+} from "@ikijs/format";
+import { lerp, smoothstep } from "./math";
 
-/** One expression's place in the player and the fade it is in. */
-interface Entry {
-  expression: IkiExpression;
-  /** The weight when the current fade began. */
-  from: number;
-  /** Where the current fade heads: 1 while active, 0 once released. */
-  target: number;
-  /** Seconds since the current fade began. */
+/**
+ * A parameter's value as a line in its base: `scale · base + offset`. Every
+ * blend is one (add c is 1·base + c, multiply c is c·base, overwrite c is
+ * 0·base + c) and so is leaving a parameter alone (1·base); a lerp between two
+ * lines is a line too. So whatever mix of expressions is on screen, however
+ * many were cut off mid-fade, is one line per parameter, and it still follows
+ * the live base: a multiply on EyeOpen keeps the blink.
+ */
+interface Line {
+  scale: number;
+  offset: number;
+}
+
+/** The line of a parameter an expression leaves alone: the base itself. */
+const BASE: Line = { scale: 1, offset: 0 };
+
+function lineOf({ value, blend = "add" }: IkiExpressionParameter): Line {
+  switch (blend) {
+    case "add":
+      return { scale: 1, offset: value };
+    case "multiply":
+      return { scale: value, offset: 0 };
+    case "overwrite":
+      return { scale: 0, offset: value };
+  }
+}
+
+/** The line's value over `base`. */
+function at({ scale, offset }: Line, base: number): number {
+  return scale * base + offset;
+}
+
+/**
+ * {@link lerp}, but exactly `b` at `t = 1` (lerp is exact only at 0): a
+ * finished fade lands on its target, and an id it lets go of on base itself.
+ */
+function mix(a: number, b: number, t: number): number {
+  return t === 1 ? b : lerp(a, b, t);
+}
+
+/** What the player can fade to: an expression, or the base itself. */
+interface Pose {
+  /** Undefined for {@link RELEASE}. */
+  expression: IkiExpression | undefined;
+  /** The parameters it drives, by id. */
+  lines: ReadonlyMap<string, Line>;
+}
+
+/** The pose a stop fades to: it drives nothing, so every id goes to base. */
+const RELEASE: Pose = { expression: undefined, lines: new Map() };
+
+/**
+ * The fade in progress: toward `pose`, from the pose on screen when it began.
+ */
+interface Fade {
+  pose: Pose;
+  /** How long it lasts, in seconds. */
+  seconds: number;
+  /** Seconds since it began. */
   elapsed: number;
 }
 
 /**
- * The entry's weight: linear from `from` to `target` over the fade's declared
- * seconds, so a fade takes its full time however far the previous one got.
- * Fading in (active) takes `fadeIn`, fading out (released) takes `fadeOut`;
- * a zero fade is at its target at once.
+ * The fade's weight, eased along {@link smoothstep} from 0 to 1 over its
+ * seconds; at or past its end exactly 1. A zero fade is at 1 the moment it
+ * begins, with no division by zero: an expression with a zero `fadeIn` is
+ * fully on as soon as it is played, so a stop before the next apply fades it
+ * out from full.
  */
-function weight(entry: Entry): number {
-  const { expression, from, target, elapsed } = entry;
-  const fade = (target === 1 ? expression.fadeIn : expression.fadeOut) ?? 0;
-  // At or past the fade's end (always, for a zero fade) the weight is the
-  // target itself: no division by a zero fade, no overshoot, and a release
-  // lands on exactly 0, where it is pruned.
-  if (elapsed >= fade) return target;
-  return lerp(from, target, elapsed / fade);
-}
-
-/** Restart the entry's fade toward `target` from the weight it has now. */
-function fadeToward(entry: Entry, target: number): void {
-  entry.from = weight(entry);
-  entry.target = target;
-  entry.elapsed = 0;
-}
-
-/** The parameter's value with the expression fully applied over `base`. */
-function blended(
-  base: number,
-  value: number,
-  blend: IkiExpressionBlend = "add",
-): number {
-  switch (blend) {
-    case "add":
-      return base + value;
-    case "multiply":
-      return base * value;
-    case "overwrite":
-      return value;
-  }
+function weight({ seconds, elapsed }: Fade): number {
+  return elapsed >= seconds ? 1 : smoothstep(elapsed / seconds);
 }
 
 /**
@@ -56,11 +83,14 @@ function blended(
  * {@link IkiMotion}, which owns the frame: the base rule below only holds
  * inside that frame, so this is not exported from the package entry.
  *
- * One expression is active at a time. {@link play} makes one active and
- * releases the one before it; {@link stop} releases the active one. A released
- * expression fades out alongside the new one and is dropped once its weight
- * reaches 0. Each expression is held at most once: playing one that is still
- * fading out brings that same entry back, so an `add` never stacks on itself.
+ * One fade runs at a time, from the pose on screen when it began to its
+ * target. {@link play} fades an expression in over its `fadeIn`; {@link stop}
+ * fades back to base over the playing expression's `fadeOut`. Either one
+ * interrupting a fade starts from where that fade got to, as a replacing
+ * motion clip does, so the screen never jumps or dips toward base; unlike a
+ * clip's, that starting pose keeps following the live base (see {@link Line}).
+ * Each target is taken over the base, never over what is on screen, so an
+ * `add` never stacks on itself however often it is replayed.
  *
  * IkiMotion steps it once per update; this class has no timers, rAF, DOM, or
  * Date.now.
@@ -68,58 +98,90 @@ function blended(
 export class ExpressionPlayer {
   /** Every expression parameter, deduplicated, insertion-ordered. */
   readonly parameterIds: readonly string[];
-  private readonly expressions: Map<string, IkiExpression>;
+  private readonly poses: Map<string, Pose & { expression: IkiExpression }>;
 
-  private active: Entry | undefined = undefined;
-  /** Released entries, oldest first: the order they compose in. */
-  private released: Entry[] = [];
+  /** Undefined while nothing is held. */
+  private fade: Fade | undefined = undefined;
+  /**
+   * The pose on screen when {@link fade} began, a line per id; empty once the
+   * fade has finished, since the screen is then its target alone.
+   */
+  private from = new Map<string, Line>();
+  /** Every id `from` or the fade drives: what each apply writes. */
+  private held: string[] = [];
 
   constructor(expressions: IkiExpression[] | undefined) {
     const list = expressions ?? [];
-    this.expressions = new Map(list.map((e) => [e.id, e]));
+    this.poses = new Map(
+      list.map((expression) => [
+        expression.id,
+        {
+          expression,
+          lines: new Map(
+            expression.parameters.map((p) => [p.parameter, lineOf(p)]),
+          ),
+        },
+      ]),
+    );
     this.parameterIds = [
       ...new Set(list.flatMap((e) => e.parameters.map((p) => p.parameter))),
     ];
   }
 
   /**
-   * Make expression `id` active, fading it in and releasing the one active
-   * before it. Returns false, and changes nothing, for an expression id the
-   * model does not declare; playing the active expression again changes
-   * nothing and returns true.
+   * Fade expression `id` in over its `fadeIn`, from what is on screen: the
+   * base, or the output of the expression it replaces, or of a stop still
+   * fading out. Returns false, and changes nothing, for an expression id the
+   * model does not declare; playing the expression already fading in or held
+   * changes nothing and returns true.
    */
   play(id: string): boolean {
-    const expression = this.expressions.get(id);
-    if (!expression) return false;
-    if (this.active?.expression === expression) return true;
-
-    // An expression still fading out comes back from the weight it has rather
-    // than as a second copy from 0, which would stack on the first.
-    const i = this.released.findIndex((e) => e.expression === expression);
-    let entry: Entry;
-    if (i >= 0) {
-      [entry] = this.released.splice(i, 1);
-      fadeToward(entry, 1);
-    } else {
-      entry = { expression, from: 0, target: 1, elapsed: 0 };
-    }
-    this.stop();
-    this.active = entry;
+    const pose = this.poses.get(id);
+    if (!pose) return false;
+    if (this.fade?.pose === pose) return true;
+    this.begin(pose, pose.expression.fadeIn ?? DEFAULT_FADE_SECONDS);
     return true;
   }
 
-  /** Release the active expression, if any, fading it out. */
+  /**
+   * Fade back to base over the playing expression's `fadeOut`, from what is
+   * on screen. Does nothing when nothing is playing or a stop is already
+   * fading out.
+   */
   stop(): void {
-    if (!this.active) return;
-    fadeToward(this.active, 0);
-    this.released.push(this.active);
-    this.active = undefined;
+    const playing = this.fade?.pose.expression;
+    if (!playing) return;
+    this.begin(RELEASE, playing.fadeOut ?? DEFAULT_FADE_SECONDS);
   }
 
   /**
-   * Advance `dtS` seconds and write every held expression into `frame`:
-   * released ones oldest first, then the active one, each over what the ones
-   * before it wrote.
+   * Freeze what is on screen into {@link from}, at the weight the current
+   * fade has reached, and start a fade from it toward `pose`. Folding keeps
+   * this to one `from` and one fade however fast the plays come.
+   */
+  private begin(pose: Pose, seconds: number): void {
+    if (this.fade) {
+      const { lines } = this.fade.pose;
+      const w = weight(this.fade);
+      const from = new Map<string, Line>();
+      for (const id of this.held) {
+        const a = this.from.get(id) ?? BASE;
+        const b = lines.get(id) ?? BASE;
+        from.set(id, {
+          scale: mix(a.scale, b.scale, w),
+          offset: mix(a.offset, b.offset, w),
+        });
+      }
+      this.from = from;
+    }
+    this.fade = { pose, seconds, elapsed: 0 };
+    this.held = [...new Set([...this.from.keys(), ...pose.lines.keys()])];
+  }
+
+  /**
+   * Advance `dtS` seconds and write every held id into `frame`: the pose on
+   * screen when the fade began, lerped toward the fade's target by its
+   * weight. An id the target does not drive goes to base.
    *
    * `frame` holds what earlier stages wrote this update. A parameter id's base
    * is its frame value, else `rest(id)` — the parameter's resting value,
@@ -132,40 +194,28 @@ export class ExpressionPlayer {
     rest: (id: string) => number,
   ): void {
     // IkiMotion calls this every frame for every model; most hold nothing.
-    if (!this.active && this.released.length === 0) return;
-    for (const entry of this.released) applyEntry(entry, dtS, frame, rest);
-    if (this.active) applyEntry(this.active, dtS, frame, rest);
-    // A release that reached 0 has just written its parameters at base (a
-    // lerp by 0 is exact). Dropping it now makes that its last write, so a
-    // parameter nothing else writes rests at its default instead of being
-    // held.
-    if (!this.released.every(stillFading)) {
-      this.released = this.released.filter(stillFading);
+    const fade = this.fade;
+    if (!fade) return;
+    fade.elapsed += dtS;
+    const w = weight(fade);
+    const { lines } = fade.pose;
+    for (const id of this.held) {
+      const base = frame.get(id) ?? rest(id);
+      const start = at(this.from.get(id) ?? BASE, base);
+      frame.set(id, mix(start, at(lines.get(id) ?? BASE, base), w));
     }
-  }
-}
-
-/** False once a released entry's weight has reached 0. */
-function stillFading(entry: Entry): boolean {
-  return weight(entry) > 0;
-}
-
-/**
- * Advance one entry `dtS` seconds and write its parameters over the frame. An
- * id's base is what earlier stages, and the entries before this one, wrote
- * this update, else rest: each entry writes back into the frame, so the
- * entries chain in order.
- */
-function applyEntry(
-  entry: Entry,
-  dtS: number,
-  frame: Map<string, number>,
-  rest: (id: string) => number,
-): void {
-  entry.elapsed += dtS;
-  const w = weight(entry);
-  for (const { parameter, value, blend } of entry.expression.parameters) {
-    const b = frame.get(parameter) ?? rest(parameter);
-    frame.set(parameter, lerp(b, blended(b, value, blend), w));
+    if (w < 1) return;
+    // The fade is done and the screen is its target alone. An id only `from`
+    // drove was just written at base, exactly; dropping it now makes that its
+    // last write, so a parameter nothing else writes rests at its default
+    // instead of being held. A finished stop drives nothing, so it goes too.
+    if (!fade.pose.expression) {
+      this.fade = undefined;
+      this.from.clear();
+      this.held = [];
+    } else if (this.from.size > 0) {
+      this.from.clear();
+      this.held = [...lines.keys()];
+    }
   }
 }

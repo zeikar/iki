@@ -9,16 +9,11 @@
  * Two-parameter (joint X+Y) grid warps via {@link IkiGrid2DWarp} (`warp2d`) are supported; each deformer carries
  * either a 1D warp (`warps`) or a 2D warp (`warp2d`), not both. Multi-grid composition and further advanced warp
  * types remain deferred. Group warp deformers ({@link IkiWarpDeformer}) are part of the v1 contract.
- * A model may also declare named {@link IkiExpression}s and grouped {@link IkiMotionClip}s for a host to play.
+ * A model may also declare named {@link IkiExpression}s and grouped {@link IkiMotionClip}s for a host to play (see animations.ts).
  */
 export const IKI_FORMAT_VERSION = 1;
 
-/**
- * The motion group that loops. Its clips replace the procedural head sway and
- * gaze; blink and breath stay procedural, so its curves may not animate
- * `EyeOpenLeft`, `EyeOpenRight` or `Breath`. Every other group plays one-shot.
- */
-export const IDLE_MOTION_GROUP = "Idle";
+import type { IkiExpression, IkiMotionClip } from "./animations";
 
 /**
  * A sub-rectangle of a texture atlas in normalized UV space (0..1).
@@ -383,75 +378,6 @@ export interface IkiPhysicsChain {
   segments: IkiPhysicsChainSegment[];
 }
 
-/**
- * How an {@link IkiExpressionParameter} combines with the frame's base value.
- * `"add"` adds `value`, `"multiply"` multiplies by it, `"overwrite"` replaces
- * the base with it.
- */
-export type IkiExpressionBlend = "add" | "multiply" | "overwrite";
-
-/** One parameter an {@link IkiExpression} drives. */
-export interface IkiExpressionParameter {
-  /** A declared parameter id; at most once per expression. */
-  parameter: string;
-  /** Finite. */
-  value: number;
-  /**
-   * Absent means `"add"`. Applies to the frame's base value, scaled by the fade
-   * weight `w`: `result = base + (blended - base) * w`. `ParamMouthOpenY` is
-   * allowed; frame order decides it, so a host's later write (lip-sync) wins.
-   */
-  blend?: IkiExpressionBlend;
-}
-
-/** A named, held parameter pose (e.g. a smile) that a host plays by `id`. */
-export interface IkiExpression {
-  /** Non-empty; unique across the model's expressions. */
-  id: string;
-  /** Contains a non-whitespace character. The semantic layer a host's picker
-   *  (e.g. an LLM) chooses by. */
-  description: string;
-  /** Seconds, finite and `>= 0`. Absent means 0 (no fade). */
-  fadeIn?: number;
-  /** Seconds, finite and `>= 0`. Absent means 0 (no fade). Applies when the
-   *  expression is released, whether by stop or by another replacing it. */
-  fadeOut?: number;
-  /** Non-empty. */
-  parameters: IkiExpressionParameter[];
-}
-
-/**
- * One animated parameter of an {@link IkiMotionClip}: keys sampled linearly.
- * Before the first key the value holds at the first key's value; after the last
- * key it holds at the last key's value.
- */
-export interface IkiMotionCurve {
-  /** A declared parameter id; at most once per clip. */
-  parameter: string;
-  /** Non-empty `[t, value]` pairs. `t` is seconds, strictly increasing and
-   *  inside `[0, duration]`. */
-  keys: [number, number][];
-}
-
-/** One clip in a motion group; a host addresses it as (group, index). */
-export interface IkiMotionClip {
-  /** Contains a non-whitespace character. The semantic layer a host's picker
-   *  (e.g. an LLM) chooses by. */
-  description: string;
-  /** Seconds, `> 0`. */
-  duration: number;
-  /** Seconds, `>= 0` and `<= duration`. Absent means 0. Starts from the current
-   *  pose: the base, or the replaced clip's last output when this play
-   *  replaces a running clip. */
-  fadeIn?: number;
-  /** Seconds, `>= 0` and `<= duration`. Absent means 0. May overlap `fadeIn`
-   *  (`fadeIn + fadeOut > duration` is valid); the clip then peaks below full
-   *  weight. */
-  fadeOut?: number;
-  /** Non-empty. */
-  curves: IkiMotionCurve[];
-}
-
 /** A complete `.iki` puppet model. */
 export interface IkiModel {
   /** Format version; see {@link IKI_FORMAT_VERSION}. */
@@ -472,7 +398,7 @@ export interface IkiModel {
   expressions?: IkiExpression[];
   /**
    * Optional motion clips keyed by non-empty group name, each a non-empty list.
-   * The {@link IDLE_MOTION_GROUP} group loops and may not animate blink or
+   * The `IDLE_MOTION_GROUP` group loops and may not animate blink or
    * breath; all others play one-shot.
    */
   motions?: Record<string, IkiMotionClip[]>;
