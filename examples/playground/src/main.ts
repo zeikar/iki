@@ -1,6 +1,5 @@
 import { IkiMotion, IkiPlayer } from "@ikijs/engine";
 import { type IkiModel, parseIkiModel } from "@ikijs/format";
-import { heroDemoAnimations } from "./demo-animations";
 import { sampleModel } from "./sample-model";
 
 const canvas = document.getElementById("iki") as HTMLCanvasElement;
@@ -209,33 +208,15 @@ async function fetchModel(file: string): Promise<unknown> {
   return res.json();
 }
 
-// hero.iki declares no expressions or motions yet, so the playground adds its
-// own demo set to give the play buttons something to show; `demo` says it did.
-// A hero.iki that declares either loads exactly as given.
-async function fetchHero(): Promise<{ raw: unknown; demo: boolean }> {
-  const raw = await fetchModel("hero.iki");
-  // Not parsed yet: a non-object is left for parseIkiModel to reject.
-  if (
-    typeof raw !== "object" ||
-    raw === null ||
-    "expressions" in raw ||
-    "motions" in raw
-  ) {
-    return { raw, demo: false };
-  }
-  return { raw: { ...raw, ...heroDemoAnimations }, demo: true };
-}
-
 async function switchModel(which: string, file?: File): Promise<void> {
   const seq = ++modelSwitchSeq;
   try {
     let raw: unknown = sampleModel;
-    let demo = false;
-    if (which === "hero") ({ raw, demo } = await fetchHero());
+    if (which === "hero") raw = await fetchModel("hero.iki");
     if (which === "local")
       raw = file ? JSON.parse(await file.text()) : cachedLocalRaw;
     if (seq !== modelSwitchSeq) return; // superseded while fetching
-    await loadModel(raw, demo);
+    await loadModel(raw);
     if (seq !== modelSwitchSeq) return; // superseded while loading
     if (which === "local" && file) {
       cachedLocalRaw = raw;
@@ -269,9 +250,8 @@ async function switchModel(which: string, file?: File): Promise<void> {
 // untrusted .iki source. IkiFormatError is thrown here if the model is malformed.
 // load() resolves to a report of any textures that failed to decode/upload; the
 // rest of the model still renders. Controls are rebuilt against whatever
-// parameters the loaded model declares. `demo` says fetchHero() added the
-// playground's demo set, so the play buttons can say they are not the file's.
-async function loadModel(rawModel: unknown, demo: boolean): Promise<void> {
+// parameters the loaded model declares.
+async function loadModel(rawModel: unknown): Promise<void> {
   const parsed = parseIkiModel(rawModel);
   const { failedTextures, superseded } = await player.load(parsed);
   // A newer load() overtook this one, so the player never adopted `parsed`.
@@ -280,7 +260,7 @@ async function loadModel(rawModel: unknown, demo: boolean): Promise<void> {
   if (superseded) return;
   parsedModel = parsed;
   buildControls();
-  buildAnimationControls(parsed, demo);
+  buildAnimationControls(parsed);
   if (failedTextures.length > 0) {
     console.warn(
       `Iki: ${failedTextures.length} texture(s) failed to load`,
@@ -291,7 +271,7 @@ async function loadModel(rawModel: unknown, demo: boolean): Promise<void> {
 
 // One button per expression and per motion clip. The model is the catalog:
 // the buttons come only from what it declares, never from a fixed list.
-function buildAnimationControls(model: IkiModel, demo: boolean): void {
+function buildAnimationControls(model: IkiModel): void {
   animations.replaceChildren();
   const expressions = model.expressions ?? [];
   const groups = Object.entries(model.motions ?? {});
@@ -323,11 +303,6 @@ function buildAnimationControls(model: IkiModel, demo: boolean): void {
           ),
         ),
       ),
-    );
-  }
-  if (demo) {
-    animations.append(
-      note("The playground added this demo set; it is not in hero.iki."),
     );
   }
 }
@@ -379,13 +354,12 @@ function note(text: string): HTMLElement {
 // screen yet, so a failure falls back to the inline sample: the simpler model
 // is a better first frame than an empty canvas.
 try {
-  const { raw, demo } = await fetchHero();
-  await loadModel(raw, demo);
+  await loadModel(await fetchModel("hero.iki"));
 } catch (err) {
   console.error("Iki: hero load failed, falling back to the sample", err);
   loadedModelValue = "vector";
   modelSelect.value = "vector";
-  await loadModel(sampleModel, false);
+  await loadModel(sampleModel);
 }
 
 // Checkbox is on by default; start the idle loop after the first model load.
@@ -419,7 +393,7 @@ if (import.meta.env.DEV) {
     },
     load: (rawModel: unknown) => {
       pauseIdleForDevOp();
-      return loadModel(rawModel, false);
+      return loadModel(rawModel);
     },
     nextFrame: () =>
       new Promise<void>((resolve) =>

@@ -117,8 +117,8 @@ const NOSE_TIP_AT = 0.66;
 // ── DEFAULT LAYOUT (tune per character through `layout`) ──────────────────────
 // These defaults assume the standard framing the character skill prompts for
 // (a front-facing face centered on the canvas). The face, eyes, irises,
-// lashes, brows, nose and mouth are the hero bob's own tuning; bob wears no
-// blush, so its placement was picked on his face (below). The features'
+// lashes, brows, nose and mouth are the hero bob's own tuning; bob wears his
+// blush at its default placement, picked on his face (below). The features'
 // defaults are proportions of the face: resolveLayout carries them with the
 // face's cx, cy and w. The hair and
 // the torso depend on the hairstyle and on how the torso is framed, so they are
@@ -161,8 +161,7 @@ const DEFAULT_LAYOUT = {
   // eye's centre and 55 px under its row, above the nose tip: on bob's face,
   // which narrows fast below the eye row, a 2:1 blush there stays on the
   // cheek through the turn, where one 26 px further out reached the ears.
-  // OPTIONAL, and decoration: a parts dir without it composes, and nothing
-  // reports it missing.
+  // OPTIONAL: a parts dir without it composes, and nothing reports it missing.
   blush_L: { src: "blush.png", cx: 641, cy: 530, w: 56, optional: true, mirror: true }, // prettier-ignore
   blush_R: { src: "blush.png", cx: 459, cy: 530, w: 56, optional: true, mirror: false }, // prettier-ignore
   // The nose, drawn on its own (the face is drawn without one): the auto-rig
