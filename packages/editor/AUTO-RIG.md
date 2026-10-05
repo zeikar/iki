@@ -298,7 +298,7 @@ curvature the plate would need to put the eyes that far in front of its edge.
 
 ## Expressions and motions
 
-Every rigged model declares six expressions and three head motions
+Every rigged model declares three head motions and up to six expressions
 (`animations.ts`), each with a description a host picks it by — an LLM
 choosing from the descriptions, say. A term adds unless noted.
 
@@ -325,11 +325,14 @@ One clip per group, so a host plays (`Nod`, 0). Keys are `[t s, value]`.
   parameter that rests at 0, and the engine clamps the sum to its range.
 - **The filter.** A model declares the brows, the gaze and Cheek only with
   the layers they move (`brow_L` / `brow_R`; an iris, pupil or highlight; a
-  blush), and each expression keeps only its terms on parameters the model
-  declares. Every expression keeps a term on EyeOpen, MouthOpenY or
-  MouthForm, which the rig always declares, so none is emptied, and each
-  description names only the eyes and the mouth, so it stays true. The
-  motions move the head angles only, which are always declared.
+  blush). An expression whose look rests on a missing part is left out, so a
+  host never picks one the face cannot show: `shy` needs the blush, `angry`
+  and `sad` need a brow. `smile`, `laugh` and `surprised` rest on the mouth
+  and the eyes, which the rig always declares, so a model with only the
+  required layers keeps those three. A kept expression keeps only its terms
+  on parameters the model declares; each keeps a term on EyeOpen, MouthOpenY
+  or MouthForm, so none is emptied. The motions move the head angles only,
+  which are always declared.
 - **Brow signs.** Brow angles are raw per side and CCW-positive on screen.
   The character's left brow sits at +x, so its inner end is its screen-left
   end, which a CCW turn drops; the right brow's inner end is its screen-right

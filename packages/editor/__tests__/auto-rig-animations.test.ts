@@ -6,6 +6,7 @@ import {
 } from "@ikijs/format";
 import { generateIkiFromLayerSet, type LayerInput } from "@ikijs/editor";
 import { defaultExpressions } from "../src/auto-rig/animations";
+import { REQUIRED_ROLES } from "../src/auto-rig/roles";
 import { CANVAS, character, type CharacterOptions } from "./helpers/character";
 
 function rig(
@@ -19,6 +20,8 @@ function rig(
 const terms = (m: IkiModel) =>
   (m.expressions ?? []).flatMap((e) => e.parameters);
 
+const ids = (m: IkiModel) => (m.expressions ?? []).map((e) => e.id);
+
 const value = (e: IkiExpression, parameter: string) =>
   e.parameters.find((t) => t.parameter === parameter)!.value;
 
@@ -27,7 +30,7 @@ describe("the auto-rig's default expressions and motions", () => {
   const hero = rig();
 
   it("declares six described expressions and the Nod, Shake and Tilt clips", () => {
-    expect(withBlush.expressions?.map((e) => e.id)).toEqual([
+    expect(ids(withBlush)).toEqual([
       "smile",
       "laugh",
       "angry",
@@ -52,12 +55,23 @@ describe("the auto-rig's default expressions and motions", () => {
     expect(terms(hero).some((t) => t.parameter === P.Cheek)).toBe(false);
   });
 
-  it("leaves out the brows on a character without them, keeping angry", () => {
-    const m = rig({}, (l) => !l.role.startsWith("brow_"));
+  it("declares an expression only where the face has what it shows", () => {
+    // shy needs the blush, angry and sad the brows.
+    expect(ids(hero)).toEqual(["smile", "laugh", "angry", "sad", "surprised"]);
+    // The required roles alone, without the measured options naming others.
+    const bare = generateIkiFromLayerSet(
+      character().layers.filter((l) => REQUIRED_ROLES.includes(l.role)),
+      CANVAS,
+    );
+    expect(ids(bare)).toEqual(["smile", "laugh", "surprised"]);
+  });
+
+  it("leaves out the brow terms on a character without brows", () => {
+    const m = rig({ extras: true }, (l) => !l.role.startsWith("brow_"));
+    expect(ids(m)).toEqual(["smile", "laugh", "surprised", "shy"]);
     expect(terms(m).filter((t) => t.parameter.startsWith("ParamBrow"))).toEqual(
       [],
     );
-    expect(m.expressions?.some((e) => e.id === "angry")).toBe(true);
   });
 
   it("tilts the brows as a mirror pair: inner ends down in angry, up in sad", () => {

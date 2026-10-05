@@ -10,8 +10,9 @@ Make a rigged, animated 2D character by asking for one.
 The result is a `.iki` model that blinks (eyelid fold), gazes, lip-syncs, turns,
 nods and tilts its head with hair that sways behind it, and emotes with its
 brows — playable in the browser with [`@ikijs/engine`](https://www.npmjs.com/package/@ikijs/engine).
-It also declares default expressions (smile, laugh, angry, sad, surprised, shy)
-and head motions (Nod, Shake, Tilt), each with a description a host picks by.
+It also declares head motions (Nod, Shake, Tilt) and up to six default
+expressions (smile, laugh, angry, sad, surprised, shy; shy needs the cheek
+blush), each with a description a host picks by.
 
 ## What's in it
 

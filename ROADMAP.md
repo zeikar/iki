@@ -42,6 +42,6 @@ deliberately deferred.
 8. **Clipping masks** — done (stencil-based; e.g. an iris clipped to the sclera so it never spills at extreme gaze)
 9. **Expressions and motions** — in progress
    - Slice 1 — done: optional `expressions` and `motions` in the `.iki` format, the engine players on `IkiMotion`, and play buttons in the playground
-   - Slice 2 — done: `ParamCheek` fades an auto-rigged blush from faint at rest to as drawn; every auto-rigged model declares six described default expressions (smile, laugh, angry, sad, surprised, shy) and the Nod, Shake and Tilt head motions, their values picked by eye on our own characters; the playground hero wears a blush and ships its own set
+   - Slice 2 — done: `ParamCheek` fades an auto-rigged blush from faint at rest to as drawn; every auto-rigged model declares the Nod, Shake and Tilt head motions and up to six described default expressions (smile, laugh, angry, sad, surprised, shy — each only where the face has the parts it shows), their values picked by eye on our own characters; the playground hero wears a blush and ships its own set
    - Next: the Charivo adapter
    - Deferred: EyeSmile, the happy eye for smile and laugh (it needs a part-level 2D warp, keyed on EyeOpen × EyeSmile)

@@ -62,10 +62,10 @@ leaves the document untouched.
 a torso that breathes, and emotes with its brows — including a
 hair-sway physics rig when a `hair_front` layer is present. With a `blush_*`
 layer it declares `ParamCheek`, which fades the blush from faint at rest to
-as drawn. Every rigged model also declares six default expressions (smile,
-laugh, angry, sad, surprised, shy) and the head motions Nod, Shake and Tilt,
-each with a description a host picks by, the expressions keeping only the
-parameters the model declares (`AUTO-RIG.md`).
+as drawn. Every rigged model also declares the head motions Nod, Shake and
+Tilt and up to six default expressions (smile, laugh, angry, sad, surprised,
+shy; shy needs a blush, angry and sad need brows), each with a description a
+host picks by (`AUTO-RIG.md`).
 
 The rig turns the head by parallax, not a reshaped face, with values of our
 own picked by eye (`auto-rig/profile.ts`, `AUTO-RIG.md`). The face plate

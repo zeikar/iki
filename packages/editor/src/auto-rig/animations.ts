@@ -1,5 +1,5 @@
 /**
- * The expressions and motions every auto-rigged model declares, each with a
+ * The expressions and motions an auto-rigged model declares, each with a
  * description a host (an LLM, say) picks it by.
  *
  * The values are our own, picked by eye on Bob and the long-haired character
@@ -46,12 +46,21 @@ function cheek(value: number): IkiExpressionParameter {
   return { parameter: P.Cheek, value, blend: "add" };
 }
 
+const BROWS = [P.BrowLeftY, P.BrowRightY, P.BrowLeftAngle, P.BrowRightAngle];
+
+interface DefaultExpression extends IkiExpression {
+  /** The parameters its look rests on: a model that declares none of them
+   *  could not show what the description promises, so it goes without. */
+  needs?: string[];
+}
+
 // A model declares the brows, the gaze and Cheek only with the layers they
-// move, so `defaultExpressions` filters these terms. Every entry keeps a term
-// on EyeOpen, MouthOpenY or MouthForm, which the rig always declares, so none
-// is ever emptied (`parseIkiModel` would reject one that was), and each
-// description names only the eyes and the mouth, so it stays true.
-const EXPRESSIONS: IkiExpression[] = [
+// move, so `defaultExpressions` filters these terms, and leaves out an entry
+// whose look rests on a missing part: shy on the blush, angry and sad on the
+// brows. Every entry keeps a term on EyeOpen, MouthOpenY or MouthForm, which
+// the rig always declares, so a kept one is never emptied (`parseIkiModel`
+// would reject one that was).
+const EXPRESSIONS: DefaultExpression[] = [
   {
     id: "smile",
     description:
@@ -79,6 +88,7 @@ const EXPRESSIONS: IkiExpression[] = [
     id: "angry",
     description:
       "Angry or annoyed, frowning. For irritation, frustration, indignation or scolding.",
+    needs: BROWS,
     parameters: [
       ...browsY(-0.5),
       ...browsTilt(0.8),
@@ -89,6 +99,7 @@ const EXPRESSIONS: IkiExpression[] = [
     id: "sad",
     description:
       "Sad or disappointed, downcast. For sorrow, regret, apology or sympathy.",
+    needs: BROWS,
     parameters: [
       ...browsY(0.35),
       ...browsTilt(-0.8),
@@ -108,6 +119,7 @@ const EXPRESSIONS: IkiExpression[] = [
     id: "shy",
     description:
       "Shy or embarrassed: bashful, flustered. For being praised, teased or caught off guard.",
+    needs: [P.Cheek],
     parameters: [
       cheek(1),
       // Gaze down.
@@ -118,12 +130,14 @@ const EXPRESSIONS: IkiExpression[] = [
   },
 ];
 
-/** The default expressions, each keeping only the terms on `declared`
- *  parameters, in table order. */
+/** The default expressions a model with the `declared` parameters can show,
+ *  each keeping only its terms on them, in table order. */
 export function defaultExpressions(
   declared: ReadonlySet<string>,
 ): IkiExpression[] {
-  return EXPRESSIONS.map((e) => ({
+  return EXPRESSIONS.filter(
+    (e) => e.needs === undefined || e.needs.some((id) => declared.has(id)),
+  ).map(({ needs: _needs, ...e }) => ({
     ...e,
     parameters: e.parameters.filter((t) => declared.has(t.parameter)),
   }));
