@@ -27,4 +27,5 @@ export {
   type IkiWarpGrid,
 } from "./types";
 export { StandardParameter, type StandardParameterId } from "./parameters";
-export { IkiFormatError, loadIkiModel, parseIkiModel } from "./validate";
+export { IkiFormatError } from "./validate-primitives";
+export { loadIkiModel, parseIkiModel } from "./validate";

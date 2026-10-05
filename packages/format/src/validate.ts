@@ -24,14 +24,7 @@ import {
   type IkiWarp,
   type IkiWarpDeformer,
 } from "./types";
-
-/** Thrown when input does not conform to the `.iki` format. */
-export class IkiFormatError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "IkiFormatError";
-  }
-}
+import { IkiFormatError, isObject, num, str } from "./validate-primitives";
 
 const TRANSFORM_CHANNELS: ReadonlySet<IkiTransformChannel> = new Set([
   "translateX",
@@ -49,24 +42,6 @@ const MATRIX_CHANNELS: ReadonlySet<IkiMatrixChannel> = new Set([
   "scaleX",
   "scaleY",
 ]);
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function num(value: unknown, path: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new IkiFormatError(`${path} must be a finite number`);
-  }
-  return value;
-}
-
-function str(value: unknown, path: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new IkiFormatError(`${path} must be a non-empty string`);
-  }
-  return value;
-}
 
 function parseNumberArray(value: unknown, path: string): number[] {
   if (!Array.isArray(value)) {
