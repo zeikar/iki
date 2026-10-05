@@ -4,6 +4,8 @@ import type {
   IkiExpression,
   IkiExpressionBlend,
   IkiExpressionParameter,
+  IkiMotionClip,
+  IkiMotionCurve,
 } from "./types";
 import { IkiFormatError, isObject, num, str } from "./validate-primitives";
 
@@ -45,7 +47,7 @@ function parseExpressionParameter(
       !EXPRESSION_BLENDS.has(value.blend)
     ) {
       throw new IkiFormatError(
-        `${path}.blend must be one of add, multiply, overwrite`,
+        `${path}.blend must be one of ${[...EXPRESSION_BLENDS].join(", ")}`,
       );
     }
     result.blend = value.blend as IkiExpressionBlend;
@@ -109,4 +111,109 @@ export function parseExpressions(
     ids.add(expression.id);
     return expression;
   });
+}
+
+function parseMotionKeys(
+  value: unknown,
+  path: string,
+  duration: number,
+): [number, number][] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new IkiFormatError(`${path} must be a non-empty array`);
+  }
+  let previous = -Infinity;
+  return value.map((k, i) => {
+    const at = `${path}[${i}]`;
+    if (!Array.isArray(k) || k.length !== 2) {
+      throw new IkiFormatError(`${at} must be a [t, value] pair`);
+    }
+    const t = num(k[0], `${at}[0]`);
+    const v = num(k[1], `${at}[1]`);
+    if (t < 0 || t > duration) {
+      throw new IkiFormatError(`${at}[0] must be within [0, duration]`);
+    }
+    if (t <= previous) {
+      throw new IkiFormatError(
+        `${at}[0] must be greater than the previous key's t`,
+      );
+    }
+    previous = t;
+    return [t, v];
+  });
+}
+
+function parseMotionClip(
+  value: unknown,
+  path: string,
+  declaredIds: ReadonlySet<string>,
+): IkiMotionClip {
+  if (!isObject(value)) {
+    throw new IkiFormatError(`${path} must be an object`);
+  }
+  const description = str(value.description, `${path}.description`);
+  const duration = num(value.duration, `${path}.duration`);
+  if (duration <= 0) {
+    throw new IkiFormatError(`${path}.duration must be > 0`);
+  }
+  const clip: IkiMotionClip = { description, duration, curves: [] };
+  // Each fade is bounded by the clip; their sum is not (overlap is valid).
+  for (const field of ["fadeIn", "fadeOut"] as const) {
+    if (value[field] === undefined) continue;
+    const seconds = parseFadeSeconds(value[field], `${path}.${field}`);
+    if (seconds > duration) {
+      throw new IkiFormatError(`${path}.${field} must not exceed duration`);
+    }
+    clip[field] = seconds;
+  }
+  if (!Array.isArray(value.curves) || value.curves.length === 0) {
+    throw new IkiFormatError(`${path}.curves must be a non-empty array`);
+  }
+  const seen = new Set<string>();
+  clip.curves = value.curves.map((c, i): IkiMotionCurve => {
+    const at = `${path}.curves[${i}]`;
+    if (!isObject(c)) {
+      throw new IkiFormatError(`${at} must be an object`);
+    }
+    const parameter = str(c.parameter, `${at}.parameter`);
+    if (!declaredIds.has(parameter)) {
+      throw new IkiFormatError(
+        `${at}.parameter "${parameter}" is not a declared parameter`,
+      );
+    }
+    if (seen.has(parameter)) {
+      throw new IkiFormatError(
+        `${at}.parameter "${parameter}" duplicates an earlier curve in this clip`,
+      );
+    }
+    seen.add(parameter);
+    return { parameter, keys: parseMotionKeys(c.keys, `${at}.keys`, duration) };
+  });
+  return clip;
+}
+
+/** Parse the model's `motions` record (group name -> clips). */
+export function parseMotions(
+  value: unknown,
+  declaredIds: ReadonlySet<string>,
+): Record<string, IkiMotionClip[]> {
+  if (!isObject(value)) {
+    throw new IkiFormatError("motions must be an object");
+  }
+  // fromEntries defines own keys, so a group named "__proto__" is kept.
+  return Object.fromEntries(
+    Object.keys(value).map((group) => {
+      const at = `motions[${JSON.stringify(group)}]`;
+      if (group === "") {
+        throw new IkiFormatError(`${at} group name must be non-empty`);
+      }
+      const clips = value[group];
+      if (!Array.isArray(clips) || clips.length === 0) {
+        throw new IkiFormatError(`${at} must be a non-empty array`);
+      }
+      return [
+        group,
+        clips.map((c, i) => parseMotionClip(c, `${at}[${i}]`, declaredIds)),
+      ];
+    }),
+  );
 }

@@ -132,6 +132,39 @@ describe("round-trip", () => {
     expect(result.parts[0].transform.opacity).toBeUndefined();
   });
 
+  it("preserves expressions and motions", () => {
+    const model: IkiModel = {
+      ...fixtureModel(),
+      expressions: [
+        {
+          id: "smile",
+          description: "a smile",
+          parameters: [{ parameter: "ParamA", value: 0.5, blend: "add" }],
+        },
+      ],
+      motions: {
+        Nod: [
+          {
+            description: "a nod",
+            duration: 1,
+            fadeIn: 0.1,
+            curves: [
+              {
+                parameter: "ParamA",
+                keys: [
+                  [0, 0],
+                  [1, 1],
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const doc = new EditorDocument(structuredClone(model));
+    expect(doc.toIkiModel()).toEqual(model);
+  });
+
   it("throws IkiFormatError with path-qualified message on invalid export", () => {
     const doc = new EditorDocument(fixtureModel());
     // Corrupt via the live model reference — NaN is not a finite number

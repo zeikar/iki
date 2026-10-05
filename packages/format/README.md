@@ -78,8 +78,18 @@ const model: IkiModel = {
 
 Beyond flat parts the schema also carries triangle meshes with per-vertex UV,
 per-vertex and per-control-point warp keyforms (1D and 2D parameter grids),
-matrix and warp deformer hierarchies, clipping masks, and spring/chain physics
-rigs. See [`src/types.ts`](https://github.com/zeikar/iki/tree/main/packages/format/src/types.ts) — every field is documented there.
+matrix and warp deformer hierarchies, clipping masks, spring/chain physics
+rigs, and named expressions and motion clips for a host to play. See [`src/types.ts`](https://github.com/zeikar/iki/tree/main/packages/format/src/types.ts) — every field is documented there.
+
+### Expressions and motions
+
+`expressions` are named parameter poses; `motions` are keyframed clips grouped
+by name (`Record<string, IkiMotionClip[]>`). Both require a non-empty
+`description`, the text a host (or an LLM) picks by. An expression parameter
+blends with `add` (the default), `multiply` or `overwrite`. Times are in seconds and clip
+curves are linear `[t, value]` keys, strictly increasing and inside
+`[0, duration]`. A clip's `fadeIn` and `fadeOut` are each no longer than the clip. The
+`Idle` group (`IDLE_MOTION_GROUP`) loops; every other group plays once.
 
 ### Side convention
 
