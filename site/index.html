@@ -314,7 +314,7 @@
         border-radius: 2px;
         transform-origin: left center;
         /* The one piece of unprompted motion on the page, and it is the subject
-           itself: the rig's seventeen values arriving. */
+           itself: seventeen values arriving on the rig that produced the frame. */
         animation: settle 0.85s cubic-bezier(0.22, 0.8, 0.3, 1) both;
         animation-delay: var(--d);
       }
@@ -589,15 +589,14 @@
       <div class="params">
         <div class="shell">
           <p class="caption">
-            <b>These seventeen values are the whole rig.</b> A host drives the
-            same ids from lip-sync, gaze, blink timers, and expressions.
+            <b>These seventeen values produced the frame above.</b> That is the
+            whole rig — a host drives the same ids from lip-sync, gaze, blink
+            timers, and expressions.
           </p>
 
-          <!-- The values shown until the live hero plays: the hero reset, then
-               posed at AngleX −10, AngleY 4, AngleZ −3, the still's pose (the
-               still predates the blush ParamCheek fades). hero.ts rewrites them
-               every frame from the live pose once it plays. --p is
-               (value - min) / (max - min). -->
+          <!-- The still's own values: the hero reset, then posed at AngleX −10,
+               AngleY 4, AngleZ −3. hero.ts rewrites them every frame from the
+               live pose once it plays. --p is (value - min) / (max - min). -->
           <div class="param-grid">
             <div class="param" style="--p: 33.3%; --d: 0s">
               <span class="id">ParamAngleX</span><span class="track"></span
