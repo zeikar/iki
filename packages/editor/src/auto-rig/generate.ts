@@ -8,7 +8,9 @@
  * plate, the hair and the blush moved by per-vertex keyforms of their own —
  * the plate as up to four islands of one drawing: a head that slides, a neck
  * that stays and two ears that lag. Blink, gaze, brows, mouth, breath and
- * hair sway are part warps and bindings under those.
+ * hair sway are part warps and bindings under those. The model also declares
+ * the default expressions and the Nod, Shake and Tilt motions
+ * (`animations.ts`).
  */
 
 import {
@@ -24,6 +26,7 @@ import {
   type IkiPhysics,
   type IkiWarp,
 } from "@ikijs/format";
+import { DEFAULT_MOTIONS, defaultExpressions } from "./animations";
 import { checkHeadEdges, checkLayers, checkStrandEdges } from "./checks";
 import { renderedLander, sideIrises, solveContext } from "./context";
 import { buildHeadFrame, type HeadFrame } from "./head";
@@ -271,14 +274,17 @@ export function generateIkiFromLayerSet(
     ];
   }
 
+  const parameters = declareParameters(new Set(byRole.keys()));
   const model: IkiModel = {
     version: IKI_FORMAT_VERSION,
     name: "auto-rigged",
     canvas: { width: canvas.width, height: canvas.height },
-    parameters: declareParameters(new Set(byRole.keys())),
+    parameters,
     parts,
     deformers: deformers(frame, grids, has("body") ? box("body") : undefined),
     ...(has("hair_front") ? { physics: hairPhysics() } : {}),
+    expressions: defaultExpressions(new Set(parameters.map((p) => p.id))),
+    motions: DEFAULT_MOTIONS,
   };
 
   // Reported only for a model that validates.
