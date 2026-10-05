@@ -116,11 +116,11 @@ const NOSE_TIP_AT = 0.66;
 
 // ── DEFAULT LAYOUT (tune per character through `layout`) ──────────────────────
 // These defaults assume the standard framing the character skill prompts for
-// (a front-facing face centered on the canvas). The face and its features are
-// the hero bob's own tuning, which reads more natural than any other character
-// so far — but for the blush, which bob does not wear: its placement was
-// picked on bob's face (below). The features' defaults are proportions of the
-// face (resolveLayout carries them with a moved or scaled face). The hair and
+// (a front-facing face centered on the canvas). The face, eyes, irises,
+// lashes, brows, nose and mouth are the hero bob's own tuning; bob wears no
+// blush, so its placement was picked on his face (below). The features'
+// defaults are proportions of the face: resolveLayout carries them with the
+// face's cx, cy and w. The hair and
 // the torso depend on the hairstyle and on how the torso is framed, so they are
 // older defaults every character retunes from the report. If the rendered model is misaligned, tune cx/cy/w through the
 // `layout` override and re-run — composing is cheap and the parts do not need
