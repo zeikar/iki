@@ -4,21 +4,22 @@
 rigged `.iki`. This note is the model behind it; the code comments say why
 each constant is what it is.
 
-| Module         | Job                                                                                 |
-| -------------- | ----------------------------------------------------------------------------------- |
-| `types.ts`     | the public shapes: `LayerInput`, `TurnTargets`, `TurnSolveReport`, …                |
-| `profile.ts`   | the rig's default values (our own, picked by eye) and the per-character style knobs |
-| `roles.ts`     | the role table (draw order, family) and `parseLayerRoles`                           |
-| `layout.ts`    | boxes, rounding, grid meshes                                                        |
-| `head.ts`      | the head's frame read off the layers: axis, eye row, chin, head unit, neck, jaw cut |
-| `face-mesh.ts` | the face plate's mesh: a head island and, under the jaw, a neck island              |
-| `fields.ts`    | one displacement field per family, off the profile                                  |
-| `grid.ts`      | warp lattices, the AngleX × AngleY bake, and landing a point the engine's way       |
-| `solve.ts`     | the profile in this head's pixels; fitting the cues; room, clamps, refusals; report |
-| `context.ts`   | what the solve reads off the layers; the lander that reads a rig back as drawn      |
-| `checks.ts`    | input checks: a malformed layer throws, a malformed turn option `TurnTargetError`   |
-| `drivers.ts`   | everything but the turn: blink fold, gaze, brows, mouth, hair sway, roll hang       |
-| `generate.ts`  | assembly: parts, meshes, deformers, parameters, physics                             |
+| Module          | Job                                                                                      |
+| --------------- | ---------------------------------------------------------------------------------------- |
+| `types.ts`      | the public shapes: `LayerInput`, `TurnTargets`, `TurnSolveReport`, …                     |
+| `profile.ts`    | the rig's default values (our own, picked by eye) and the per-character style knobs      |
+| `roles.ts`      | the role table (draw order, family) and `parseLayerRoles`                                |
+| `layout.ts`     | boxes, rounding, grid meshes                                                             |
+| `head.ts`       | the head's frame read off the layers: axis, eye row, chin, head unit, neck, jaw cut      |
+| `face-mesh.ts`  | the face plate's mesh: a head island and, under the jaw, a neck island                   |
+| `fields.ts`     | one displacement field per family, off the profile                                       |
+| `grid.ts`       | warp lattices, the AngleX × AngleY bake, and landing a point the engine's way            |
+| `solve.ts`      | the profile in this head's pixels; fitting the cues; room, clamps, refusals; report      |
+| `context.ts`    | what the solve reads off the layers; the lander that reads a rig back as drawn           |
+| `checks.ts`     | input checks: a malformed layer throws, a malformed turn option `TurnTargetError`        |
+| `drivers.ts`    | everything but the turn: blink fold, gaze, brows, mouth, hair sway, roll hang            |
+| `animations.ts` | the default expressions and motions, each described; filtered to the declared parameters |
+| `generate.ts`   | assembly: parts, meshes, deformers, parameters, physics, expressions, motions            |
 
 ## The model: the default rig
 
@@ -63,6 +64,7 @@ depth and the eyes' foreshortening) beat both.
 | `brow`       | a brow raises and lowers this far, hh                                                                               | 0.15   |
 | `breath`     | a breath lifts the shoulders this far, hh, and the head two thirds of it                                            | 0.03   |
 | `sway`       | a hair tip travels this far at full sway (±20), hh                                                                  | 0.08   |
+| `blushRest`  | at Cheek 0 the blush shows at this opacity, at Cheek 1 as drawn (picked with the expressions, below)                | 0.4    |
 
 The plate keeps its width on the turn, the mouth stays level and the eyes keep
 their height on the nod: those had candidates of their own, which read no
@@ -275,6 +277,9 @@ curvature the plate would need to put the eyes that far in front of its edge.
   iris's width sideways and 0.1 up or down, clipped to the white; they sit
   under the eye grid, so the turn carries them.
 - **Brows** — raise/lower 0.15 hh and tilt (±15°) per side, raw-symmetric.
+- **Cheek** — with a blush, `ParamCheek` (0..1, rest 0) fades each blush
+  part's opacity from `blushRest` (0.4) up to 1: the blush rests faint, and an
+  expression raises it to the look drawn. Without a blush there is no Cheek.
 - **Mouth** — MouthForm lifts the corners and widens a little; with
   `mouth_open`, MouthOpen fades the closed lips out (twice, so they are gone
   by the time the open drawing is half grown) while the open drawing grows out
@@ -290,6 +295,59 @@ curvature the plate would need to put the eyes that far in front of its edge.
   `t^1.4`. A spring settles on its target, so a held turn keeps the hair a
   quarter swung toward it (a held roll, 40 %).
 - **Breath** — the shoulders (and the neck) lift 0.03 hh, the head 0.02 hh.
+
+## Expressions and motions
+
+Every rigged model declares six expressions and three head motions
+(`animations.ts`), each with a description a host picks it by — an LLM
+choosing from the descriptions, say. A term adds unless noted.
+
+| Expression  | Terms                                                                                                         | Description                                                                                            |
+| ----------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `smile`     | MouthForm +1 · BrowLY/BrowRY +0.25 · Cheek +0.4                                                               | "Smiling and pleased: warm, friendly, content. For greetings, thanks, agreement and gentle happiness." |
+| `laugh`     | EyeLOpen/EyeROpen 0 (multiply) · MouthForm +1 · MouthOpenY 0.8 (overwrite) · BrowLY/BrowRY +0.4 · Cheek +0.65 | "Laughing, eyes shut and mouth open: delighted, amused. For jokes, playfulness and big joy."           |
+| `angry`     | BrowLY/BrowRY −0.5 · BrowLAngle +0.8 / BrowRAngle −0.8 · MouthForm −0.9                                       | "Angry or annoyed, frowning. For irritation, frustration, indignation or scolding."                    |
+| `sad`       | BrowLY/BrowRY +0.35 · BrowLAngle −0.8 / BrowRAngle +0.8 · MouthForm −0.8                                      | "Sad or disappointed, downcast. For sorrow, regret, apology or sympathy."                              |
+| `surprised` | BrowLY/BrowRY +0.8 · MouthOpenY 0.9 (overwrite)                                                               | "Surprised, mouth dropped open: startled, amazed. For shock, sudden news or disbelief."                |
+| `shy`       | Cheek +1 · EyeBallY −0.65 (gaze down) · MouthForm +0.4 · BrowLAngle −0.25 / BrowRAngle +0.25                  | "Shy or embarrassed: bashful, flustered. For being praised, teased or caught off guard."               |
+
+One clip per group, so a host plays (`Nod`, 0). Keys are `[t s, value]`.
+
+| Group   | Curve  | Keys                                                        | Duration | Fade-in | Description                                                               |
+| ------- | ------ | ----------------------------------------------------------- | -------- | ------- | ------------------------------------------------------------------------- |
+| `Nod`   | AngleY | (0, 0) (0.3, −18) (0.6, 4) (0.8, −1) (1, 0)                 | 1.0 s    | 0.4 s   | "Nods yes: agreement, acknowledgement, understanding."                    |
+| `Shake` | AngleX | (0, 0) (0.2, −18) (0.45, 18) (0.7, −16) (0.95, 10) (1.2, 0) | 1.2 s    | 0.15 s  | "Shakes the head no: disagreement, refusal, disbelief."                   |
+| `Tilt`  | AngleZ | (0, 0) (0.35, 20) (1, 20) (1.4, 0)                          | 1.4 s    | 0.4 s   | "Tilts the head to one side and back: curiosity, puzzlement, a question." |
+
+- **Blends.** EyeOpen multiplies, so the procedural blink keeps running
+  under it and at 0 the eyes stay shut. MouthOpenY overwrites, and a host's
+  lip-sync, written after the expression, wins. Every other term adds onto a
+  parameter that rests at 0, and the engine clamps the sum to its range.
+- **The filter.** A model declares the brows, the gaze and Cheek only with
+  the layers they move (`brow_L` / `brow_R`; an iris, pupil or highlight; a
+  blush), and each expression keeps only its terms on parameters the model
+  declares. Every expression keeps a term on EyeOpen, MouthOpenY or
+  MouthForm, which the rig always declares, so none is emptied, and each
+  description names only the eyes and the mouth, so it stays true. The
+  motions move the head angles only, which are always declared.
+- **Brow signs.** Brow angles are raw per side and CCW-positive on screen.
+  The character's left brow sits at +x, so its inner end is its screen-left
+  end, which a CCW turn drops; the right brow's inner end is its screen-right
+  end, which a CCW turn lifts. A mirror pair therefore takes opposite signs:
+  `angry` is L +, R − (inner ends down); `sad` and `shy` are L −, R + (inner
+  ends up).
+- **Fades.** No expression sets a fade, so each fades over the format's
+  `DEFAULT_FADE_SECONDS` (0.4 s); so do Nod and Tilt, capped at half the
+  clip. Shake fades in over 0.15 s: its first swing peaks at 0.2 s, and the
+  default fade damped it. No curve sets an interpolation, so each is
+  `smooth`. There is no `Idle` group, so the procedural idle stays whole.
+- **How the values were picked.** By eye, on Bob (with his blush) and the
+  long-haired character, in 2026-10: soft, medium and strong candidates
+  (0.7, 1 and 1.3 times a starting set of our own) for the expressions, the
+  motions and `blushRest`, rendered side by side on both characters; the
+  picked set was then confirmed as one clip on both. The strong set won for
+  every expression and motion, the medium for `blushRest`; Shake's shorter
+  fade-in was the one change of shape.
 
 ## Known limits
 
@@ -354,3 +412,12 @@ curvature the plate would need to put the eyes that far in front of its edge.
   report reads the iris's painted span, not what a lock covers of it, so a
   render measures a slightly smaller farEyeRatio than the report.
 - The nod is linear from 0 to each extreme; so is the turn.
+- `laugh`'s shut eyes are the blink's fold, with no smile arch: the happy eye
+  (an EyeSmile parameter) is deferred.
+- `surprised` cannot widen the eyes: EyeOpen rests at its max.
+- `shy`'s downward gaze barely shows on our characters: the iris travels only
+  0.1 of its width up or down at full gaze, and `shy` asks for 0.65 of that.
+- `sad` and `surprised` raise the brows under the bangs, which draw over
+  them: where the bangs come down to the brows, the raise goes under them.
+- A negative MouthForm only flattens a mouth drawn smiling, so on such art
+  `angry` and `sad` read as a flat mouth rather than a frown.

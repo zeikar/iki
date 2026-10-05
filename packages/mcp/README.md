@@ -9,7 +9,7 @@ A stdio [MCP](https://modelcontextprotocol.io/) server that exposes `.iki` model
 | Tool                        | Description                                                                                            |
 | --------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `validate_iki`              | Validate a raw `.iki` model — accepts an object or a JSON string — fail-fast, one error at a time.     |
-| `describe_iki`              | Return a structured summary of a valid model's canvas, parameters, parts, and deformers.               |
+| `describe_iki`              | Return a summary of a valid model's canvas, parameters, parts, deformers, expressions, and motions.    |
 | `list_standard_parameters`  | List the recommended standard parameter ids (e.g. `ParamAngleX`, `ParamMouthOpenY`) with descriptions. |
 | `auto_rig_from_layers`      | Auto-rig role-named PNG layers into a renderable `.iki` written to disk; returns the output path.      |
 | `compose_layers_from_parts` | Compose generated part PNGs into canvas-aligned, role-named layers, with the geometry report inline.   |
@@ -20,7 +20,7 @@ The `model` input for `validate_iki` and `describe_iki` accepts either a plain J
 
 ### `auto_rig_from_layers`
 
-Turns a set of role-named, full-canvas transparent PNG layers into a renderable, validated `.iki` model with the textures atlased and embedded as a base64 `data:image/png` URI. Under `quantizeColors` a `nose` layer is the exception: the palette rims a soft-shaded nose's feather, so the nose is atlased alone on a second, lossless page.
+Turns a set of role-named, full-canvas transparent PNG layers into a renderable, validated `.iki` model with the textures atlased and embedded as a base64 `data:image/png` URI. Under `quantizeColors` a `nose` layer is the exception: the palette rims a soft-shaded nose's feather, so the nose is atlased alone on a second, lossless page. The written model declares six default expressions (smile, laugh, angry, sad, surprised, shy) and the head motions Nod, Shake and Tilt, each with a description a host picks by, the expressions keeping only the parameters the model declares; with a `blush_L`/`blush_R` layer it also declares `ParamCheek`, which fades the blush from faint at rest to as drawn.
 
 - **`layers`** — array of `{ path, fileName? }`. `path` is a PNG file path (resolved against the server's working directory); the role is derived from `fileName ?? basename(path)`. Required roles: `face`, `eye_L`, `eye_R`, `mouth`. Optional roles include `iris_L`/`iris_R`, `brow_L`/`brow_R`, `hair_front`/`hair_back`, `lash_L`/`lash_R`, `lash_lower_L`/`lash_lower_R`, etc. All layers must share the same canvas size (taken from the first layer).
 - **`outputPath`** — optional `.iki` output path (resolved against the working directory; the parent directory must already exist, and the path must end in `.iki`). Defaults to `auto-rigged-model.iki`.
