@@ -162,6 +162,45 @@ describe("describeIki", () => {
     expect(warpDef.kind).toBe("warp");
     expect(warpDef.parent).toBe("head");
     expect(warpDef.warp).toEqual({ mode: "1d", parameters: ["ParamA"] });
+
+    expect(summary.expressions).toEqual([]);
+    expect(summary.motions).toEqual({});
+  });
+
+  it("summarises expressions and motion clips by description, in order", () => {
+    const curve = { parameter: "ParamA", keys: [[0, 0]] };
+    const result = describeIki({
+      ...validModel(),
+      expressions: [
+        {
+          id: "smile",
+          description: "Smiling.",
+          parameters: [{ parameter: "ParamA", value: 1 }],
+        },
+        {
+          id: "frown",
+          description: "Frowning.",
+          fadeIn: 0,
+          parameters: [{ parameter: "ParamA", value: -1 }],
+        },
+      ],
+      motions: {
+        Wave: [
+          { description: "A small wave.", duration: 1, curves: [curve] },
+          { description: "A big wave.", duration: 2, curves: [curve] },
+        ],
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.summary.expressions).toEqual([
+      { id: "smile", description: "Smiling." },
+      { id: "frown", description: "Frowning." },
+    ]);
+    expect(result.summary.motions).toEqual({
+      Wave: ["A small wave.", "A big wave."],
+    });
   });
 
   it("summarises a model with a 2D-warp deformer", () => {

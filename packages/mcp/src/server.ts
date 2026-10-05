@@ -47,7 +47,7 @@ export function createIkiMcpServer(): McpServer {
     "describe_iki",
     {
       description:
-        "Summarizes a valid model's canvas/params/parts/deformers; returns an error for an invalid model.",
+        "Summarizes a valid model's canvas/params/parts/deformers and its expressions and motion clips (with the descriptions a host picks them by); returns an error for an invalid model.",
       inputSchema: {
         model: z
           .unknown()

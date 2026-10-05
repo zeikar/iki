@@ -50,6 +50,10 @@ export interface IkiSummary {
   parameters: { id: string; min: number; max: number; default: number }[];
   parts: { id: string; order: number; deformer?: string }[];
   deformers: DeformerSummary[];
+  /** Each expression's id and the description a host picks it by. */
+  expressions: { id: string; description: string }[];
+  /** Each motion group's clip descriptions, by clip index. */
+  motions: Record<string, string[]>;
 }
 
 export interface DeformerSummary {
@@ -144,12 +148,26 @@ export function describeIki(model: unknown): DescribeResult {
     },
   );
 
+  const expressions = (m.expressions ?? []).map((e) => ({
+    id: e.id,
+    description: e.description,
+  }));
+
+  const motions = Object.fromEntries(
+    Object.entries(m.motions ?? {}).map(([group, clips]) => [
+      group,
+      clips.map((c) => c.description),
+    ]),
+  );
+
   const summary: IkiSummary = {
     name: m.name,
     canvas: { width: m.canvas.width, height: m.canvas.height },
     parameters,
     parts,
     deformers,
+    expressions,
+    motions,
   };
 
   return { ok: true, summary };
