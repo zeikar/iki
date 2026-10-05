@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
-# gen-parts.sh — generate Iki part PNGs with a REFERENCE IMAGE attached.
+# gen-images.sh — draw Iki character images with Codex, optionally against a
+# REFERENCE IMAGE.
 #
-# Same shape as the global codex-image batch script, plus `codex exec -i <ref>`
-# so every part is drawn while the model is looking at one reference character.
-# That shared anchor is the point: parts generated independently drift in hue,
-# line weight and rendering style (one run came back with a photoreal iris on a
-# flat cel-shaded face), and no amount of prompt wording fixes drift that has no
-# common target.
+# Without --ref it draws from the prompt alone: that is how the front reference
+# itself is drawn. With --ref, `codex exec -i <ref>` puts the reference in front
+# of every job, so every part is drawn while the model is looking at one
+# character. That shared anchor is the point: parts generated independently
+# drift in hue, line weight and rendering style (one run came back with a
+# photoreal iris on a flat cel-shaded face), and no amount of prompt wording
+# fixes drift that has no common target.
 #
 # Usage:
-#   gen-parts.sh <reference.png> <work_dir> "<prompt>::<out.png>" [more...]
+#   gen-images.sh --check
+#   gen-images.sh [--ref <reference.png>] <work_dir> "<prompt>::<out.png>" [more...]
+#
+# --check runs only the preflight (codex installed, logged in, image tool on)
+# and prints the model the jobs would run on.
 #
 # Outputs land in <work_dir>/; per-job transcripts in <work_dir>/.gen-logs/.
 #
@@ -17,23 +23,33 @@
 # image_generation prompt. Whether that carries pixel-level style through to the
 # generated part is UNVERIFIED (codex quota ran out before it could be tested).
 # If parts come back ignoring the reference, fall back to the text style-bible
-# in SKILL.md and treat `-i` as a bonus rather than the mechanism.
+# in ../iki-character/SKILL.md and treat `-i` as a bonus rather than the
+# mechanism.
 
 set -u -o pipefail
 
 readonly MAX_PARALLEL=5
 
-# Account-gated: a model slug your plan does not carry returns a 400, not a
-# fallback. Override when this default is not available to you.
-CODEX_IMAGE_MODEL="${CODEX_IMAGE_MODEL:-gpt-5.6-luna}"
+. "$(dirname "$0")/codex.sh"
 
-die() { echo "[error] $*" >&2; exit 1; }
+usage="usage: gen-images.sh --check | [--ref <reference.png>] <work_dir> \"<prompt>::<out.png>\" [more...]"
 
-[ $# -ge 3 ] || die "usage: gen-parts.sh <reference.png> <work_dir> \"<prompt>::<out.png>\" [more...]"
+if [ "${1:-}" = "--check" ]; then
+  [ $# -eq 1 ] || die "$usage"
+  codex_preflight
+  echo "[ok] codex ready — model: $CODEX_IMAGE_MODEL"
+  exit 0
+fi
 
-ref=$1; shift
-[ -f "$ref" ] || die "reference image not found: $ref"
-ref=$(cd "$(dirname "$ref")" && pwd)/$(basename "$ref")
+ref=""
+if [ "${1:-}" = "--ref" ]; then
+  [ $# -ge 2 ] || die "$usage"
+  ref=$2; shift 2
+  [ -f "$ref" ] || die "reference image not found: $ref"
+  ref=$(cd "$(dirname "$ref")" && pwd)/$(basename "$ref")
+fi
+
+[ $# -ge 2 ] || die "$usage"
 
 work_dir=$1; shift
 [ -d "$work_dir" ] || die "work_dir not found: $work_dir"
@@ -42,8 +58,7 @@ work_dir=$(cd "$work_dir" && pwd)
 log_dir="$work_dir/.gen-logs"
 mkdir -p "$log_dir"
 
-command -v codex >/dev/null 2>&1 || die "codex CLI not found in PATH"
-codex login status >/dev/null 2>&1 || die "codex not logged in — run: codex login"
+codex_preflight
 
 prompts=() outputs=()
 for item in "$@"; do
@@ -59,40 +74,30 @@ for item in "$@"; do
 done
 
 total=${#prompts[@]}
-echo "[info] reference:   $ref"
+echo "[info] reference:   ${ref:-none}"
 echo "[info] work_dir:    $work_dir"
+echo "[info] model:       $CODEX_IMAGE_MODEL"
 echo "[info] total jobs:  $total"
 echo
 
 run_one() {
   local idx=$1 prompt=$2 output=$3
   local tag; tag=$(printf '%03d' "$idx")
+  local text
 
-  # project_doc_max_bytes=0: the workdir lives inside the iki repo, so without
-  # this codex walks up and injects AGENTS.md + README.md into every job — ~19k
-  # tokens of engine layering rules to draw one eyeball, x10 jobs.
-  # model_reasoning_effort=low: the model's job is to call the image tool, not to
-  # reason; low is gpt-6-astra's own default, which ~/.codex/config.toml overrides.
-  # Model is overridable because models are account-gated — a slug your plan does
-  # not carry comes back as a 400, not a fallback.
-  codex exec \
-    --sandbox workspace-write \
-    --skip-git-repo-check \
-    -c project_doc_max_bytes=0 \
-    -c model_reasoning_effort=low \
-    -m "$CODEX_IMAGE_MODEL" \
-    --cd "$work_dir" \
-    -i "$ref" \
-    -o "$log_dir/$tag.md" \
-    "The attached image is the REFERENCE CHARACTER. Study its hair colour and strand
+  if [ -n "$ref" ]; then
+    text="The attached image is the REFERENCE CHARACTER. Study its hair colour and strand
 shapes, eye shape and iris colour, line weight, shading style and palette.
 
 Use the image generation tool to draw: '$prompt'
 
 It must read as the SAME character and the SAME drawing style as the reference —
-match the colours and line weight exactly. Save it to ./$output.
-Reply with only the file path on one line." \
-    >"$log_dir/$tag.stdout" 2>&1
+match the colours and line weight exactly."
+  else
+    text="Use the image generation tool to draw: '$prompt'"
+  fi
+
+  codex_image_exec "$work_dir" "$log_dir/$tag" "$ref" "$output" "$text"
   local rc=$?
 
   if [ $rc -eq 0 ] && [ -s "$work_dir/$output" ]; then
@@ -105,6 +110,7 @@ Reply with only the file path on one line." \
 
 overall_start=$(date +%s)
 batch_no=1
+total_failed=0
 i=0
 while [ $i -lt $total ]; do
   end=$(( i + MAX_PARALLEL ))
@@ -123,6 +129,7 @@ while [ $i -lt $total ]; do
   done
   echo "    failed $failed"
   echo
+  total_failed=$(( total_failed + failed ))
 
   i=$end
   batch_no=$(( batch_no + 1 ))
@@ -130,3 +137,7 @@ done
 
 echo "[done] total $(( $(date +%s) - overall_start ))s"
 echo "[done] outputs: $work_dir"
+
+# Non-zero on any failed job: a caller must not read a batch that is missing
+# its reference, or a part, as a finished one.
+[ $total_failed -eq 0 ] || die "$total_failed of $total jobs failed — see the [fail] lines above"

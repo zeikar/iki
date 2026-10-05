@@ -1,6 +1,6 @@
 ---
 name: iki-character-loop
-description: Drive a generator/critic loop that refines a rigged Iki character (`.iki`) until it matches a reference illustration. Generates a reference with codex-image, then alternates the iki-character-artist agent (draws, composes, tunes, rigs) with the iki-character-critic agent (scores a rubric, emits typed findings) until the critic says ship or a cap is hit. Use when a generated character is renderable but not good-looking enough, or when the user asks to iterate a character toward a target look.
+description: Drive a generator/critic loop that refines a rigged Iki character (`.iki`) until it matches a reference illustration. Draws a reference with the iki-create-image skill, then alternates the iki-character-artist agent (draws, composes, tunes, rigs) with the iki-character-critic agent (scores a rubric, emits typed findings) until the critic says ship or a cap is hit. Use when a generated character is renderable but not good-looking enough, or when the user asks to iterate a character toward a target look.
 ---
 
 # Iki Character Loop (generator ↔ critic)
@@ -10,7 +10,7 @@ one that is _good_, by giving the process the two things a single pass lacks: a
 fixed target to aim at, and someone to say how far off it is.
 
 ```
-references (codex-image, once)
+references (iki-create-image, once)
       │
       ▼
   ┌─► artist ──► rigged .iki ──► orchestrator renders ──► critic ──┐
@@ -81,8 +81,8 @@ Prefer them, and let the artist exhaust them before spending on generation.
 `<workdir>` is `iki-char/` **inside the project directory** — build its tree
 before anything else. Every compose and rig call goes through the MCP server,
 which confines what it writes to its own cwd, so a `/tmp` workdir fails all of
-them; the compose tool never creates directories, and `gen-parts.sh` dies on a
-missing parts dir. The `iki` repo ignores `iki-char/`; in any other project add
+them; the compose tool never creates directories, and `gen-images.sh` dies on
+a missing parts dir. The `iki` repo ignores `iki-char/`; in any other project add
 it to `.gitignore` before the first run, or the generated art lands in a commit.
 
 ```bash
@@ -100,13 +100,19 @@ stays inside, are in the **iki-character** skill, Step 3), where `{}` is the
 profile every character starts from. Only the artist
 edits it, and only on a critic `retune`.
 
+Every image in the loop goes through the **iki-create-image** skill. Run its
+`--check` before the first one: without Codex on this machine, each billed
+draw below becomes that skill's hand-off to the user, and the artist returns
+`BLOCKED` with the prompts it needs written out instead of drawing.
+
 If `<workdir>/reference.png` and `reference-30.png` already exist (a restart),
-reuse them — do not regenerate. Otherwise, generate 2–3 reference candidates
-with the **codex-image** skill and let the user pick, or accept a reference
-the user supplies. It must be a single front-facing character in the target
-style. Then run `gen-turn-reference.sh <workdir>/reference.png <workdir>` once
-to produce `<workdir>/reference-30.png`: the same character turned to the
-rig's own `ParamAngleX` limit (30°). It is a style check, nothing more — the
+reuse them — do not regenerate. Otherwise, draw 2–3 reference candidates
+with that skill's front-reference prompt and let the user pick, or accept a
+reference the user supplies. It must be a single front-facing character in the
+target style. Then run that skill's
+`gen-turn-reference.sh <workdir>/reference.png <workdir>` once to produce
+`<workdir>/reference-30.png`: the same character turned to the rig's own
+`ParamAngleX` limit (30°). It is a style check, nothing more — the
 critic reads it by eye for whether the character still looks like itself
 turned, and nothing measures it. Nothing fits the rig to it or picks a knob's
 value from it: every turn amount stays inside the recommended ranges in the
@@ -126,7 +132,7 @@ invalidates every prior score.
 ### Step 1 — round
 
 1. Dispatch **`iki:iki-character-artist`** with `reference` (the front view
-   only — `gen-parts.sh` attaches it to every job), `workdir`, `round`,
+   only — `gen-images.sh --ref` attaches it to every job), `workdir`, `round`,
    `style` (the contents of `<workdir>/style.json`, which its rig step passes
    to `auto_rig_from_layers` when it is not empty), and the critic's findings
    (none on round 1). Both agents ship inside this plugin, so the dispatch name carries
@@ -139,8 +145,13 @@ invalidates every prior score.
    than dispatching a fresh one. If it returns reporting a usage limit instead,
    the round is over: take the reset time and go to Step 2.
 
-   **An artist that returns no model ends the round the same way** — a
-   refused rig leaves nothing to render. Skip the render and the critic (there
+   **An artist that returns `BLOCKED` on a hand-off file** (no Codex here,
+   see Step 0) has not finished the round: give the user that file as the
+   **iki-create-image** skill's hand-off says, wait until they say the images
+   are in place, then resume the SAME artist to pick, compose and rig them.
+
+   **An artist that returns no model otherwise ends the round the same way** —
+   a refused rig leaves nothing to render. Skip the render and the critic (there
    is nothing to score), keep its escalation, and go to Step 2.
 
 2. **Render it yourself.** Load the artist's `.iki` through the Model picker's

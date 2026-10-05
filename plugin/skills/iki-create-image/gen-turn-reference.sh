@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # gen-turn-reference.sh — generate the 30-degree head-turn reference image.
 #
-# Same shape as ../iki-character/gen-parts.sh: one `codex exec -i <front>` job
+# Same shape as gen-images.sh --ref: one `codex exec -i <front>` job
 # that draws the SAME character turned, using the already-generated front
 # reference as the attachment.
 #
@@ -25,11 +25,7 @@
 
 set -u -o pipefail
 
-# Account-gated: a model slug your plan does not carry returns a 400, not a
-# fallback. Override when this default is not available to you.
-CODEX_IMAGE_MODEL="${CODEX_IMAGE_MODEL:-gpt-5.6-luna}"
-
-die() { echo "[error] $*" >&2; exit 1; }
+. "$(dirname "$0")/codex.sh"
 
 [ $# -eq 2 ] || die "usage: gen-turn-reference.sh <reference.png> <work_dir>"
 
@@ -44,32 +40,21 @@ work_dir=$(cd "$work_dir" && pwd)
 log_dir="$work_dir/.gen-logs"
 mkdir -p "$log_dir"
 
-command -v codex >/dev/null 2>&1 || die "codex CLI not found in PATH"
-codex login status >/dev/null 2>&1 || die "codex not logged in — run: codex login"
+codex_preflight
 
 out="reference-30.png"
 
 echo "[info] reference: $ref"
 echo "[info] work_dir:  $work_dir"
 echo "[info] output:    $out"
+echo "[info] model:     $CODEX_IMAGE_MODEL"
 echo
 
-# project_doc_max_bytes=0 / model_reasoning_effort=low: see gen-parts.sh — the
-# same repo-doc-injection and reasoning-effort rationale applies to this single
-# image job too.
-codex exec \
-  --sandbox workspace-write \
-  --skip-git-repo-check \
-  -c project_doc_max_bytes=0 \
-  -c model_reasoning_effort=low \
-  -m "$CODEX_IMAGE_MODEL" \
-  --cd "$work_dir" \
-  -i "$ref" \
-  -o "$log_dir/reference-30.md" \
+codex_image_exec "$work_dir" "$log_dir/reference-30" "$ref" "$out" \
   "The attached image is the REFERENCE CHARACTER: a front-facing bust portrait.
 Use the image generation tool to redraw the EXACT same character, same drawing
 style, same line weight, same colours, same framing and crop, same square
-canvas, same flat lavender-grey background, with ONE change: the head turned
+canvas, same plain background colour, with ONE change: the head turned
 about 30 degrees toward the viewer's left (the character's own right). This is
 a modest turn, NOT a three-quarter view and NOT a profile: both eyes still
 fully visible, the far (viewer's left) eye only slightly narrower than the
@@ -80,9 +65,7 @@ reference; only the head rotates — the neck stays facing the camera with the
 torso, as the rig keeps it. Same eye level and head size as the
 reference so the two images can be overlaid. Keep every other attribute
 exactly as in the attached image: hairstyle and hair colour, eye colour,
-expression, clothing and accessories. Save it to ./$out. Reply with only the
-file path on one line." \
-  >"$log_dir/reference-30.stdout" 2>&1
+expression, clothing and accessories."
 rc=$?
 
 if [ $rc -eq 0 ] && [ -s "$work_dir/$out" ]; then

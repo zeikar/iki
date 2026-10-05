@@ -86,7 +86,7 @@ the prompt patterns and the hard-won pitfalls. Then:
 1. **Generate parts** (only when you have `regenerate` findings, or on round 1):
 
    ```bash
-   ${CLAUDE_PLUGIN_ROOT}/skills/iki-character/gen-parts.sh <reference> <workdir>/parts \
+   ${CLAUDE_PLUGIN_ROOT}/skills/iki-create-image/gen-images.sh --ref <reference> <workdir>/parts \
      "<prompt>::<role>.png" ...
    ```
 
@@ -99,6 +99,17 @@ the prompt patterns and the hard-won pitfalls. Then:
    the reset time and what did land. Do not set timers and re-check until the
    quota returns — you would burn the round's tokens producing nothing, and the
    orchestrator owns the decision to wait, stop, or fall back.
+
+   If the script stops before its first job because Codex cannot draw here
+   (`codex CLI not found`, `not logged in`,
+   `image_generation feature is off`), do not retry: write the hand-off from
+   `${CLAUDE_PLUGIN_ROOT}/skills/iki-create-image/SKILL.md` ("Without Codex")
+   for the parts this round needs, and return with `BLOCKED` naming that file.
+   Ask for each under the output name you would have passed the script,
+   variants included (`<role>_a.png` / `<role>_b.png`). Resumed once the user
+   has put them in place, check them, pick between any variants and copy the
+   pick to `parts/<role>.png` as for a `regenerate` (below), and carry on from
+   compose.
 
 2. **Compose:** call `compose_layers_from_parts` with
    `partsDir: <workdir>/parts`, `outDir: <workdir>/layers`, `layout` set to

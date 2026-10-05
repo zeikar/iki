@@ -17,6 +17,7 @@ brows — playable in the browser with [`@ikijs/engine`](https://www.npmjs.com/p
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **`iki-character`** (skill)        | One pass: generate role-separated part PNGs → compose to canvas layers → auto-rig to a renderable `.iki`                                                                                   |
 | **`iki-character-loop`** (skill)   | Generator/critic loop that refines a character against a reference until it is worth shipping                                                                                              |
+| **`iki-create-image`** (skill)     | Draws the reference and the parts through the Codex CLI's image tool, or hands you the prompts when Codex is not set up; the other two skills call it                                      |
 | **`iki-character-artist`** (agent) | Draws, composes, tunes `layout.json`, re-rigs — the loop's generator half                                                                                                                  |
 | **`iki-character-critic`** (agent) | Scores a rubric and emits typed findings — the loop's discriminator half                                                                                                                   |
 | **`iki` MCP server**               | [`@ikijs/mcp`](https://www.npmjs.com/package/@ikijs/mcp) over `npx`: read/validate `.iki`, `compose_layers_from_parts`, `measure_layers`, `auto_rig_from_layers`, `measure_turn_reference` |
@@ -38,10 +39,13 @@ separate setup.
 
 ## Prerequisites
 
-- **An image generator.** The prompts were tuned against the `codex-image`
-  skill (Codex CLI's built-in `image_generation`), but anything that returns
-  transparent, role-separated PNGs works. Generation is billed and takes
-  minutes.
+- **An image generator.** The skills draw through the
+  [Codex CLI](https://github.com/openai/codex)'s built-in image tool: install
+  it and run `codex login` (a ChatGPT plan) once. Jobs run on `gpt-6-luna`,
+  not your Codex default model; set `CODEX_IMAGE_MODEL` to use another one.
+  Generation is billed and takes minutes. Without Codex, the skill writes out
+  the prompts for you to run in any image tool that takes a reference image and
+  returns transparent PNGs, then carries on from your files.
 
 ## Versioning
 
