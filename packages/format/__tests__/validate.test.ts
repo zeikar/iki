@@ -1557,12 +1557,13 @@ describe("warp deformers — kind-aware parent restrictions", () => {
     expect(() => parseIkiModel(input)).toThrow(/must be a matrix deformer/);
   });
 
-  it("(b) matrix deformer parented to a warp deformer throws /matrix deformers cannot be children of a warp deformer/", () => {
-    const input = {
+  /** faceWarp (rest grid x -10..10, y -10..10) with a matrix child "jaw". */
+  function modelWithMatrixUnderWarp(pivot: { x: number; y: number }) {
+    return {
       ...validModel(),
       deformers: [
         makeWarpDeformer("faceWarp"),
-        makeDeformer("jaw", { parent: "faceWarp" }),
+        makeDeformer("jaw", { parent: "faceWarp", pivot }),
       ],
       parts: [
         {
@@ -1572,9 +1573,25 @@ describe("warp deformers — kind-aware parent restrictions", () => {
         },
       ],
     };
-    expect(() => parseIkiModel(input)).toThrow(
-      /matrix deformers cannot be children of a warp deformer/,
+  }
+
+  it("(b) matrix deformer parented to a warp deformer parses", () => {
+    const model = parseIkiModel(modelWithMatrixUnderWarp({ x: 0, y: 0 }));
+    expect(model.deformers![1].parent).toBe("faceWarp");
+  });
+
+  it("(c) matrix child whose pivot lies outside the warp's rest grid throws", () => {
+    expect(() =>
+      parseIkiModel(modelWithMatrixUnderWarp({ x: 11, y: 0 })),
+    ).toThrow(
+      /deformers\[1\]\.pivot \(11, 0\) lies outside its warp parent "faceWarp" rest grid x -10\.\.10, y -10\.\.10/,
     );
+  });
+
+  it("(d) matrix child whose pivot sits exactly on a rest-grid corner parses (inclusive bounds)", () => {
+    expect(() =>
+      parseIkiModel(modelWithMatrixUnderWarp({ x: 10, y: -10 })),
+    ).not.toThrow();
   });
 });
 
@@ -1609,17 +1626,9 @@ describe("warp deformers — cycle and dangling parent with warp deformer presen
         },
       ],
     };
-    // Note: the cycle check fires, but kind-aware check might also fire first.
-    // Either cycle or kind error is acceptable; the cycle path is:
-    // matA -> faceWarp -> matA which creates a cycle detected by topoWalk.
-    // But the kind-aware check: faceWarp (warp) parented to matA (matrix) = ok,
-    // matA (matrix) parented to faceWarp (warp) = forbidden by kind check.
-    // Kind check runs after dangling/self check but before cycle detection? Let's check.
-    // Actually looking at code: kind check runs AFTER cycle detection.
-    // So cycle detection fires first.
-    expect(() => parseIkiModel(input)).toThrow(
-      /deformers contain a cycle|matrix deformers cannot be children of a warp deformer/,
-    );
+    // matA -> faceWarp -> matA: each edge is a legal kind pairing, so only the
+    // cycle walk can reject it.
+    expect(() => parseIkiModel(input)).toThrow(/deformers contain a cycle/);
   });
 });
 
@@ -2429,6 +2438,44 @@ describe("physics chains", () => {
         }),
       ),
     ).toThrow(/feeds its own anchor deformer chain \(feedback\)/);
+  });
+
+  it("rejects a chain segment output that drives a warp ancestor of the anchorDeformer", () => {
+    // headDeformer rides bodyWarp, whose grid follows AngleX → AngleX turns the
+    // anchor, so a segment writing AngleX is feedback.
+    const bodyWarp = {
+      kind: "warp",
+      id: "bodyWarp",
+      grid: { cols: 1, rows: 1, points: [-10, 10, 10, 10, -10, -10, 10, -10] },
+      warps: [
+        {
+          parameter: "AngleX",
+          keyforms: [
+            { value: -30, offsets: [0, 0, 0, 0, 0, 0, 0, 0] },
+            { value: 30, offsets: [0, 2, 0, -2, 0, 0, 0, 0] },
+          ],
+        },
+      ],
+    };
+    const c = {
+      ...validChain,
+      segments: [
+        {
+          output: { parameter: "AngleX", scale: 1 },
+          mass: 1,
+          stiffness: 10,
+          damping: 4,
+        },
+      ],
+    };
+    const m = chainModel([c]);
+    m.deformers = [
+      bodyWarp,
+      { id: "headDeformer", parent: "bodyWarp", pivot: { x: 0, y: 0 } },
+    ];
+    expect(() => parseIkiModel(m)).toThrow(
+      /feeds its own anchor deformer chain \(feedback\)/,
+    );
   });
 
   it("rejects a duplicate chain id (also rejects chain id == flat rig id)", () => {

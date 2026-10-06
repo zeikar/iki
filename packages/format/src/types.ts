@@ -182,7 +182,13 @@ export interface IkiDeformerBinding {
 export interface IkiMatrixDeformer {
   kind?: "matrix";
   id: string;
-  /** Id of the parent deformer; omit for a root deformer. */
+  /**
+   * Id of the parent deformer — a matrix OR a warp deformer; omit for a root
+   * deformer. Under a warp the child rides it RIGIDLY: its `pivot` is mapped
+   * through the warp's deformed grid and it gains the warp's local rotation
+   * there, but no scale or shear. Its `pivot` MUST then lie inside the warp's
+   * rest grid (validator-enforced).
+   */
   parent?: string;
   /** Pivot point in model space (origin = canvas center, +y up). */
   pivot: { x: number; y: number };
@@ -271,6 +277,7 @@ export interface IkiGridWarp {
  * via `part.deformer` and MUST carry a `mesh`. Its parent (if any) must be a
  * matrix deformer (validator-enforced) — e.g. a neck-rotation `headDeformer`:
  * the rigid turn stays on the parent, curvature lives in the grid keyforms.
+ * Matrix deformers may hang from it (see {@link IkiMatrixDeformer.parent}).
  *
  * A deformer carries EITHER `warps` (one 1D grid warp) XOR `warp2d` (one 2D grid warp),
  * never both (validator-enforced). The 2D warp's two axes together act as its single

@@ -1048,24 +1048,34 @@ export function parseIkiModel(input: unknown): IkiModel {
       }
     }
 
-    // Kind-aware parent restrictions: warp->warp and matrix->warp are forbidden.
-    // Only matrix parent -> warp child is allowed.
-    const deformerKindById = new Map<string, IkiDeformer["kind"]>();
+    // Kind-aware parent restrictions: warp->warp is forbidden. A matrix child of
+    // a warp rides the warp's deformed grid from its pivot, so the pivot must lie
+    // inside the warp's rest grid — rejected here rather than clamped at runtime.
+    const deformerById = new Map<string, IkiDeformer>();
     for (const d of deformers) {
-      deformerKindById.set(d.id, d.kind);
+      deformerById.set(d.id, d);
     }
     for (let i = 0; i < deformers.length; i++) {
       const d = deformers[i];
       if (d.parent === undefined) continue;
-      const parentKind = deformerKindById.get(d.parent);
-      if (d.kind === "warp" && parentKind === "warp") {
+      const parent = deformerById.get(d.parent);
+      if (parent?.kind !== "warp") continue;
+      if (d.kind === "warp") {
         throw new IkiFormatError(
           `deformers[${i}].parent "${d.parent}" must be a matrix deformer (warp deformers cannot be nested under a warp deformer)`,
         );
       }
-      if (d.kind !== "warp" && parentKind === "warp") {
+      // The rest grid is a validated regular lattice: row 0 is the top (largest
+      // y), column 0 the left (smallest x).
+      const { cols, rows, points } = parent.grid;
+      const xMin = points[0];
+      const xMax = points[2 * cols];
+      const yMax = points[1];
+      const yMin = points[rows * (cols + 1) * 2 + 1];
+      const { x, y } = d.pivot;
+      if (x < xMin || x > xMax || y < yMin || y > yMax) {
         throw new IkiFormatError(
-          `deformers[${i}].parent "${d.parent}" is a warp deformer; matrix deformers cannot be children of a warp deformer`,
+          `deformers[${i}].pivot (${x}, ${y}) lies outside its warp parent "${d.parent}" rest grid x ${xMin}..${xMax}, y ${yMin}..${yMax}`,
         );
       }
     }
@@ -1228,16 +1238,26 @@ export function parseIkiModel(input: unknown): IkiModel {
   }
 
   // Implicit-anchor-feedback check: a chain's anchor deformer's world transform is
-  // derived from the anchor's bindings AND every matrix ancestor's bindings. Any
-  // segment output parameter that appears in those bindings would create a feedback
-  // loop (the chain's output would indirectly drive its own anchor orientation).
+  // derived from the anchor's bindings, every matrix ancestor's bindings, AND the
+  // driving parameters of every warp ancestor (the anchor rotates with the warp's
+  // deformed grid). Any segment output parameter among those would create a
+  // feedback loop (the chain's output would indirectly drive its own anchor
+  // orientation).
   if (physicsChains && deformers) {
-    // Build parent map and bindings-parameter set per deformer
+    // Build parent map and driving-parameter set per deformer
     const deformerParentOf = new Map<string, string>();
     const deformerBindingParams = new Map<string, Set<string>>();
     for (const d of deformers) {
       if (d.parent !== undefined) deformerParentOf.set(d.id, d.parent);
-      if (d.kind !== "warp" && d.bindings) {
+      if (d.kind === "warp") {
+        const params = new Set<string>();
+        for (const w of d.warps ?? []) params.add(w.parameter);
+        if (d.warp2d) {
+          params.add(d.warp2d.parameter);
+          params.add(d.warp2d.parameterY);
+        }
+        deformerBindingParams.set(d.id, params);
+      } else if (d.bindings) {
         deformerBindingParams.set(
           d.id,
           new Set(d.bindings.map((b) => b.parameter)),
@@ -1247,7 +1267,7 @@ export function parseIkiModel(input: unknown): IkiModel {
 
     for (let i = 0; i < physicsChains.length; i++) {
       const chain = physicsChains[i];
-      // Collect all params referenced by the anchor and its matrix ancestors
+      // Collect all params driving the anchor and its matrix/warp ancestors
       const anchorChainParams = new Set<string>();
       let cur: string | undefined = chain.anchorDeformer;
       while (cur !== undefined) {
@@ -1257,7 +1277,7 @@ export function parseIkiModel(input: unknown): IkiModel {
         }
         cur = deformerParentOf.get(cur);
       }
-      // Reject any segment output that appears in the anchor chain's bindings
+      // Reject any segment output that drives the anchor chain
       for (let j = 0; j < chain.segments.length; j++) {
         const outId = chain.segments[j].output.parameter;
         if (anchorChainParams.has(outId)) {
