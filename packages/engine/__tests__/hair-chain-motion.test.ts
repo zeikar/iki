@@ -79,6 +79,43 @@ const HEAD_DEFORMER: IkiDeformer = {
   ],
 };
 
+// A warp whose AngleX keyforms rotate every control point about the origin by the
+// same angle HEAD_DEFORMER's binding applies (+30 at +30, CCW-positive, y-up).
+const WARP_POINTS = [-1, 0, 1].flatMap((y) =>
+  [-1, 0, 1].flatMap((x) => [x, y]),
+);
+function rotatedOffsets(degrees: number): number[] {
+  const r = (degrees * Math.PI) / 180;
+  const c = Math.cos(r);
+  const s = Math.sin(r);
+  return WARP_POINTS.map((v, i) => {
+    const x = WARP_POINTS[i - (i % 2)];
+    const y = WARP_POINTS[i - (i % 2) + 1];
+    return (i % 2 === 0 ? c * x - s * y : s * x + c * y) - v;
+  });
+}
+const BODY_WARP: IkiDeformer = {
+  kind: "warp",
+  id: "bodyWarp",
+  grid: { cols: 2, rows: 2, points: WARP_POINTS },
+  warps: [
+    {
+      parameter: ANGLE_X,
+      keyforms: [
+        { value: -30, offsets: rotatedOffsets(-30) },
+        { value: 30, offsets: rotatedOffsets(30) },
+      ],
+    },
+  ],
+};
+const ANCHOR_UNDER_WARP: IkiDeformer = {
+  kind: "matrix",
+  id: "anchorUnderWarp",
+  parent: "bodyWarp",
+  pivot: { x: 0, y: 0 },
+  transform: { rotation: 0 },
+};
+
 const DEFORMERS: IkiDeformer[] = [HEAD_DEFORMER];
 
 /** Build a standard 2-segment chain anchored to headDeformer. */
@@ -180,6 +217,27 @@ describe("HairChainMotion", () => {
     // With head rotated 30° clockwise and gravity at -90°, the chain hangs
     // closer to gravity (net negative displacement from the head angle).
     expect(Math.abs(tailMeanSeg1)).toBeGreaterThan(0); // nonzero equilibrium
+  });
+
+  it("anchor under a warp: emissions equal the matrix-rotated anchor's", () => {
+    const ts = timestamps(1000, 80, 16);
+    const inputFn = (_id: string, t: number) => (t <= ts[0] ? 0 : 30);
+
+    const viaMatrix = drive([makeChain()], PARAMS, DEFORMERS, inputFn, ts);
+    const viaWarp = drive(
+      [{ ...makeChain(), anchorDeformer: "anchorUnderWarp" }],
+      PARAMS,
+      [BODY_WARP, ANCHOR_UNDER_WARP],
+      inputFn,
+      ts,
+    );
+
+    for (const out of [SEG0_OUT, SEG1_OUT]) {
+      const expected = viaMatrix.get(out)!;
+      const actual = viaWarp.get(out)!;
+      expect(actual).toHaveLength(expected.length);
+      actual.forEach((v, i) => expect(v).toBeCloseTo(expected[i], 3));
+    }
   });
 
   it("determinism: same timestamps + inputs → identical emission arrays", () => {
