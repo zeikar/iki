@@ -721,6 +721,20 @@ describe("SetDeformerParent", () => {
     expect(doc.canUndo()).toBe(false);
   });
 
+  it("INVALID: matrix pivot outside the warp's grid — SetDeformerParent(m-child, w) — throws, model unchanged, canUndo()===false", () => {
+    const model = fixtureModelWithDeformers();
+    const child = model.deformers!.find((d) => d.id === "m-child")!;
+    if (child.kind === "warp") throw new Error("fixture: m-child is a matrix");
+    child.pivot = { x: 11, y: 0 };
+    const doc = new EditorDocument(model);
+
+    expect(() => doc.execute(new SetDeformerParent("m-child", "w"))).toThrow(
+      /lies outside its warp parent "w" rest grid/,
+    );
+    expect(doc.findDeformer("m-child").parent).toBe("m-root");
+    expect(doc.canUndo()).toBe(false);
+  });
+
   it("VALID: warp deformer as parent of a matrix deformer — SetDeformerParent(m-child, w) — applies and undoes", () => {
     const doc = new EditorDocument(fixtureModelWithDeformers());
 

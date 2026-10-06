@@ -14,10 +14,9 @@ function kindOf(d: IkiDeformer): "warp" | "matrix" {
  * Validate that reparenting `deformerId` under `newParentId` keeps the deformer
  * hierarchy valid. Pass `newParentId === undefined` to move to root (always legal).
  * Checks: existence, self-reference, undeclared parent, kind constraint (a warp
- * deformer cannot be the parent of another warp deformer), and cycle detection
- * via the proposed edge. A matrix deformer's pivot must lie inside its warp
- * parent's rest grid; that is checked at export by the format validator (the
- * pivot can move after the reparent, so the guard does not pre-check it).
+ * deformer cannot be the parent of another warp deformer), a matrix deformer's
+ * pivot inside its new warp parent's rest grid, and cycle detection via the
+ * proposed edge.
  */
 export function validateDeformerReparent(
   deformers: IkiDeformer[],
@@ -55,7 +54,25 @@ export function validateDeformerReparent(
     );
   }
 
-  // (6) Cycle detection: build parentOf from current state, then override with
+  // (6) A matrix deformer's pivot must lie inside its warp parent's rest grid,
+  //     as the format requires. Refusing here keeps the bad edge out of the
+  //     model and the undo stack; a pivot moved out later (typed digit by
+  //     digit through invalid values) is still left to the export check.
+  if (parent.kind === "warp" && target.kind !== "warp") {
+    const { pivot } = target;
+    const { points } = parent.grid;
+    const xs = points.filter((_, i) => i % 2 === 0);
+    const ys = points.filter((_, i) => i % 2 === 1);
+    const [xMin, xMax] = [Math.min(...xs), Math.max(...xs)];
+    const [yMin, yMax] = [Math.min(...ys), Math.max(...ys)];
+    if (pivot.x < xMin || pivot.x > xMax || pivot.y < yMin || pivot.y > yMax) {
+      throw new Error(
+        `deformers."${deformerId}".pivot (${pivot.x}, ${pivot.y}) lies outside its warp parent "${newParentId}" rest grid x ${xMin}..${xMax}, y ${yMin}..${yMax}`,
+      );
+    }
+  }
+
+  // (7) Cycle detection: build parentOf from current state, then override with
   //     the proposed edge, and walk from deformerId following the chain.
   const parentOf = new Map<string, string>();
   for (const d of deformers) {

@@ -1183,7 +1183,8 @@ function BindingsEditor({
 /**
  * Parent picker for a deformer. Options are "(none / root)" plus every deformer
  * except this one; warp deformers are offered only to a matrix child (a warp
- * under a warp is a validator refusal), and self is excluded. Cycle-creating picks ARE still offered — the
+ * under a warp is a validator refusal), and self is excluded. Cycle-creating picks,
+ * and warps whose grid does not hold this pivot, ARE still offered — the
  * `SetDeformerParent` validator rejects them, surfacing via `editError`;
  * pre-filtering all cycles here is extra logic the lean slice doesn't need.
  */

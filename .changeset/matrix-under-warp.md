@@ -21,4 +21,6 @@ A matrix deformer may hang from a warp deformer and rides it rigidly.
   scale or shear. Existing models resolve as before. A `HairChainMotion`
   anchored under a warp now follows the warp's rotation.
 - `@ikijs/editor`: `validateDeformerReparent` and `SetDeformerParent` accept
-  a matrix target under a warp parent; a warp child is still refused.
+  a matrix target under a warp parent when its pivot lies inside the warp's
+  rest grid; a pivot outside it, or a warp child, is refused before the model
+  or the undo stack changes.

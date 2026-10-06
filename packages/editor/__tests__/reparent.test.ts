@@ -95,6 +95,16 @@ describe("validateDeformerReparent", () => {
     expect(() => validateDeformerReparent(deformers, "B", "W")).not.toThrow();
   });
 
+  it("matrix with its pivot outside W's grid throws /lies outside its warp parent/", () => {
+    const outside: IkiDeformer[] = [
+      ...deformers,
+      { id: "D", pivot: { x: 3, y: 1 } },
+    ];
+    expect(() => validateDeformerReparent(outside, "D", "W")).toThrow(
+      /deformers\."D"\.pivot \(3, 1\) lies outside its warp parent "W" rest grid x 0\.\.2, y 0\.\.2/,
+    );
+  });
+
   it("warp W2 under warp W throws /must be a matrix deformer/", () => {
     expect(() => validateDeformerReparent(deformers, "W2", "W")).toThrow(
       /must be a matrix deformer/,
