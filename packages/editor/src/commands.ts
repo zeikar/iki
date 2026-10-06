@@ -199,11 +199,12 @@ export class SetPartTransform extends FieldCommand<number | undefined> {
 
 /**
  * Capture the warp deformer's grid as one keyform at the driving parameter
- * `value`, upserting `offsets` into `warps[0].keyforms`. The 4-tuple-style
+ * `value`, upserting `offsets` into the deformer's single grid warp. The 4-tuple-style
  * mutable `offsets` array is cloned on construction so a later caller mutation
  * cannot corrupt apply/redo (mirrors {@link SetPartColor}).
  *
- * `apply` validates BEFORE mutating: the deformer must have a grid warp, the
+ * `apply` validates BEFORE mutating: the deformer must have exactly one grid
+ * warp (several are refused — which driver to write into is ambiguous), the
  * offsets length must equal `grid.points.length`, and `value` must lie within
  * the driving parameter's declared `[min,max]` (fail fast, before
  * `parseIkiModel` would reject it). Prior keyforms are deep-copied once on the
@@ -226,6 +227,12 @@ export class CaptureGridKeyform implements EditCommand {
 
   apply(doc: EditorDocument): void {
     const deformer = doc.findWarpDeformer(this.deformerId);
+    const count = deformer.warps?.length ?? 0;
+    if (count > 1) {
+      throw new Error(
+        `deformers."${this.deformerId}".warps: ${count} grid warps — capture targets a deformer with exactly one grid warp (which entry to write into is ambiguous)`,
+      );
+    }
     const warp = deformer.warps?.[0];
     if (!warp) {
       throw new Error(

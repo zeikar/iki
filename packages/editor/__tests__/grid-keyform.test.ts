@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { IKI_FORMAT_VERSION, parseIkiModel } from "@ikijs/format";
-import type { IkiGridKeyform, IkiModel } from "@ikijs/format";
+import type { IkiGridKeyform, IkiModel, IkiWarpDeformer } from "@ikijs/format";
 import {
   CaptureGridKeyform,
   EditorDocument,
@@ -239,6 +239,28 @@ describe("CaptureGridKeyform", () => {
       doc.execute(new CaptureGridKeyform("faceWarp", 999, offsets)),
     ).toThrow(/deformers\."faceWarp"/);
     expect(gridWarp(doc).keyforms).toEqual(before);
+  });
+
+  it("apply refuses a deformer with several grid warps and leaves the model and undo stack unmutated", () => {
+    const model = warpModel();
+    model.parameters.push({ id: "faceAngleY", min: -30, max: 30, default: 0 });
+    (model.deformers![0] as IkiWarpDeformer).warps!.push({
+      parameter: "faceAngleY",
+      keyforms: [{ value: 0, offsets: [0, 0, 0, 0, 0, 0, 0, 0] }],
+    });
+    expect(() => parseIkiModel(model)).not.toThrow();
+
+    const doc = new EditorDocument(model);
+    const before = structuredClone(
+      doc.findWarpDeformer("faceWarp").warps!.map((w) => w.keyforms),
+    );
+    expect(() =>
+      doc.execute(new CaptureGridKeyform("faceWarp", 10, offsets)),
+    ).toThrow(/deformers\."faceWarp"\.warps: 2 grid warps/);
+    expect(
+      doc.findWarpDeformer("faceWarp").warps!.map((w) => w.keyforms),
+    ).toEqual(before);
+    expect(doc.canUndo()).toBe(false);
   });
 
   it("the post-apply model still passes parseIkiModel", () => {
