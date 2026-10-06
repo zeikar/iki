@@ -721,14 +721,15 @@ describe("SetDeformerParent", () => {
     expect(doc.canUndo()).toBe(false);
   });
 
-  it("INVALID: warp deformer as parent — SetDeformerParent(m-child, w) — throws, model unchanged, canUndo()===false", () => {
+  it("VALID: warp deformer as parent of a matrix deformer — SetDeformerParent(m-child, w) — applies and undoes", () => {
     const doc = new EditorDocument(fixtureModelWithDeformers());
-    const prevParent = doc.findDeformer("m-child").parent; // "m-root"
 
-    expect(() => doc.execute(new SetDeformerParent("m-child", "w"))).toThrow();
-    // Model unchanged
-    expect(doc.findDeformer("m-child").parent).toBe(prevParent);
-    expect(doc.canUndo()).toBe(false);
+    doc.execute(new SetDeformerParent("m-child", "w"));
+    expect(doc.findDeformer("m-child").parent).toBe("w");
+    expect(() => doc.toIkiModel()).not.toThrow();
+
+    doc.undo();
+    expect(doc.findDeformer("m-child").parent).toBe("m-root");
   });
 });
 
