@@ -1,7 +1,7 @@
 import type { IkiDeformer, IkiWarpGrid } from "@ikijs/format";
 import type { Affine } from "./affine";
 import type { ParameterStore } from "./parameter-store";
-import { clamp } from "./math";
+import { clamp, lerp } from "./math";
 import { accumulate2DKeyformOffsets, accumulateKeyformOffsets } from "./warp";
 
 /** A warp deformer's deformed control grid for one frame. */
@@ -198,4 +198,61 @@ export function sampleWarpGrid(
 
   // Vertical: lerp top→bottom by t.
   return [topX + (botX - topX) * t, topY + (botY - topY) * t];
+}
+
+/**
+ * Rigid frame of a matrix deformer hung from a warp: returns
+ * `translate(p') · rotate(θ) · translate(−p)`, where `p` is `pivot` bound to the
+ * RAW rest grid and `p'` is that binding sampled on `localPoints`, the warp's
+ * LOCAL deformed grid (rest + keyform offsets, no ancestor affine — the caller
+ * composes that on top). θ is the rotation part (polar decomposition) of the
+ * bilinear cell's Jacobian at the binding, each tangent divided by the rest
+ * cell's width/height so the rest grid gives θ = 0. The warp's scale and shear
+ * are deliberately dropped: a narrowing torso warp moves the head but never
+ * squashes it.
+ */
+export function warpRigidFrame(
+  pivot: { x: number; y: number },
+  restGrid: IkiWarpGrid,
+  localPoints: Float32Array,
+): Affine {
+  const { cols, rows } = restGrid;
+  const binding = bindPointToRestGrid(pivot.x, pivot.y, restGrid);
+  const [px, py] = sampleWarpGrid({ cols, rows, points: localPoints }, binding);
+
+  const stride = cols + 1;
+  const row = Math.floor(binding.cell / cols);
+  const col = binding.cell % cols;
+  const { s, t } = binding;
+  const i00 = (row * stride + col) * 2;
+  const i10 = (row * stride + col + 1) * 2;
+  const i01 = ((row + 1) * stride + col) * 2;
+  const i11 = ((row + 1) * stride + col + 1) * 2;
+
+  const rest = restGrid.points;
+  const cellWidth = rest[i10] - rest[i00];
+  const cellHeight = rest[i00 + 1] - rest[i01 + 1];
+
+  // Images of the rest x/y axes. t runs top→bottom, i.e. against +y, hence
+  // the minus on ey.
+  const q = localPoints;
+  const exX = lerp(q[i10] - q[i00], q[i11] - q[i01], t) / cellWidth;
+  const exY =
+    lerp(q[i10 + 1] - q[i00 + 1], q[i11 + 1] - q[i01 + 1], t) / cellWidth;
+  const eyX = -lerp(q[i01] - q[i00], q[i11] - q[i10], s) / cellHeight;
+  const eyY =
+    -lerp(q[i01 + 1] - q[i00 + 1], q[i11 + 1] - q[i10 + 1], s) / cellHeight;
+
+  // A collapsed cell gives atan2(0, 0) = 0: the frame stays finite.
+  const theta = Math.atan2(exY - eyX, exX + eyY);
+  const c = Math.cos(theta);
+  const sn = Math.sin(theta);
+  return [
+    c,
+    sn,
+    -sn,
+    c,
+    px - (c * pivot.x - sn * pivot.y),
+    py - (sn * pivot.x + c * pivot.y),
+  ];
 }

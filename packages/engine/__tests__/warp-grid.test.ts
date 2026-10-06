@@ -14,6 +14,7 @@ import {
   bindPointToRestGrid,
   resolveWarpGrids,
   sampleWarpGrid,
+  warpRigidFrame,
   type ResolvedWarpGrid,
 } from "../src/warp-grid";
 
@@ -595,5 +596,111 @@ describe("applyWarpToChild", () => {
       expect(out[v * 2]).toBeCloseTo(localVerts[v * 2] + dx, 4);
       expect(out[v * 2 + 1]).toBeCloseTo(localVerts[v * 2 + 1] + dy, 4);
     }
+  });
+});
+
+// --- (i) warpRigidFrame — pivot carried rigidly through a deformed grid ------
+
+describe("warpRigidFrame", () => {
+  /** The rest grid's points mapped through `f`, as a LOCAL deformed grid. */
+  function deformRest(
+    rest: IkiWarpGrid,
+    f: (x: number, y: number) => [number, number],
+  ): Float32Array {
+    const out = new Float32Array(rest.points.length);
+    for (let i = 0; i < rest.points.length; i += 2) {
+      const [x, y] = f(rest.points[i], rest.points[i + 1]);
+      out[i] = x;
+      out[i + 1] = y;
+    }
+    return out;
+  }
+
+  it("(a) local grid = rest → identity affine", () => {
+    const rest = makeRestGrid();
+    const m = warpRigidFrame(
+      { x: 0.5, y: 0.5 },
+      rest,
+      Float32Array.from(rest.points),
+    );
+    const identity: Affine = [1, 0, 0, 1, 0, 0];
+    for (let i = 0; i < 6; i++) expect(m[i]).toBeCloseTo(identity[i], 5);
+  });
+
+  it("(b) translated grid → the pivot moves with it, no rotation", () => {
+    const rest = makeRestGrid();
+    const local = deformRest(rest, (x, y) => [x + 0.3, y - 0.2]);
+    const m = warpRigidFrame({ x: 0.5, y: 0.5 }, rest, local);
+
+    const [px, py] = applyAffine(m, 0.5, 0.5);
+    expect(px).toBeCloseTo(0.8, 5);
+    expect(py).toBeCloseTo(0.3, 5);
+    const [qx, qy] = applyAffine(m, 1.5, 0.5);
+    expect(qx).toBeCloseTo(px + 1, 5);
+    expect(qy).toBeCloseTo(py, 5);
+  });
+
+  it("(c) grid rotated 90° about the origin → the frame rotates 90°", () => {
+    const rest = makeRestGrid();
+    const local = deformRest(rest, (x, y) => [-y, x]);
+    const m = warpRigidFrame({ x: 0.5, y: 0.5 }, rest, local);
+
+    const [px, py] = applyAffine(m, 0.5, 0.5);
+    expect(px).toBeCloseTo(-0.5, 5);
+    expect(py).toBeCloseTo(0.5, 5);
+    const [qx, qy] = applyAffine(m, 1.5, 0.5);
+    expect(qx).toBeCloseTo(px, 5);
+    expect(qy).toBeCloseTo(py + 1, 5);
+  });
+
+  it("(d) narrowing grid moves the pivot but does not scale the child", () => {
+    const rest = makeRestGrid();
+    const local = deformRest(rest, (x, y) => [x * 0.5, y]);
+    const m = warpRigidFrame({ x: 0.5, y: 0 }, rest, local);
+
+    const [px, py] = applyAffine(m, 0.5, 0);
+    expect(px).toBeCloseTo(0.25, 5);
+    expect(py).toBeCloseTo(0, 5);
+    // The unit offset is carried whole, NOT halved by the warp's x scale.
+    const [qx, qy] = applyAffine(m, 1.5, 0);
+    expect(qx).toBeCloseTo(px + 1, 5);
+    expect(qy).toBeCloseTo(py, 5);
+  });
+
+  it("(e) pivot on the right edge (s pinned to 1) → finite frame from the last cell", () => {
+    const rest = makeRestGrid();
+    const local = deformRest(rest, (x, y) => [-y, x]);
+    const m = warpRigidFrame({ x: 1, y: 0 }, rest, local);
+
+    for (const v of m) expect(Number.isFinite(v)).toBe(true);
+    // Real tangents, not a zero vector: the 90° rotation still comes through.
+    expect(m[0]).toBeCloseTo(0, 5);
+    expect(m[1]).toBeCloseTo(1, 5);
+    const [px, py] = applyAffine(m, 1, 0);
+    expect(px).toBeCloseTo(0, 5);
+    expect(py).toBeCloseTo(1, 5);
+  });
+
+  it("(f) unequal rest cells: a lean is normalised by the rest cell size", () => {
+    // 2×2 cells, each 2 wide × 0.5 tall: x ∈ {−2, 0, 2}, y ∈ {0.5, 0, −0.5}.
+    const rest: IkiWarpGrid = {
+      cols: 2,
+      rows: 2,
+      points: [
+        -2, 0.5, 0, 0.5, 2, 0.5, -2, 0, 0, 0, 2, 0, -2, -0.5, 0, -0.5, 2, -0.5,
+      ],
+    };
+    // Jacobian [[1, 2], [0, 1]] → θ = atan2(0 − 2, 1 + 1) = −45°. A pure
+    // rotation cannot test the normalisation (R·diag(w, h) keeps R's angle);
+    // a shear can: un-normalised tangents give atan2(−1, 2.5) ≈ −21.8°.
+    const local = deformRest(rest, (x, y) => [x + 2 * y, y]);
+    const m = warpRigidFrame({ x: 1, y: 0.25 }, rest, local);
+
+    const [px, py] = applyAffine(m, 1, 0.25);
+    expect(px).toBeCloseTo(1.5, 5);
+    expect(py).toBeCloseTo(0.25, 5);
+    const [qx, qy] = applyAffine(m, 2, 0.25);
+    expect(qx).toBeCloseTo(px + Math.SQRT1_2, 5);
+    expect(qy).toBeCloseTo(py - Math.SQRT1_2, 5);
   });
 });
