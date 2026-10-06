@@ -6,6 +6,7 @@ import type { IkiMatrixDeformer } from "@ikijs/format";
 import { useEffect, useRef, useState } from "react";
 
 import {
+  hasWarpAncestor,
   invertAffinePoint,
   matrixWorldAffine,
   modelToScreen,
@@ -71,13 +72,19 @@ export function PivotOverlay({ canvasRef }: PivotOverlayProps) {
     return null;
   }
 
-  // Scope the gizmo to matrix deformers only (warp deformers have no pivot).
+  // Scope the gizmo to matrix deformers whose ancestors are all matrix
+  // deformers (warp deformers have no pivot).
   const matrixDeformers = (model.deformers ?? []).filter(
     (d): d is IkiMatrixDeformer => d.kind === "matrix" || d.kind === undefined,
   );
   const deformer = matrixDeformers.find((d) => d.id === selectedDeformerId);
 
   if (selectedDeformerId === null || !deformer) {
+    return null;
+  }
+  // A warp above the target breaks the matrix-only chain below; hiding beats
+  // drawing (and committing a pivot through) the wrong frame.
+  if (hasWarpAncestor(deformer.parent, model.deformers ?? [])) {
     return null;
   }
   // Non-null alias used inside closures so TypeScript retains the narrowing.

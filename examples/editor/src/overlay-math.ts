@@ -1,5 +1,6 @@
 import { type Affine, multiply, rotate, scale, translate } from "@ikijs/engine";
 import type {
+  IkiDeformer,
   IkiDeformerBinding,
   IkiMatrixDeformer,
   IkiParameter,
@@ -70,7 +71,9 @@ export function deformerLocalAffine(
 
 /**
  * Compute the world-space affine for a matrix deformer by composing the FULL
- * ancestor chain, mirroring the engine's `resolveDeformerWorlds`.
+ * ancestor chain, mirroring the matrix half of the engine's `resolveDeformers`.
+ * The mirror covers matrix ancestors ONLY (a warp ancestor contributes a rigid
+ * frame it does not model), so callers must check `hasWarpAncestor` first.
  *
  *   world = parentWorld · localAffine
  *
@@ -113,6 +116,29 @@ export function matrixWorldAffine(
   }
 
   return resolve(deformerId, new Set());
+}
+
+/**
+ * True when `deformerId` or any ancestor above it is a warp deformer. The
+ * gizmos hide in that case: `matrixWorldAffine` cannot compose a warp's frame,
+ * so drawing or dragging through it would commit values via the wrong inverse.
+ * Bounded walk, so a malformed parent cycle terminates with false.
+ */
+export function hasWarpAncestor(
+  deformerId: string | undefined,
+  deformers: IkiDeformer[],
+): boolean {
+  const byId = new Map<string, IkiDeformer>(deformers.map((d) => [d.id, d]));
+  const visited = new Set<string>();
+  let id = deformerId;
+  while (id !== undefined && !visited.has(id)) {
+    visited.add(id);
+    const deformer = byId.get(id);
+    if (!deformer) return false;
+    if (deformer.kind === "warp") return true;
+    id = deformer.parent;
+  }
+  return false;
 }
 
 /** Model-space → overlay-local CSS px. +y-up flip is the `−my` term. */

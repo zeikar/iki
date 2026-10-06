@@ -8,6 +8,7 @@ import type { IkiMatrixDeformer, IkiWarpDeformer } from "@ikijs/format";
 import { useEffect, useRef, useState } from "react";
 
 import {
+  hasWarpAncestor,
   invertAffinePoint,
   matrixWorldAffine,
   modelToScreen,
@@ -107,6 +108,10 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
     (d): d is IkiWarpDeformer => d.kind === "warp" && d.id === "faceWarp",
   );
   if (!faceWarp) return null;
+  // A warp above faceWarp (e.g. bodyWarp → head → faceWarp) puts a rigid frame
+  // in the chain that the matrix-only affine below would miss, and the drop
+  // would capture offsets through the wrong inverse — hide the gizmo instead.
+  if (hasWarpAncestor(faceWarp.parent, deformers)) return null;
 
   // All matrix deformers (warp deformers have no pivot/TRS so they are excluded).
   const matrixDeformers = deformers.filter(
