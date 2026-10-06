@@ -59,6 +59,13 @@ const PARAM_ANGLE_X: IkiParameter = {
   default: 0,
 };
 
+const PARAM_BREATH: IkiParameter = {
+  id: "ParamBreath",
+  min: 0,
+  max: 1,
+  default: 0,
+};
+
 // --- (a) resolveDeformers grids — no parent, no warps → rest unchanged -------
 
 describe("resolveDeformers grids — no parent, no warps", () => {
@@ -139,6 +146,63 @@ describe("resolveDeformers grids — no parent, grid keyform offsets", () => {
     // Untouched points stay at rest.
     expect(g.points[2]).toBeCloseTo(0);
     expect(g.points[3]).toBeCloseTo(1);
+  });
+});
+
+describe("resolveDeformers grids — several 1D warps sum", () => {
+  const rest = makeRestGrid();
+  const n = rest.points.length;
+  const zeros = new Array(n).fill(0);
+  const warpA = {
+    parameter: "ParamAngleX",
+    keyforms: [
+      { value: 0, offsets: zeros },
+      {
+        value: 30,
+        offsets: zeros.map((_, i) => (i % 2 === 0 ? 2 : 0)),
+      },
+    ],
+  };
+  const warpB = {
+    parameter: "ParamBreath",
+    keyforms: [
+      { value: 0, offsets: zeros },
+      {
+        value: 1,
+        offsets: zeros.map((_, i) => (i % 2 === 1 ? 4 : 0)),
+      },
+    ],
+  };
+  const store = makeStore([PARAM_ANGLE_X, PARAM_BREATH]);
+  store.set("ParamAngleX", 15);
+  store.set("ParamBreath", 0.5);
+
+  it("adds each warp's own interpolation: AngleX 15 + Breath 0.5 → rest + (1, 2)", () => {
+    const warp: IkiDeformer = {
+      kind: "warp",
+      id: "w",
+      grid: rest,
+      warps: [warpA, warpB],
+    };
+    const g = resolveDeformers([warp], store).grids.get("w")!;
+
+    for (let i = 0; i < n; i += 2) {
+      expect(g.points[i]).toBeCloseTo(rest.points[i] + 1);
+      expect(g.points[i + 1]).toBeCloseTo(rest.points[i + 1] + 2);
+    }
+  });
+
+  it("is order-independent: [B, A] resolves to the same grid as [A, B]", () => {
+    const make = (warps: (typeof warpA)[]): IkiDeformer => ({
+      kind: "warp",
+      id: "w",
+      grid: rest,
+      warps,
+    });
+    const g1 = resolveDeformers([make([warpA, warpB])], store).grids.get("w")!;
+    const g2 = resolveDeformers([make([warpB, warpA])], store).grids.get("w")!;
+
+    expect(Array.from(g2.points)).toEqual(Array.from(g1.points));
   });
 });
 

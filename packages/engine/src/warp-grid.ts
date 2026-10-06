@@ -14,8 +14,10 @@ export interface ResolvedWarpGrid {
 
 /**
  * A warp deformer's LOCAL deformed grid: its rest `grid.points` plus the
- * interpolated grid-keyform offsets, in the deformer's own rest frame — no
- * parent affine. Returns a new array; the rest grid is never written.
+ * interpolated offsets of EVERY entry of `warps` (each clamped and lerped on
+ * its own parameter, then added, so several 1D warps sum) or of `warp2d`, in
+ * the deformer's own rest frame — no parent affine. Returns a new array; the
+ * rest grid is never written.
  */
 export function deformWarpGrid(
   d: IkiWarpDeformer,
