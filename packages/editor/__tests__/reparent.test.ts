@@ -25,7 +25,7 @@ const deformers: IkiDeformer[] = [
     grid: {
       cols: 2,
       rows: 2,
-      points: [0, 0, 1, 0, 2, 0, 0, 1, 1, 1, 2, 1, 0, 2, 1, 2, 2, 2],
+      points: [0, 2, 1, 2, 2, 2, 0, 1, 1, 1, 2, 1, 0, 0, 1, 0, 2, 0],
     },
   },
   {
@@ -34,7 +34,7 @@ const deformers: IkiDeformer[] = [
     grid: {
       cols: 2,
       rows: 2,
-      points: [0, 0, 1, 0, 2, 0, 0, 1, 1, 1, 2, 1, 0, 2, 1, 2, 2, 2],
+      points: [0, 2, 1, 2, 2, 2, 0, 1, 1, 1, 2, 1, 0, 0, 1, 0, 2, 0],
     },
   },
 ];
@@ -102,6 +102,26 @@ describe("validateDeformerReparent", () => {
     ];
     expect(() => validateDeformerReparent(outside, "D", "W")).toThrow(
       /deformers\."D"\.pivot \(3, 1\) lies outside its warp parent "W" rest grid x 0\.\.2, y 0\.\.2/,
+    );
+  });
+
+  it("reads the grid's corners like the format, so in-tolerance jitter cannot widen it", () => {
+    const jittered: IkiDeformer[] = [
+      {
+        kind: "warp",
+        id: "J",
+        // The bottom-right x is 1.0000005 — within the format's lattice
+        // tolerance — but the right edge the format checks is the top-right 1.
+        grid: {
+          cols: 1,
+          rows: 1,
+          points: [-1, 1, 1, 1, -1, -1, 1.0000005, -1],
+        },
+      },
+      { id: "E", pivot: { x: 1.00000025, y: 0 } },
+    ];
+    expect(() => validateDeformerReparent(jittered, "E", "J")).toThrow(
+      /lies outside its warp parent "J" rest grid x -1\.\.1,/,
     );
   });
 

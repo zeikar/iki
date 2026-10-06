@@ -60,11 +60,14 @@ export function validateDeformerReparent(
   //     digit through invalid values) is still left to the export check.
   if (parent.kind === "warp" && target.kind !== "warp") {
     const { pivot } = target;
-    const { points } = parent.grid;
-    const xs = points.filter((_, i) => i % 2 === 0);
-    const ys = points.filter((_, i) => i % 2 === 1);
-    const [xMin, xMax] = [Math.min(...xs), Math.max(...xs)];
-    const [yMin, yMax] = [Math.min(...ys), Math.max(...ys)];
+    // The same corners the format validator reads (row 0 is the top, column 0
+    // the left), so a grid with in-tolerance jitter cannot pass here and then
+    // fail at export.
+    const { cols, rows, points } = parent.grid;
+    const xMin = points[0];
+    const xMax = points[2 * cols];
+    const yMax = points[1];
+    const yMin = points[rows * (cols + 1) * 2 + 1];
     if (pivot.x < xMin || pivot.x > xMax || pivot.y < yMin || pivot.y > yMax) {
       throw new Error(
         `deformers."${deformerId}".pivot (${pivot.x}, ${pivot.y}) lies outside its warp parent "${newParentId}" rest grid x ${xMin}..${xMax}, y ${yMin}..${yMax}`,
