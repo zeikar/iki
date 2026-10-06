@@ -112,6 +112,9 @@ export function GridOverlay({ canvasRef }: GridOverlayProps) {
   // in the chain that the matrix-only affine below would miss, and the drop
   // would capture offsets through the wrong inverse — hide the gizmo instead.
   if (hasWarpAncestor(faceWarp.parent, deformers)) return null;
+  // The overlay draws and captures warps[0] only, and CaptureGridKeyform refuses
+  // such a deformer — hide the gizmo rather than edit the wrong driver.
+  if ((faceWarp.warps?.length ?? 0) > 1) return null;
 
   // All matrix deformers (warp deformers have no pivot/TRS so they are excluded).
   const matrixDeformers = deformers.filter(
