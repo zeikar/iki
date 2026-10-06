@@ -13,8 +13,11 @@ function kindOf(d: IkiDeformer): "warp" | "matrix" {
 /**
  * Validate that reparenting `deformerId` under `newParentId` keeps the deformer
  * hierarchy valid. Pass `newParentId === undefined` to move to root (always legal).
- * Checks: existence, self-reference, undeclared parent, kind constraint (warp
- * deformers cannot be parents), and cycle detection via the proposed edge.
+ * Checks: existence, self-reference, undeclared parent, kind constraint (a warp
+ * deformer cannot be the parent of another warp deformer), and cycle detection
+ * via the proposed edge. A matrix deformer's pivot must lie inside its warp
+ * parent's rest grid; that is checked at export by the format validator (the
+ * pivot can move after the reparent, so the guard does not pre-check it).
  */
 export function validateDeformerReparent(
   deformers: IkiDeformer[],
@@ -45,10 +48,10 @@ export function validateDeformerReparent(
     );
   }
 
-  // (5) Parent must be a matrix deformer.
-  if (kindOf(parent) === "warp") {
+  // (5) A warp deformer cannot be nested under another warp deformer.
+  if (kindOf(parent) === "warp" && kindOf(target) === "warp") {
     throw new Error(
-      `deformers."${deformerId}".parent "${newParentId}" must be a matrix deformer (warp deformers cannot be parents)`,
+      `deformers."${deformerId}".parent "${newParentId}" must be a matrix deformer (warp deformers cannot be nested under a warp deformer)`,
     );
   }
 

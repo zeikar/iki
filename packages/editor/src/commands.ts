@@ -552,7 +552,7 @@ export class SetDeformerBindings implements EditCommand {
 /**
  * Reparent a deformer (matrix or warp) under a new parent, or promote it to
  * root (`newParentId === undefined`). Calls {@link validateDeformerReparent}
- * FIRST so invalid reparents (cycles, warp parent, unknown id) throw before any
+ * FIRST so invalid reparents (cycles, warp-under-warp, unknown id) throw before any
  * capture or mutation — a throwing apply leaves the model and undo stack
  * untouched.
  *

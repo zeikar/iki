@@ -8,6 +8,7 @@ import { validateDeformerReparent, validatePartAttach } from "@ikijs/editor";
 //   └─ B (matrix, parent A)
 //      └─ C (matrix, parent B)
 //   └─ W (warp, parent A)
+//   W2 (warp, root)
 //
 // Parts:
 //   p  — meshless, no deformer
@@ -21,6 +22,15 @@ const deformers: IkiDeformer[] = [
     kind: "warp",
     id: "W",
     parent: "A",
+    grid: {
+      cols: 2,
+      rows: 2,
+      points: [0, 0, 1, 0, 2, 0, 0, 1, 1, 1, 2, 1, 0, 2, 1, 2, 2, 2],
+    },
+  },
+  {
+    kind: "warp",
+    id: "W2",
     grid: {
       cols: 2,
       rows: 2,
@@ -81,8 +91,12 @@ describe("validateDeformerReparent", () => {
     );
   });
 
-  it("non-matrix parent B under W throws /must be a matrix deformer/", () => {
-    expect(() => validateDeformerReparent(deformers, "B", "W")).toThrow(
+  it("matrix B under warp W does not throw", () => {
+    expect(() => validateDeformerReparent(deformers, "B", "W")).not.toThrow();
+  });
+
+  it("warp W2 under warp W throws /must be a matrix deformer/", () => {
+    expect(() => validateDeformerReparent(deformers, "W2", "W")).toThrow(
       /must be a matrix deformer/,
     );
   });
