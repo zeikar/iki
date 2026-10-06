@@ -1,6 +1,6 @@
 {
   "name": "@ikijs/engine",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "description": "WebGL2 runtime for .iki 2D puppet characters — Iki, the free, MIT-licensed Live2D and Inochi2D alternative for the web whose characters AI can build. Blink, lip-sync, gaze, head turn and hair physics.",
   "keywords": [
     "iki",
