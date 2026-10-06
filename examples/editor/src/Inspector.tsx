@@ -1181,9 +1181,9 @@ function BindingsEditor({
 }
 
 /**
- * Parent picker for a deformer. Options are "(none / root)" plus every MATRIX
- * deformer except this one. Warp deformers can't be parents (validator rule),
- * and self is excluded. Cycle-creating picks ARE still offered — the
+ * Parent picker for a deformer. Options are "(none / root)" plus every deformer
+ * except this one; warp deformers are offered only to a matrix child (a warp
+ * under a warp is a validator refusal), and self is excluded. Cycle-creating picks ARE still offered — the
  * `SetDeformerParent` validator rejects them, surfacing via `editError`;
  * pre-filtering all cycles here is extra logic the lean slice doesn't need.
  */
@@ -1197,7 +1197,8 @@ function ParentDropdown({
   runCommand: (cmd: EditCommand) => void;
 }) {
   const candidates = (model.deformers ?? []).filter(
-    (d) => d.id !== deformer.id && d.kind !== "warp",
+    (d) =>
+      d.id !== deformer.id && (d.kind !== "warp" || deformer.kind !== "warp"),
   );
   return (
     <label style={rowStyle}>

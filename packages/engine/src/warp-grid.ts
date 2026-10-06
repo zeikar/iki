@@ -207,8 +207,12 @@ export function warpRigidFrame(
   const i11 = ((row + 1) * stride + col + 1) * 2;
 
   const rest = restGrid.points;
-  const cellWidth = rest[i10] - rest[i00];
-  const cellHeight = rest[i00 + 1] - rest[i01 + 1];
+  // Same boundaries as bindPointToRestGrid (row 0's x, column 0's y): the
+  // validator tolerates 1e-6 of jitter elsewhere, which can zero a cell's own
+  // corner difference.
+  const cellWidth = rest[(col + 1) * 2] - rest[col * 2];
+  const cellHeight =
+    rest[row * stride * 2 + 1] - rest[(row + 1) * stride * 2 + 1];
 
   // Images of the rest x/y axes. t runs top→bottom, i.e. against +y, hence
   // the minus on ey.

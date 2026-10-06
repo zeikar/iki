@@ -700,4 +700,21 @@ describe("warpRigidFrame", () => {
     expect(qx).toBeCloseTo(px + Math.SQRT1_2, 5);
     expect(qy).toBeCloseTo(py - Math.SQRT1_2, 5);
   });
+
+  it("(g) validator-tolerated near-degenerate rest cell → finite frame", () => {
+    // Row 0 and row 1 differ in y by < 1e-6 in column 1+, which the format
+    // validator accepts. The cell size must come from the same row-0 /
+    // column-0 boundaries the binding uses, not from the cell's own corners.
+    const rest: IkiWarpGrid = {
+      cols: 2,
+      rows: 1,
+      points: [0, 1e-7, 1, 0, 2, 0, 0, 0, 1, 0, 2, 0],
+    };
+    const m = warpRigidFrame(
+      { x: 1.5, y: 5e-8 },
+      rest,
+      Float32Array.from(rest.points),
+    );
+    for (const v of m) expect(Number.isFinite(v)).toBe(true);
+  });
 });
