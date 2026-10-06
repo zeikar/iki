@@ -1,6 +1,6 @@
 {
   "name": "@ikijs/mcp",
-  "version": "0.17.0",
+  "version": "0.17.1",
   "description": "MCP server that lets AI agents build 2D puppet characters: compose AI-drawn part images, check their geometry and auto-rig them into an open .iki model — Iki, the free Live2D alternative.",
   "keywords": [
     "iki",
