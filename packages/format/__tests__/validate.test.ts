@@ -1490,7 +1490,40 @@ describe("warp deformers — grid warp keyform errors", () => {
     );
   });
 
-  it("(d) more than one grid warp throws /at most one grid warp/", () => {
+  it("(d) several grid warps on distinct parameters parse, in input order", () => {
+    const warpOn = (parameter: string) => ({
+      parameter,
+      keyforms: [{ value: 0, offsets: Array(12).fill(0) }],
+    });
+    const base = validModel();
+    const input = {
+      ...base,
+      parameters: [
+        ...base.parameters,
+        { id: "ParamB", name: "B", min: -1, max: 1, default: 0 },
+      ],
+      deformers: [
+        {
+          ...makeWarpDeformer("faceWarp"),
+          warps: [warpOn("ParamA"), warpOn("ParamB")],
+        },
+      ],
+      parts: [
+        {
+          ...base.parts[0],
+          deformer: "faceWarp",
+          mesh: warpChildMesh(),
+        },
+      ],
+    };
+    const model = parseIkiModel(input);
+    const wd = model.deformers![0];
+    if (wd.kind !== "warp") throw new Error("expected a warp deformer");
+    expect(wd.warps).toHaveLength(2);
+    expect(wd.warps?.map((w) => w.parameter)).toEqual(["ParamA", "ParamB"]);
+  });
+
+  it("(e) two grid warps on the same parameter throw", () => {
     const oneWarp = {
       parameter: "ParamA",
       keyforms: [{ value: 0, offsets: Array(12).fill(0) }],
@@ -1511,7 +1544,40 @@ describe("warp deformers — grid warp keyform errors", () => {
         },
       ],
     };
-    expect(() => parseIkiModel(input)).toThrow(/at most one grid warp/);
+    expect(() => parseIkiModel(input)).toThrow(
+      /warps\[1\]\.parameter "ParamA" is already driven by warps\[0\]/,
+    );
+  });
+
+  it("(f) two grid warps plus warp2d still throw the XOR error", () => {
+    const warpOn = (parameter: string) => ({
+      parameter,
+      keyforms: [{ value: 0, offsets: Array(12).fill(0) }],
+    });
+    const input = {
+      ...modelWith2DWarp(),
+      deformers: [
+        {
+          ...makeWarpDeformer("faceWarp"),
+          warps: [warpOn("ParamX"), warpOn("ParamY")],
+          warp2d: {
+            parameter: "ParamX",
+            parameterY: "ParamY",
+            valuesX: [-1, 1],
+            valuesY: [-1, 1],
+            keyforms2d: [
+              { offsets: Array(12).fill(0) },
+              { offsets: Array(12).fill(0) },
+              { offsets: Array(12).fill(0) },
+              { offsets: Array(12).fill(0) },
+            ],
+          },
+        },
+      ],
+    };
+    expect(() => parseIkiModel(input)).toThrow(
+      /declares only one of warps \(1D\) or warp2d \(2D\)/,
+    );
   });
 });
 
@@ -2448,6 +2514,50 @@ describe("physics chains", () => {
       id: "bodyWarp",
       grid: { cols: 1, rows: 1, points: [-10, 10, 10, 10, -10, -10, 10, -10] },
       warps: [
+        {
+          parameter: "AngleX",
+          keyforms: [
+            { value: -30, offsets: [0, 0, 0, 0, 0, 0, 0, 0] },
+            { value: 30, offsets: [0, 2, 0, -2, 0, 0, 0, 0] },
+          ],
+        },
+      ],
+    };
+    const c = {
+      ...validChain,
+      segments: [
+        {
+          output: { parameter: "AngleX", scale: 1 },
+          mass: 1,
+          stiffness: 10,
+          damping: 4,
+        },
+      ],
+    };
+    const m = chainModel([c]);
+    m.deformers = [
+      bodyWarp,
+      { id: "headDeformer", parent: "bodyWarp", pivot: { x: 0, y: 0 } },
+    ];
+    expect(() => parseIkiModel(m)).toThrow(
+      /feeds its own anchor deformer chain \(feedback\)/,
+    );
+  });
+
+  it("rejects a chain segment output that drives the second grid warp of an anchor ancestor", () => {
+    // The feedback walk must read every warps entry, not just warps[0].
+    const bodyWarp = {
+      kind: "warp",
+      id: "bodyWarp",
+      grid: { cols: 1, rows: 1, points: [-10, 10, 10, 10, -10, -10, 10, -10] },
+      warps: [
+        {
+          parameter: "SegOut1",
+          keyforms: [
+            { value: -30, offsets: [0, 0, 0, 0, 0, 0, 0, 0] },
+            { value: 30, offsets: [0, 1, 0, -1, 0, 0, 0, 0] },
+          ],
+        },
         {
           parameter: "AngleX",
           keyforms: [

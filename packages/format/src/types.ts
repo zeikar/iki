@@ -7,8 +7,8 @@
  * triangle {@link IkiMesh} with per-vertex UV and per-parameter warp keyforms
  * ({@link IkiWarp}/{@link IkiKeyform}) — both are part of the v1 contract.
  * Two-parameter (joint X+Y) grid warps via {@link IkiGrid2DWarp} (`warp2d`) are supported; each deformer carries
- * either a 1D warp (`warps`) or a 2D warp (`warp2d`), not both. Multi-grid composition and further advanced warp
- * types remain deferred. Group warp deformers ({@link IkiWarpDeformer}) are part of the v1 contract.
+ * 1D grid warps (`warps`, several allowed, one per parameter, summed) or a 2D warp (`warp2d`), not both; further
+ * advanced warp types remain deferred. Group warp deformers ({@link IkiWarpDeformer}) are part of the v1 contract.
  * A model may also declare named {@link IkiExpression}s and grouped {@link IkiMotionClip}s for a host to play (see animations.ts).
  */
 export const IKI_FORMAT_VERSION = 1;
@@ -150,7 +150,7 @@ export interface IkiPart {
   deformer?: string;
   /** Render as this mesh instead of the implicit unit quad. */
   mesh?: IkiMesh;
-  /** Per-vertex warp keyforms applied to `mesh` each frame; requires `mesh`. */
+  /** Per-vertex warp keyforms applied to `mesh` each frame, every entry's interpolated offsets summed; requires `mesh`. */
   warps?: IkiWarp[];
   /**
    * Clipping mask. This part renders only inside the (union of the) alpha
@@ -279,9 +279,9 @@ export interface IkiGridWarp {
  * the rigid turn stays on the parent, curvature lives in the grid keyforms.
  * Matrix deformers may hang from it (see {@link IkiMatrixDeformer.parent}).
  *
- * A deformer carries EITHER `warps` (one 1D grid warp) XOR `warp2d` (one 2D grid warp),
- * never both (validator-enforced). The 2D warp's two axes together act as its single
- * compound driver, preserving the one-warp-per-deformer intent.
+ * A deformer carries EITHER `warps` (one or more 1D grid warps, each on its own
+ * parameter, their interpolated offsets summed on the rest grid) XOR `warp2d`,
+ * never both (validator-enforced).
  */
 export interface IkiWarpDeformer {
   kind: "warp";
@@ -290,9 +290,9 @@ export interface IkiWarpDeformer {
   parent?: string;
   grid: IkiWarpGrid;
   /**
-   * Grid keyforms applied each frame; optional (rest grid if absent). At most ONE
-   * grid warp for now — multi-parameter grid composition is deferred
-   * (validator-enforced).
+   * Grid keyforms applied each frame; optional (rest grid if absent). Each entry
+   * is clamped + lerped on its own parameter and added to the rest grid; a
+   * repeated `parameter` is rejected (validator-enforced).
    */
   warps?: IkiGridWarp[];
   /**

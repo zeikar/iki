@@ -422,18 +422,21 @@ function parseWarpDeformer(
     if (!Array.isArray(value.warps)) {
       throw new IkiFormatError(`${path}.warps must be an array`);
     }
-    // A warp deformer's grid is driven by at most ONE grid warp in this
-    // milestone. Multi-parameter grid composition (multiple grid drivers blended
-    // additively) is deferred until intentionally designed; reject it here so the
-    // contract does not silently commit to that behavior.
-    if (value.warps.length > 1) {
-      throw new IkiFormatError(
-        `${path}.warps supports at most one grid warp (multi-parameter grid composition is deferred)`,
-      );
-    }
     warps = value.warps.map((w, i) =>
       parseGridWarp(w, `${path}.warps[${i}]`, paramDescriptors, points.length),
     );
+    // A repeated parameter is just one entry with summed keyforms, so one entry
+    // per parameter keeps the shape canonical.
+    const seen = new Map<string, number>();
+    warps.forEach((w, i) => {
+      const first = seen.get(w.parameter);
+      if (first !== undefined) {
+        throw new IkiFormatError(
+          `${path}.warps[${i}].parameter "${w.parameter}" is already driven by warps[${first}] (one grid warp per parameter)`,
+        );
+      }
+      seen.set(w.parameter, i);
+    });
   }
 
   let warp2d: IkiWarpDeformer["warp2d"];
