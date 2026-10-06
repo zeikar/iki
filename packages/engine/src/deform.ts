@@ -5,9 +5,16 @@ import type {
   IkiDeformerTransform,
   IkiMatrixDeformer,
   IkiTransform,
+  IkiWarpDeformer,
 } from "@ikijs/format";
 import { type Affine, multiply, rotate, scale, translate } from "./affine";
 import type { ParameterStore } from "./parameter-store";
+import {
+  type ResolvedWarpGrid,
+  deformWarpGrid,
+  transformGridPoints,
+  warpRigidFrame,
+} from "./warp-grid";
 
 /** Resolved TRS + opacity from a transform + bindings at current parameter values. */
 export interface ResolvedTransform {
@@ -100,58 +107,116 @@ function deformerLocalMatrix(
   );
 }
 
+/** Every deformer of a model resolved for one frame. */
+export interface ResolvedDeformers {
+  /** Matrix deformer id → world affine. */
+  worlds: Map<string, Affine>;
+  /** Warp deformer id → deformed control grid, model space. */
+  grids: Map<string, ResolvedWarpGrid>;
+}
+
 /**
- * Resolve every deformer's world matrix in topological order, regardless of
- * array ordering. Returns a Map from deformer id to world-space Affine.
- *
- * The validator guarantees the hierarchy is acyclic and that every `parent`
- * id exists; the engine resolves on-demand with memoization so any valid
- * array order is handled correctly.
- *
- * Throws a clear internal Error if a parent is unexpectedly absent (defense-
- * in-depth — indicates an unvalidated model was passed to the engine).
+ * A warp's grid before its parent affine, and that affine (absent at a root)
+ * — what a matrix child of the warp reads its rigid frame from.
  */
-export function resolveDeformerWorlds(
+interface LocalWarp {
+  localGrid: Float32Array;
+  parentWorld: Affine | undefined;
+}
+
+/**
+ * Resolve every deformer — matrix worlds and warp grids — in topological
+ * order, regardless of array ordering.
+ *
+ * The validator guarantees the hierarchy is acyclic, that every `parent` id
+ * exists and that no warp hangs from a warp; the engine resolves on-demand
+ * with memoization so any valid array order is handled correctly.
+ *
+ * Throws a clear internal Error if a parent is unexpectedly absent or a warp
+ * hangs from a warp (defense-in-depth — indicates an unvalidated model was
+ * passed to the engine).
+ */
+export function resolveDeformers(
   deformers: IkiDeformer[],
   params: ParameterStore,
-): Map<string, Affine> {
-  // Warp deformers are non-affine; filter them out so matrix-only fields
-  // (pivot/transform/bindings) are accessible and warp deformers are never
-  // resolved as matrix deformers (which would produce NaN pivots).
-  // resolveWarpGrids (warp-grid.ts) handles warp deformers separately.
-  const matrixDeformers = deformers.filter(
-    (d): d is IkiMatrixDeformer => d.kind === "matrix" || d.kind === undefined,
-  );
-  const byId = new Map<string, IkiMatrixDeformer>(
-    matrixDeformers.map((d) => [d.id, d]),
-  );
-  const worldById = new Map<string, Affine>();
+): ResolvedDeformers {
+  const byId = new Map<string, IkiDeformer>(deformers.map((d) => [d.id, d]));
+  const worlds = new Map<string, Affine>();
+  const grids = new Map<string, ResolvedWarpGrid>();
+  const localWarps = new Map<string, LocalWarp>();
 
-  function resolve(d: IkiMatrixDeformer): Affine {
-    const cached = worldById.get(d.id);
+  function parentOf(d: IkiDeformer): IkiDeformer | undefined {
+    if (d.parent === undefined) return undefined;
+    const parent = byId.get(d.parent);
+    if (!parent) {
+      throw new Error(
+        `unresolved deformer parent "${d.parent}" — model not validated?`,
+      );
+    }
+    return parent;
+  }
+
+  function resolveWorld(d: IkiMatrixDeformer): Affine {
+    const cached = worlds.get(d.id);
     if (cached) return cached;
 
     const local = deformerLocalMatrix(d, params);
+    const parent = parentOf(d);
     let world: Affine;
-    if (d.parent === undefined) {
+    if (parent === undefined) {
       world = local;
+    } else if (parent.kind === "warp") {
+      // The frame comes off the warp's LOCAL grid and the warp's own parent
+      // affine goes on top — the same order the grid itself is resolved in,
+      // so a rest warp between two matrices changes nothing.
+      const warp = resolveWarp(parent);
+      const ridden = multiply(
+        warpRigidFrame(d.pivot, parent.grid, warp.localGrid),
+        local,
+      );
+      world = warp.parentWorld ? multiply(warp.parentWorld, ridden) : ridden;
     } else {
-      const parentDef = byId.get(d.parent);
-      if (!parentDef) {
-        throw new Error(
-          `unresolved deformer parent "${d.parent}" — model not validated?`,
-        );
-      }
-      world = multiply(resolve(parentDef), local);
+      world = multiply(resolveWorld(parent), local);
     }
 
-    worldById.set(d.id, world);
+    worlds.set(d.id, world);
     return world;
   }
 
-  for (const d of matrixDeformers) {
-    resolve(d);
+  function resolveWarp(d: IkiWarpDeformer): LocalWarp {
+    const cached = localWarps.get(d.id);
+    if (cached) return cached;
+
+    const parent = parentOf(d);
+    if (parent?.kind === "warp") {
+      throw new Error(
+        `warp deformer "${d.id}" hangs from warp "${parent.id}" — model not validated?`,
+      );
+    }
+    const parentWorld = parent && resolveWorld(parent);
+    // ORDER IS CRITICAL: keyform offsets FIRST (curvature added in the rest
+    // frame), parent affine SECOND — so the curvature rotates WITH the parent
+    // head rather than staying pinned to world axes. The reversed order
+    // (affine then offsets) pushes the bend along world-x even when the head
+    // is turned (coordinate bug).
+    const localGrid = deformWarpGrid(d, params);
+    grids.set(d.id, {
+      cols: d.grid.cols,
+      rows: d.grid.rows,
+      points: parentWorld
+        ? transformGridPoints(localGrid, parentWorld)
+        : localGrid,
+    });
+
+    const resolved = { localGrid, parentWorld };
+    localWarps.set(d.id, resolved);
+    return resolved;
   }
 
-  return worldById;
+  for (const d of deformers) {
+    if (d.kind === "warp") resolveWarp(d);
+    else resolveWorld(d);
+  }
+
+  return { worlds, grids };
 }

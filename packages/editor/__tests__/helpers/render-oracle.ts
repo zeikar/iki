@@ -16,7 +16,7 @@
  *      opacity moves nothing) — as translate · rotate · scale(width·sx,
  *      height·sy): the PRE-BIND model-space positions;
  *   3. a warp child binds those to its deformer's RAW rest grid and samples
- *      the RESOLVED grid (`resolveWarpGrids`: keyform offsets first, then the
+ *      the RESOLVED grid (`resolveDeformers`: keyform offsets first, then the
  *      parent matrix deformer's world affine folded in — so a landed position
  *      carries headDeformer's own translate/rotate too, as the render does);
  *      a matrix child, or a part with no deformer, rides dWorld · partAffine.
@@ -37,12 +37,11 @@ import {
 import type { IkiModel, IkiPart } from "@ikijs/format";
 import {
   evaluateTransform,
-  resolveDeformerWorlds,
+  resolveDeformers,
 } from "../../../engine/src/deform";
 import { applyWarps } from "../../../engine/src/warp";
 import {
   applyWarpToChild,
-  resolveWarpGrids,
   type ResolvedWarpGrid,
 } from "../../../engine/src/warp-grid";
 
@@ -138,9 +137,9 @@ export function landVertices(
       `render-oracle: part "${partId}" references unknown deformer "${part.deformer}"`,
     );
   }
-  const worlds = resolveDeformerWorlds(deformers, store);
+  const { worlds, grids } = resolveDeformers(deformers, store);
   if (deformer?.kind === "warp") {
-    const grid = resolveWarpGrids(deformers, store, worlds).get(deformer.id)!;
+    const grid = grids.get(deformer.id)!;
     const out = new Float32Array(local.length);
     applyWarpToChild(local, partAffine, deformer.grid, grid, out);
     return out;
@@ -161,11 +160,7 @@ export function deformedGrid(
 ): ResolvedWarpGrid {
   const store = storeFor(model, params);
   const deformers = model.deformers ?? [];
-  const grid = resolveWarpGrids(
-    deformers,
-    store,
-    resolveDeformerWorlds(deformers, store),
-  ).get(deformerId);
+  const grid = resolveDeformers(deformers, store).grids.get(deformerId);
   if (!grid) {
     throw new Error(
       `render-oracle: "${deformerId}" is not a warp deformer of this model`,

@@ -1,4 +1,4 @@
-import type { IkiDeformer, IkiWarpGrid } from "@ikijs/format";
+import type { IkiWarpDeformer, IkiWarpGrid } from "@ikijs/format";
 import type { Affine } from "./affine";
 import type { ParameterStore } from "./parameter-store";
 import { clamp, lerp } from "./math";
@@ -13,72 +13,49 @@ export interface ResolvedWarpGrid {
 }
 
 /**
- * For each warp deformer: take its rest `grid.points`, ADD the interpolated
- * grid-keyform offsets (accumulateKeyformOffsets) in the deformer's own rest
- * frame, THEN apply the parent matrix deformer's resolved world affine (if any)
- * — i.e. `parentAffine · (rest + offsets)`. Returns a Map from warp-deformer id
- * to its deformed grid (model space).
- *
- * `matrixWorlds` is the output of resolveDeformerWorlds (matrix deformers only);
- * warp deformers are skipped by that resolver (they are non-affine).
- *
- * ORDER IS CRITICAL: keyform offsets FIRST (curvature added in the rest frame),
- * parent affine SECOND — so the curvature rotates WITH the parent head rather
- * than staying pinned to world axes. The reversed order (affine then offsets)
- * pushes the bend along world-x even when the head is turned (coordinate bug).
+ * A warp deformer's LOCAL deformed grid: its rest `grid.points` plus the
+ * interpolated grid-keyform offsets, in the deformer's own rest frame — no
+ * parent affine. Returns a new array; the rest grid is never written.
  */
-export function resolveWarpGrids(
-  deformers: IkiDeformer[],
+export function deformWarpGrid(
+  d: IkiWarpDeformer,
   params: ParameterStore,
-  matrixWorlds: Map<string, Affine>,
-): Map<string, ResolvedWarpGrid> {
-  const resolved = new Map<string, ResolvedWarpGrid>();
-
-  for (const d of deformers) {
-    if (d.kind !== "warp") continue;
-
-    const { cols, rows, points: restPoints } = d.grid;
-    const points = Float32Array.from(restPoints);
-
-    // 1. Curvature in the rest frame: offsets += per-control-point deltas.
-    for (const warp of d.warps ?? []) {
-      accumulateKeyformOffsets(
-        warp.keyforms,
-        params.get(warp.parameter),
-        points,
-      );
-    }
-    // 1D xor 2D is validator-enforced; at most one branch contributes per deformer.
-    if (d.warp2d !== undefined) {
-      accumulate2DKeyformOffsets(
-        d.warp2d.valuesX,
-        d.warp2d.valuesY,
-        d.warp2d.keyforms2d,
-        params.get(d.warp2d.parameter),
-        params.get(d.warp2d.parameterY),
-        points,
-      );
-    }
-
-    // 2. Parent matrix deformer's world affine (if any): parentAffine · (rest + offsets).
-    if (d.parent !== undefined) {
-      const parentAffine = matrixWorlds.get(d.parent);
-      if (parentAffine) {
-        for (let i = 0; i < points.length; i += 2) {
-          const x = points[i];
-          const y = points[i + 1];
-          points[i] =
-            parentAffine[0] * x + parentAffine[2] * y + parentAffine[4];
-          points[i + 1] =
-            parentAffine[1] * x + parentAffine[3] * y + parentAffine[5];
-        }
-      }
-    }
-
-    resolved.set(d.id, { cols, rows, points });
+): Float32Array {
+  const points = Float32Array.from(d.grid.points);
+  for (const warp of d.warps ?? []) {
+    accumulateKeyformOffsets(warp.keyforms, params.get(warp.parameter), points);
   }
+  // 1D xor 2D is validator-enforced; at most one branch contributes per deformer.
+  if (d.warp2d !== undefined) {
+    accumulate2DKeyformOffsets(
+      d.warp2d.valuesX,
+      d.warp2d.valuesY,
+      d.warp2d.keyforms2d,
+      params.get(d.warp2d.parameter),
+      params.get(d.warp2d.parameterY),
+      points,
+    );
+  }
+  return points;
+}
 
-  return resolved;
+/**
+ * `affine` applied to every [x, y] of a flat grid, into a NEW array — the
+ * input (a warp's local grid, which a matrix child's rigid frame still
+ * reads) is left as is.
+ */
+export function transformGridPoints(
+  points: Float32Array,
+  affine: Affine,
+): Float32Array {
+  const out = new Float32Array(points.length);
+  for (let i = 0; i < points.length; i += 2) {
+    const x = points[i];
+    const y = points[i + 1];
+    out[i] = affine[0] * x + affine[2] * y + affine[4];
+    out[i + 1] = affine[1] * x + affine[3] * y + affine[5];
+  }
+  return out;
 }
 
 /** A model-space point bound to a rest-grid cell with within-cell (s,t). */

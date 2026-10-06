@@ -5,7 +5,7 @@ import type {
   IkiPhysicsChainSegment,
 } from "@ikijs/format";
 import type { Affine } from "./affine";
-import { resolveDeformerWorlds } from "./deform";
+import { resolveDeformers } from "./deform";
 // The two physics drivers stay independent of EACH OTHER; the timing primitives
 // they both need live in frame-clock.ts so a stability fix lands once.
 import { FIXED_DT_S, FixedStepClock } from "./frame-clock";
@@ -37,7 +37,7 @@ interface ChainData {
  * Peer of {@link PhysicsMotion} and {@link IdleMotion}.
  *
  * Each chain anchors to a matrix deformer in the model hierarchy. The driver
- * self-computes the anchor's world rotation via `resolveDeformerWorlds` (a
+ * self-computes the anchor's world rotation via `resolveDeformers` (a
  * private `ParameterStore` is filled from `read` ONCE per frame) and integrates
  * a per-segment angular pendulum with semi-implicit Euler on a fixed 1/60s
  * sub-step accumulator. Each segment's angular displacement θ (in radians
@@ -111,6 +111,9 @@ export class HairChainMotion {
    * substeps) with a non-finite guard.
    */
   update(nowMs: number): void {
+    // IkiMotion steps this driver every frame even for a chainless model;
+    // with nothing to integrate or emit, skip the per-frame deformer resolve.
+    if (this.chainData.length === 0) return;
     if (this.clock.isSeedFrame) {
       // FIRST FRAME: seed rest, emit outDefault for every segment, NO integration.
       this.clock.advance(nowMs);
@@ -127,11 +130,12 @@ export class HairChainMotion {
     const steps = this.clock.advance(nowMs);
 
     // Take the per-frame world snapshot ONCE per update() — NOT per chain.
-    // Fill the private store from read, then resolve all deformer world matrices.
+    // Fill the private store from read, then resolve every deformer (warp grids
+    // too, though only the matrix worlds are read here).
     for (const param of this.params.values()) {
       this.store.set(param.id, this.read(param.id));
     }
-    const worldMap = resolveDeformerWorlds(this.deformers, this.store);
+    const worldMap = resolveDeformers(this.deformers, this.store).worlds;
 
     // Read each chain's anchor world angle ONCE per frame (consistent across substeps,
     // like physics-motion.ts:122 `targets`).
@@ -171,8 +175,7 @@ export class HairChainMotion {
    *
    * If the anchor id is absent from the map, THROWS an internal Error — the
    * format validator guarantees the anchor exists, so absence is an invariant
-   * break (mirrors resolveDeformerWorlds' throw on an unresolved parent,
-   * deform.ts:141).
+   * break (mirrors resolveDeformers' throw on an unresolved parent).
    */
   private anchorWorldAngleRad(
     worldMap: Map<string, Affine>,

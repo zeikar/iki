@@ -7,12 +7,11 @@ import type {
 } from "@ikijs/format";
 import { ParameterStore } from "@ikijs/engine";
 import { accumulate2DKeyformOffsets } from "../src/warp";
-import { resolveDeformerWorlds } from "../src/deform";
+import { resolveDeformers } from "../src/deform";
 import type { Affine } from "../src/affine";
 import {
   applyWarpToChild,
   bindPointToRestGrid,
-  resolveWarpGrids,
   sampleWarpGrid,
   warpRigidFrame,
   type ResolvedWarpGrid,
@@ -60,14 +59,14 @@ const PARAM_ANGLE_X: IkiParameter = {
   default: 0,
 };
 
-// --- (a) resolveWarpGrids — no parent, no warps → rest unchanged --------------
+// --- (a) resolveDeformers grids — no parent, no warps → rest unchanged -------
 
-describe("resolveWarpGrids — no parent, no warps", () => {
+describe("resolveDeformers grids — no parent, no warps", () => {
   it("returns the rest points unchanged", () => {
     const rest = makeRestGrid();
     const warp: IkiDeformer = { kind: "warp", id: "w", grid: rest };
 
-    const grids = resolveWarpGrids([warp], makeStore(), new Map());
+    const { grids } = resolveDeformers([warp], makeStore());
     const g = grids.get("w")!;
 
     expect(g.cols).toBe(2);
@@ -76,9 +75,9 @@ describe("resolveWarpGrids — no parent, no warps", () => {
   });
 });
 
-// --- (b) resolveWarpGrids — matrix parent rotate, no grid warp ---------------
+// --- (b) resolveDeformers grids — matrix parent rotate, no grid warp --------
 
-describe("resolveWarpGrids — matrix parent rotate (no grid warp)", () => {
+describe("resolveDeformers grids — matrix parent rotate (no grid warp)", () => {
   it("rotates the rest grid about the matrix deformer's pivot", () => {
     const rest = makeRestGrid();
     // 90° rotation about pivot (0,0).
@@ -95,8 +94,7 @@ describe("resolveWarpGrids — matrix parent rotate (no grid warp)", () => {
     };
 
     const store = makeStore();
-    const worlds = resolveDeformerWorlds([parent, warp], store);
-    const grids = resolveWarpGrids([parent, warp], store, worlds);
+    const { worlds, grids } = resolveDeformers([parent, warp], store);
     const g = grids.get("w")!;
 
     const m = worlds.get("head")!;
@@ -115,9 +113,9 @@ describe("resolveWarpGrids — matrix parent rotate (no grid warp)", () => {
   });
 });
 
-// --- (c) resolveWarpGrids — no parent, single grid warp keyform --------------
+// --- (c) resolveDeformers grids — no parent, single grid warp keyform -------
 
-describe("resolveWarpGrids — no parent, grid keyform offsets", () => {
+describe("resolveDeformers grids — no parent, grid keyform offsets", () => {
   it("adds keyform offsets to the rest points (offsets-first, no affine)", () => {
     const rest = makeRestGrid();
     const offsets = new Array(rest.points.length).fill(0);
@@ -133,7 +131,7 @@ describe("resolveWarpGrids — no parent, grid keyform offsets", () => {
     const store = makeStore([PARAM_ANGLE_X]);
     store.set("ParamAngleX", 0);
 
-    const grids = resolveWarpGrids([warp], store, new Map());
+    const { grids } = resolveDeformers([warp], store);
     const g = grids.get("w")!;
 
     expect(g.points[0]).toBeCloseTo(-1 + 0.5);
@@ -144,9 +142,9 @@ describe("resolveWarpGrids — no parent, grid keyform offsets", () => {
   });
 });
 
-// --- (d) resolveWarpGrids — matrix parent + grid keyform (ORDER contract) ----
+// --- (d) resolveDeformers grids — matrix parent + grid keyform (ORDER) ------
 
-describe("resolveWarpGrids — parent affine after offsets (coordinate contract)", () => {
+describe("resolveDeformers grids — parent affine after offsets (coordinate contract)", () => {
   it("computes parentAffine · (rest + offset), NOT parentAffine·rest + offset", () => {
     const rest = makeRestGrid();
     const offsets = new Array(rest.points.length).fill(0);
@@ -171,8 +169,7 @@ describe("resolveWarpGrids — parent affine after offsets (coordinate contract)
 
     const store = makeStore([PARAM_ANGLE_X]);
     store.set("ParamAngleX", 0);
-    const worlds = resolveDeformerWorlds([parent, warp], store);
-    const grids = resolveWarpGrids([parent, warp], store, worlds);
+    const { worlds, grids } = resolveDeformers([parent, warp], store);
     const g = grids.get("w")!;
     const m = worlds.get("head")!;
 
@@ -479,7 +476,7 @@ describe("accumulate2DKeyformOffsets — diagonal interior blend", () => {
   });
 });
 
-describe("resolveWarpGrids — warp2d applies 2D keyform offsets", () => {
+describe("resolveDeformers grids — warp2d applies 2D keyform offsets", () => {
   // Warp deformer with a 2×2 2D grid warp.  All rest points at zero so the
   // accumulated offsets are the full result.  k(0,0)=1, k(1,0)=2, k(0,1)=3, k(1,1)=4.
   // Drive vx=5 (midpoint of [0,10]) and vy=5 → tx=0.5, ty=0.5 → bilinear = 2.5.
@@ -521,11 +518,11 @@ describe("resolveWarpGrids — warp2d applies 2D keyform offsets", () => {
     },
   };
 
-  it("blends 2D keyforms into the grid control points via resolveWarpGrids", () => {
+  it("blends 2D keyforms into the grid control points via resolveDeformers", () => {
     const store = new ParameterStore([PARAM_X, PARAM_Y]);
     store.set("px", 5);
     store.set("py", 5);
-    const grids = resolveWarpGrids([warpDef], store, new Map());
+    const { grids } = resolveDeformers([warpDef], store);
     const g = grids.get("wd")!;
     // Expected: rest + 2.5 on every component.
     for (let i = 0; i < restGrid.points.length; i++) {

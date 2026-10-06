@@ -6,10 +6,17 @@ import type {
   IkiWarpDeformer,
 } from "@ikijs/format";
 import { ParameterStore } from "./parameter-store";
-import { multiply, rotate, scale, toMat3, translate } from "./affine";
-import { evaluateTransform, resolveDeformerWorlds } from "./deform";
+import {
+  type Affine,
+  multiply,
+  rotate,
+  scale,
+  toMat3,
+  translate,
+} from "./affine";
+import { evaluateTransform, resolveDeformers } from "./deform";
 import { applyWarps } from "./warp";
-import { applyWarpToChild, resolveWarpGrids } from "./warp-grid";
+import { applyWarpToChild, type ResolvedWarpGrid } from "./warp-grid";
 
 /**
  * Alpha threshold used only during the stencil mask-write pass: a mask fragment
@@ -569,21 +576,15 @@ export class IkiPlayer {
 
     gl.useProgram(this.program);
 
-    const deformerWorlds =
-      this.model.deformers && this.model.deformers.length > 0
-        ? resolveDeformerWorlds(this.model.deformers, this.params)
-        : undefined;
-
-    // Resolve each warp deformer's deformed control grid for this frame (parent
-    // matrix affine + grid keyforms). Warp-child mesh parts sample these grids
+    // Every deformer for this frame: matrix worlds, and warp grids (grid
+    // keyforms + parent matrix affine). Warp-child mesh parts sample the grids
     // instead of riding the affine dWorld·TRS chain.
-    const warpGrids = this.model.deformers?.some((d) => d.kind === "warp")
-      ? resolveWarpGrids(
-          this.model.deformers,
-          this.params,
-          deformerWorlds ?? new Map(),
-        )
-      : undefined;
+    const resolved =
+      this.model.deformers && this.model.deformers.length > 0
+        ? resolveDeformers(this.model.deformers, this.params)
+        : undefined;
+    const deformerWorlds = resolved?.worlds;
+    const warpGrids = resolved?.grids;
 
     // u_alphaCutoff defaults to 0 (no fragment is discarded) for normal parts;
     // the mask-write pass raises it temporarily (see drawClipped).
@@ -618,8 +619,8 @@ export class IkiPlayer {
     maskIndices: number[],
     clipX: number,
     clipY: number,
-    deformerWorlds: ReturnType<typeof resolveDeformerWorlds> | undefined,
-    warpGrids: ReturnType<typeof resolveWarpGrids> | undefined,
+    deformerWorlds: Map<string, Affine> | undefined,
+    warpGrids: Map<string, ResolvedWarpGrid> | undefined,
   ): void {
     const { gl } = this;
 
@@ -664,8 +665,8 @@ export class IkiPlayer {
     index: number,
     clipX: number,
     clipY: number,
-    deformerWorlds: ReturnType<typeof resolveDeformerWorlds> | undefined,
-    warpGrids: ReturnType<typeof resolveWarpGrids> | undefined,
+    deformerWorlds: Map<string, Affine> | undefined,
+    warpGrids: Map<string, ResolvedWarpGrid> | undefined,
   ): void {
     const { gl } = this;
     const part = this.parts[index];
@@ -735,7 +736,7 @@ export class IkiPlayer {
         // --- Warp-deformer (group warp) child pipeline ---
         // Coordinate invariant (top bug risk): BIND against the RAW rest grid
         // (warpDeformer.grid — no keyform offsets, no parent affine), SAMPLE
-        // against the RESOLVED grid (resolveWarpGrids output: offsets added,
+        // against the RESOLVED grid (resolveDeformers' grids: offsets added,
         // THEN parent affine). Never bind against a resolved/deformed grid.
         const warpDef = pm.warpDeformer;
         const grid = warpGrids!.get(warpDef.id)!;
