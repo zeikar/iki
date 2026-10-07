@@ -78,6 +78,18 @@ export class TurnTargetError extends Error {
 }
 
 /**
+ * Art geometry the rig cannot build on — today a body whose hips leave no row
+ * line under its pivots (`body.ts`). A fact about the layers, not a bug, so a
+ * host reports it as an input error.
+ */
+export class LayerGeometryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LayerGeometryError";
+  }
+}
+
+/**
  * The profile's own turn (`profile.ts`), in the cues' units — what a rig with
  * no `turnTargets` renders on a head whose silhouette at the eye row is back
  * hair about 1 hh (eye row → chin) wide. eyeShift: the eye pair's mean shift

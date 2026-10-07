@@ -1,5 +1,6 @@
 export {
   DEFAULT_TURN_TARGETS,
+  LayerGeometryError,
   TurnTargetError,
   type IrisStrand,
   type LayerInput,

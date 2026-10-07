@@ -10,8 +10,8 @@
  *
  * The magnitudes are our own values, `PROFILE_VALUES`, picked by eye on our
  * own characters (`packages/editor/AUTO-RIG.md`); what the rig reads —
- * `TURN`, `NOD`, `ROLL_DEG` and `AMPLITUDE` — is derived from them. Lengths
- * are in the head unit `hh`, the eye row → chin tip at rest.
+ * `TURN`, `NOD`, `ROLL_DEG`, `AMPLITUDE` and `BODY` — is derived from them.
+ * Lengths are in the head unit `hh`, the eye row → chin tip at rest.
  */
 
 /** The values the profile is derived from, each at its parameter's extreme
@@ -65,6 +65,26 @@ export interface ProfileValues {
   sway: number;
   /** At Cheek 0 the blush shows at this opacity; at Cheek 1, as drawn. */
   blushRest: number;
+  // The six body values are provisional: our own, to be picked by eye on
+  // Bob's full body (full-body slice 3), never a sample's. Each moves the
+  // body warp's weight-1 band (`body.ts`), fading to nothing at the hips.
+  /** BodyAngleX ±10: the upper body slides this far, hh. Provisional. */
+  bodySlide: number;
+  /** BodyAngleX ±10: the upper body narrows by this share of its width,
+   *  about the body's centre, either way. Provisional. */
+  bodyNarrow: number;
+  /** BodyAngleY +10: the upper body rises this far, hh; −10 bows it as far.
+   *  Provisional. */
+  bodyBow: number;
+  /** BodyAngleZ ±10 rolls the upper body this many degrees about the hips.
+   *  Provisional. */
+  bodyRoll: number;
+  /** AngleX ±30: the body follows the head's turn at this share of
+   *  BodyAngleX ±10. Provisional. */
+  bodyFollowX: number;
+  /** AngleZ ±30: the body follows the head's tilt at this share of
+   *  `bodyRoll`. Provisional. */
+  bodyFollowZ: number;
 }
 
 /** The values: round numbers picked by eye on our own characters (Bob and
@@ -92,6 +112,13 @@ export const PROFILE_VALUES: ProfileValues = {
   breath: 0.03,
   sway: 0.08,
   blushRest: 0.4,
+  // Provisional (see `ProfileValues`): not yet picked by eye.
+  bodySlide: 0.1,
+  bodyNarrow: 0.05,
+  bodyBow: 0.06,
+  bodyRoll: 4,
+  bodyFollowX: 0.3,
+  bodyFollowZ: 0.3,
 };
 
 /** What the rig reads, derived from `v`. */
@@ -192,10 +219,36 @@ export function deriveProfile(v: ProfileValues) {
      *  slide, to the next 0.05. */
     hiddenNeck: Math.ceil(30 * (v.slide + v.lead) - 1e-9) / 20,
   };
-  return { TURN: turn, NOD: nod, ROLL_DEG: v.rollDeg, AMPLITUDE: amplitude };
+  /** The body warp's motions (`body.ts`), each at its parameter's extreme:
+   *  BodyAngleX/Y/Z ±10, the follow at AngleX/AngleZ ±30. */
+  const body = {
+    /** BodyAngleX: the upper body's slide, hh. */
+    slide: v.bodySlide,
+    /** BodyAngleX: how much narrower the upper body gets, either way. */
+    narrow: v.bodyNarrow,
+    /** BodyAngleY: the upper body's rise (+) or bow (−), hh. */
+    bow: v.bodyBow,
+    /** BodyAngleZ: the upper body's roll about the hips, degrees. */
+    rollDeg: v.bodyRoll,
+    /** AngleX: the body's follow, as a share of BodyAngleX's motion. */
+    followX: v.bodyFollowX,
+    /** AngleZ: the body's follow, as a share of its roll. */
+    followZ: v.bodyFollowZ,
+    /** The roll the follow gives the body at AngleZ ±30, degrees: β, the
+     *  share of `ROLL_DEG` the head's own roll leaves to the body. */
+    followRoll: v.bodyFollowZ * v.bodyRoll,
+  };
+  return {
+    TURN: turn,
+    NOD: nod,
+    ROLL_DEG: v.rollDeg,
+    AMPLITUDE: amplitude,
+    BODY: body,
+  };
 }
 
-export const { TURN, NOD, ROLL_DEG, AMPLITUDE } = deriveProfile(PROFILE_VALUES);
+export const { TURN, NOD, ROLL_DEG, AMPLITUDE, BODY } =
+  deriveProfile(PROFILE_VALUES);
 
 /**
  * Per-character tuning, starting from the profile. `turn`, `featureLead` and

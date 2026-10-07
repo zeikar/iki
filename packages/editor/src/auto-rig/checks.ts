@@ -1,7 +1,9 @@
 /**
  * Input checks. A malformed layer is a host bug and throws a plain `Error`;
- * malformed turn options come from a caller and throw `TurnTargetError`, which
- * `@ikijs/mcp` reports as `{ ok: false }` rather than a crash.
+ * malformed turn options come from a caller and throw `TurnTargetError`, and
+ * art the rig cannot build on (a body's hips, `body.ts`) throws
+ * `LayerGeometryError`. `@ikijs/mcp` reports either as `{ ok: false }` rather
+ * than a crash.
  */
 
 import { boxOfLayer, cx, type Box } from "./layout";
