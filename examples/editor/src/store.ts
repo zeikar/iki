@@ -15,6 +15,7 @@ import {
   generateIkiFromLayerSet,
   packAtlas,
   parseLayerRoles,
+  partIdsOfRole,
   uvRectFor,
   type AtlasPlacement,
   type AtlasSource,
@@ -777,15 +778,19 @@ export const useEditorStore = create<EditorState>((set, get) => {
               `auto-rig: no decoded bitmap for "${layer.fileName}"`,
             );
           }
-          const cropped = await cropBitmap(src, layer.bbox);
-          cropBitmaps.push(cropped);
-          crops.push({
-            id: layer.role,
-            name: layer.fileName,
-            bitmap: cropped,
-            width: layer.cropW,
-            height: layer.cropH,
-          });
+          // One crop per part the layer becomes: the side table owns one
+          // bitmap per part (see partTextures), so parts never share one.
+          for (const partId of partIdsOfRole(layer.role)) {
+            const cropped = await cropBitmap(src, layer.bbox);
+            cropBitmaps.push(cropped);
+            crops.push({
+              id: partId,
+              name: layer.fileName,
+              bitmap: cropped,
+              width: layer.cropW,
+              height: layer.cropH,
+            });
+          }
         }
 
         // Generate model and create a fresh document. The app passes no turn

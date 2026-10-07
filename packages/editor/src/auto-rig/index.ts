@@ -9,5 +9,5 @@ export {
   type TurnTargets,
 } from "./types";
 export { type RigStyle } from "./profile";
-export { parseLayerRoles } from "./roles";
+export { parseLayerRoles, partIdsOfRole } from "./roles";
 export { generateIkiFromLayerSet } from "./generate";

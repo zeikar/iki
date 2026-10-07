@@ -79,6 +79,7 @@ export {
   TurnTargetError,
   generateIkiFromLayerSet,
   parseLayerRoles,
+  partIdsOfRole,
   type IrisStrand,
   type LayerInput,
   type RigStyle,

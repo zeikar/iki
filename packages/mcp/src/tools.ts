@@ -14,6 +14,7 @@ import {
   createLayerSetMeasurer,
   generateIkiFromLayerSet,
   parseLayerRoles,
+  partIdsOfRole,
   TurnTargetError,
   type IrisStrand,
   type LayerSetMeasurer,
@@ -641,18 +642,17 @@ export async function autoRigFromLayers(
     // Each crop's uv is on its own page, normalised to that page's size.
     const partTextureAssignments: AtlasAssignment[] = pages.flatMap(
       ({ crops: pageCrops, layout }) =>
-        pageCrops.map((crop) => {
+        pageCrops.flatMap((crop) => {
           const placement = layout.placements.find((p) => p.id === crop.id);
           if (placement === undefined) {
             throw new Error(`auto-rig: no atlas placement for "${crop.id}"`);
           }
-          return {
-            partId: crop.id,
-            uv: uvRectFor(placement, {
-              width: layout.pageWidth,
-              height: layout.pageHeight,
-            }),
-          };
+          const uv = uvRectFor(placement, {
+            width: layout.pageWidth,
+            height: layout.pageHeight,
+          });
+          // Every part of a role samples its crop: a forearm shares its arm's.
+          return partIdsOfRole(crop.id).map((partId) => ({ partId, uv }));
         }),
     );
 
@@ -668,7 +668,9 @@ export async function autoRigFromLayers(
     if (losslessCrop !== undefined) {
       patched = structuredClone(patched);
       patched.textures = pages.map((p) => ({ source: p.dataUri }));
-      patched.parts.find((p) => p.id === losslessCrop.id)!.texture!.index = 1;
+      for (const partId of partIdsOfRole(losslessCrop.id)) {
+        patched.parts.find((p) => p.id === partId)!.texture!.index = 1;
+      }
     }
     // Validate the patched model before writing — never persist an invalid model.
     const finalModel = parseIkiModel(patched);

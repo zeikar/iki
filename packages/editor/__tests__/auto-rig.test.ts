@@ -9,6 +9,7 @@ import {
   TurnTargetError,
   generateIkiFromLayerSet,
   parseLayerRoles,
+  partIdsOfRole,
   type IrisStrand,
   type LayerInput,
   type TurnSolveReport,
@@ -16,6 +17,7 @@ import {
 } from "@ikijs/editor";
 import { buildHeadFrame, type HeadFrame } from "../src/auto-rig/head";
 import { AMPLITUDE, NOD, ROLL_DEG, TURN } from "../src/auto-rig/profile";
+import { ROLE_TABLE } from "../src/auto-rig/roles";
 import type { GenerateOptions } from "../src/auto-rig/types";
 import { CANVAS, character, type CharacterOptions } from "./helpers/character";
 import {
@@ -254,6 +256,17 @@ describe("generateIkiFromLayerSet: the model", () => {
     expect(model.parts.find((p) => p.id === "iris_L")!.clip).toEqual({
       masks: ["eye_L"],
     });
+  });
+
+  it("names the parts each role layer becomes: today one per role, and refuses an unknown role", () => {
+    const roles = new Set(character().layers.map((l) => l.role));
+    expect(model.parts.map((p) => p.id)).toEqual(
+      ROLE_TABLE.filter((r) => roles.has(r.role)).flatMap((r) =>
+        partIdsOfRole(r.role),
+      ),
+    );
+    expect(partIdsOfRole("face")).toEqual(["face"]);
+    expect(() => partIdsOfRole("nope")).toThrow(/unknown role "nope"/);
   });
 
   it("rests exactly on the art", () => {

@@ -44,7 +44,13 @@ import {
   type Box,
   type Cells,
 } from "./layout";
-import { roleSpec, ROLE_TABLE, type Family, type RoleSpec } from "./roles";
+import {
+  roleOfPart,
+  roleSpec,
+  ROLE_TABLE,
+  type Family,
+  type RoleSpec,
+} from "./roles";
 import { bake, lattice, X_STOPS, Y_STOPS, type Lattice } from "./grid";
 import {
   chinSlide,
@@ -234,7 +240,9 @@ export function generateIkiFromLayerSet(
   // --- the features' grids ---
   const grids: Grids = new Map();
   for (const family of Object.keys(WARP_ID) as GridFamily[]) {
-    const members = parts.filter((p) => roleSpec(p.id).family === family);
+    const members = parts.filter(
+      (p) => roleSpec(roleOfPart(p.id)).family === family,
+    );
     if (members.length === 0) continue;
     const area = unionBoxes(
       members.map((p) => {
@@ -258,7 +266,7 @@ export function generateIkiFromLayerSet(
 
   // --- the plate, the blush and the hair: their own turn keyforms ---
   for (const part of parts) {
-    const family = roleSpec(part.id).family;
+    const family = roleSpec(roleOfPart(part.id)).family;
     if (isGridFamily(family)) {
       part.deformer = WARP_ID[family];
       continue;

@@ -51,7 +51,7 @@ leaves the document untouched.
 | Grid keyforms      | `computeGridOffsets`, `interpolateGridOffsets`, `upsertGridKeyform`                                                                                                      |
 | Factories          | `createDefaultPart`, `createDefaultMatrixDeformer`, `createDefaultWarpDeformer`, `createGridMesh`                                                                        |
 | Pixels             | `detectAlphaBbox`, `ALPHA_BBOX_THRESHOLD`, `AlphaBbox`, `ALPHA_OPAQUE`, `HEAD_BAND`, `SPECK_CORE_FRACTION`, `denseCoreOf`, `isSpeckCore`, `foregroundSpan`, `headHalfOf` |
-| Auto-rig           | `generateIkiFromLayerSet`, `parseLayerRoles`, `createLayerSetMeasurer`, `TurnTargets`, `DEFAULT_TURN_TARGETS`, `TurnSolveReport`, `RigStyle`                             |
+| Auto-rig           | `generateIkiFromLayerSet`, `parseLayerRoles`, `partIdsOfRole`, `createLayerSetMeasurer`, `TurnTargets`, `DEFAULT_TURN_TARGETS`, `TurnSolveReport`, `RigStyle`            |
 | Bindings           | `captureBindingEndpoint`                                                                                                                                                 |
 
 ## Auto-rig

@@ -20,6 +20,9 @@ export interface RoleSpec {
   role: string;
   family: Family;
   required?: true;
+  /** The part ids the role's layer becomes, back to front; absent, the
+   *  role's own id. */
+  parts?: readonly string[];
 }
 
 /** Back to front. `@ikijs/mcp`'s composer draws in the same order. */
@@ -59,6 +62,22 @@ export function roleSpec(role: string): RoleSpec & { i: number } {
   const spec = SPEC_BY_ROLE.get(role);
   if (spec === undefined) throw new Error(`auto-rig: unknown role "${role}"`);
   return spec;
+}
+
+/** The part ids a `role`'s layer becomes, back to front: every one of them
+ *  takes its texture from the layer's crop. Throws on an unknown role. */
+export function partIdsOfRole(role: string): readonly string[] {
+  return roleSpec(role).parts ?? [role];
+}
+
+const ROLE_BY_PART = new Map(
+  ROLE_TABLE.flatMap((r) => (r.parts ?? []).map((p) => [p, r.role] as const)),
+);
+
+/** The role whose layer a part comes from; an id no role lists as a part is
+ *  its own role. */
+export function roleOfPart(partId: string): string {
+  return ROLE_BY_PART.get(partId) ?? partId;
 }
 
 /** Spelling variants seen on real layer sets, after the case and separator

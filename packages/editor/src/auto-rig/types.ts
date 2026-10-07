@@ -10,7 +10,8 @@ const round2 = (v: number) => Math.round(v * 100) / 100;
 
 /** One role layer, as a host measured it off its decoded pixels. */
 export interface LayerInput {
-  /** Canonical role (see `parseLayerRoles`); becomes the part id. */
+  /** Canonical role (see `parseLayerRoles`); becomes the part ids
+   *  `partIdsOfRole` lists. */
   role: string;
   fileName: string;
   canvasW: number;
