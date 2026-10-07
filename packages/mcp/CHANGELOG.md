@@ -1,5 +1,13 @@
 # @ikijs/mcp
 
+## 0.17.2
+
+### Patch Changes
+
+- Updated dependencies [d870f84]
+  - @ikijs/format@0.5.0
+  - @ikijs/editor@0.16.1
+
 ## 0.17.1
 
 ### Patch Changes
