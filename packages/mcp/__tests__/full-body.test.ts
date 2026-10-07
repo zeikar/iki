@@ -18,7 +18,9 @@ import {
   type ComposeInput,
   type ComposeResult,
 } from "../src/compose";
+import { parseIkiModel } from "@ikijs/format";
 import { decodePng } from "../src/node-images";
+import { autoRigFromLayers } from "../src/tools";
 import { ARM_MARK, writeFullBodyParts, writePartsSet } from "./helpers/parts";
 
 const createdDirs: string[] = [];
@@ -400,4 +402,66 @@ describe("arms", () => {
       }),
     ).toMatch(/^layout\.arm_L: .*layer "arm\.png": the arm is too short/);
   });
+});
+
+describe("end to end", () => {
+  it("composes, measures and rigs a 1100x3650 full body with arms", async () => {
+    const parts = partsDir();
+    await writeFullBodyParts(parts);
+    const out = outDir();
+    // The torso is 160x600 trimmed: at w 600 it is 2250 tall, and cy 1585
+    // puts its top at row 460, under the face, and its feet at row 2710, with
+    // 940 rows of margin under them.
+    const composed = await composeOk({
+      partsDir: parts,
+      outDir: out,
+      canvasHeight: TALL,
+      layout: { body: { w: 600, cy: 1585 } },
+    });
+    expect(composed.layers).toHaveLength(21);
+
+    const bad = composed.measure.warnings.filter(
+      (w) => w.startsWith("arm_") || w.startsWith("body:"),
+    );
+    expect(bad).toEqual([]);
+
+    const rigged = await autoRigFromLayers({
+      layers: composed.layers.map((l) => ({ path: l.path })),
+      outputPath: path.join(out, "full-body.iki"),
+    });
+    if (!rigged.ok) throw new Error(`rig failed: ${rigged.error}`);
+    expect(rigged.canvas).toEqual({ width: CANVAS, height: TALL });
+
+    const model = parseIkiModel(
+      JSON.parse(fs.readFileSync(rigged.path, "utf8")),
+    );
+    const partIds = model.parts.map((p) => p.id);
+    expect(partIds).toEqual(expect.arrayContaining(["forearm_L", "forearm_R"]));
+    for (const part of model.parts) {
+      expect(part.texture, part.id).toBeDefined();
+    }
+    for (const texture of model.textures ?? []) {
+      const meta = await sharp(
+        Buffer.from(
+          texture.source.slice("data:image/png;base64,".length),
+          "base64",
+        ),
+      ).metadata();
+      expect(meta.width!).toBeLessThanOrEqual(4096);
+      expect(meta.height!).toBeLessThanOrEqual(4096);
+    }
+
+    const box = composed.layers.find((l) => l.role === "body")!;
+    const cornerY = box.top + SHOULDER_DROP * box.height;
+    for (const [id, cornerX] of [
+      ["armDeformer_R", box.left],
+      ["armDeformer_L", box.left + box.width],
+    ] as const) {
+      const pivot = model.deformers!.find((d) => d.id === id)!.pivot;
+      expect(Math.abs(pivot.x + CANVAS / 2 - cornerX), id).toBeLessThanOrEqual(
+        1,
+      );
+      expect(Math.abs(TALL / 2 - pivot.y - cornerY), id).toBeLessThanOrEqual(1);
+    }
+  }, 120_000);
 });
