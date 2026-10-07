@@ -31,7 +31,7 @@ deliberately deferred.
    - Head nod: `AngleY` moves each region by the profile's own values
    - Head tilt: `AngleZ` rolls the head 14° about the chin, clockwise-positive to match Live2D
    - Torso: `body` rides `bodyWarp` — breath, `BodyAngleX/Y/Z`, a small follow of the head's turn and tilt, legs planted — with the head hung from it
-   - Full body — slice 1 (rig foundation) — done: `arm_L` / `arm_R` become an upper arm and a forearm on shoulder and elbow rotations (`ParamArmL/R`, `ParamElbowL/R`), hung from the body warp. Next: the art pipeline for a taller canvas (composer, prompts, measure), then a full-body character
+   - Full body — slice 1 (rig foundation) — done: `arm_L` / `arm_R` become an upper arm and a forearm on shoulder and elbow rotations (`ParamArmL/R`, `ParamElbowL/R`), hung from the body warp. Slice 2 (art pipeline) — done: the composer's `canvasHeight` and one mirrored `arm.png`, a 4096 px per-side atlas page, the feet and arm-cap checks, and the plugin's full-body reference drawn from the bust. Next: slice 3, the first full-body character. Framing follow-up: the site hero assumes a square bust model (`site/index.html` crop with `aspect-ratio: 1`, `site/hero.ts` `FACE.y` 0.44)
    - Keyforms at 0 and ±30 only, since every profile curve is linear in its angle: each feature family rides its own `warp2d` grid over the 3×3 of turn × nod, and the plate, the blush and both hair layers carry their own keyforms
    - Per-character `style` knobs scale the profile: the turn's amount, the features' lead, how far the front hair follows the face and at the outline, the blink and the sway
    - Deferred: ML segmentation of a single flat illustration (today the parts arrive as separate layers)
