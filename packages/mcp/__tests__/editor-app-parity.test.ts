@@ -362,7 +362,14 @@ describe("the editor app's layer import and auto_rig_from_layers", () => {
     );
     expect(withoutAtlas(model)).toEqual(withoutAtlas(written));
     expect(model.parts.map((p) => p.id)).toEqual(
-      expect.arrayContaining(["arm_L", "forearm_L", "arm_R", "forearm_R"]),
+      expect.arrayContaining([
+        "elbow_L",
+        "arm_L",
+        "forearm_L",
+        "elbow_R",
+        "arm_R",
+        "forearm_R",
+      ]),
     );
 
     expect(toolLayers).toBeDefined();

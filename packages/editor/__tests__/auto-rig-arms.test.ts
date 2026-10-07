@@ -15,11 +15,14 @@ import {
 import {
   ARM_IDS,
   ARM_PARAMS,
+  CAP_INSET,
+  CAP_RIM,
   CAP_SEGMENTS,
   ELBOW_AT,
   armDeformers,
   armGeometry,
   armParts,
+  type ArmGeometry,
   type ArmRole,
 } from "../src/auto-rig/arms";
 import { BODY_WARP_ID } from "../src/auto-rig/body";
@@ -58,6 +61,50 @@ const span = (vs: number[]): [number, number] => [
 ];
 const ysOf = (mesh: IkiMesh) => mesh.vertices.filter((_, i) => i % 2 === 1);
 
+/** Crop row k's widest run, canvas columns [start, end). */
+const widest = (layer: LayerInput, k: number): [number, number] =>
+  layer.rowRuns![k].reduce<[number, number]>(
+    (w, _, i, runs) =>
+      i % 2 === 0 && runs[i + 1] - runs[i] > w[1] - w[0]
+        ? [runs[i], runs[i + 1]]
+        : w,
+    [0, 0],
+  );
+
+/** arm_R with the runs above the seam shifted 1 px toward the body (at +x)
+ *  every 4 rows: a slanted contour. */
+function shiftedArm(): LayerInput {
+  const arm = layerOf("arm_R");
+  const g = armGeometry(arm, AXIS);
+  const seamK = Math.floor(canvas.height / 2 - g.elbow.y) - arm.bbox.y;
+  return {
+    ...arm,
+    rowRuns: arm.rowRuns!.map(([s, e], k) => {
+      const d = k < seamK ? Math.floor((seamK - k) / 4) : 0;
+      return [s + d, e + d];
+    }),
+  };
+}
+
+/** The cap's 13 rays, walked as the doc says: 1 px steps from the elbow until
+ *  a point is not strictly inside its row's widest run (or leaves the crop),
+ *  less CAP_INSET, at most the cap radius, at least 1. */
+function walkRays(layer: LayerInput, g: ArmGeometry): number[] {
+  const { bbox, canvasW, canvasH } = layer;
+  return Array.from({ length: CAP_SEGMENTS + 1 }, (_, i) => {
+    const a = (Math.PI * i) / CAP_SEGMENTS;
+    for (let t = 1; ; t++) {
+      const x = g.elbow.x + canvasW / 2 + t * Math.cos(a);
+      const y = canvasH / 2 - g.elbow.y - t * Math.sin(a);
+      const k = Math.floor(y) - bbox.y;
+      const [s, e] = k >= 0 && k < bbox.h ? widest(layer, k) : [0, 0];
+      if (!(s < x && x < e)) {
+        return Math.max(1, Math.min(g.capRadius, t - CAP_INSET));
+      }
+    }
+  });
+}
+
 describe("arms.ts: geometry", () => {
   // The capsule's straight span is its crop's full width, so the shoulder's
   // and the elbow's rows are centred on the crop.
@@ -80,6 +127,33 @@ describe("arms.ts: geometry", () => {
     expect(g.side).toBe(-1);
   });
 
+  it("walks the cap's 13 rays to the contour, CAP_INSET short, at most the cap radius", () => {
+    const arm = layerOf("arm_R");
+    const g = armGeometry(arm, AXIS);
+    // The capsule's straight span is the crop's full width: the sides' exit
+    // is 50 px out, the 15° rays' 52, and the rest are capped.
+    expect(g.capRays).toEqual([
+      47, 49, 50, 50, 50, 50, 50, 50, 50, 50, 50, 49, 47,
+    ]);
+    expect(g.capRays).toEqual(walkRays(arm, g));
+    expect(g.capRays).toEqual([...g.capRays].reverse());
+    expect(g.seamRun).toEqual([0, ARM_R_BOX.w]);
+  });
+
+  it("lengthens the rays toward a body the arm leans away from, and shortens the others", () => {
+    // Every 4 rows above the seam, the runs shift 1 px toward the body, at +x
+    // of arm_R.
+    const g0 = armGeometry(layerOf("arm_R"), AXIS);
+    const shifted = shiftedArm();
+    const g = armGeometry(shifted, AXIS);
+    expect(g.capRays).toEqual(walkRays(shifted, g));
+    expect(g.capRays[1]).toBe(50);
+    expect(g.capRays[10]).toBe(48);
+    expect(g.capRays[11]).toBe(46);
+    expect([g.capRays[0], g.capRays[12]]).toEqual([47, 47]);
+    expect(g.seamRun).toEqual(g0.seamRun);
+  });
+
   it("mirrors it on arm_L, which turns CCW", () => {
     const r = armGeometry(layerOf("arm_R"), AXIS);
     const l = armGeometry(layerOf("arm_L"), AXIS);
@@ -91,6 +165,8 @@ describe("arms.ts: geometry", () => {
       shoulderRadius: r.shoulderRadius,
       elbow: { x: 2 * AXIS - r.elbow.x, y: r.elbow.y },
       capRadius: r.capRadius,
+      capRays: r.capRays,
+      seamRun: r.seamRun,
       side: 1,
     });
   });
@@ -180,80 +256,157 @@ describe("arms.ts: meshes", () => {
   const arm = layerOf("arm_L");
   const b = boxOfLayer(arm);
   const g = armGeometry(arm, AXIS);
-  const [upper, fore] = armParts("arm_L", arm, g, 7);
+  const [cap, upper, fore] = armParts("arm_L", arm, g, 7);
   // Vertices are written to 1e-5 of the box, so each lands within half that
   // of its width and of its height: under 1e-5 of the height (7e-3 px here)
   // from where it was meant.
   const tol = 1e-5 * bh(b);
+  const rays = CAP_SEGMENTS + 1;
+  // The cap's vertices: the elbow, the fan's arc, the ring's inner arc, its
+  // outer arc, the ring's arcs each holding the top ray twice.
+  const fanArc = 1;
+  const ringInner = 1 + rays;
+  const ringOuter = ringInner + rays + 1;
+  const points = meshPoints(cap.mesh!, b);
+  const uv = (i: number) => [cap.mesh!.uvs[i * 2], cap.mesh!.uvs[i * 2 + 1]];
+  /** The ring's inner width on ray i, px. */
+  const width = (i: number) =>
+    Math.min(CAP_RIM * g.capRadius, g.capRays[i] / 2);
+  /** The ray each ring vertex is on, the top ray twice. */
+  const ringRay = (j: number) => (j <= CAP_SEGMENTS / 2 ? j : j - 1);
 
-  it("cuts both parts from the crop's box, the forearm over the upper arm", () => {
-    for (const p of [upper, fore]) {
+  it("cuts the three parts from the crop's box, the cap behind the upper arm behind the forearm", () => {
+    for (const p of [cap, upper, fore]) {
       expect(p.color).toEqual([1, 1, 1, 1]);
       expect([p.width, p.height]).toEqual([bw(b), bh(b)]);
       expect(p.transform).toEqual({ x: cx(b), y: cy(b) });
-      // The host points both at the crop's rect (`partIdsOfRole`).
+      // The host points all at the crop's rect (`partIdsOfRole`).
       expect(p.texture).toBeUndefined();
     }
+    expect([cap.id, cap.deformer, cap.order]).toEqual([
+      "elbow_L",
+      "forearmDeformer_L",
+      7,
+    ]);
     expect([upper.id, upper.deformer, upper.order]).toEqual([
       "arm_L",
       "armDeformer_L",
-      7,
+      8,
     ]);
     expect([fore.id, fore.deformer, fore.order]).toEqual([
       "forearm_L",
       "forearmDeformer_L",
-      8,
+      9,
     ]);
   });
 
   it("splits the crop at the seam: the upper arm above it, the forearm's band below", () => {
     const seam = roundTo((g.elbow.y - cy(b)) / bh(b), 1e-5);
     expect(span(ysOf(upper.mesh!))).toEqual([seam, 0.5]);
-    expect(span(ysOf(fore.mesh!).slice(0, 4))).toEqual([-0.5, seam]);
+    expect(span(ysOf(fore.mesh!))).toEqual([-0.5, seam]);
+    expect(fore.mesh!.vertices).toHaveLength(8);
     expect(Math.abs(cy(b) + seam * bh(b) - g.elbow.y)).toBeLessThanOrEqual(tol);
     expect(upper.mesh!.indices).toEqual([2, 3, 0, 0, 3, 1]);
+    expect(fore.mesh!.indices).toEqual([2, 3, 0, 0, 3, 1]);
   });
 
-  it("caps the elbow with a fan over the half-disc above the seam", () => {
-    const vs = meshPoints(fore.mesh!, b);
-    // The band's four, the centre, and the arc's CAP_SEGMENTS + 1.
-    expect(vs).toHaveLength(4 + 1 + CAP_SEGMENTS + 1);
-    const [centre, ...arc] = vs.slice(4);
+  it("fans the cap from the elbow to the contour's inset, a ring round it", () => {
+    // The elbow, the fan's arc, and the ring's two arcs, each with the top
+    // ray twice.
+    expect(points).toHaveLength(1 + rays + 2 * (rays + 1));
     expect(
-      Math.hypot(centre[0] - g.elbow.x, centre[1] - g.elbow.y),
+      Math.hypot(points[0][0] - g.elbow.x, points[0][1] - g.elbow.y),
     ).toBeLessThanOrEqual(tol);
-    arc.forEach(([x, y], i) => {
-      expect(
-        Math.abs(Math.hypot(x - g.elbow.x, y - g.elbow.y) - g.capRadius),
-      ).toBeLessThanOrEqual(tol);
-      // Evenly from angle 0 round to π: the half-disc above the seam.
+    const onRay = (p: number[], i: number, r: number) => {
       const a = (Math.PI * i) / CAP_SEGMENTS;
       expect(
         Math.hypot(
-          x - (g.elbow.x + g.capRadius * Math.cos(a)),
-          y - (g.elbow.y + g.capRadius * Math.sin(a)),
+          p[0] - (g.elbow.x + r * Math.cos(a)),
+          p[1] - (g.elbow.y + r * Math.sin(a)),
         ),
       ).toBeLessThanOrEqual(tol);
-    });
-    expect(fore.mesh!.indices).toEqual([
-      2,
-      3,
+    };
+    for (let i = 0; i < rays; i++) {
+      onRay(points[fanArc + i], i, g.capRays[i] - width(i));
+    }
+    for (let j = 0; j < rays + 1; j++) {
+      const i = ringRay(j);
+      onRay(points[ringInner + j], i, g.capRays[i] - width(i));
+      onRay(points[ringOuter + j], i, g.capRays[i]);
+    }
+    // The fan's 12 triangles first, then 2 per ring segment: the top ray's
+    // two copies are not one.
+    const fan = Array.from({ length: CAP_SEGMENTS }, (_, i) => [
       0,
-      0,
-      3,
-      1,
-      ...Array.from({ length: CAP_SEGMENTS }, (_, i) => [
-        4,
-        5 + i,
-        6 + i,
-      ]).flat(),
-    ]);
+      1 + i,
+      2 + i,
+    ]).flat();
+    const ring = Array.from({ length: rays }, (_, j) => j)
+      .filter((j) => j !== CAP_SEGMENTS / 2)
+      .flatMap((j) => {
+        const [p, q] = [ringInner + j, ringOuter + j];
+        return [p, q, q + 1, p, q + 1, p + 1];
+      });
+    expect(cap.mesh!.indices).toEqual([...fan, ...ring]);
+    expect(ring).toHaveLength(2 * 3 * CAP_SEGMENTS);
   });
 
-  it("maps every UV to its vertex, and the two meshes together span the box", () => {
+  it("maps the fan to its vertices, and the ring to the seam row's edge", () => {
+    const { vertices, uvs } = cap.mesh!;
+    expect(uvs).toHaveLength(vertices.length);
+    for (let i = 0; i < ringInner; i++) {
+      expect(Math.abs(uvs[i * 2] - (vertices[i * 2] + 0.5))).toBeLessThan(1e-9);
+      expect(
+        Math.abs(uvs[i * 2 + 1] - (0.5 - vertices[i * 2 + 1])),
+      ).toBeLessThan(1e-9);
+    }
+    // The seam's own v, on every ring vertex; u at the centre of the column
+    // just past the run (`end` on the right, `start − 1` on the left), and
+    // the inner arc's `width` columns inward. The capsule fills the crop, so
+    // the column past it is the crop's last, as the host's texture holds no
+    // more.
+    const [start, end] = g.seamRun;
+    const seamV = 0.5 - (g.elbow.y - cy(b)) / bh(b);
+    const col = (c: number) =>
+      Math.min(Math.max(c + 0.5, 0.5), bw(b) - 0.5) / bw(b);
+    for (let j = 0; j < rays + 1; j++) {
+      const i = ringRay(j);
+      const right = j <= CAP_SEGMENTS / 2;
+      const outer = right ? end : start - 1;
+      const inner = outer + (right ? -width(i) : width(i));
+      expect(Math.abs(uv(ringOuter + j)[0] - col(outer))).toBeLessThan(2e-5);
+      expect(Math.abs(uv(ringInner + j)[0] - col(inner))).toBeLessThan(2e-5);
+      for (const at of [ringOuter + j, ringInner + j]) {
+        expect(Math.abs(uv(at)[1] - seamV)).toBeLessThan(2e-5);
+      }
+    }
+    // The top vertex is there twice, once for each side.
+    const half = CAP_SEGMENTS / 2;
+    expect(points[ringOuter + half]).toEqual(points[ringOuter + half + 1]);
+    expect(uv(ringOuter + half)[0]).toBeGreaterThan(
+      uv(ringOuter + half + 1)[0],
+    );
+  });
+
+  it("takes the ring's outer u from the antialias column, when the crop holds it", () => {
+    // The crop is 6 columns wider than the arm on each side.
+    const arm = layerOf("arm_R");
+    const bbox = { ...arm.bbox, x: arm.bbox.x - 6, w: arm.bbox.w + 12 };
+    const wide: LayerInput = { ...arm, bbox, cropW: bbox.w };
+    const geo = armGeometry(wide, AXIS);
+    expect(geo.seamRun).toEqual([6, 6 + ARM_R_BOX.w]);
+    const [capPart] = armParts("arm_R", wide, geo, 0);
+    const outer = 1 + rays + rays + 1;
+    const u = (j: number) => capPart.mesh!.uvs[(outer + j) * 2];
+    for (let j = 0; j < rays + 1; j++) {
+      const col = j <= CAP_SEGMENTS / 2 ? geo.seamRun[1] : geo.seamRun[0] - 1;
+      expect(Math.abs(u(j) - (col + 0.5) / bbox.w)).toBeLessThan(2e-5);
+    }
+  });
+
+  it("spans the box with the two bands", () => {
     for (const mesh of [upper.mesh!, fore.mesh!]) {
       const { vertices, uvs } = mesh;
-      expect(uvs).toHaveLength(vertices.length);
       for (let i = 0; i < vertices.length; i += 2) {
         expect(Math.abs(uvs[i] - (vertices[i] + 0.5))).toBeLessThan(1e-9);
         expect(Math.abs(uvs[i + 1] - (0.5 - vertices[i + 1]))).toBeLessThan(
@@ -264,6 +417,28 @@ describe("arms.ts: meshes", () => {
     const all = [...meshPoints(upper.mesh!, b), ...meshPoints(fore.mesh!, b)];
     expect(span(all.map(([x]) => x))).toEqual([b.x0, b.x1]);
     expect(span(all.map(([, y]) => y))).toEqual([b.y0, b.y1]);
+  });
+
+  it("hides the cap under the upper arm at rest", () => {
+    // Every vertex lies inside the widest run of its crop row by CAP_INSET,
+    // less the walk's 1 px step, on the capsules and on a slanted contour.
+    const fixtures: [ArmRole, LayerInput][] = [
+      ["arm_L", layerOf("arm_L")],
+      ["arm_R", layerOf("arm_R")],
+      ["arm_R", shiftedArm()],
+    ];
+    for (const [role, layer] of fixtures) {
+      const geo = armGeometry(layer, AXIS);
+      const box = boxOfLayer(layer);
+      const [capPart] = armParts(role, layer, geo, 0);
+      for (const [x, y] of meshPoints(capPart.mesh!, box)) {
+        const k = Math.floor(canvas.height / 2 - y) - layer.bbox.y;
+        const [s, e] = widest(layer, k);
+        const col = x + canvas.width / 2;
+        expect(col - s).toBeGreaterThanOrEqual(CAP_INSET - 1);
+        expect(e - col).toBeGreaterThanOrEqual(CAP_INSET - 1);
+      }
+    }
   });
 });
 
@@ -376,12 +551,14 @@ describe("arms on the full body", () => {
     return mid(a, b);
   };
 
-  it("orders hair_back, body, the arms, then the head, and parses", () => {
-    expect(model.parts.map((p) => p.id).slice(0, 7)).toEqual([
+  it("orders hair_back, body, the arms' parts, then the head, and parses", () => {
+    expect(model.parts.map((p) => p.id).slice(0, 9)).toEqual([
       "hair_back",
       "body",
+      "elbow_L",
       "arm_L",
       "forearm_L",
+      "elbow_R",
       "arm_R",
       "forearm_R",
       "face",
@@ -440,12 +617,13 @@ describe("arms on the full body", () => {
     }
   });
 
-  it("rests both arm parts on the art", () => {
+  it("rests the arm's parts on the art", () => {
     for (const role of ARMS) {
       const b = boxOfLayer(layerOf(role));
       const v = [
         ...oracle.landVertices(model, role),
         ...oracle.landVertices(model, ARM_IDS[role].forearm),
+        ...oracle.landVertices(model, ARM_IDS[role].cap),
       ];
       const xs = span(v.filter((_, i) => i % 2 === 0));
       const ys = span(v.filter((_, i) => i % 2 === 1));
@@ -462,14 +640,19 @@ describe("arms on the full body", () => {
     );
     expect(() => parseIkiModel(right)).not.toThrow();
     const ids = right.parts.map((p) => p.id);
-    expect(ids.slice(0, 5)).toEqual([
+    expect(ids.slice(0, 6)).toEqual([
       "hair_back",
       "body",
+      "elbow_R",
       "arm_R",
       "forearm_R",
       "face",
     ]);
-    expect(ids.filter((id) => /arm_/.test(id))).toEqual(["arm_R", "forearm_R"]);
+    expect(ids.filter((id) => /arm_|elbow_/.test(id))).toEqual([
+      "elbow_R",
+      "arm_R",
+      "forearm_R",
+    ]);
     expect(
       right.deformers!.map((d) => d.id).filter((id) => /armDeformer_/.test(id)),
     ).toEqual(["armDeformer_R", "forearmDeformer_R"]);
@@ -539,30 +722,38 @@ describe("arms on the full body", () => {
 
   it("keeps the elbow covered at any bend", () => {
     const g = geometry("arm_L");
-    const fore = model.parts.find((p) => p.id === "forearm_L")!;
-    const idx = fore.mesh!.indices;
-    const tris = Array.from({ length: idx.length / 3 }, (_, t) =>
-      idx.slice(t * 3, t * 3 + 3),
-    );
+    // The cap's triangles and the forearm band's.
+    const parts = ["elbow_L", "forearm_L"].map((id) => ({
+      id,
+      indices: model.parts.find((p) => p.id === id)!.mesh!.indices,
+    }));
     const poses: oracle.ParamValues[] = [
       ...[0, 45, 90, 150].map((v) => ({ [P.ElbowLeft]: v })),
       { [P.ArmLeft]: 60, [P.ElbowLeft]: 120 },
     ];
+    const reach = Math.min(...g.capRays);
     for (const pose of poses) {
-      const v = oracle.landVertices(model, "forearm_L", pose);
+      const landed = parts.map(({ id, indices }) => ({
+        v: oracle.landVertices(model, id, pose),
+        tris: Array.from({ length: indices.length / 3 }, (_, t) =>
+          indices.slice(t * 3, t * 3 + 3),
+        ),
+      }));
       const e = apply(
         oracle.deformerWorld(model, "forearmDeformer_L", pose),
         g.elbow,
       );
-      for (const k of [0.25, 0.5, 0.9]) {
+      for (const k of [0.25, 0.5, 0.85]) {
         for (let i = 0; i < 24; i++) {
           // Half a step off the seam's line, which the band and the cap
           // share as an edge.
           const a = ((i + 0.5) * 2 * Math.PI) / 24;
-          const x = e.x + k * g.capRadius * Math.cos(a);
-          const y = e.y + k * g.capRadius * Math.sin(a);
+          const x = e.x + k * reach * Math.cos(a);
+          const y = e.y + k * reach * Math.sin(a);
           expect(
-            tris.some((t) => inTriangle(v, t, x, y)),
+            landed.some(({ v, tris }) =>
+              tris.some((t) => inTriangle(v, t, x, y)),
+            ),
             `${JSON.stringify(pose)} r ${k} #${i}`,
           ).toBe(true);
         }

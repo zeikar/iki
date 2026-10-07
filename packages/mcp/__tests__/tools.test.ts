@@ -653,7 +653,7 @@ describe("autoRigFromLayers", () => {
     expect(fs.existsSync(outPath)).toBe(false);
   });
 
-  it("rigs arm PNGs as an upper arm and a forearm that share the arm crop's texture rect", async () => {
+  it("rigs arm PNGs as an elbow cap, an upper arm and a forearm that share the arm crop's texture rect", async () => {
     const dir = tmpDir();
     const dims = { w: 100, h: 200 };
     const paths = [
@@ -688,10 +688,16 @@ describe("autoRigFromLayers", () => {
     const model = parseIkiModel(JSON.parse(fs.readFileSync(outPath, "utf8")));
     const part = (id: string) => model.parts.find((p) => p.id === id);
     for (const side of ["L", "R"]) {
-      const [upper, fore] = [part(`arm_${side}`), part(`forearm_${side}`)];
+      const [upper, fore, cap] = [
+        part(`arm_${side}`),
+        part(`forearm_${side}`),
+        part(`elbow_${side}`),
+      ];
       expect(upper).toBeDefined();
       expect(fore).toBeDefined();
+      expect(cap).toBeDefined();
       expect(fore!.texture!.uv).toEqual(upper!.texture!.uv);
+      expect(cap!.texture!.uv).toEqual(upper!.texture!.uv);
     }
     expect(model.parts.every((p) => p.texture !== undefined)).toBe(true);
   });

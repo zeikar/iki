@@ -5,8 +5,8 @@
  * (`body.ts`) that breathes, follows the head's turn and tilt a little and
  * turns on BodyAngleX/Y/Z, its legs planted; a head deformer hung from it
  * that rolls about the chin and breathes; each arm hung from it too, as an
- * upper arm and a forearm turning about the shoulder and the elbow
- * (`arms.ts`); one small warp grid per feature
+ * upper arm, a forearm and an elbow cap turning about the shoulder and the
+ * elbow (`arms.ts`); one small warp grid per feature
  * (each eye, each brow, the nose, the mouth), translating and foreshortening
  * it by its own lead over the plate; and the plate, the hair and the blush
  * moved by per-vertex keyforms of their own — the plate as up to four
@@ -260,7 +260,7 @@ export function generateIkiFromLayerSet(
     const layer = byRole.get(spec.role);
     if (layer === undefined) continue;
     if (isArm(spec)) {
-      // Two parts cut from the one crop, each on its own deformer.
+      // Three parts cut from the one crop, on the arm's two deformers.
       parts.push(
         ...armParts(spec.role, layer, arms.get(spec.role)!, parts.length),
       );

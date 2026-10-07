@@ -82,9 +82,9 @@ it), the ears lag the face, the far one narrowing. AngleZ rolls the head 14° ab
 A `body` rides a body warp that breathes, follows the head's turn and tilt a
 little and turns on `ParamBodyAngleX/Y/Z`, its legs planted, and the head
 hangs from it. `arm_L` / `arm_R`, each a whole arm drawn hanging with its
-shoulder at the top, hang from it too: each becomes an upper arm and a
-forearm cut from the one crop, turning about the shoulder and the elbow on
-`ParamArmL/R` and `ParamElbowL/R`. An arm needs a `body`.
+shoulder at the top, hang from it too: each becomes an elbow cap, an upper
+arm and a forearm cut from the one crop, turning about the shoulder and the
+elbow on `ParamArmL/R` and `ParamElbowL/R`. An arm needs a `body`.
 
 On a layer set with a `nose`, `options.turnTargets` — the cues a 30° reference
 measures (how far the eye pair slides, how much the far eye foreshortens,

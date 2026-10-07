@@ -436,7 +436,9 @@ describe("end to end", () => {
       JSON.parse(fs.readFileSync(rigged.path, "utf8")),
     );
     const partIds = model.parts.map((p) => p.id);
-    expect(partIds).toEqual(expect.arrayContaining(["forearm_L", "forearm_R"]));
+    expect(partIds).toEqual(
+      expect.arrayContaining(["elbow_L", "forearm_L", "elbow_R", "forearm_R"]),
+    );
     for (const part of model.parts) {
       expect(part.texture, part.id).toBeDefined();
     }

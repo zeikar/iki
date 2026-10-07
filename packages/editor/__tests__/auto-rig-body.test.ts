@@ -1059,9 +1059,9 @@ describe("the full body", () => {
       }
       expect(b.rest, `arms ${arms}`).toEqual(a.rest);
     }
-    // Four arm parts and four arm deformers.
+    // Six arm parts and four arm deformers.
     expect(splitYs(armed).placed).toHaveLength(
-      splitYs(model).placed.length + 8,
+      splitYs(model).placed.length + 10,
     );
 
     // The bust's head is the full body's, 800 px lower.

@@ -30,8 +30,8 @@ export interface RoleSpec {
 export const ROLE_TABLE: readonly RoleSpec[] = [
   { role: "hair_back", family: "hair_back" },
   { role: "body", family: "body" },
-  { role: "arm_L", family: "arm", parts: ["arm_L", "forearm_L"] },
-  { role: "arm_R", family: "arm", parts: ["arm_R", "forearm_R"] },
+  { role: "arm_L", family: "arm", parts: ["elbow_L", "arm_L", "forearm_L"] },
+  { role: "arm_R", family: "arm", parts: ["elbow_R", "arm_R", "forearm_R"] },
   { role: "face", family: "face", required: true },
   { role: "blush_L", family: "face" },
   { role: "blush_R", family: "face" },
