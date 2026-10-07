@@ -26,7 +26,8 @@
  *
  * Every line and pivot is on the 0.01 grid, as the written model is, so the
  * bands need the lowest pivot only 0.02 above the hips, room for `yFull`
- * between them; less is art the rig cannot build on (`LayerGeometryError`).
+ * between them; less is art the rig cannot build on (`LayerGeometryError`),
+ * as is a ramp too short to carry the motion without folding (`refuseFold`).
  */
 
 import {
@@ -75,6 +76,9 @@ export const BODY_MESH_PX = 48;
 /** BodyAngleX/Y/Z stops: each motion is linear either side of rest, so the
  *  extremes and rest carry it exactly. */
 const BODY_STOPS = [-10, 0, 10];
+/** At any pose, each body warp cell's corner triangle keeps at least this
+ *  share of its rest area. Our own value. */
+const FOLD_MARGIN = 0.01;
 
 /**
  * The hips' line a, model y: the body warp's weight-0 line, which nothing
@@ -306,7 +310,112 @@ export function buildBodyWarp({
       warp(P.Breath, [0, 1], (_x, _y, t) => [0, t * AMPLITUDE.breathBody * hh]),
     ],
   };
+  refuseFold(body, deformer, anchor, [chin, ...pivots]);
   return { deformer, mesh: bodyMesh(b, ys) };
+}
+
+/**
+ * Refuses a body its own motion would fold (`LayerGeometryError`). At every
+ * pose each lattice cell must stay a convex quad turned as at rest: the
+ * triangle at each of its corners, that corner and its two neighbours, keeps
+ * FOLD_MARGIN of its rest area. The cell's bilinear map then folds nowhere,
+ * and no body mesh triangle turns over, even one across a column line: every
+ * field is affine in x along a row line (up to the 0.01 rounding), so the
+ * band between two row lines is one bilinear map.
+ *
+ * The warps sum, so each combination of the six warps' stops is a pose to
+ * check, 3⁵ · 2 of them. Between stops each warp moves linearly, which makes
+ * a triangle's doubled area quadratic in each warp's share t of the span it
+ * is in: it lies C·t(1 − t) under the stops' blend, C the cross product of
+ * that span's moves of the triangle's two edges. Each warp's largest C / 4
+ * comes off the least area at the stops.
+ */
+function refuseFold(
+  body: LayerInput,
+  d: IkiWarpDeformer,
+  anchor: number,
+  pivots: Point[],
+): void {
+  const { cols, rows, points } = d.grid;
+  const warps = d.warps ?? [];
+  const stride = cols + 1;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const tl = r * stride + c;
+      const [tr, bl, br] = [tl + 1, tl + stride, tl + stride + 1];
+      // Each corner, then its two neighbours counter-clockwise (y up).
+      const corners = [
+        [bl, br, tl],
+        [br, tr, bl],
+        [tr, tl, br],
+        [tl, bl, tr],
+      ];
+      for (const [p, q, s] of corners) {
+        const fold = leastArea(points, warps, p, q, s);
+        if (fold.least >= FOLD_MARGIN * fold.rest) continue;
+        const lowest = roundTo(Math.min(...pivots.map((v) => v.y)), 0.01);
+        const pose = warps
+          .map((w, i) => `${w.parameter} ${w.keyforms[fold.stops[i]].value}`)
+          .join(", ");
+        throw new LayerGeometryError(
+          `auto-rig: layer "${body.fileName}": the body is too short between its hips (y ${anchor}) and the lowest of the head's and shoulders' pivots (y ${lowest}) for its motion: its body warp's cell from x ${points[tl * 2]} to ${points[tr * 2]}, y ${points[tl * 2 + 1]} to ${points[bl * 2 + 1]}, would fold at or near ${pose}`,
+        );
+      }
+    }
+  }
+}
+
+/**
+ * The doubled signed area of the triangle on lattice points p, q, s at rest,
+ * the least it comes to at any pose (`refuseFold`), and each warp's stop
+ * index at the combination of stops it is least at.
+ */
+function leastArea(
+  points: number[],
+  warps: IkiGridWarp[],
+  p: number,
+  q: number,
+  s: number,
+): { rest: number; least: number; stops: number[] } {
+  // Each warp's moves of the edges p→q and p→s at each of its stops.
+  const moves = warps.map((w) =>
+    w.keyforms.map(({ offsets: o }) => [
+      o[q * 2] - o[p * 2],
+      o[q * 2 + 1] - o[p * 2 + 1],
+      o[s * 2] - o[p * 2],
+      o[s * 2 + 1] - o[p * 2 + 1],
+    ]),
+  );
+  const cross = (e: number[]) => e[0] * e[3] - e[1] * e[2];
+  const edges = [
+    points[q * 2] - points[p * 2],
+    points[q * 2 + 1] - points[p * 2 + 1],
+    points[s * 2] - points[p * 2],
+    points[s * 2 + 1] - points[p * 2 + 1],
+  ];
+  let least = Infinity;
+  let stops: number[] = [];
+  const at: number[] = [];
+  const walk = (w: number, ax: number, ay: number, bx: number, by: number) => {
+    if (w === moves.length) {
+      const area = ax * by - ay * bx;
+      if (area < least) [least, stops] = [area, [...at]];
+      return;
+    }
+    moves[w].forEach(([mx, my, nx, ny], k) => {
+      at[w] = k;
+      walk(w + 1, ax + mx, ay + my, bx + nx, by + ny);
+    });
+  };
+  walk(0, edges[0], edges[1], edges[2], edges[3]);
+  for (const m of moves) {
+    let most = 0;
+    for (let k = 1; k < m.length; k++) {
+      most = Math.max(most, cross(m[k].map((v, i) => v - m[k - 1][i])));
+    }
+    least -= most / 4;
+  }
+  return { rest: cross(edges), least, stops };
 }
 
 /**

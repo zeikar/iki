@@ -25,10 +25,12 @@ import {
   BODY_WARP_ID,
   CHEST_DROP,
   HIP_FRACTION,
+  bodyLattice,
   buildBodyWarp,
   headOwnBreath,
   headOwnRoll,
   hipLine,
+  type BodyLattice,
 } from "../src/auto-rig/body";
 import { buildHeadFrame } from "../src/auto-rig/head";
 import { bh, boxOfLayer, bw, cx, cy, roundTo } from "../src/auto-rig/layout";
@@ -107,6 +109,19 @@ function cellCorners(d: IkiWarpDeformer, x: number, y: number): number[] {
   const stride = cols + 1;
   const tl = Math.floor(cell / cols) * stride + (cell % cols);
   return [tl, tl + 1, tl + stride, tl + stride + 1];
+}
+
+/** A warp on a lattice's rest grid alone, no keyforms: for `cellCorners`. */
+function latticeWarp({ xs, ys }: BodyLattice): IkiWarpDeformer {
+  return {
+    kind: "warp",
+    id: BODY_WARP_ID,
+    grid: {
+      cols: xs.length - 1,
+      rows: ys.length - 1,
+      points: ys.flatMap((y) => xs.flatMap((x) => [x, y])),
+    },
+  };
 }
 
 function expectNear(actual: number, expected: number, tol: number): void {
@@ -228,6 +243,28 @@ const SHORT: LayerInput = {
 };
 const shortWarp = (chinY: number) =>
   buildBodyWarp({ body: SHORT, chin: { x: 0, y: chinY }, hh: 100, pivots: [] });
+/** SHORT's lattice under a chin at `chinY` (hh 100), before any warp. */
+const shortLattice = (chinY: number) =>
+  bodyLattice(SHORT, { x: 0, y: chinY }, 100, [], hipLine(SHORT));
+/** SHORT 10 px wide, its lattice 22 px wide: at hh 10, narrow and small
+ *  enough for its 5 px ramp to hold the roll and the bow. */
+const SLIM: LayerInput = {
+  ...SHORT,
+  bbox: { x: 495, y: 400, w: 10, h: 20 },
+  cropW: 10,
+};
+const SLIM_HH = 10;
+/** A body 112 × 30 px, model top 100, bottom 70, its hips at 85, under a
+ *  chin at 100 with hh 30: its 3.75 px ramp rows hold apart at every pose,
+ *  but the slide shears them over. */
+const SHEAR: LayerInput = {
+  ...SHORT,
+  bbox: { x: 444, y: 400, w: 112, h: 30 },
+  cropW: 112,
+  cropH: 30,
+};
+const shearWarp = () =>
+  buildBodyWarp({ body: SHEAR, chin: { x: 0, y: 100 }, hh: 30, pivots: [] });
 
 describe("body.ts: the hips", () => {
   it("plants a full body at its crotch row's top edge", () => {
@@ -330,10 +367,17 @@ describe("body.ts: the lattice and its weights", () => {
   });
 
   it("fits the chest and the ramp between the chin and the hips of a body shorter than the chest drop", () => {
-    expect(hipLine(SHORT)).toBe(90);
-    const short = shortWarp(100);
+    expect(hipLine(SLIM)).toBe(90);
+    const short = buildBodyWarp({
+      body: SLIM,
+      chin: { x: 0, y: 100 },
+      hh: SLIM_HH,
+      pivots: [],
+    });
     const s = short.deformer;
     expect(linesOf(s).ys).toEqual([106, 95, 92.5, 90, 74]);
+    // The lines do not depend on the body's width or hh.
+    expect(shortLattice(100).ys).toEqual(linesOf(s).ys);
     for (const w of s.warps!) {
       for (const kf of w.keyforms) {
         for (const { y, k } of points(s)) {
@@ -352,11 +396,11 @@ describe("body.ts: the lattice and its weights", () => {
     }
 
     // Rendered: nothing at or under the hips moves under any extreme.
-    const model = minimalModel(SHORT, short, [{ x: 0, y: 100 }]);
+    const model = minimalModel(SLIM, short, [{ x: 0, y: 100 }]);
     expect(() => parseIkiModel(model)).not.toThrow();
     for (const params of EXTREMES) {
       for (const y of [90, 89, 85, 80]) {
-        for (const x of [-40, 0, 40]) {
+        for (const x of [-4, 0, 4]) {
           expect(
             Math.abs(oracle.landedXAt(model, "body", x, y, params) - x),
           ).toBeLessThan(0.01);
@@ -368,28 +412,16 @@ describe("body.ts: the lattice and its weights", () => {
     }
     expect(
       oracle.landedYAt(model, "body", 0, 97, { [P.Breath]: 1 }) - 97,
-    ).toBeCloseTo(AMPLITUDE.breathBody * 100, 2);
+    ).toBeCloseTo(AMPLITUDE.breathBody * SLIM_HH, 2);
   });
 
-  it("still fits a ramp when the chin sits 1 px above the hips", () => {
-    const s = shortWarp(91).deformer;
-    expect(linesOf(s).ys).toEqual([106, 90.5, 90.25, 90, 74]);
-    for (const w of s.warps!) {
-      for (const kf of w.keyforms) {
-        for (const { y, k } of points(s)) {
-          if (y > 90) continue;
-          expect(kf.offsets[k * 2]).toBe(0);
-          expect(kf.offsets[k * 2 + 1]).toBe(0);
-        }
-      }
-    }
-    const roll = offsetsAt(s, P.BodyAngleZ, 10);
-    for (const k of cellCorners(s, 0, 91)) {
-      const [x, y] = [s.grid.points[k * 2], s.grid.points[k * 2 + 1]];
-      expect(y).toBeGreaterThanOrEqual(90.5);
-      const want = rotation(x, y, { x: 0, y: 90 }, -BODY.rollDeg);
-      expectNear(roll[k * 2], want.x, 0.01);
-      expectNear(roll[k * 2 + 1], want.y, 0.01);
+  it("still lays a ramp out when the chin sits 1 px above the hips, the chin's cell all weight 1", () => {
+    const lattice = shortLattice(91);
+    expect(lattice.ys).toEqual([106, 90.5, 90.25, 90, 74]);
+    expect(lattice.weights).toEqual([1, 1, 0.5, 0, 0]);
+    const corners = cellCorners(latticeWarp(lattice), 0, 91);
+    for (const k of corners) {
+      expect(lattice.weights[Math.floor(k / lattice.xs.length)]).toBe(1);
     }
   });
 
@@ -407,7 +439,65 @@ describe("body.ts: the lattice and its weights", () => {
       expect((caught as Error).message).toMatch(refusal);
       expect((caught as Error).message).toMatch(/layer "body\.png"/);
     }
-    expect(linesOf(shortWarp(90.02).deformer).ys).toEqual([106, 90.01, 90, 74]);
+    expect(shortLattice(90.02).ys).toEqual([106, 90.01, 90, 74]);
+  });
+
+  it("refuses a body too short for its motion, naming the cell that would fold and the pose", () => {
+    // The chin 10 px above the hips at hh 100: BodyAngleY −10 would bow the
+    // lines at 95, 92.5 and 90 (weights 1, 0.5, 0) to 89, 89.5 and 90.
+    const { ys, weights } = shortLattice(100);
+    expect(
+      [1, 2, 3].map((r) => roundTo(ys[r] - weights[r] * BODY.bow * 100, 0.01)),
+    ).toEqual([89, 89.5, 90]);
+    const slimAt100 = () =>
+      buildBodyWarp({
+        body: SLIM,
+        chin: { x: 0, y: 100 },
+        hh: 100,
+        pivots: [],
+      });
+    // That, every ramp the lattice tests above lay out on SHORT, SLIM at
+    // hh 100 (it holds its motion at hh 10), and SHEAR.
+    const cases = [
+      { hips: 90, chinY: 100, rows: [95, 92.5], build: () => shortWarp(100) },
+      { hips: 90, chinY: 91, rows: [90.5, 90.25], build: () => shortWarp(91) },
+      {
+        hips: 90,
+        chinY: 90.02,
+        rows: [90.01, 90],
+        build: () => shortWarp(90.02),
+      },
+      { hips: 90, chinY: 100, rows: [95, 92.5], build: slimAt100 },
+      { hips: 85, chinY: 100, rows: [92.5, 88.75], build: shearWarp },
+    ];
+    for (const { hips, chinY, rows, build } of cases) {
+      let caught: unknown;
+      try {
+        build();
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(LayerGeometryError);
+      const message = (caught as Error).message;
+      expect(message).toMatch(/layer "body\.png"/);
+      expect(message).toContain(
+        `the body is too short between its hips (y ${hips}) and the lowest of the head's and shoulders' pivots (y ${chinY}) for its motion`,
+      );
+      expect(message).toMatch(
+        new RegExp(
+          `body warp's cell from x \\S+ to \\S+, y ${rows[0]} to ${rows[1]}, would fold at or near ParamBodyAngleX`,
+        ),
+      );
+    }
+  });
+
+  it("refuses a body its motion would shear over though its rows never cross", () => {
+    // SHEAR's row lines keep apart at every pose, so a guard on the gaps
+    // between them alone passes it; BodyAngleX's slide and the bow and roll
+    // together turn a ramp cell over.
+    expect(shearWarp).toThrow(
+      "its body warp's cell from x -62 to 0, y 92.5 to 88.75, would fold at or near ParamBodyAngleX 10, ParamBodyAngleY -10, ParamBodyAngleZ -10, ParamAngleX 30, ParamAngleZ -30, ParamBreath 0",
+    );
   });
 
   it("cuts the body's mesh on every lattice line inside the box", () => {
@@ -1005,6 +1095,65 @@ describe("the full body", () => {
     expect(
       rigged(withArms.layers, withArms.options, withArms.canvas).model,
     ).toEqual(armed);
+  });
+});
+
+describe("the body's mesh at the warps' extremes", () => {
+  /** Every combination of the six warps' stops: −, 0 or + for each of the
+   *  five angles, Breath 0 or 1. */
+  const STOPS: [string, number[]][] = [
+    [P.BodyAngleX, [-10, 0, 10]],
+    [P.BodyAngleY, [-10, 0, 10]],
+    [P.BodyAngleZ, [-10, 0, 10]],
+    [P.AngleX, [-30, 0, 30]],
+    [P.AngleZ, [-30, 0, 30]],
+    [P.Breath, [0, 1]],
+  ];
+  const COMBINED = STOPS.reduce<oracle.ParamValues[]>(
+    (poses, [id, values]) =>
+      poses.flatMap((pose) => values.map((v) => ({ ...pose, [id]: v }))),
+    [{}],
+  );
+  const bust = character();
+  const full = fullBody();
+  const armed = fullBody({ arms: true });
+  const slim = buildBodyWarp({
+    body: SLIM,
+    chin: { x: 0, y: 100 },
+    hh: SLIM_HH,
+    pivots: [],
+  });
+  const models: [string, IkiModel][] = [
+    ["the bust", rigged(bust.layers, bust.options, CANVAS).model],
+    ["the full body", rigged(full.layers, full.options, full.canvas).model],
+    ["with arms", rigged(armed.layers, armed.options, armed.canvas).model],
+    ["SLIM", minimalModel(SLIM, slim, [{ x: 0, y: 100 }])],
+  ];
+
+  it("keeps every triangle's orientation at every combination of the six warps' stops", () => {
+    expect(COMBINED).toHaveLength(486);
+    for (const [name, model] of models) {
+      const { indices } = partOf(model, "body").mesh!;
+      /** Triangle t's signed area, CCW-positive. */
+      const area = (v: ArrayLike<number>, t: number) => {
+        const [a, b, c] = [indices[t], indices[t + 1], indices[t + 2]];
+        const [ux, uy] = [v[b * 2] - v[a * 2], v[b * 2 + 1] - v[a * 2 + 1]];
+        const [wx, wy] = [v[c * 2] - v[a * 2], v[c * 2 + 1] - v[a * 2 + 1]];
+        return ux * wy - uy * wx;
+      };
+      const rest = oracle.landVertices(model, "body");
+      for (let t = 0; t < indices.length; t += 3) {
+        expect(area(rest, t), name).toBeGreaterThan(0);
+      }
+      for (const params of COMBINED) {
+        const posed = oracle.landVertices(model, "body", params);
+        let least = Infinity;
+        for (let t = 0; t < indices.length; t += 3) {
+          least = Math.min(least, area(posed, t) / area(rest, t));
+        }
+        expect(least, `${name} ${JSON.stringify(params)}`).toBeGreaterThan(0);
+      }
+    }
   });
 });
 

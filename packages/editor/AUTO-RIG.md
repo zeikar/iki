@@ -7,7 +7,7 @@ each constant is what it is.
 | Module          | Job                                                                                      |
 | --------------- | ---------------------------------------------------------------------------------------- |
 | `types.ts`      | the public shapes: `LayerInput`, `TurnTargets`, `TurnSolveReport`, …                     |
-| `profile.ts`    | the rig's default values (our own, picked by eye) and the per-character style knobs      |
+| `profile.ts`    | the defaults (our own: the head's picked by eye, the body's provisional), style knobs    |
 | `roles.ts`      | the role table (draw order, family) and `parseLayerRoles`                                |
 | `layout.ts`     | boxes, rounding, grid meshes                                                             |
 | `head.ts`       | the head's frame read off the layers: axis, eye row, chin, head unit, neck, jaw cut      |
@@ -227,11 +227,15 @@ into the cell below it, so each pivot's cell is all weight 1: it moves by one
 affine map, and the head rides it rigidly. On a body too short for that,
 `yFull` is the midpoint of the hips and the lowest pivot, a hundredth clear of
 each (every line and pivot is on the 0.01 grid the model is written on). Hips
-less than 0.02 px under the lowest pivot leave no line between them, and the
-rig refuses the layer with `LayerGeometryError`, which `@ikijs/mcp` reports as
-`{ ok: false }`. The body's mesh is cut on every lattice row line inside its
-box, the hips' line and `yFull` among them, each gap split into rows at most
-48 px tall, so no triangle drags the legs along with the waist.
+less than 0.02 px under the lowest pivot leave no line between them; a ramp
+too short for the motion folds. At every combination of the six warps' stops,
+and between them, each lattice cell must stay a convex quad turned as at rest
+(each corner's triangle keeps a hundredth of its rest area), which keeps every
+body mesh triangle from turning over. The rig refuses either layer with
+`LayerGeometryError`, which `@ikijs/mcp` reports as `{ ok: false }`. The
+body's mesh is cut on every lattice row line inside its box, the hips' line
+and `yFull` among them, each gap split into rows at most 48 px tall, so no
+triangle drags the legs along with the waist.
 
 **The hips**, the weight-0 line, by the first rule that applies:
 

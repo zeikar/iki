@@ -19,8 +19,8 @@ little, and arms with an elbow.
   roles each become an upper arm and a forearm (`forearm_L/R`) on shoulder and
   elbow rotations, and need a `body`. `partIdsOfRole` names the parts a role
   layer becomes; `LayerGeometryError` reports art the rig cannot build on (a
-  body whose hips leave no row line under its pivots, an arm too short for
-  its width). The layer measurer records `rowRuns` for the body and the arms.
+  body whose hips leave no row line under its pivots, or too little room for
+  its motion; an arm too short for its width). The layer measurer records `rowRuns` for the body and the arms.
 - `@ikijs/mcp`: `auto_rig_from_layers` rigs arm PNGs, texturing both arm
   parts from one crop; an arm without a body, or art the rig cannot build
   on, comes back as `{ ok: false }`. `list_standard_parameters` returns 24

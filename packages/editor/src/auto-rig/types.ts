@@ -79,7 +79,7 @@ export class TurnTargetError extends Error {
 
 /**
  * Art geometry the rig cannot build on — today a body whose hips leave no row
- * line under its pivots (`body.ts`). A fact about the layers, not a bug, so a
+ * line under its pivots, or too little room for its motion (`body.ts`). A fact about the layers, not a bug, so a
  * host reports it as an input error.
  */
 export class LayerGeometryError extends Error {

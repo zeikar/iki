@@ -9,9 +9,10 @@
  * curve is linear in its parameter, so one keyform per extreme carries it
  * exactly.
  *
- * The magnitudes are our own values, `PROFILE_VALUES`, picked by eye on our
- * own characters (`packages/editor/AUTO-RIG.md`); what the rig reads —
- * `TURN`, `NOD`, `ROLL_DEG`, `AMPLITUDE` and `BODY` — is derived from them.
+ * The magnitudes are our own values, `PROFILE_VALUES`: the head's picked by
+ * eye on our own characters, the body's still provisional
+ * (`packages/editor/AUTO-RIG.md`); what the rig reads — `TURN`, `NOD`,
+ * `ROLL_DEG`, `AMPLITUDE` and `BODY` — is derived from them.
  * Lengths are in the head unit `hh`, the eye row → chin tip at rest.
  */
 
@@ -66,32 +67,32 @@ export interface ProfileValues {
   sway: number;
   /** At Cheek 0 the blush shows at this opacity; at Cheek 1, as drawn. */
   blushRest: number;
-  // The six body values are provisional: our own, to be picked by eye on
-  // Bob's full body (full-body slice 3), never a sample's. Each moves the
-  // body warp's weight-1 band (`body.ts`), fading to nothing at the hips.
-  /** BodyAngleX ±10: the upper body slides this far, hh. Provisional. */
+  // The six body values each move the body warp's weight-1 band (`body.ts`),
+  // fading to nothing at the hips.
+  /** BodyAngleX ±10: the upper body slides this far, hh. */
   bodySlide: number;
   /** BodyAngleX ±10: the upper body narrows by this share of its width,
-   *  about the body's centre, either way. Provisional. */
+   *  about the body's centre, either way. */
   bodyNarrow: number;
-  /** BodyAngleY +10: the upper body rises this far, hh; −10 bows it as far.
-   *  Provisional. */
+  /** BodyAngleY +10: the upper body rises this far, hh; −10 bows it as far. */
   bodyBow: number;
-  /** BodyAngleZ ±10 rolls the upper body this many degrees about the hips.
-   *  Provisional. */
+  /** BodyAngleZ ±10 rolls the upper body this many degrees about the hips. */
   bodyRoll: number;
   /** AngleX ±30: the body follows the head's turn at this share of
-   *  BodyAngleX ±10. Provisional. */
+   *  BodyAngleX ±10. */
   bodyFollowX: number;
   /** AngleZ ±30: the body follows the head's tilt at this share of
-   *  `bodyRoll`. Provisional. */
+   *  `bodyRoll`. */
   bodyFollowZ: number;
 }
 
-/** The values: round numbers picked by eye on our own characters (Bob and
- *  the long-haired one), each against its neighbours on a coarse grid in a
- *  blind A/B judged by a fresh agent and by us (2026-10); `AUTO-RIG.md` has
- *  the record. */
+/** The values. The head's, `slide` to `blushRest`: round numbers picked by
+ *  eye on our own characters (Bob and the long-haired one), each against its
+ *  neighbours on a coarse grid in a blind A/B judged by a fresh agent and by
+ *  us (2026-10); `AUTO-RIG.md` has the record. The six body values,
+ *  `bodySlide` to `bodyFollowZ`, are provisional: our own but not yet picked
+ *  by eye, which they will be on Bob's full body (full-body slice 3), never
+ *  off a sample. */
 export const PROFILE_VALUES: ProfileValues = {
   slide: 0.12,
   lead: 0.1,
@@ -113,7 +114,6 @@ export const PROFILE_VALUES: ProfileValues = {
   breath: 0.03,
   sway: 0.08,
   blushRest: 0.4,
-  // Provisional (see `ProfileValues`): not yet picked by eye.
   bodySlide: 0.1,
   bodyNarrow: 0.05,
   bodyBow: 0.06,
