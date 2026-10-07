@@ -112,12 +112,16 @@ exists:
   "layout": {},
   // the contents of iki-char/mirror-parts.json — leave it out until a part needs it
   "mirrorParts": [],
+  // the canvas's height, an even integer in 1100..4096 — leave it out for a bust
+  // "canvasHeight": 3650,
 }
 ```
 
 It alpha-trims (leaving out a faint speck detached from the drawing, which
 would pull the part off its centre), resizes, mirrors L/R and pastes each part
-at its layout center on a shared transparent 1100×1100 canvas, writing
+at its layout center on a shared transparent canvas 1100 wide and
+`canvasHeight` tall (1100 unless a full body sets it), which grows downward so
+every part keeps its place, writing
 role-named PNGs (`face.png`, `eye_L.png`, …) plus a flattened `preview.png` into
 `iki-char/layers/` — which must already exist, since the tool never creates
 it. The result carries the

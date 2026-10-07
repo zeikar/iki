@@ -364,6 +364,32 @@ describe("MCP server integration", () => {
     expect(lines[paths.length]).toBe(`# layers  (${outDir})`);
   });
 
+  it("compose_layers_from_parts passes canvasHeight through the tool schema", async () => {
+    pair = await createPair();
+    const partsDir = tmpDir();
+    await writePartsSet(partsDir);
+    const outDir = tmpDir();
+
+    // Zod strips a key the schema does not declare, so an undeclared
+    // canvasHeight would compose the square default without complaint.
+    const result = await pair.client.callTool({
+      name: "compose_layers_from_parts",
+      arguments: { partsDir, outDir, canvasHeight: 1200 },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const sc = result.structuredContent as {
+      ok: boolean;
+      layers?: { path: string }[];
+    };
+    expect(sc.ok).toBe(true);
+    expect(sc.layers?.length).toBeGreaterThan(0);
+    for (const layer of sc.layers ?? []) {
+      const meta = await sharp(layer.path).metadata();
+      expect([meta.width, meta.height]).toEqual([1100, 1200]);
+    }
+  });
+
   it("compose_layers_from_parts returns ok:false + INVALID: (not isError) for a missing partsDir", async () => {
     pair = await createPair();
     const missing = path.join(

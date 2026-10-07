@@ -2,8 +2,9 @@
  * Compose AI-generated part PNGs into canvas-aligned, role-named layers for the
  * Iki auto-rig (`auto_rig_from_layers` / `@ikijs/editor` generateIkiFromLayerSet).
  * Each part is alpha-trimmed, resized to a target width, optionally mirrored,
- * and pasted at a chosen center on a shared transparent CANVAS x CANVAS canvas
- * — the nose by its dense core, the drawing inside a soft nose's feather.
+ * and pasted at a chosen center on a shared transparent canvas, CANVAS wide and
+ * `canvasHeight` tall (CANVAS unless a full body sets it) — the nose by its
+ * dense core, the drawing inside a soft nose's feather.
  *
  * Ports the composer that shipped as a script in the Claude Code plugin, so a
  * plugin user gets it from the MCP server instead of an ad-hoc `sharp` install.
@@ -23,18 +24,37 @@ import { measureDir, type MeasureReport, type NoseSpeck } from "./measure";
 import { denseCoreOf, isSpeckCore } from "./measure-turn";
 import {
   AutoRigInputError,
+  MAX_CANVAS_DIM,
   resolveInputDir,
   resolveOutputDir,
   writeFileAtomic,
 } from "./limits";
 
 /**
- * Side of the square layer canvas, in px. NOT an input: the layout defaults
- * below place parts against this size (hair_front alone is 660px wide, and
- * sharp rejects a composite input larger than its destination), so a different
- * canvas would need its own layout. The tuning surface is `layout` overrides.
+ * The layer canvas's width, and its default height, in px. The width is NOT an
+ * input: the layout defaults below place parts against it (hair_front alone is
+ * 660px wide, and sharp rejects a composite input larger than its
+ * destination), so a different width would need its own layout. The height is
+ * `canvasHeight`: the canvas grows downward from this square, so every default
+ * keeps its place. The tuning surface is `layout` overrides.
  */
 export const CANVAS = 1100;
+
+/** The layer canvas, in px: CANVAS wide and `canvasHeight` tall. */
+interface Canvas {
+  width: number;
+  height: number;
+}
+
+/**
+ * The canvas as error messages name it: "1100" when square, as every message
+ * did before the height could grow, and "1100x3650" when tall.
+ */
+function canvasName(canvas: Canvas): string {
+  return canvas.width === canvas.height
+    ? `${canvas.width}`
+    : `${canvas.width}x${canvas.height}`;
+}
 
 // Iris width as a fraction of the sclera width. Anime irises fill most of the
 // eye opening and are clipped by the lids — the auto-rig clips iris->sclera at
@@ -116,7 +136,9 @@ const NOSE_TIP_AT = 0.66;
 
 // ── DEFAULT LAYOUT (tune per character through `layout`) ──────────────────────
 // These defaults assume the standard framing the character skill prompts for
-// (a front-facing face centered on the canvas). The face, eyes, irises,
+// (a front-facing face centred across the canvas, in its top CANVAS rows).
+// They are canvas px from the top-left, so a taller canvas only adds room
+// below them. The face, eyes, irises,
 // lashes, brows, nose and mouth are the hero bob's own tuning; bob wears his
 // blush at its default placement, picked on his face (below). The features'
 // defaults are proportions of the face: resolveLayout carries them with the
@@ -149,8 +171,9 @@ const DEFAULT_LAYOUT = {
   // Back hair and body sit behind the face. Both are OPTIONAL: a parts dir
   // without them still composes (head-only character).
   hair_back: { src: "hair_back.png", cx: 550, cy: 523, w: 800, optional: true },
-  // The torso, cut off by the canvas bottom, so the character is not a
-  // floating head. It rides the rig's `bodyWarp`, which the head hangs from.
+  // The bust's torso, cut off by a square canvas's bottom, so the character is
+  // not a floating head; a full body on a tall canvas sets `layout.body`
+  // itself. It rides the rig's `bodyWarp`, which the head hangs from.
   body: { src: "body.png", cx: 550, cy: 1017, w: 840, optional: true },
   // The face is drawn without a neck, so its box is the skull and centres
   // above the eye row (bob's skull at 437 against his eyes' 475).
@@ -284,12 +307,23 @@ export interface ComposeInput {
    * frame, which a per-role flag would leave to the caller to keep in sync.
    */
   mirrorParts?: string[];
+  /**
+   * The canvas's height in px: an even integer in CANVAS..MAX_CANVAS_DIM,
+   * CANVAS (a square bust canvas) when omitted, and every output at CANVAS is
+   * byte-identical to an omitted one. The width stays CANVAS. The canvas grows
+   * downward: every default and every override keeps its canvas px from the
+   * top-left, so the head lands where it does on a bust and a full body gets
+   * room below. Model space is centred on the canvas, so an odd height, which
+   * would put the head on a half pixel, is refused.
+   */
+  canvasHeight?: number;
 }
 
 export interface ComposedLayer {
   role: LayerRole;
   path: string;
-  /** Size of the placed part itself (the file is always CANVAS x CANVAS). */
+  /** Size of the placed part itself (the file is always CANVAS x the canvas
+   *  height). */
   width: number;
   height: number;
   left: number;
@@ -333,18 +367,22 @@ const FACE_FEATURES = [
 
 /**
  * Merge caller overrides onto the defaults. Input boundary: an unknown role, a
- * non-finite centre or an out-of-range width fails fast, path-qualified, before
- * any decode. `w` is capped at CANVAS so a part sized whole can never exceed
- * the canvas width (a nose, sized by its core, is checked in partBuffer);
- * `cx`/`cy` are unbounded here because a part may legitimately hang off an
- * edge — assertOnCanvas() rejects the one that lands nowhere on it.
+ * non-finite centre or an out-of-range width or height fails fast,
+ * path-qualified, before any decode. `w` is capped at the canvas's width and
+ * `h` at its height, so a part sized whole can never exceed the canvas width
+ * (a nose, sized by its core, is checked in partBuffer); `cx`/`cy` are
+ * unbounded here because a part may legitimately hang off an edge —
+ * assertOnCanvas() rejects the one that lands nowhere on it.
  *
  * The face's override applies first. Each feature's default is then moved
  * with the face's centre and scaled by its width against the default face's,
  * so the defaults are proportions of the face; a feature's own override still
  * names canvas px.
  */
-function resolveLayout(overrides: LayoutOverride | undefined): ResolvedLayout {
+function resolveLayout(
+  overrides: LayoutOverride | undefined,
+  canvas: Canvas,
+): ResolvedLayout {
   const resolved: ResolvedLayout = { ...DEFAULT_LAYOUT };
   if (overrides === undefined) return resolved;
   const sets = new Map<
@@ -374,9 +412,10 @@ function resolveLayout(overrides: LayoutOverride | undefined): ResolvedLayout {
     for (const field of ["w", "h"] as const) {
       const value = override[field];
       if (value === undefined) continue;
-      if (!Number.isInteger(value) || value < 1 || value > CANVAS) {
+      const max = field === "w" ? canvas.width : canvas.height;
+      if (!Number.isInteger(value) || value < 1 || value > max) {
         throw new AutoRigInputError(
-          `layout.${role}.${field} must be an integer in 1..${CANVAS}, got ${String(value)}`,
+          `layout.${role}.${field} must be an integer in 1..${max}, got ${String(value)}`,
         );
       }
       set[field] = value;
@@ -409,6 +448,26 @@ function resolveLayout(overrides: LayoutOverride | undefined): ResolvedLayout {
     resolved[role] = { ...resolved[role], ...set };
   }
   return resolved;
+}
+
+/**
+ * Input boundary for `canvasHeight`: an even integer in CANVAS..MAX_CANVAS_DIM,
+ * CANVAS when omitted. Model space is centred on the canvas, so an odd height
+ * would put the head on a half pixel.
+ */
+function resolveCanvasHeight(value: number | undefined): number {
+  if (value === undefined) return CANVAS;
+  if (
+    !Number.isInteger(value) ||
+    value % 2 !== 0 ||
+    value < CANVAS ||
+    value > MAX_CANVAS_DIM
+  ) {
+    throw new AutoRigInputError(
+      `canvasHeight must be an even integer in ${CANVAS}..${MAX_CANVAS_DIM}, got ${String(value)}`,
+    );
+  }
+  return value;
 }
 
 /**
@@ -515,6 +574,7 @@ async function partBuffer(
   partsDir: string,
   inMemory: Buffer | undefined,
   flipSource: boolean,
+  canvas: Canvas,
 ): Promise<{ buf: Buffer; w: number; h: number; nose?: NoseSizing } | null> {
   let img: sharp.Sharp;
   if (inMemory !== undefined) {
@@ -580,10 +640,10 @@ async function partBuffer(
   // resolveLayout bounds w and an explicit h, so for a part sized whole only
   // the aspect-derived height can run past the canvas; a nose sized by its
   // core can overrun either dimension.
-  if (width > CANVAS || height > CANVAS) {
-    const field = width > CANVAS || cfg.h === undefined ? "w" : "h";
+  if (width > canvas.width || height > canvas.height) {
+    const field = width > canvas.width || cfg.h === undefined ? "w" : "h";
     throw new AutoRigInputError(
-      `layout.${role}.${field}: resized part ${width}x${height} exceeds the ${CANVAS} canvas`,
+      `layout.${role}.${field}: resized part ${width}x${height} exceeds the ${canvasName(canvas)} canvas`,
     );
   }
   const resized = await sharp(trimmed.data)
@@ -604,9 +664,9 @@ async function partBuffer(
 
 /**
  * Refuse a placed part that lands nowhere on the canvas. Running off an edge is
- * legitimate — `body` is meant to be cut off by the canvas bottom — so the test
- * is INTERSECTION, not containment. A part that misses the canvas entirely
- * composes to a fully transparent layer that nothing downstream flags
+ * legitimate — a bust's `body` is meant to be cut off by the canvas bottom — so
+ * the test is INTERSECTION, not containment. A part that misses the canvas
+ * entirely composes to a fully transparent layer that nothing downstream flags
  * (measureDir warns per measured layer, and an empty one has no geometry), so a
  * sign-flipped centre would otherwise read as success.
  */
@@ -616,10 +676,16 @@ function assertOnCanvas(
   h: number,
   left: number,
   top: number,
+  canvas: Canvas,
 ): void {
-  if (left + w <= 0 || top + h <= 0 || left >= CANVAS || top >= CANVAS) {
+  if (
+    left + w <= 0 ||
+    top + h <= 0 ||
+    left >= canvas.width ||
+    top >= canvas.height
+  ) {
     throw new AutoRigInputError(
-      `${source}: the placed part (${w}x${h} at ${left},${top}) falls entirely outside the ${CANVAS} canvas`,
+      `${source}: the placed part (${w}x${h} at ${left},${top}) falls entirely outside the ${canvasName(canvas)} canvas`,
     );
   }
 }
@@ -630,10 +696,11 @@ function placement(
   cfg: RoleLayout,
   w: number,
   h: number,
+  canvas: Canvas,
 ) {
   const left = Math.round(cfg.cx - w / 2);
   const top = Math.round(cfg.cy - h / 2);
-  assertOnCanvas(`layout.${role}.cx/cy`, w, h, left, top);
+  assertOnCanvas(`layout.${role}.cx/cy`, w, h, left, top, canvas);
   return { left, top };
 }
 
@@ -646,7 +713,13 @@ function placement(
  * box's centre is `x + w/2`, as placement() takes it: pixel x covers
  * [x, x + 1).
  */
-function nosePlacement(layout: ResolvedLayout, box: Box, w: number, h: number) {
+function nosePlacement(
+  layout: ResolvedLayout,
+  box: Box,
+  w: number,
+  h: number,
+  canvas: Canvas,
+) {
   const { cx, cy } = layout.nose;
   const left = Math.round(cx - (box.x + box.w / 2));
   let top: number;
@@ -667,15 +740,16 @@ function nosePlacement(layout: ResolvedLayout, box: Box, w: number, h: number) {
     h,
     left,
     top,
+    canvas,
   );
   return { left, top };
 }
 
-function blankCanvas() {
+function blankCanvas(canvas: Canvas) {
   return sharp({
     create: {
-      width: CANVAS,
-      height: CANVAS,
+      width: canvas.width,
+      height: canvas.height,
       channels: 4,
       background: { r: 0, g: 0, b: 0, alpha: 0 },
     },
@@ -1011,7 +1085,12 @@ export async function composeLayersFromParts(
         `partsDir and outDir resolve to the same directory (${outDir}): composing would overwrite the source parts`,
       );
     }
-    const layout = resolveLayout(input.layout);
+    // Before anything decodes, like every other input check.
+    const canvas: Canvas = {
+      width: CANVAS,
+      height: resolveCanvasHeight(input.canvasHeight),
+    };
+    const layout = resolveLayout(input.layout, canvas);
     const mirrored = resolveMirrorParts(input.mirrorParts);
 
     const split = await prepEyeSplit(partsDir);
@@ -1052,6 +1131,7 @@ export async function composeLayersFromParts(
         inMemory,
         // The split halves are cut from eyewhite.png, the file a caller names.
         mirrored.has(inMemory === undefined ? cfg.src : EYEWHITE_SRC),
+        canvas,
       );
       // A lower lid too faint for the alpha the rig reads coverage at, or
       // that the resize erased, would be a layer it refuses as empty.
@@ -1070,9 +1150,9 @@ export async function composeLayersFromParts(
         noseSpeck = part.nose?.speck;
         const { core, bounds } = await coreAndBoundsOf(part.buf);
         const box = part.nose?.whole ? bounds : (core ?? bounds);
-        ({ left, top } = nosePlacement(layout, box, part.w, part.h));
+        ({ left, top } = nosePlacement(layout, box, part.w, part.h, canvas));
       } else {
-        ({ left, top } = placement(key, layout[key], part.w, part.h));
+        ({ left, top } = placement(key, layout[key], part.w, part.h, canvas));
       }
       // The eye pair's halves are cut from one eyewhite into one frame. Set
       // apart, the blink fold tears — and a lash narrowed inside its sclera
@@ -1111,7 +1191,7 @@ export async function composeLayersFromParts(
     const preview: { input: Buffer; left: number; top: number }[] = [];
     for (const { role, part, left, top } of placed) {
       // role layer: this part alone on a full canvas at its position.
-      const layer = await blankCanvas()
+      const layer = await blankCanvas(canvas)
         .composite([{ input: part.buf, left, top }])
         .png()
         .toBuffer();
@@ -1131,8 +1211,8 @@ export async function composeLayersFromParts(
     // Flattened preview over a light bg so transparency reads clearly.
     const previewPng = await sharp({
       create: {
-        width: CANVAS,
-        height: CANVAS,
+        width: canvas.width,
+        height: canvas.height,
         channels: 4,
         background: { r: 245, g: 245, b: 248, alpha: 1 },
       },
