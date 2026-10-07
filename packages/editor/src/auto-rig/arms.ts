@@ -67,8 +67,14 @@ const CAP_ROWS = [0.1, 0.3] as const;
 export const CAP_SEGMENTS = 12;
 /** How far inside the arm's contour the cap's edge keeps, px: the contour's
  *  antialias column, a texel of the engine's LINEAR filtering, and one spare.
- *  Our own value. */
+ *  The two seam-end rays (0 and π) keep none, so the cap meets the bands'
+ *  corners at a bend, and the inset grows to full over the next two
+ *  (`capInset`). Our own value. */
 export const CAP_INSET = 3;
+/** Ray i's inset of `CAP_SEGMENTS + 1`: 0 at the seam ends, `CAP_INSET` from
+ *  the second ray in. */
+export const capInset = (i: number) =>
+  Math.round(CAP_INSET * Math.min(1, Math.min(i, CAP_SEGMENTS - i) / 2));
 /** The cap's rim ring's width, as a share of the cap radius: the painted line
  *  and a little skin inside it. Our own value. */
 export const CAP_RIM = 0.25;
@@ -117,7 +123,7 @@ export interface ArmGeometry {
   /** The elbow cap's largest radius, px. */
   capRadius: number;
   /** The cap's radius on each of its `CAP_SEGMENTS + 1` rays, from the elbow
-   *  at angles 0..π, px: the walk out to the contour, less `CAP_INSET`, at
+   *  at angles 0..π, px: the walk out to the contour, less `capInset`, at
    *  most `capRadius`. */
   capRays: number[];
   /** The seam row's widest run, crop columns [start, end). */
@@ -140,7 +146,8 @@ export interface ArmGeometry {
  * - each cap ray walks 1 px at a time from the elbow until it leaves the
  *   widest run of the crop row it is in (strictly inside: `start < x < end`,
  *   on canvas columns, the row the floor of the canvas y), then stops
- *   `CAP_INSET` short of that exit, and at `capRadius`.
+ *   `capInset(i)` short of that exit (none on the two seam-end rays, 2 px on
+ *   the next, `CAP_INSET` on the rest), and at `capRadius`.
  * Pivots are on the 0.01 grid, as the written model is. `bodyAxisX` is the
  * body's axis, model x: the shoulder's side of it sets the sign. An arm too
  * short for its width to put the elbow under the shoulder would rig
@@ -222,7 +229,7 @@ export function armGeometry(layer: LayerInput, bodyAxisX: number): ArmGeometry {
     ) {
       t++;
     }
-    return Math.min(capRadius, Math.max(1, t - CAP_INSET));
+    return Math.min(capRadius, Math.max(1, t - capInset(i)));
   });
   return {
     shoulder,

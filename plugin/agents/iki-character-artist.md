@@ -179,7 +179,7 @@ compose corrects the provisional `canvas.json`. Then:
   `style.<knob>` edits that key in `style.json` and re-rigs. A `retune` of
   `canvasHeight` edits `canvas.json` and recomposes. On a full body, a new
   `layout.body.w` also re-sets its `cy` as `full-body.md` Step 2 does, so the
-  neck's top stays ~200 px above the chin. Free. Do these
+  neck's top stays ~200 px above the composed chin. Free. Do these
   first: a `regenerate` is often unnecessary once placement is right.
 - **`regenerate`** — re-draw ONLY the named parts, 2 variants each
   (`<role>_a.png` / `<role>_b.png`), then pick the better and copy it to

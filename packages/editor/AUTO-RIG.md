@@ -340,7 +340,9 @@ a circle but the arm's contour, per ray: from the elbow, on each of 13 rays
 over 0..π (15° apart), the generator walks 1 px at a time while the point is
 strictly inside the widest run of its crop row, and stops `CAP_INSET` (3 px:
 the contour's antialias column, a texel of the engine's linear filtering, one
-spare) short of the exit, at most the cap radius and at least 1 px. A fan of
+spare) short of the exit (none on the two seam-end rays, so the cap meets the
+bands' corners at a bend; 2 px on the next, 3 on the rest), at most the cap
+radius and at least 1 px. A fan of
 12 triangles fills that boundary less a ring, with the crop's own UVs; the
 ring is `CAP_RIM` (0.25) of the cap radius wide and its UVs sweep the seam
 row's edge cross-section round the arc (the right edge on the right half, the
@@ -613,8 +615,8 @@ One clip per group, so a host plays (`Nod`, 0). Keys are `[t s, value]`.
 - The body warp's rotations are linear keyforms, so between the stops a point
   D from the hips lies on the chord of its arc, about D·θ²/8 short of it, θ
   the roll at the extreme (`bodyRoll` on BodyAngleZ, β on the follow).
-- The cap's rim line steps in by `CAP_INSET` where it meets the bands'
-  corners at a bend, and an arm painted with a soft silhouette edge wider
+- The cap's rim line steps in by `CAP_INSET` (tapering to none at the
+  seam's ends, where it meets the bands' corners at a bend), and an arm painted with a soft silhouette edge wider
   than the inset shows a faint rim at rest.
 - No glue between an arm's two bands: each turns rigidly, and only the cap
   covers the joint; nothing bends the sleeve's outline round the elbow.

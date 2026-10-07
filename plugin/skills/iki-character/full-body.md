@@ -57,12 +57,15 @@ beside `canvas.json`, where Step 2 and the critic read them:
 (`bodyWidth` and `shoulderSpan` above are placeholders; the keys are the
 contract.) Then write a provisional `iki-char/canvas.json`:
 
-H = 661 + (soles − chin) × s + ~100, rounded up to even
+H = composedChin + (soles − chin) × s + ~100, rounded up to even, with
+`chin` and `soles` the reference's rows from `figure.json` and `composedChin`
+the composed face's chin row, which starts at 661
 
-- 661 is the default layout's chin row, the face's `top + height` with bob's
+- `composedChin` starts at 661, the default layout's chin row, the face's `top + height` with bob's
   face at `w` 400. The generated face's aspect sets its real height and the
   parts do not exist yet, so Step 2's first compose replaces 661 with the
-  composed face's real chin row.
+  composed face's real chin row (`figure.json`'s `chin` stays the
+  reference's).
 - ~100 px is the margin under the soles.
 - Street (soles y≈2050, chin y≈375 on its reference): 661 + 1675 × 1.78 +
   100 → 3744; it ran on 3742.
@@ -147,10 +150,11 @@ compose; the bust's default lands it mid-canvas.
   without the arms: shoulder to shoulder where the arms join, or a skirt's hem
   where that is wider.
 - Compose once and read, from the result's `layers`, the body's `height` and
-  the chin's row: the face's `top + height`, ~661 on the default layout. This
+  `composedChin`, the chin's row: the face's `top + height`, ~661 on the default layout. This
   pass only measures; skip its report, as the body is not placed yet. On
   round 1 only, it also fixes the canvas: recompute
-  H = chin + (soles − chin) × s + ~100, rounded up to even, and when it
+  H = composedChin + (soles − chin) × s + ~100, rounded up to even (the
+  `chin` and `soles` in parentheses are `figure.json`'s), and when it
   differs from the provisional `canvas.json`, write the new value before the
   placing compose; the canvas grows downward, so nothing else moves. Later
   rounds change `canvasHeight` only on a critic `retune`, so a tuned value is
@@ -159,10 +163,10 @@ compose; the bust's default lands it mid-canvas.
   the figure, and the head never shrinks to fit the canvas), so report
   `ESCALATED` with H against the 4096 cap, for the orchestrator to
   tell the user, and make no placing compose. A provisional capped at 4096 can
-  come out valid here: a chin measured at 600 instead of 661 gives 4039 for a
+  come out valid here: a `composedChin` measured at 600 instead of 661 gives 4039 for a
   figure that wanted 4100.
-- Set `cy` so the body's top sits ~200 px above the chin:
-  `cy = chin - 200 + height / 2`. That is bob's neck (209 px above his chin),
+- Set `cy` so the body's top sits ~200 px above the composed chin:
+  `cy = composedChin - 200 + height / 2`. That is bob's neck (209 px above his chin),
   and the bust's `body.png` note in `SKILL.md` says why. Compose again; with
   `w` unchanged the height stays the same.
 
