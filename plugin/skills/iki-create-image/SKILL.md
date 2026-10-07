@@ -1,6 +1,6 @@
 ---
 name: iki-create-image
-description: Draw the images an Iki character is built from — the front reference, the role-separated part PNGs drawn against it, and the 30° turned reference — with the Codex CLI's image tool on a model the plugin pins, or hand the user the prompts to run in another image tool when Codex is not set up. Used by the iki-character and iki-character-loop skills; not for general image requests.
+description: Draw the images an Iki character is built from — the front reference, the role-separated part PNGs drawn against it, the 30° turned reference, and for a full-body character the full-body reference drawn from the front one — with the Codex CLI's image tool on a model the plugin pins, or hand the user the prompts to run in another image tool when Codex is not set up. Used by the iki-character and iki-character-loop skills; not for general image requests.
 user-invocable: false
 ---
 
@@ -20,9 +20,10 @@ They sit beside this file, in `${CLAUDE_SKILL_DIR}`:
 | `gen-images.sh --check`                                            | nothing — runs the preflight alone and prints the model the jobs would use                                                           |
 | `gen-images.sh [--ref <png>] <work_dir> "<prompt>::<out.png>" ...` | a batch, up to five jobs at once. Without `--ref`, from the prompt alone: the front reference. With it, every job sees it: the parts |
 | `gen-turn-reference.sh <reference.png> <work_dir>`                 | `<work_dir>/reference-30.png`: the same character with the head turned 30° (the **iki-character-loop**'s style check)                |
+| `gen-full-reference.sh <reference.png> <work_dir>`                 | `<work_dir>/reference-full.png`: the same character drawn full body, head to toe, from the bust — only for a full-body character     |
 
-Both shell out to `codex exec` with Codex's built-in `image_generation` tool,
-write into `<work_dir>` (which must already exist) and keep each job's
+All three shell out to `codex exec` with Codex's built-in `image_generation`
+tool, write into `<work_dir>` (which must already exist) and keep each job's
 transcript in `<work_dir>/.gen-logs/`. **Billed, minutes per image** — confirm
 the user is OK spending before the first job. Run them as background Bash jobs
 and let the completion notice say when a batch is done; do not sleep-poll.
@@ -78,6 +79,26 @@ a brow, or the neck is hidden: every part inherits it. A reference the user
 supplies replaces the draw. Never use a licensed model's art as one (the
 **iki-character** pitfalls).
 
+## The full-body reference
+
+Only for a full-body character (the **iki-character** skill's `full-body.md`),
+and drawn FROM the front reference once that one is final:
+`gen-full-reference.sh <workdir>/reference.png <workdir>` writes
+`<workdir>/reference-full.png`, the same character head to toe on a 1:3
+portrait, arms hanging in a slight A-pose. A full body alone would not do:
+drawn whole, the face is a fraction of the image, too small to draw the face
+parts or score the face against. So the front reference stays the master,
+and this one is drawn from it with it attached.
+
+Draw it again if the head, the outfit or the colours drifted from the front
+reference, an arm touches the torso, the legs have no gap between them, or a
+foot or the crown is cut by the image's edge: the body and the arm parts
+inherit it.
+
+It drives the body and arm parts, where the body is placed on the tall canvas,
+and the critic's body score. The front reference stays the face's: the face
+and hair parts, the face layout, the turned reference and the face score.
+
 ## Failed jobs and quota
 
 **You cannot check quota up front.** `codex login status` reports
@@ -103,15 +124,19 @@ Anything that returns transparent, role-separated PNGs works; the prompts are
 the substance, the driver is not. When Codex cannot draw here, or the user would
 rather use another tool, write `<workdir>/prompts.md` and stop:
 
-- a header: draw the reference first, then every part **with the reference
+- a header: draw the reference first (for a full body, then the full-body
+  reference with it attached), then every part **with its reference
   attached** in a tool that takes one, asking for the same character in the
   same drawing style — in ChatGPT, the same conversation; ask for a transparent
   background (a part on plain white still composes, since the composer keys
   near-white to alpha, but a white highlight can be keyed out with it);
 - one entry per image: the exact path to save it at (the composer reads parts
-  by filename), whether to attach `reference.png`, and the prompt verbatim with
-  `<STYLE>` filled in — for the turned reference, the prompt inside
-  `gen-turn-reference.sh`.
+  by filename), which reference to attach — none for the front reference,
+  `reference.png` for the turned and full-body references and the face and hair
+  parts, `reference-full.png` for a full body's `body.png` and `arm.png` — and
+  the prompt verbatim with `<STYLE>` filled in: for the turned reference, the
+  prompt inside `gen-turn-reference.sh`; for the full-body reference, the one
+  inside `gen-full-reference.sh`.
 
 Tell the user where the file is and wait. When they say the images are in
 place, check every path is there and a PNG (`file <path>`), then continue from
