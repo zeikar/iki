@@ -58,6 +58,9 @@ You own the character assets. You do not own the packages.
   top of it), `blink` (0.1–1, default 0.6: how far the upper lid
   comes down, over the eye's height) and `sway` (0–5, default 1: the hair sway
   amplitude). Change it only on a critic `retune` that names a knob.
+- `<workdir>/canvas.json` — a full body's `{ "canvasHeight": N }`, which the
+  orchestrator writes and you pass to `compose_layers_from_parts`. Change it
+  only on a critic `retune` that names it.
 
 ## You must NOT edit
 
@@ -68,12 +71,16 @@ You own the character assets. You do not own the packages.
 ## Inputs
 
 - `reference` — the target character illustration.
+- `reference-full` — a full body only: the same character head to toe, drawn
+  from `reference`. `body.png` and `arm.png` are drawn against it and placed
+  by it.
 - `workdir` — scratch dir **under the project cwd** (MCP output is confined
   there), created by the orchestrator with `parts/`, `layers/`, `layout.json`
-  and `style.json` (both `{}` on round 1) already there. The rigged `.iki`
-  goes in it too.
+  and `style.json` (both `{}` on round 1) already there, and `canvas.json`
+  (`{}` for a bust). The rigged `.iki` goes in it too.
 - `style` — the contents of `<workdir>/style.json` (`{}` until a critic
   `retune` names a knob). You pass it to the rig.
+- `canvas` — a full body only: the contents of `<workdir>/canvas.json`.
 - `findings` — the critic's typed findings (absent on round 1).
 - `round` — which iteration this is.
 
@@ -81,7 +88,9 @@ You own the character assets. You do not own the packages.
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/iki-character/SKILL.md` first — it carries
 the role table,
-the prompt patterns and the hard-won pitfalls. Then:
+the prompt patterns and the hard-won pitfalls. For a full body, also read
+`${CLAUDE_PLUGIN_ROOT}/skills/iki-character/full-body.md`: its `body.png` and
+`arm.png` prompts, and how the body and the arms are placed. Then:
 
 1. **Generate parts** (only when you have `regenerate` findings, or on round 1):
 
@@ -91,6 +100,9 @@ the prompt patterns and the hard-won pitfalls. Then:
    ```
 
    This attaches the reference to every job so the parts share one anchor.
+   A full body fires two batches, since each takes one `--ref`: the face and
+   hair parts with `--ref <reference>`, and `body.png` and `arm.png` with
+   `--ref <reference-full>`.
 
    The jobs run in the background and you cannot wait on them, so you will
    return with the batch still in flight — say so and let the orchestrator
@@ -113,8 +125,10 @@ the prompt patterns and the hard-won pitfalls. Then:
 
 2. **Compose:** call `compose_layers_from_parts` with
    `partsDir: <workdir>/parts`, `outDir: <workdir>/layers`, `layout` set to
-   the contents of `<workdir>/layout.json`, and `mirrorParts` set to the
-   contents of `<workdir>/mirror-parts.json` when it exists.
+   the contents of `<workdir>/layout.json`, `mirrorParts` set to the
+   contents of `<workdir>/mirror-parts.json` when it exists, and
+   `canvasHeight` set to `<workdir>/canvas.json`'s when it has one (a full
+   body).
 
 3. **Measure** — always, before declaring anything done. The compose result
    carries the geometry report inline: read it, and iterate on `layout.json`
@@ -155,7 +169,10 @@ the prompt patterns and the hard-won pitfalls. Then:
 
 - **`retune`** — change the value in `layout.json` (or the entry in
   `mirror-parts.json`), recompose, re-read the report. A `retune` of
-  `style.<knob>` edits that key in `style.json` and re-rigs. Free. Do these
+  `style.<knob>` edits that key in `style.json` and re-rigs. A `retune` of
+  `canvasHeight` edits `canvas.json` and recomposes. On a full body, a new
+  `layout.body.w` also re-sets its `cy` as `full-body.md` Step 2 does, so the
+  neck's top stays ~200 px above the chin. Free. Do these
   first: a `regenerate` is often unnecessary once placement is right.
 - **`regenerate`** — re-draw ONLY the named parts, 2 variants each
   (`<role>_a.png` / `<role>_b.png`), then pick the better and copy it to
@@ -192,13 +209,20 @@ the prompt patterns and the hard-won pitfalls. Then:
   pull them apart, so `compose_layers_from_parts` rejects it: set both. The
   lower lid (`lash_lower_*`) is cut from the same source and has no key: it
   follows the `eye_*` entry.
+- On a full body, an arm-cap warning (`arm_R: its shoulder cap reaches …`) is
+  a free `layout.arm_*` move: shift that arm's `cx` toward the body by the px
+  it names (its `cy` onto the shoulder when the body has no paint on the
+  pivot's row), and recompose — not a reason to regenerate the arm.
+- A white garment — a full body's shirt, socks or shoes — on a part that came
+  back opaque on white keys out with the ground (`keyWhiteToAlpha`) and shows
+  as holes. Regenerate that part, asking for a transparent background.
 
 ## Report
 
 ```
 ROUND: N
 GENERATED: <parts re-drawn this round, or "none">
-RETUNED: <layout.json keys, mirror-parts.json entries and style.json knobs changed, old -> new>
+RETUNED: <layout.json keys, mirror-parts.json entries, style.json knobs and canvas.json's canvasHeight changed, old -> new>
 MEASURE: <"all geometry checks passed", or the remaining warnings and why>
 MODEL: <path to the rigged .iki, or "none" — see BLOCKED>
 TURN: <the result's turn.achieved, turn.clamped and turn.strandOverlap ("none" when absent), or "none" when no turn was solved>

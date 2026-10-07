@@ -60,7 +60,8 @@ That is why the caps below are not optional, and why the critic is asked to call
 ## Cost
 
 Every `regenerate` is a billed `codex exec` taking minutes. A full part set is
-11 parts × 2 variants = 22 jobs.
+11 parts × 2 variants = 22 jobs. A full body adds `reference-full.png` (one
+job) and `arm.png` (two).
 
 **You cannot check the quota up front.** `codex login status` reports
 authentication and nothing else — its output is byte-identical before and after
@@ -89,16 +90,18 @@ it to `.gitignore` before the first run, or the generated art lands in a commit.
 mkdir -p iki-char/parts iki-char/layers iki-char/renders/debug
 [ -f iki-char/layout.json ] || echo '{}' > iki-char/layout.json
 [ -f iki-char/style.json ] || echo '{}' > iki-char/style.json
+[ -f iki-char/canvas.json ] || echo '{}' > iki-char/canvas.json
 ```
 
-The two seed lines only write a file that is missing, so re-entering or
+The seed lines only write a file that is missing, so re-entering or
 restarting the loop keeps the tuning you already paid for — the workdir is
 gitignored, so an overwrite here has no repository copy to recover it from.
 `style.json` is the per-character rig tuning surface: the `style` knobs of
 `auto_rig_from_layers` (their defaults, and the recommended ranges a retune
 stays inside, are in the **iki-character** skill, Step 3), where `{}` is the
 profile every character starts from. Only the artist
-edits it, and only on a critic `retune`.
+edits it, and only on a critic `retune`. `canvas.json` stays `{}` for a bust;
+a full body writes its `canvasHeight` there (below).
 
 Every image in the loop goes through the **iki-create-image** skill. Run its
 `--check` before the first one: without Codex on this machine, each billed
@@ -125,9 +128,17 @@ front reference.
 A restarted workdir may still hold a `turn-targets.json` from an earlier
 version of this loop; it is ignored.
 
-Then go to Step 1. `reference.png` and `reference-30.png` are frozen, because
-every round reads them and changing either of them mid-loop or on a restart
-invalidates every prior score.
+**A full-body character** (only when the user asked for one) also needs
+`<workdir>/reference-full.png` and the canvas's height. Once `reference.png`
+is picked, draw `reference-full.png` and write `<workdir>/canvas.json` as the
+**iki-character** skill's `full-body.md` Step 0 says. On a restart, reuse an
+existing `reference-full.png`, as the other two. `canvas.json` stays tunable:
+the artist edits its `canvasHeight` on a critic `retune`, as it does
+`style.json`.
+
+Then go to Step 1. `reference.png` and `reference-30.png` (and, for a full
+body, `reference-full.png`) are frozen, because every round reads them and
+changing any of them mid-loop or on a restart invalidates every prior score.
 
 ### Step 1 — round
 
@@ -136,7 +147,10 @@ invalidates every prior score.
    `style` (the contents of `<workdir>/style.json`, which its rig step passes
    to `auto_rig_from_layers` when it is not empty), and the critic's findings
    (none on round 1). Both agents ship inside this plugin, so the dispatch name carries
-   its namespace; a bare `iki-character-artist` does not resolve.
+   its namespace; a bare `iki-character-artist` does not resolve. A full body
+   also passes `reference-full` (`<workdir>/reference-full.png`, which its
+   `body.png` and `arm.png` jobs attach instead) and `canvas` (the contents of
+   `<workdir>/canvas.json`, whose `canvasHeight` its compose step passes).
 
    **Expect several dispatches per round.** Generation runs as backgrounded
    jobs and a subagent cannot wait on them, so the artist returns while the
@@ -156,7 +170,9 @@ invalidates every prior score.
 
 2. **Render it yourself.** Load the artist's `.iki` through the Model picker's
    "Load a .iki file…" entry — the same on both paths; only the load order and
-   how you address parameters (id vs. panel label) differ.
+   how you address parameters (id vs. panel label) differ. A full-body model
+   loads the same way but is sized and captured by its own recipe, **A
+   full-body model** at the end of this step.
    **Standalone (default):** open https://zeikar.dev/iki/playground/
    (Playwright MCP) and **uncheck Idle before loading anything** — `load()`
    resets every parameter to its default, and idle only restarts if the
@@ -259,6 +275,125 @@ invalidates every prior score.
    `debug/` dir Step 0 made for the critic's measurement overlays.
    Rendering stays with you because the Playwright browser is a single shared
    resource; two agents driving it collide.
+   **A full-body model** (its `canvas.json` sets a `canvasHeight`, H). The
+   playground's canvas is square, so a tall model draws letterboxed in it, its
+   head about a third of a bust's. Before loading it — standalone once Idle is
+   unchecked, in a checkout once `pnpm playground` is up — size the canvas to
+   560 px wide and ceil(560·H/1100) px tall with `browser_evaluate`:
+   ```js
+   () => {
+     const H = 3694; // canvas.json's canvasHeight
+     const canvas = document.getElementById("iki");
+     canvas.style.width = "560px";
+     canvas.style.height = `${Math.ceil((560 * H) / 1100)}px`;
+   };
+   ```
+   The engine re-fits the model to the canvas's client size every frame, at
+   the smaller of width / 1100 and height / H, so the model fills that width:
+   the head keeps a bust's scale, and the canvas's top square holds the
+   model's top 1100 rows, as a bust's square canvas does. Then load the `.iki`
+   as above and, with no slider touched, capture every pose in ONE
+   `browser_evaluate`: its first capture is the untouched rest. Take no
+   screenshots, as the page cannot show a canvas this tall at once. Each pose
+   is a PNG data URL, taken two frames after it is set: the whole canvas for a
+   body pose, and for a bust pose its top `canvas.width`-square, drawn onto a
+   2D canvas of that size — the pixels a bust's render would hold, so the face
+   is judged and measured exactly as on a bust. The snippet runs on both
+   paths: it drives `window.__iki` by id in a checkout, and the panel's sliders
+   by label standalone, where `window.__iki` does not exist. Every pose is
+   reset to the defaults before the next.
+   ```js
+   async () => {
+     const api = window.__iki; // a checkout's dev API; absent standalone
+     const canvas = document.getElementById("iki");
+     const nextFrame = () =>
+       new Promise((r) =>
+         requestAnimationFrame(() => requestAnimationFrame(r)),
+       );
+     const LABEL = {
+       ParamAngleX: "Head Angle",
+       ParamAngleY: "Head Angle Y",
+       ParamAngleZ: "Head Angle Z",
+       ParamEyeLOpen: "Eye L",
+       ParamEyeBallX: "Gaze X",
+       ParamBodyAngleX: "Body Angle X",
+       ParamBodyAngleY: "Body Angle Y",
+       ParamBodyAngleZ: "Body Angle Z",
+       ParamArmL: "Arm L",
+       ParamArmR: "Arm R",
+       ParamElbowL: "Elbow L",
+       ParamElbowR: "Elbow R",
+     };
+     const set = (id, value) => {
+       if (api) return api.setParam(id, value);
+       const input = [...document.querySelectorAll(".control")]
+         .find((c) => c.querySelector("label span")?.textContent === LABEL[id])
+         .querySelector("input[type=range]");
+       input.value = String(value);
+       input.dispatchEvent(new Event("input", { bubbles: true }));
+     };
+     const whole = () => canvas.toDataURL("image/png");
+     const bust = () => {
+       const side = canvas.width;
+       const crop = document.createElement("canvas");
+       crop.width = crop.height = side;
+       crop.getContext("2d").drawImage(canvas, 0, 0); // the top square
+       return crop.toDataURL("image/png");
+     };
+     const poses = [
+       ["turn-m30", bust, { ParamAngleX: -30 }],
+       ["turn-p30", bust, { ParamAngleX: 30 }],
+       ["turn-15", bust, { ParamAngleX: 15 }],
+       ["nod-15", bust, { ParamAngleY: 15 }],
+       ["blink", bust, { ParamEyeLOpen: 0 }],
+       ["blink-half", bust, { ParamEyeLOpen: 0.5 }],
+       ["gaze", bust, { ParamEyeBallX: 1 }],
+       [
+         "combined",
+         bust,
+         { ParamAngleX: 30, ParamAngleY: 30, ParamAngleZ: 30 },
+       ],
+       ["full-turn-p30", whole, { ParamAngleX: 30 }],
+       ["full-body-x-m10", whole, { ParamBodyAngleX: -10 }],
+       ["full-body-x-p10", whole, { ParamBodyAngleX: 10 }],
+       ["full-body-y-m10", whole, { ParamBodyAngleY: -10 }],
+       ["full-body-y-p10", whole, { ParamBodyAngleY: 10 }],
+       ["full-body-z-m10", whole, { ParamBodyAngleZ: -10 }],
+       ["full-body-z-p10", whole, { ParamBodyAngleZ: 10 }],
+       ["full-arm-l-90", whole, { ParamArmL: 90 }],
+       ["full-arm-l-150", whole, { ParamArmL: 150 }],
+       ["full-arm-r-90", whole, { ParamArmR: 90 }],
+       ["full-arm-r-150", whole, { ParamArmR: 150 }],
+       ["full-elbow-l-90", whole, { ParamElbowL: 90 }],
+       ["full-elbow-r-90", whole, { ParamElbowR: 90 }],
+     ];
+     if (api) api.reset();
+     await nextFrame();
+     const shots = { rest: bust(), "full-rest": whole() };
+     for (const [pose, capture, values] of poses) {
+       for (const [id, value] of Object.entries(values)) set(id, value);
+       await nextFrame();
+       shots[pose] = capture();
+       for (const id of Object.keys(values))
+         set(id, id === "ParamEyeLOpen" ? 1 : 0);
+     }
+     return JSON.stringify(shots);
+   };
+   ```
+   The bust poses are this step's own, as bust crops: `rest`; the turn pair
+   `measure_turn_reference` reads (`rest`, `turn-m30`, `turn-p30`, the last
+   also the head-turn); `blink`, `gaze`, the between-stop `turn-15`, `nod-15`
+   and `blink-half`, and `combined`. The body poses are the whole canvas:
+   `full-rest`; `full-turn-p30` (`ParamAngleX` 30: the body follows the head a
+   little); `ParamBodyAngleX`, `ParamBodyAngleY` and `ParamBodyAngleZ` at ±10
+   ("Body Angle X", "Body Angle Y", "Body Angle Z"); `ParamArmL` and
+   `ParamArmR` at 90 and 150 ("Arm L", "Arm R"); and `ParamElbowL` and
+   `ParamElbowR` at 90 ("Elbow L", "Elbow R"). Standalone, the arm and elbow
+   sliders step by 1.8° from −30, so 90 lands on 90.6 and a reset on 0.6, not
+   0 — too little to see, and why they come last. Pass `filename`, move the
+   file and decode it into `<workdir>/renders/` with `decode-renders.cjs` as
+   for the turn pair; it runs to several MB. The bust crops are the critic's
+   `renders` and `turn-pair`, the `full-*.png` its `body-renders`.
 3. Dispatch **`iki:iki-character-critic`** with `reference`, `reference-30`, `layers`,
    `renders` (the render paths), `turn-pair` (`<workdir>/renders/rest.png`,
    `turn-m30.png` and `turn-p30.png`), `round`, `scores` (the previous rounds' `SCORES:` lines),
@@ -266,9 +401,12 @@ invalidates every prior score.
    `turn.achieved`, `turn.clamped` and `turn.strandOverlap`, or "none" when no
    turn was solved) so the critic can check the render against the rig's own
    report and tell a clamp this art forced from a new turn defect. It returns
-   scores and typed findings.
+   scores and typed findings. A full body also passes `reference-full` and
+   `body-renders` (the whole-canvas `full-*.png` poses); its `renders` and
+   `turn-pair` are the bust crops.
 4. Route: `regenerate` and `retune` go back to the artist — a `retune` names a
-   `layout.json` key, a `mirror-parts.json` entry or a `style.json` knob.
+   `layout.json` key, a `mirror-parts.json` entry or a `style.json` knob, or on
+   a full body `canvas.json`'s `canvasHeight`.
    Handle `escalate` yourself — decide whether the package change is
    warranted, and if it is, make it as normal code work with a test and a
    changeset. A render-vs-report `escalate` (the critic's Δ beyond ±0.05)
@@ -277,7 +415,9 @@ invalidates every prior score.
    `<workdir>/layers/*.png` but `preview.png`) with the same `style`, no
    `quantizeColors`, and `outputPath: <workdir>/iki-character-lossless.iki`;
    load that file and capture the same three poses as in step 2, decoding them
-   into `<workdir>/renders/lossless/`; then measure them as the critic's Step 1
+   into `<workdir>/renders/lossless/` (a full body: on the canvas still sized
+   as in step 2, the same bust crops, its snippet's `poses` cut to `turn-m30`
+   and `turn-p30`); then measure them as the critic's Step 1
    does — rest against each turn, with the `iris` window its finding names and
    `debugDir: <workdir>/renders/lossless`, the overlays checked, the two
    directions averaged — against that rig's own `turn.achieved` (the artist's

@@ -55,6 +55,9 @@ artist agent applies your findings; the orchestrator arbitrates.
   measures it. It is drawn at that specific angle, not a generic 3/4 view,
   because a drawing at 45° over-asks a 30° rig by ~1.7× (measured, not
   derived).
+- `reference-full` — a full body only: the same character head to toe, drawn
+  from `reference`. The target for the figure: the `body` axis and the body's
+  placement. The face is still `reference`'s.
 - `layers` — the composed role-layer dir (`face.png`, `eye_L.png`, …, `preview.png`).
 - `renders` — screenshots of the rigged model in the engine: rest, head-turn,
   blink, gaze, the between-stop poses (`ParamAngleX`/`ParamAngleY` at 15°,
@@ -65,6 +68,13 @@ artist agent applies your findings; the orchestrator arbitrates.
   beside an empty `debug/` dir), captured via `canvas.toDataURL` rather than
   screenshotted (the measurement needs the render's own transparency): what
   you feed `measure_turn_reference`.
+- `body-renders` — a full body only: whole-canvas renders, captured like the
+  turn pair: `full-rest`, `full-turn-p30` (`ParamAngleX` 30, the body
+  following the head a little), `ParamArmL` / `ParamArmR` at 90 and 150,
+  `ParamElbowL` / `ParamElbowR` at 90, and `ParamBodyAngleX` / `Y` / `Z` at
+  ±10. For a full body, `renders` and `turn-pair` are bust crops: the
+  canvas's top square, at a bust's scale, so the face is judged and measured
+  exactly as on a bust.
 - `round` — which iteration this is.
 - `scores` — the previous rounds' `SCORES:` lines, so you can compare each axis
   against its best so far (none on round 1).
@@ -78,7 +88,7 @@ artist agent applies your findings; the orchestrator arbitrates.
   iris the bangs' side strand, and a `noseShift` / `mouthShift` past its own
   room.
 
-Read both references, `preview.png` and every render before writing anything.
+Read every reference, `preview.png` and every render before writing anything.
 
 ## Step 1 — measure before you look
 
@@ -167,11 +177,17 @@ the source art.
 | `face`    | head shape, jaw, feature placement and proportion            |
 | `eyes`    | sclera shape, iris size/colour, highlight style, lash weight |
 | `hair`    | silhouette, front/back tone match, strand style              |
-| `body`    | shoulder line, garment, symmetry                             |
+| `body`    | shoulder line, garment, symmetry (full body: the figure)     |
 | `palette` | colour coherence with the reference                          |
 | `line`    | line weight and rendering style consistency ACROSS parts     |
 | `rig`     | survives turn/blink/gaze with no seams, spills or detachment |
 | `turn`    | rotation reads as depth, not sliding, between the stops      |
+
+On a full body, `body` judges the figure against `reference-full` on
+`body-renders` and `preview.png`: its proportions, shoulder width, leg length,
+garment and symmetry. `face`, `eyes`, `hair`, `palette`, `line` and `turn` are
+judged on the bust crops against `reference`, as on a bust. It is still 8 axes,
+out of 40.
 
 The output is an assembly of separately generated parts; each reference is one
 flat drawing. They will never align pixel-wise and you must not ask them to.
@@ -185,6 +201,18 @@ for: a straight seam appearing on turn, the head sliding off the shoulders, the
 iris spilling past the lids at extreme gaze, the eye vanishing entirely at
 blink, brows hidden under hair.
 
+On a full body, `rig` also looks at `body-renders` for: a gap or seam at a
+shoulder's cap at `ParamArmL` / `ParamArmR` 90 and 150; the elbow's cap at
+`ParamElbowL` / `ParamElbowR` 90; the legs planted — the feet still — at every
+BodyAngle pose; and a smooth waist, with no kink at the hip line. A cap or
+seam fault while the measure's arm checks pass sits on the rig's own pivots:
+an `escalate` on `packages/editor/src/auto-rig/`. An arm painted on the body
+(it stays put while the arm over it raises) is a `regenerate` of `body.png`
+with NO arms. Painted arms also read as legs to the rig, which then plants the
+hips at the waist, and legs drawn with no gap between them plant the hips
+halfway down the body: moving feet or a kinked waist is that `regenerate`
+first, and an `escalate` only on a body drawn with no arms and a clear leg gap.
+
 The neck is drawn on the torso and follows the head only a little, so its flat
 top must stay hidden behind the face. Look at the combined pose for that top, or
 its corners, showing beside or under the jaw. That is art or placement, not a rig
@@ -194,11 +222,21 @@ stretches about 10 % unseen). When the neck is too wide for the jaw, or too
 short to hide its top without lifting the shoulders, it is a `regenerate` of
 `body.png` with the neck drawn long and about one eighth of the shoulder width.
 When the face looks small against the torso, compare both with the reference
-to find which one is off. A torso too big is first a `retune` to a smaller
-`layout.body.w`, as long as the smaller torso still reaches the canvas's bottom
+to find which one is off. On a bust, a torso too big is first a `retune` to a
+smaller `layout.body.w`, as long as the shrunk bust torso still reaches the canvas's bottom
 with its neck's top hidden. When it cannot — a chest-only drawing fills the
 canvas's width with shoulders, and shrinking it lowers the neck's top — it is a
 `regenerate` of `body.png` framed down to the waist.
+
+A full body is placed differently below the neck: the canvas follows the
+figure. Its feet sit inside the canvas with margin, and the measure's feet
+warning (`body: its bottom row is the canvas's last`) is a `retune` of
+`canvas.json` `canvasHeight`, raised. A face that looks small against the
+figure is judged against `reference-full`, not `reference`, and as the head's
+scale is fixed, it is a `retune` to a smaller `layout.body.w` and arms' `w`
+(`layout.arm_L.w` and `layout.arm_R.w`, together). An arm-cap warning
+(`arm_R: its shoulder cap reaches …`, or no body paint on its pivot's row) is
+a `retune` of that `layout.arm_*` entry, by the px or onto the row it names.
 
 `turn` asks whether the motion reads right, not whether it survives — judged
 by eye on the rig's own renders. At the between-stop `ParamAngleX` pose (15°)
@@ -278,17 +316,18 @@ Every finding carries a `type`, and the type decides who acts:
   the defect, and the exact prompt correction. **Costly** — each one is billed
   generation, minutes per image. Name only parts that genuinely need it.
 - **`retune`** — the art is fine, its placement, its scale or the rig's
-  tuning is wrong. Name the `layout.json` key (e.g. `iris_L.cx`) or the
+  tuning is wrong. Name the `layout.json` key (e.g. `iris_L.cx`), the
   `style.json` knob (e.g. `style.turn`; its default and the recommended
-  range a retune stays inside are in the **iki-character** skill's Step 3),
-  the direction (for a `style.json` knob, its new value), and the measured
+  range a retune stays inside are in the **iki-character** skill's Step 3)
+  or, on a full body, `canvas.json` `canvasHeight`, the direction (for a
+  `style.json` knob or `canvasHeight`, its new value), and the measured
   evidence.
   A part drawn facing the other way (an eye whose lash stops short of its outer
   corner instead of its tear duct) is a retune too: target `mirror-parts.json`,
   naming the part file. **Free** — recomposing and re-rigging cost nothing, so
   prefer this whenever it can work.
 - **`escalate`** — the fix lies outside the parts dir, `layout.json`,
-  `mirror-parts.json` and `style.json`:
+  `mirror-parts.json`, `style.json` and `canvas.json`:
   `packages/editor/src/auto-rig/`, the engine, the format. The artist is not allowed to touch
   these. State the file, the suspected cause and the evidence; the orchestrator
   decides.
@@ -331,7 +370,7 @@ FINDINGS
 1. [regenerate] part=<role>
    problem: <what is wrong, with evidence>
    correction: <the exact prompt directive to use>
-2. [retune] target=<layout.json key, style.json knob, or mirror-parts.json>
+2. [retune] target=<layout.json key, style.json knob, mirror-parts.json, or canvas.json canvasHeight>
    problem: <what is wrong, with the measured number>
    correction: <new value or direction>
 3. [escalate] target=<file:symbol>
