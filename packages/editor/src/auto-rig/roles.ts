@@ -14,7 +14,8 @@ export type Family =
   | "mouth"
   | "hair_front"
   | "hair_back"
-  | "body";
+  | "body"
+  | "arm";
 
 export interface RoleSpec {
   role: string;
@@ -29,6 +30,8 @@ export interface RoleSpec {
 export const ROLE_TABLE: readonly RoleSpec[] = [
   { role: "hair_back", family: "hair_back" },
   { role: "body", family: "body" },
+  { role: "arm_L", family: "arm", parts: ["arm_L", "forearm_L"] },
+  { role: "arm_R", family: "arm", parts: ["arm_R", "forearm_R"] },
   { role: "face", family: "face", required: true },
   { role: "blush_L", family: "face" },
   { role: "blush_R", family: "face" },
@@ -102,9 +105,23 @@ function roleOf(fileName: string): string {
   return ALIASES[role] ?? role;
 }
 
+/** An arm hangs from the body's shoulder (`arms.ts`): throws on an arm role
+ *  among `roles` without a `body`. */
+export function checkArmsHaveBody(roles: Iterable<string>): void {
+  const has = new Set(roles);
+  if (has.has("body")) return;
+  const arm = ROLE_TABLE.find((r) => r.family === "arm" && has.has(r.role));
+  if (arm !== undefined) {
+    throw new Error(
+      `auto-rig: ${arm.role} needs a body layer (an arm hangs from the body's shoulder)`,
+    );
+  }
+}
+
 /**
- * Map file names to roles. Throws on an unknown role, a role named twice, or
- * a required role (`face`, `eye_L`, `eye_R`, `mouth`) missing.
+ * Map file names to roles. Throws on an unknown role, a role named twice, a
+ * required role (`face`, `eye_L`, `eye_R`, `mouth`) missing, or an arm
+ * without a body.
  */
 export function parseLayerRoles(
   fileNames: string[],
@@ -133,5 +150,6 @@ export function parseLayerRoles(
       `auto-rig: missing required role${missing.length > 1 ? "s" : ""} ${missing.join(", ")}`,
     );
   }
+  checkArmsHaveBody(seen.keys());
   return out;
 }

@@ -7,7 +7,7 @@
  */
 
 import { boxOfLayer, cx, type Box } from "./layout";
-import { REQUIRED_ROLES, roleSpec } from "./roles";
+import { checkArmsHaveBody, REQUIRED_ROLES, roleSpec } from "./roles";
 import {
   TurnTargetError,
   type GenerateOptions,
@@ -153,6 +153,8 @@ export function checkLayers(
   if (missing.length > 0) {
     throw new Error(`auto-rig: missing required role(s) ${missing.join(", ")}`);
   }
+  // `parseLayerRoles` refuses it too; a direct caller may not have run it.
+  checkArmsHaveBody(seen);
 }
 
 /** Each entry names a layer of this set; the outermost left edge lies left

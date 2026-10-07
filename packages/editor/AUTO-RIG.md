@@ -13,6 +13,7 @@ each constant is what it is.
 | `head.ts`       | the head's frame read off the layers: axis, eye row, chin, head unit, neck, jaw cut      |
 | `face-mesh.ts`  | the face plate's mesh: a head island and, under the jaw, a neck island                   |
 | `body.ts`       | the body warp: the hips, a weight field planted under them, its six 1D grid warps        |
+| `arms.ts`       | the arms: shoulder and elbow off the runs; upper arm and forearm cut from one crop       |
 | `fields.ts`     | one displacement field per family, off the profile                                       |
 | `grid.ts`       | warp lattices, the AngleX × AngleY bake, and landing a point the engine's way            |
 | `solve.ts`      | the profile in this head's pixels; fitting the cues; room, clamps, refusals; report      |
@@ -189,14 +190,16 @@ The plate, the blush and both hair layers carry their own AngleX and AngleY
 keyforms (per vertex, under `headDeformer`); each feature family rides its own
 small warp grid, baked from its field at `AngleX, AngleY ∈ {−30, 0, 30}`:
 
-| Family (grid)    | Parts                                                                 |
-| ---------------- | --------------------------------------------------------------------- |
-| `eyeWarp_L/R`    | `eye_*`, `iris_*`, `pupil_*`, `highlight_*`, `lash_lower_*`, `lash_*` |
-| `browWarp_L/R`   | `brow_*`                                                              |
-| `noseWarp`       | `nose`                                                                |
-| `mouthWarp`      | `mouth`, `mouth_open`                                                 |
-| — (own keyforms) | `face`, `blush_*`, `hair_front`, `hair_back`                          |
-| — (`bodyWarp`)   | `body`: breath, BodyAngleX/Y/Z, the follow                            |
+| Family (grid)             | Parts                                                                 |
+| ------------------------- | --------------------------------------------------------------------- |
+| `eyeWarp_L/R`             | `eye_*`, `iris_*`, `pupil_*`, `highlight_*`, `lash_lower_*`, `lash_*` |
+| `browWarp_L/R`            | `brow_*`                                                              |
+| `noseWarp`                | `nose`                                                                |
+| `mouthWarp`               | `mouth`, `mouth_open`                                                 |
+| — (own keyforms)          | `face`, `blush_*`, `hair_front`, `hair_back`                          |
+| — (`bodyWarp`)            | `body`: breath, BodyAngleX/Y/Z, the follow                            |
+| — (`armDeformer_L/R`)     | `arm_*`: the upper arm, about the shoulder (`ParamArmL/R`)            |
+| — (`forearmDeformer_L/R`) | `forearm_*`: the forearm, about the elbow (`ParamElbowL/R`)           |
 
 ## The body
 
@@ -286,6 +289,66 @@ yet compared:
 | `bodyRoll`    | BodyAngleZ ±10 rolls it this many degrees about the hips                     | 4           |
 | `bodyFollowX` | AngleX ±30: the body follows the head's turn at this share of BodyAngleX ±10 | 0.3         |
 | `bodyFollowZ` | AngleZ ±30: the body follows the head's tilt at this share of `bodyRoll`     | 0.3         |
+
+## The arms
+
+With an `arm_L` or `arm_R` layer — one drawing of the whole arm, hanging,
+its shoulder at the top — the arm hangs from the body warp as two parts on
+two nested matrix deformers (`arms.ts`). An arm needs a `body`:
+`parseLayerRoles` and the generator's own checks refuse one without it
+(`auto-rig: arm_L needs a body layer …`), which `@ikijs/mcp` reports as
+`{ ok: false }`.
+
+**The pivots**, read off the widest opaque run of each crop row
+(`rowRuns`); a row without one, or a layer without runs, reads as the whole
+crop row:
+
+- r_u, the upper arm's half-width under the deltoid cap, is half the median
+  width over the rows 0.10–0.30 of the crop's height down;
+- the shoulder pivot lies r_u under the centre of the first painted row, at
+  the run centre of the row it lands in (r_u rows down, rounded);
+- the elbow pivot is the centre of the row 0.42 (`ELBOW_AT`) of the way from
+  the shoulder's row to the last painted row (an arm drawn with its hand),
+  at that row's run centre;
+- the cap radius is half the elbow row's run + 1 px, kept inside the crop.
+
+Pivots are on the 0.01 grid. An arm too short for its width to put the
+elbow's row under the shoulder's would rig inverted, so the rig refuses it
+with `LayerGeometryError` (`{ ok: false }` from `@ikijs/mcp`). Each shoulder
+is one of the body warp's pivots, so its cell is all weight 1 (see The body):
+the arm rides the upper body rigidly — it lifts with the shoulders' breath,
+rolls with BodyAngleZ and the follow of AngleZ, and slides on BodyAngleX
+without being narrowed.
+
+**The meshes.** Both parts are cut from the one crop: they share its box,
+transform and texture rect (`partIdsOfRole` names both for the host), and
+meet on the seam, the elbow pivot's row. The upper arm (`arm_X`, the role's
+own id) is the band from the crop's top to the seam. The forearm
+(`forearm_X`) is the band from the seam to the crop's bottom plus a cap: a
+fan of 12 triangles over the half-disc above the seam, centred on the elbow
+pivot. Iki has no glue between meshes, and two bands hinged at a seam open a
+wedge as wide as the arm on a bend; the half-disc turns about its own centre,
+so it rotates into itself and keeps the joint covered at any bend.
+
+**The deformers.** `armDeformer_X` is a matrix deformer hung from
+`bodyWarp` at the shoulder; `forearmDeformer_X` hangs from it at the elbow.
+Each has one `rotate` binding on its parameter:
+
+| Parameter                     | Name              | Range, default | Turns                                    |
+| ----------------------------- | ----------------- | -------------- | ---------------------------------------- |
+| `ParamArmL` / `ParamArmR`     | Arm L / Arm R     | −30..150, 0    | the arm about the shoulder, 1° per unit  |
+| `ParamElbowL` / `ParamElbowR` | Elbow L / Elbow R | −30..150, 0    | the forearm about the elbow, 1° per unit |
+
+A positive value raises the arm outward on either side: a rotation is
+CCW-positive, so an arm whose shoulder lies right of the body's axis (+x, the
+character's left) turns CCW for +, and one left of it CW. The elbow's + turns
+the forearm the same way, so a raised arm with a + elbow points the forearm
+up. The range runs from a little across the body to 150° out. Each pair is
+declared only with its arm layer, after Body Angle X/Y/Z.
+
+**Draw order:** hair_back < body < arm_L, forearm_L, arm_R, forearm_R < face
+… < hair_front. The forearm draws over the upper arm, so its cap hides the
+seam.
 
 ## Style knobs and the fit
 
@@ -523,6 +586,16 @@ One clip per group, so a host plays (`Nod`, 0). Keys are `[t s, value]`.
 - The body warp's rotations are linear keyforms, so between the stops a point
   D from the hips lies on the chord of its arc, about D·θ²/8 short of it, θ
   the roll at the extreme (`bodyRoll` on BodyAngleZ, β on the follow).
+- An arm's cap overlaps the upper arm above the seam, so at rest it draws
+  the upper arm's edge pixels there twice: a soft (antialiased) outline is a
+  little heavier on that arc.
+- The cap's arc has no drawn outline of its own: at a strong bend the
+  elbow's outer curve shows the arm's fill without a line.
+- No glue between an arm's two bands: each turns rigidly, and only the cap
+  covers the joint; nothing bends the sleeve's outline round the elbow.
+- The arms draw behind the face and the front hair, so a raised hand can go
+  under a side lock.
+- The legs never move: everything under the hips is planted.
 - `laugh`'s shut eyes are the blink's fold, with no smile arch: the happy eye
   (an EyeSmile parameter) is deferred.
 - `surprised` cannot widen the eyes: EyeOpen rests at its max.

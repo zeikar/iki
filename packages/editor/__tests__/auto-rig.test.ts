@@ -351,7 +351,7 @@ describe("generateIkiFromLayerSet: the model", () => {
     });
   });
 
-  it("names the parts each role layer becomes: today one per role, and refuses an unknown role", () => {
+  it("names the parts each role layer becomes: one per role but an arm's two, and refuses an unknown role", () => {
     const roles = new Set(character().layers.map((l) => l.role));
     expect(model.parts.map((p) => p.id)).toEqual(
       ROLE_TABLE.filter((r) => roles.has(r.role)).flatMap((r) =>
@@ -359,6 +359,7 @@ describe("generateIkiFromLayerSet: the model", () => {
       ),
     );
     expect(partIdsOfRole("face")).toEqual(["face"]);
+    expect(partIdsOfRole("arm_L")).toEqual(["arm_L", "forearm_L"]);
     expect(() => partIdsOfRole("nope")).toThrow(/unknown role "nope"/);
   });
 

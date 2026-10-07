@@ -4,7 +4,9 @@
  * The rig's shape is a 2D head rig's usual one (`profile.ts`): a body warp
  * (`body.ts`) that breathes, follows the head's turn and tilt a little and
  * turns on BodyAngleX/Y/Z, its legs planted; a head deformer hung from it
- * that rolls about the chin and breathes; one small warp grid per feature
+ * that rolls about the chin and breathes; each arm hung from it too, as an
+ * upper arm and a forearm turning about the shoulder and the elbow
+ * (`arms.ts`); one small warp grid per feature
  * (each eye, each brow, the nose, the mouth), translating and foreshortening
  * it by its own lead over the plate; and the plate, the hair and the blush
  * moved by per-vertex keyforms of their own — the plate as up to four
@@ -30,6 +32,14 @@ import {
   type IkiWarpDeformer,
 } from "@ikijs/format";
 import { DEFAULT_MOTIONS, defaultExpressions } from "./animations";
+import {
+  ARM_RANGE,
+  armDeformers,
+  armGeometry,
+  armParts,
+  type ArmGeometry,
+  type ArmRole,
+} from "./arms";
 import {
   BODY_WARP_ID,
   buildBodyWarp,
@@ -140,6 +150,9 @@ const WARP_ID: Record<GridFamily, string> = {
   mouth: "mouthWarp",
 };
 const isGridFamily = (f: Family): f is GridFamily => f in WARP_ID;
+/** An arm's spec: the `arm` family, whose roles `arms.ts` rigs. */
+const isArm = (spec: RoleSpec): spec is RoleSpec & { role: ArmRole } =>
+  spec.family === "arm";
 const GRID_PAD = 6;
 
 type Grids = Map<Family, { lattice: Lattice; keyforms: number[][] }>;
@@ -220,13 +233,21 @@ export function generateIkiFromLayerSet(
   });
   const turn: TurnModel = { ...fit.model, frame };
 
-  // --- the body warp the head hangs from ---
+  // --- the body warp the head and the arms hang from ---
+  // An arm implies a body (`checkLayers`); its side is read off the body's
+  // axis, and its shoulder is a pivot the body warp's band A must hold.
+  const arms = new Map<ArmRole, ArmGeometry>();
+  for (const spec of ROLE_TABLE) {
+    const layer = byRole.get(spec.role);
+    if (layer === undefined || !isArm(spec)) continue;
+    arms.set(spec.role, armGeometry(layer, cx(box("body"))));
+  }
   const bodyWarp = has("body")
     ? buildBodyWarp({
         body: byRole.get("body")!,
         chin: { x: frame.axisX, y: frame.chinY },
         hh: frame.hh,
-        pivots: [],
+        pivots: [...arms.values()].map((g) => g.shoulder),
       })
     : undefined;
 
@@ -238,6 +259,13 @@ export function generateIkiFromLayerSet(
   for (const spec of ROLE_TABLE) {
     const layer = byRole.get(spec.role);
     if (layer === undefined) continue;
+    if (isArm(spec)) {
+      // Two parts cut from the one crop, each on its own deformer.
+      parts.push(
+        ...armParts(spec.role, layer, arms.get(spec.role)!, parts.length),
+      );
+      continue;
+    }
     const built = buildPart(
       spec,
       boxOfLayer(layer),
@@ -296,6 +324,8 @@ export function generateIkiFromLayerSet(
       part.mesh = bodyWarp!.mesh;
       continue;
     }
+    // `armParts` hung each arm part on its own deformer.
+    if (family === "arm") continue;
     part.deformer = "headDeformer";
     if (part.mesh === undefined) continue;
     const own = familyField(turn, family);
@@ -314,7 +344,7 @@ export function generateIkiFromLayerSet(
     canvas: { width: canvas.width, height: canvas.height },
     parameters,
     parts,
-    deformers: deformers(frame, grids, bodyWarp?.deformer),
+    deformers: deformers(frame, grids, bodyWarp?.deformer, arms),
     ...(has("hair_front") ? { physics: hairPhysics() } : {}),
     expressions: defaultExpressions(new Set(parameters.map((p) => p.id))),
     motions: DEFAULT_MOTIONS,
@@ -629,9 +659,11 @@ function deformers(
   frame: HeadFrame,
   grids: Grids,
   bodyWarp: IkiWarpDeformer | undefined,
+  arms: Map<ArmRole, ArmGeometry>,
 ): IkiDeformer[] {
   const out: IkiDeformer[] = [];
   if (bodyWarp !== undefined) out.push(bodyWarp);
+  for (const [role, g] of arms) out.push(...armDeformers(role, g));
   // On a body, the head's roll and breath are its own, on top of what the
   // body warp already gives the chin (`headOwnRoll`, `headOwnBreath`).
   const hasBody = bodyWarp !== undefined;
@@ -713,6 +745,15 @@ function declareParameters(roles: Set<string>): IkiParameter[] {
     add(P.BodyAngleX, "Body Angle X", -10, 10, 0);
     add(P.BodyAngleY, "Body Angle Y", -10, 10, 0);
     add(P.BodyAngleZ, "Body Angle Z", -10, 10, 0);
+  }
+  const [armMin, armMax] = ARM_RANGE;
+  if (roles.has("arm_L")) {
+    add(P.ArmLeft, "Arm L", armMin, armMax, 0);
+    add(P.ElbowLeft, "Elbow L", armMin, armMax, 0);
+  }
+  if (roles.has("arm_R")) {
+    add(P.ArmRight, "Arm R", armMin, armMax, 0);
+    add(P.ElbowRight, "Elbow R", armMin, armMax, 0);
   }
   add(P.EyeOpenLeft, "Eye L", 0, 1, 1);
   add(P.EyeOpenRight, "Eye R", 0, 1, 1);

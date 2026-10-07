@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 import { parseIkiModel, type IkiModel } from "@ikijs/format";
+import * as editor from "@ikijs/editor";
 import {
   generateIkiFromLayerSet,
   type LayerInput,
@@ -20,6 +21,13 @@ import { buildLayerInputs } from "../../../examples/editor/src/auto-rig-image";
 // rig is compared with the one auto_rig_from_layers writes.
 
 const CANVAS = 100;
+
+/** A canvas's size, px. */
+interface Size {
+  width: number;
+  height: number;
+}
+const SQUARE: Size = { width: CANVAS, height: CANVAS };
 
 // Temp dirs live UNDER cwd (node_modules is gitignored) so they satisfy the
 // tool's output-path confinement to the working directory; cleaned up after.
@@ -54,12 +62,13 @@ async function writeLayer(
   dir: string,
   name: string,
   overlays: { input: Buffer; left: number; top: number }[],
+  size: Size = SQUARE,
 ): Promise<string> {
   const filePath = path.join(dir, name);
   await sharp({
     create: {
-      width: CANVAS,
-      height: CANVAS,
+      width: size.width,
+      height: size.height,
       channels: 4,
       background: { r: 0, g: 0, b: 0, alpha: 0 },
     },
@@ -75,6 +84,7 @@ async function writeRects(
   dir: string,
   name: string,
   rects: Rect[],
+  size: Size = SQUARE,
 ): Promise<string> {
   const overlays = await Promise.all(
     rects.map(async (rect) => ({
@@ -95,7 +105,7 @@ async function writeRects(
       top: rect.y,
     })),
   );
-  return writeLayer(dir, name, overlays);
+  return writeLayer(dir, name, overlays, size);
 }
 
 /**
@@ -111,7 +121,10 @@ async function writeRects(
  *   `denseCore` is set and the turn is solved;
  * - a mouth.
  */
-async function writeLayerSet(dir: string): Promise<string[]> {
+async function writeLayerSet(
+  dir: string,
+  size: Size = SQUARE,
+): Promise<string[]> {
   const jaw = Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="60" height="68">` +
       `<polygon points="0,0 60,0 60,34 35,68 25,68 0,34" ` +
@@ -119,20 +132,35 @@ async function writeLayerSet(dir: string): Promise<string[]> {
   );
   const ink = { r: 8, g: 6, b: 10 };
   return [
-    await writeLayer(dir, "face.png", [{ input: jaw, left: 20, top: 16 }]),
-    await writeRects(dir, "eye_L.png", [{ x: 30, y: 35, w: 12, h: 8 }]),
-    await writeRects(dir, "eye_R.png", [{ x: 58, y: 35, w: 12, h: 8 }]),
-    await writeRects(dir, "iris_L.png", [{ x: 33, y: 36, w: 6, h: 6 }]),
-    await writeRects(dir, "iris_R.png", [{ x: 61, y: 36, w: 6, h: 6 }]),
-    await writeRects(dir, "nose.png", [
-      { x: 40, y: 40, w: 18, h: 18, alpha: 0.3 },
-      { x: 46, y: 44, w: 8, h: 8 },
-    ]),
-    await writeRects(dir, "mouth.png", [{ x: 42, y: 60, w: 16, h: 8 }]),
-    await writeRects(dir, "hair_front.png", [
-      { x: 10, y: 25, w: 18, h: 31, rgb: ink },
-      { x: 72, y: 25, w: 18, h: 31, rgb: ink },
-    ]),
+    await writeLayer(
+      dir,
+      "face.png",
+      [{ input: jaw, left: 20, top: 16 }],
+      size,
+    ),
+    await writeRects(dir, "eye_L.png", [{ x: 30, y: 35, w: 12, h: 8 }], size),
+    await writeRects(dir, "eye_R.png", [{ x: 58, y: 35, w: 12, h: 8 }], size),
+    await writeRects(dir, "iris_L.png", [{ x: 33, y: 36, w: 6, h: 6 }], size),
+    await writeRects(dir, "iris_R.png", [{ x: 61, y: 36, w: 6, h: 6 }], size),
+    await writeRects(
+      dir,
+      "nose.png",
+      [
+        { x: 40, y: 40, w: 18, h: 18, alpha: 0.3 },
+        { x: 46, y: 44, w: 8, h: 8 },
+      ],
+      size,
+    ),
+    await writeRects(dir, "mouth.png", [{ x: 42, y: 60, w: 16, h: 8 }], size),
+    await writeRects(
+      dir,
+      "hair_front.png",
+      [
+        { x: 10, y: 25, w: 18, h: 31, rgb: ink },
+        { x: 72, y: 25, w: 18, h: 31, rgb: ink },
+      ],
+      size,
+    ),
   ];
 }
 
@@ -285,5 +313,66 @@ describe("the editor app's layer import and auto_rig_from_layers", () => {
       height: CANVAS,
     });
     expect(withoutAtlas(before)).not.toEqual(withoutAtlas(written));
+  });
+
+  it("rig a full body with arms identically, on a portrait canvas", async () => {
+    const dir = tmpDir();
+    const size: Size = { width: 100, height: 160 };
+    const paths = [
+      ...(await writeLayerSet(dir, size)),
+      // A torso over two legs: the body's runs part at the crotch.
+      await writeRects(
+        dir,
+        "body.png",
+        [
+          { x: 30, y: 80, w: 40, h: 40 },
+          { x: 32, y: 120, w: 15, h: 30 },
+          { x: 53, y: 120, w: 15, h: 30 },
+        ],
+        size,
+      ),
+      await writeRects(dir, "arm_L.png", [{ x: 72, y: 82, w: 8, h: 50 }], size),
+      await writeRects(dir, "arm_R.png", [{ x: 20, y: 82, w: 8, h: 50 }], size),
+    ];
+    const out = path.join(dir, "model.iki");
+
+    // The layers the tool hands the generator: what it measured.
+    const generate = vi.spyOn(editor, "generateIkiFromLayerSet");
+    let result: Awaited<ReturnType<typeof autoRigFromLayers>>;
+    let toolLayers: LayerInput[] | undefined;
+    try {
+      result = await autoRigFromLayers({
+        layers: paths.map((p) => ({ path: p })),
+        outputPath: out,
+      });
+      toolLayers = generate.mock.calls[0]?.[0];
+    } finally {
+      generate.mockRestore();
+    }
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const written: unknown = JSON.parse(fs.readFileSync(out, "utf8"));
+
+    stubCanvas();
+    const { layers, turnOptions } = buildLayerInputs(await decodeForApp(paths));
+    const model = generateIkiFromLayerSet(
+      layers,
+      { width: layers[0].canvasW, height: layers[0].canvasH },
+      turnOptions,
+    );
+    expect(withoutAtlas(model)).toEqual(withoutAtlas(written));
+    expect(model.parts.map((p) => p.id)).toEqual(
+      expect.arrayContaining(["arm_L", "forearm_L", "arm_R", "forearm_R"]),
+    );
+
+    expect(toolLayers).toBeDefined();
+    const runsOf = (set: LayerInput[], role: string) =>
+      set.find((l) => l.role === role)!.rowRuns;
+    for (const role of ["body", "arm_L"]) {
+      expect(runsOf(layers, role), role).toBeDefined();
+      expect(runsOf(layers, role), role).toEqual(runsOf(toolLayers!, role));
+    }
+    // The legs part: the fixture reaches the body warp's leg split.
+    expect(runsOf(layers, "body")).toContainEqual([32, 47, 53, 68]);
   });
 });

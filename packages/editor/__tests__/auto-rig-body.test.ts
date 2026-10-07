@@ -14,6 +14,7 @@ import {
 import {
   LayerGeometryError,
   generateIkiFromLayerSet,
+  parseLayerRoles,
   type LayerInput,
   type TurnSolveReport,
 } from "@ikijs/editor";
@@ -804,6 +805,12 @@ function splitYs(model: IkiModel): {
 describe("the full body", () => {
   const { layers, options, canvas } = fullBody();
   const { model } = rigged(layers, options, canvas);
+  const withArms = fullBody({ arms: true });
+  const armed = rigged(
+    withArms.layers,
+    withArms.options,
+    withArms.canvas,
+  ).model;
   const frame = buildHeadFrame(layers, {});
   const hh = frame.hh;
   const pivot = headOf(model).pivot;
@@ -944,16 +951,28 @@ describe("the full body", () => {
   });
 
   it("is the same rig, translated, on a canvas extended further down", () => {
-    const taller = fullBody({ extend: 1800 });
-    const a = splitYs(model);
-    const b = splitYs(
-      rigged(taller.layers, taller.options, taller.canvas).model,
-    );
-    for (const key of ["placed", "grid"] as const) {
-      expect(b[key]).toHaveLength(a[key].length);
-      b[key].forEach((y, i) => expect(y - a[key][i]).toBeCloseTo(100, 2));
+    // With arms, every arm part's placement and both arm deformers' pivots
+    // are among the moved ys too.
+    const sets = [
+      { arms: false, rig: model },
+      { arms: true, rig: armed },
+    ];
+    for (const { arms, rig } of sets) {
+      const taller = fullBody({ extend: 1800, arms });
+      const a = splitYs(rig);
+      const b = splitYs(
+        rigged(taller.layers, taller.options, taller.canvas).model,
+      );
+      for (const key of ["placed", "grid"] as const) {
+        expect(b[key], `arms ${arms}`).toHaveLength(a[key].length);
+        b[key].forEach((y, i) => expect(y - a[key][i]).toBeCloseTo(100, 2));
+      }
+      expect(b.rest, `arms ${arms}`).toEqual(a.rest);
     }
-    expect(b.rest).toEqual(a.rest);
+    // Four arm parts and four arm deformers.
+    expect(splitYs(armed).placed).toHaveLength(
+      splitYs(model).placed.length + 8,
+    );
 
     // The bust's head is the full body's, 800 px lower.
     const bust = character();
@@ -983,5 +1002,34 @@ describe("the full body", () => {
 
   it("is deterministic", () => {
     expect(rigged(layers, options, canvas).model).toEqual(model);
+    expect(
+      rigged(withArms.layers, withArms.options, withArms.canvas).model,
+    ).toEqual(armed);
+  });
+});
+
+describe("refusals", () => {
+  const required = ["face.png", "eye_L.png", "eye_R.png", "mouth.png"];
+
+  it("refuses an arm without a body, in the role parse and in the generator", () => {
+    expect(() => parseLayerRoles([...required, "arm_L.png"])).toThrow(
+      /arm_L needs a body layer/,
+    );
+    expect(() => parseLayerRoles([...required, "arm_R.png"])).toThrow(
+      /arm_R needs a body layer/,
+    );
+    expect(
+      parseLayerRoles([...required, "body.png", "arm_L.png", "arm_R.png"]).map(
+        (r) => r.role,
+      ),
+    ).toEqual(["face", "eye_L", "eye_R", "mouth", "body", "arm_L", "arm_R"]);
+    const { layers, options, canvas } = fullBody({ arms: true });
+    expect(() =>
+      generateIkiFromLayerSet(
+        layers.filter((l) => l.role !== "body"),
+        canvas,
+        options,
+      ),
+    ).toThrow(/arm_L needs a body layer/);
   });
 });

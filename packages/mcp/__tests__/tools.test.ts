@@ -319,13 +319,37 @@ describe("autoRigFromLayers", () => {
     return filePath;
   }
 
-  // The four required roles at distinct locations.
-  async function writeRequiredLayers(dir: string): Promise<string[]> {
+  // The four required roles at distinct locations, on a CANVAS² canvas or
+  // `dims`.
+  async function writeRequiredLayers(
+    dir: string,
+    dims?: { w: number; h: number },
+  ): Promise<string[]> {
     return [
-      await writeLayerPng(dir, "face.png", { x: 20, y: 20, w: 60, h: 60 }),
-      await writeLayerPng(dir, "eye_L.png", { x: 30, y: 35, w: 12, h: 8 }),
-      await writeLayerPng(dir, "eye_R.png", { x: 58, y: 35, w: 12, h: 8 }),
-      await writeLayerPng(dir, "mouth.png", { x: 42, y: 60, w: 16, h: 8 }),
+      await writeLayerPng(
+        dir,
+        "face.png",
+        { x: 20, y: 20, w: 60, h: 60 },
+        dims,
+      ),
+      await writeLayerPng(
+        dir,
+        "eye_L.png",
+        { x: 30, y: 35, w: 12, h: 8 },
+        dims,
+      ),
+      await writeLayerPng(
+        dir,
+        "eye_R.png",
+        { x: 58, y: 35, w: 12, h: 8 },
+        dims,
+      ),
+      await writeLayerPng(
+        dir,
+        "mouth.png",
+        { x: 42, y: 60, w: 16, h: 8 },
+        dims,
+      ),
     ];
   }
 
@@ -626,6 +650,102 @@ describe("autoRigFromLayers", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toMatch(/layer "body.png": its hips/);
+    expect(fs.existsSync(outPath)).toBe(false);
+  });
+
+  it("rigs arm PNGs as an upper arm and a forearm that share the arm crop's texture rect", async () => {
+    const dir = tmpDir();
+    const dims = { w: 100, h: 200 };
+    const paths = [
+      ...(await writeRequiredLayers(dir, dims)),
+      await writeLayerPng(
+        dir,
+        "body.png",
+        { x: 30, y: 80, w: 40, h: 110 },
+        dims,
+      ),
+      await writeLayerPng(
+        dir,
+        "arm_L.png",
+        { x: 72, y: 82, w: 10, h: 60 },
+        dims,
+      ),
+      await writeLayerPng(
+        dir,
+        "arm_R.png",
+        { x: 18, y: 82, w: 10, h: 60 },
+        dims,
+      ),
+    ];
+    const outPath = path.join(dir, "model.iki");
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: outPath,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const model = parseIkiModel(JSON.parse(fs.readFileSync(outPath, "utf8")));
+    const part = (id: string) => model.parts.find((p) => p.id === id);
+    for (const side of ["L", "R"]) {
+      const [upper, fore] = [part(`arm_${side}`), part(`forearm_${side}`)];
+      expect(upper).toBeDefined();
+      expect(fore).toBeDefined();
+      expect(fore!.texture!.uv).toEqual(upper!.texture!.uv);
+    }
+    expect(model.parts.every((p) => p.texture !== undefined)).toBe(true);
+  });
+
+  it("returns { ok:false } for an arm without a body, naming it", async () => {
+    const dir = tmpDir();
+    const paths = await writeRequiredLayers(dir);
+    const arm = await writeLayerPng(dir, "arm_L.png", {
+      x: 84,
+      y: 40,
+      w: 10,
+      h: 50,
+    });
+    const outPath = path.join(dir, "model.iki");
+
+    const result = await autoRigFromLayers({
+      layers: [...paths, arm].map((p) => ({ path: p })),
+      outputPath: outPath,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/arm_L needs a body layer/);
+    expect(fs.existsSync(outPath)).toBe(false);
+  });
+
+  it("returns { ok:false } for an arm too short to hang an elbow under its shoulder, naming the layer", async () => {
+    const dir = tmpDir();
+    const dims = { w: 100, h: 200 };
+    const paths = [
+      ...(await writeRequiredLayers(dir, dims)),
+      await writeLayerPng(
+        dir,
+        "body.png",
+        { x: 30, y: 80, w: 40, h: 110 },
+        dims,
+      ),
+      // 10 px tall and 20 wide: its shoulder would sit 10 px down, under its
+      // last row.
+      await writeLayerPng(
+        dir,
+        "arm_L.png",
+        { x: 72, y: 82, w: 20, h: 10 },
+        dims,
+      ),
+    ];
+    const outPath = path.join(dir, "model.iki");
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: outPath,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/layer "arm_L.png": the arm is too short/);
     expect(fs.existsSync(outPath)).toBe(false);
   });
 

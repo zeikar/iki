@@ -58,7 +58,7 @@ leaves the document untouched.
 
 `generateIkiFromLayerSet` turns role-named layers (`face`, `eye_L`, `eye_R`,
 `mouth`, plus optional `iris_*`, `brow_*`, `lash_*`, `lash_lower_*`, `hair_front`, `hair_back`,
-…) into a rigged model that blinks, gazes, opens its mouth, turns its head over
+`body`, `arm_*`, …) into a rigged model that blinks, gazes, opens its mouth, turns its head over
 a body warp that breathes, follows the head a little and turns on
 `ParamBodyAngleX/Y/Z`, and emotes with its brows — including a
 hair-sway physics rig when a `hair_front` layer is present. With a `blush_*`
@@ -81,7 +81,10 @@ drawn behind the head — the neck stays (only the chin's shade slides across
 it), the ears lag the face, the far one narrowing. AngleZ rolls the head 14° about the chin.
 A `body` rides a body warp that breathes, follows the head's turn and tilt a
 little and turns on `ParamBodyAngleX/Y/Z`, its legs planted, and the head
-hangs from it.
+hangs from it. `arm_L` / `arm_R`, each a whole arm drawn hanging with its
+shoulder at the top, hang from it too: each becomes an upper arm and a
+forearm cut from the one crop, turning about the shoulder and the elbow on
+`ParamArmL/R` and `ParamElbowL/R`. An arm needs a `body`.
 
 On a layer set with a `nose`, `options.turnTargets` — the cues a 30° reference
 measures (how far the eye pair slides, how much the far eye foreshortens,
