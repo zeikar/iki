@@ -16,6 +16,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { decodePng, detectAlphaBbox } from "./node-images";
 import { AutoRigInputError, MAX_LAYERS, resolveInputDir } from "./limits";
+import { ARM_ROLES, armWarnings } from "./measure-arms";
 import { SPECK_CORE_FRACTION, denseCoreOf, isSpeckCore } from "./measure-turn";
 
 // Iris width as a fraction of sclera width. Below the floor the eye reads as a
@@ -207,6 +208,9 @@ export async function layerStats(filePath: string): Promise<LayerStats | null> {
 
 const pct = (v: number) => `${(v * 100).toFixed(0)}%`;
 
+/** An arm's seams show once it raises, every other part's on the head turn. */
+const isArm = (role: string) => (ARM_ROLES as readonly string[]).includes(role);
+
 /** A nose's dense core that `isSpeckCore` judged a speck of its part, as sizes
  *  in px: compose's verdict on the trimmed source part, or the composed
  *  layer's against its crop. */
@@ -267,8 +271,10 @@ async function lashOffSclera(
 }
 
 /**
- * Measure every `*.png` in an already-resolved layers directory (`preview.png`
- * is the composer's contact sheet, not a role) and run the geometry checks.
+ * Measure every `*.png` in an already-resolved layers directory but the
+ * `preview*.png` ones (`preview.png` is the composer's contact sheet, and a
+ * caller's own previews sit beside it; none is a role) and run the geometry
+ * checks.
  * `noseSpeck` is compose's own verdict on the nose's source part when that
  * part's core was a speck, and the nose check reports it as given. Left out —
  * compose found no speck, or `measure_layers` — that check judges the `nose`
@@ -280,7 +286,7 @@ export async function measureDir(
 ): Promise<MeasureReport> {
   const files = fs
     .readdirSync(absDir)
-    .filter((f) => f.endsWith(".png") && f !== "preview.png")
+    .filter((f) => f.endsWith(".png") && !f.startsWith("preview"))
     .sort();
   if (files.length === 0) {
     throw new AutoRigInputError(`no role layers in ${absDir}`);
@@ -321,9 +327,19 @@ export async function measureDir(
       ["left", m.edgeLeft, m.h, m.marginLeft],
       ["right", m.edgeRight, m.h, m.marginRight],
     ];
-    // A torso is meant to run off the bottom of the canvas.
-    if (role !== "body")
+    // A bust's torso is meant to run off the bottom of a square canvas. A
+    // full body stands on a taller one with its soles inside it, where two
+    // soles' flat bottoms could trip the generic check, so a check of its own
+    // replaces it: paint on the canvas's last row is feet cut off.
+    if (role !== "body") {
       edges.push(["bottom", m.edgeBottom, m.w, m.marginBottom]);
+    } else if (m.canvasH > m.canvasW && m.marginBottom === 0) {
+      warnings.push(
+        `body: its bottom row is the canvas's last — on a tall canvas that cuts the feet off. ` +
+          `Free fix: raise canvasHeight (the canvas grows downward, nothing else moves) and ` +
+          `remeasure; regenerate body.png only if the drawing itself stops short of the soles.`,
+      );
+    }
     for (const [side, v, span, margin] of edges) {
       if (v > EDGE_SOLID_MAX && v * span >= EDGE_RUN_MIN_PX) {
         const remedy =
@@ -340,7 +356,8 @@ export async function measureDir(
               `with empty margin on that side. Billed.`;
         warnings.push(
           `${role}: ${pct(v)} of its ${side} edge is opaque — the art is cut off there, ` +
-            `which shows as a straight seam once the head turns. Cause: ${remedy}`,
+            `which shows as a straight seam ${isArm(role) ? "once the arm raises" : "once the head turns"}. ` +
+            `Cause: ${remedy}`,
         );
       }
     }
@@ -359,11 +376,16 @@ export async function measureDir(
       warnings.push(
         `${role}: ${m.flatCutRun}px of straight flat edge at y=${m.flatCutY} ` +
           `(${pct(m.flatCutRun / m.w)} of its width) — the source art is cut through there. ` +
-          `It hides while the head faces front and opens into a seam on turn. ` +
+          (isArm(role)
+            ? `It hides at rest and opens into a seam once the arm raises. `
+            : `It hides while the head faces front and opens into a seam on turn. `) +
           `Regenerate this part with the whole subject inside the frame.`,
       );
     }
   }
+
+  // 1c. The arms: each needs a body, and its shoulder cap the torso under it.
+  warnings.push(...(await armWarnings(absDir, layers)));
 
   // 2/3/4. Eye stack geometry, per side.
   for (const side of ["L", "R"]) {

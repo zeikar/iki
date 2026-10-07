@@ -31,22 +31,24 @@ afterAll(() => {
   for (const d of createdDirs) fs.rmSync(d, { recursive: true, force: true });
 });
 
-/** Paint a straight-alpha RGBA canvas and write it as a layer PNG. */
+/** Paint a straight-alpha RGBA canvas (`CANVAS` square unless sized) and
+ *  write it as a layer PNG. */
 async function writeLayer(
   dir: string,
   name: string,
   paint: (set: SetPixel) => void,
+  { width, height } = { width: CANVAS, height: CANVAS },
 ): Promise<void> {
-  const buf = Buffer.alloc(CANVAS * CANVAS * 4); // all transparent (alpha 0)
+  const buf = Buffer.alloc(width * height * 4); // all transparent (alpha 0)
   const set: SetPixel = (x, y, rgb, alpha = 255) => {
-    const i = (y * CANVAS + x) * 4;
+    const i = (y * width + x) * 4;
     buf[i] = rgb[0];
     buf[i + 1] = rgb[1];
     buf[i + 2] = rgb[2];
     buf[i + 3] = alpha;
   };
   paint(set);
-  await sharp(buf, { raw: { width: CANVAS, height: CANVAS, channels: 4 } })
+  await sharp(buf, { raw: { width, height, channels: 4 } })
     .png()
     .toFile(path.join(dir, name));
 }
@@ -452,6 +454,57 @@ describe("measureLayers", () => {
     ).toBe(true);
   });
 
+  it("warns of feet cut by a tall canvas's bottom, and of nothing with margin left", async () => {
+    const tall = { width: CANVAS, height: 600 };
+    // Two soles side by side: a flat bottom row the generic edge check
+    // would read as a crop.
+    const legs = (bottom: number) => (set: SetPixel) => {
+      rect(set, 60, 100, 80, bottom - 99, DARK);
+      for (let y = 300; y <= bottom; y++)
+        for (let x = 95; x < 105; x++) set(x, y, DARK, 0);
+    };
+    const feet =
+      /^body: its bottom row is the canvas's last — on a tall canvas that cuts the feet off\. Free fix: raise canvasHeight/;
+
+    const cut = tmpDir();
+    await writeLayer(cut, "body.png", legs(599), tall);
+    const cutWarnings = (await measureOk(cut)).warnings;
+    expect(cutWarnings.filter((w) => feet.test(w))).toHaveLength(1);
+    expect(warned(cutWarnings, /bottom edge is opaque/)).toBe(false);
+
+    const standing = tmpDir();
+    await writeLayer(standing, "body.png", legs(560), tall);
+    const standingWarnings = (await measureOk(standing)).warnings;
+    expect(warned(standingWarnings, feet)).toBe(false);
+    expect(warned(standingWarnings, /bottom edge is opaque/)).toBe(false);
+
+    // A bust's torso on a square canvas is meant to run off its bottom.
+    const bust = tmpDir();
+    await writeLayer(bust, "body.png", (set) =>
+      rect(set, 60, 100, 80, 100, DARK),
+    );
+    const bustWarnings = (await measureOk(bust)).warnings;
+    expect(warned(bustWarnings, /^body: its bottom row/)).toBe(false);
+    expect(warned(bustWarnings, /bottom edge is opaque/)).toBe(false);
+  });
+
+  it("ignores every preview*.png", async () => {
+    const dir = tmpDir();
+    await writeEyeStack(dir);
+    // Would trip the edge check if it were measured as a role.
+    await writeLayer(dir, "preview-bust.png", (set) =>
+      rect(set, 10, 10, 120, 120, DARK),
+    );
+
+    const result = await measureOk(dir);
+    expect(Object.keys(result.layers).sort()).toEqual([
+      "eye_L",
+      "iris_L",
+      "lash_L",
+    ]);
+    expect(warned(result.warnings, /preview/)).toBe(false);
+  });
+
   it("ignores preview.png and reports a transparent layer as empty", async () => {
     const dir = tmpDir();
     await writeEyeStack(dir);
@@ -502,6 +555,125 @@ describe("measureLayers", () => {
       ok: false,
       error: `no role layers in ${emptyDir}`,
     });
+  });
+});
+
+describe("arms", () => {
+  // A full body's canvas, and a torso whose edges are columns 60 and 140.
+  const TALL = { width: CANVAS, height: 600 };
+  const torso = (set: SetPixel) => rect(set, 60, 100, 80, 301, DARK);
+  /** A hanging arm, `w` px wide and 200 tall from row `top`, its columns
+   *  centred on canvas x `cx`: a 30-px arm's r_u is 15, and its shoulder
+   *  pivot sits on its run's centre, 15 rows under its top. */
+  const armAt =
+    (cx: number, top = 100, w = 30, h = 200) =>
+    (set: SetPixel) =>
+      rect(set, cx - w / 2, top, w, h, DARK);
+
+  /** armWarnings' own checks: a rect arm's straight sides trip the generic
+   *  edge check besides. */
+  const armChecks = (warnings: string[], arm: string) =>
+    warnings.filter(
+      (w) => w.startsWith(`${arm}: `) && !/edge is opaque/.test(w),
+    );
+
+  async function bodyWith(
+    arms: Record<string, (set: SetPixel) => void>,
+  ): Promise<string> {
+    const dir = tmpDir();
+    await writeLayer(dir, "body.png", torso, TALL);
+    for (const [arm, paint] of Object.entries(arms))
+      await writeLayer(dir, `${arm}.png`, paint, TALL);
+    return dir;
+  }
+
+  it("passes a cap centred on the torso's edge", async () => {
+    const dir = await bodyWith({ arm_R: armAt(60) });
+    expect(armChecks((await measureOk(dir)).warnings, "arm_R")).toEqual([]);
+  });
+
+  it("warns of a cap moved 10 px off the torso, with the px to move", async () => {
+    const dir = await bodyWith({ arm_R: armAt(50) });
+    const warnings = armChecks((await measureOk(dir)).warnings, "arm_R");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(
+      /^arm_R: its shoulder cap reaches 5 px under the torso's edge on its pivot row \(y=115\), under half its radius \(7\.5 px\) .* Move layout\.arm_R\.cx 3 px toward the body \(free\)\.$/,
+    );
+  });
+
+  it("reads arm_L on the torso's right edge", async () => {
+    const onEdge = await bodyWith({ arm_L: armAt(140) });
+    expect(armChecks((await measureOk(onEdge)).warnings, "arm_L")).toEqual([]);
+
+    // 10 px outward is +x on this side.
+    const off = await bodyWith({ arm_L: armAt(150) });
+    expect(armChecks((await measureOk(off)).warnings, "arm_L")).toEqual([
+      expect.stringMatching(
+        /^arm_L: its shoulder cap reaches 5 px under .* Move layout\.arm_L\.cx 3 px toward the body/,
+      ),
+    ]);
+  });
+
+  it("warns of an arm whose pivot row has no torso", async () => {
+    const dir = await bodyWith({ arm_R: armAt(60, 20) });
+    expect(armChecks((await measureOk(dir)).warnings, "arm_R")).toEqual([
+      "arm_R: the body has no paint on its shoulder pivot's row (y=35) — the torso shows a gap " +
+        "beside the shoulder once the arm raises. Retune layout.arm_R.cy onto the shoulder (free).",
+    ]);
+  });
+
+  it("warns of an arm without a body, and of one too short to rig", async () => {
+    const bodiless = tmpDir();
+    await writeLayer(bodiless, "arm_R.png", armAt(60), TALL);
+    expect(armChecks((await measureOk(bodiless)).warnings, "arm_R")).toEqual([
+      "arm_R: no body layer — an arm hangs from the body's shoulder, and auto_rig_from_layers refuses it.",
+    ]);
+
+    // Wider than tall: the elbow would land above the shoulder.
+    const squat = await bodyWith({ arm_R: armAt(60, 100, 60, 20) });
+    expect(armChecks((await measureOk(squat)).warnings, "arm_R")).toEqual([
+      expect.stringMatching(
+        /^arm_R: auto-rig: layer "arm_R\.png": the arm is too short .* — auto_rig_from_layers refuses it\. Regenerate arm\.png drawn hanging, shoulder at the top\. Billed\.$/,
+      ),
+    ]);
+  });
+
+  it("warns of an arm on a canvas of another size than the body's, and checks it no further", async () => {
+    // 300x400 holds as many px as the body's 200x600, so a length check
+    // alone would read it with the wrong stride.
+    const dir = await bodyWith({});
+    await writeLayer(dir, "arm_R.png", armAt(50), {
+      width: 300,
+      height: 400,
+    });
+
+    const result = await measureLayers({ layersDir: dir });
+    expect(result.ok).toBe(true);
+    expect(armChecks(result.ok ? result.warnings : [], "arm_R")).toEqual([
+      "arm_R: its canvas 300x400 differs from body's 200x600 — auto_rig_from_layers refuses " +
+        "layers of different sizes; recompose them together.",
+    ]);
+  });
+
+  it("words a cut arm's seam as the arm raising", async () => {
+    const dir = tmpDir();
+    // Wide enough for the 40 px edge run.
+    await writeLayer(dir, "arm_R.png", armAt(60, 100, 60), TALL);
+    // A block cut flat under a thin strand.
+    await writeLayer(dir, "arm_L.png", cutShape, TALL);
+
+    const { warnings } = await measureOk(dir);
+    const top = warnings.find((w) => /^arm_R: .* top edge is opaque/.test(w));
+    expect(top).toMatch(/a straight seam once the arm raises\. Cause:/);
+    const cut = warnings.find((w) => /^arm_L: .* straight flat edge/.test(w));
+    expect(cut).toMatch(
+      /It hides at rest and opens into a seam once the arm raises\./,
+    );
+    expect(
+      warnings.filter(
+        (w) => /^arm_/.test(w) && /the head turns|on turn\./.test(w),
+      ),
+    ).toEqual([]);
   });
 });
 
