@@ -8,14 +8,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
+import { armGeometry, createLayerSetMeasurer } from "@ikijs/editor";
+import { ROLE_TABLE } from "../../editor/src/auto-rig/roles";
+import { ARM_WIDTH, SHOULDER_DROP } from "../src/compose-arms";
 import {
   CANVAS,
+  ORDER,
   composeLayersFromParts,
   type ComposeInput,
   type ComposeResult,
 } from "../src/compose";
 import { decodePng } from "../src/node-images";
-import { writePartsSet } from "./helpers/parts";
+import { ARM_MARK, writeFullBodyParts, writePartsSet } from "./helpers/parts";
 
 const createdDirs: string[] = [];
 /** Parts are read-only input, so the fixture lives in the system temp dir. */
@@ -219,4 +223,181 @@ describe("compose on a tall canvas", () => {
       );
     },
   );
+});
+
+describe("arms", () => {
+  // The full body's torso is 160x600 trimmed: at w 600 it is 2250 tall, and
+  // cy 1585 puts its top at row 460, under the face.
+  const body = { w: 600, cy: 1585 };
+  let parts: string;
+  let composed: ComposeOk;
+
+  beforeAll(async () => {
+    parts = partsDir();
+    await writeFullBodyParts(parts);
+    composed = await composeOk({
+      partsDir: parts,
+      outDir: outDir(),
+      canvasHeight: TALL,
+      layout: { body },
+    });
+  }, 30_000);
+
+  const layerOf = (result: ComposeOk, role: string) =>
+    result.layers.find((l) => l.role === role)!;
+
+  /** The mean column of a composed layer's pixels near ARM_MARK. */
+  async function markColumn(layerPath: string): Promise<number> {
+    const { rgba, width } = await decodePng(layerPath);
+    let sum = 0;
+    let n = 0;
+    for (let i = 0; i < rgba.length; i += 4) {
+      if (rgba[i + 3] <= 128) continue;
+      if (![0, 1, 2].every((c) => Math.abs(rgba[i + c] - ARM_MARK[c]) <= 8))
+        continue;
+      sum += (i / 4) % width;
+      n++;
+    }
+    if (n === 0) throw new Error("no pixel near ARM_MARK");
+    return sum / n;
+  }
+
+  /** A composed arm's shoulder pivot as the rig reads it, in canvas px
+   *  (pixel x covers [x, x + 1)). */
+  async function shoulderOf(result: ComposeOk, role: "arm_L" | "arm_R") {
+    const { rgba } = await decodePng(layerOf(result, role).path);
+    const layer = createLayerSetMeasurer({ width: CANVAS, height: TALL }).add({
+      role,
+      fileName: "arm.png",
+      rgba,
+    })!;
+    const { shoulder } = armGeometry(layer, 0);
+    return { x: shoulder.x + CANVAS / 2, y: TALL / 2 - shoulder.y };
+  }
+
+  it("draws in ROLE_TABLE's order", () => {
+    const roles = ROLE_TABLE.map((r) => r.role);
+    for (const role of ORDER) expect(roles, role).toContain(role);
+    expect(roles.filter((r) => (ORDER as string[]).includes(r))).toEqual(ORDER);
+  });
+
+  it("composes arm_R as drawn and arm_L mirrored, and flips both under mirrorParts", async () => {
+    // arm.png is the arm on the screen left, its mark in its left half.
+    const flipped = await composeOk({
+      partsDir: parts,
+      outDir: outDir(),
+      canvasHeight: TALL,
+      layout: { body },
+      mirrorParts: ["arm.png"],
+    });
+    for (const [result, sign] of [
+      [composed, 1],
+      [flipped, -1],
+    ] as const) {
+      for (const [role, side] of [
+        ["arm_R", -1],
+        ["arm_L", 1],
+      ] as const) {
+        const layer = layerOf(result, role);
+        const mark = await markColumn(layer.path);
+        expect(
+          Math.sign(mark - (layer.left + layer.width / 2)),
+          `${role}, mirrored: ${sign === -1}`,
+        ).toBe(side * sign);
+      }
+    }
+  });
+
+  it("hangs each arm's shoulder pivot on the body box's shoulder corner", async () => {
+    const box = layerOf(composed, "body");
+    expect(box.width).toBe(body.w);
+    const cornerY = box.top + SHOULDER_DROP * box.height;
+    for (const [role, cornerX] of [
+      ["arm_R", box.left],
+      ["arm_L", box.left + box.width],
+    ] as const) {
+      expect(layerOf(composed, role).width, role).toBe(
+        Math.round(ARM_WIDTH * box.width),
+      );
+      const pivot = await shoulderOf(composed, role);
+      expect(Math.abs(pivot.x - cornerX), role).toBeLessThanOrEqual(1);
+      expect(Math.abs(pivot.y - cornerY), role).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("centres an arm on a set cx/cy and sizes it to a set w", async () => {
+    const result = await composeOk({
+      partsDir: parts,
+      outDir: outDir(),
+      canvasHeight: TALL,
+      layout: {
+        body,
+        arm_R: { cx: 300, cy: 1500, w: 100 },
+        arm_L: { w: 100 },
+      },
+    });
+    const armR = layerOf(result, "arm_R");
+    expect(armR.width).toBe(100);
+    expect([armR.left, armR.top]).toEqual([
+      250,
+      Math.round(1500 - armR.height / 2),
+    ]);
+    // A set w alone leaves the pivot on the corner.
+    const box = layerOf(result, "body");
+    expect(layerOf(result, "arm_L").width).toBe(100);
+    const pivot = await shoulderOf(result, "arm_L");
+    expect(Math.abs(pivot.x - (box.left + box.width))).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(pivot.y - (box.top + SHOULDER_DROP * box.height)),
+    ).toBeLessThanOrEqual(1);
+  });
+
+  it("leaves a bust's skipped list as it was, and removes an earlier compose's arms", async () => {
+    const dir = partsDir();
+    await writeFullBodyParts(dir);
+    const out = outDir();
+    const input = {
+      partsDir: dir,
+      outDir: out,
+      canvasHeight: TALL,
+      layout: { body },
+    };
+    const withArms = await composeOk(input);
+    expect(withArms.layers.map((l) => l.role)).toEqual(
+      expect.arrayContaining(["arm_L", "arm_R"]),
+    );
+
+    fs.rmSync(path.join(dir, "arm.png"));
+    const result = await composeOk(input);
+    for (const role of ["arm_L", "arm_R"]) {
+      expect(fs.existsSync(path.join(out, `${role}.png`)), role).toBe(false);
+    }
+    expect(result.layers.filter((l) => l.role.startsWith("arm_"))).toEqual([]);
+    expect(result.skipped).toEqual([]);
+  });
+
+  it("refuses an arm without a body, and an arm too short to rig", async () => {
+    const noBody = partsDir();
+    await writeFullBodyParts(noBody);
+    fs.rmSync(path.join(noBody, "body.png"));
+    expect(
+      await composeError({
+        partsDir: noBody,
+        outDir: outDir(),
+        canvasHeight: TALL,
+      }),
+    ).toMatch(/^arm\.png: an arm needs body\.png/);
+
+    const squat = partsDir();
+    await writeFullBodyParts(squat, { arm: "squat" });
+    // arm_L is placed first in ORDER.
+    expect(
+      await composeError({
+        partsDir: squat,
+        outDir: outDir(),
+        canvasHeight: TALL,
+        layout: { body },
+      }),
+    ).toMatch(/^layout\.arm_L: .*layer "arm\.png": the arm is too short/);
+  });
 });

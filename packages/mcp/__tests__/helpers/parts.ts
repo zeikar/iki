@@ -32,6 +32,8 @@ export const EYE_MARK_BELOW: RGB = [230, 190, 200];
 export const EYE_MARK_BESIDE: RGB = [240, 215, 150];
 const BLUSH: RGB = [245, 160, 170];
 export const BLUSH_MARK: RGB = [200, 80, 100];
+const SLEEVE: RGB = [70, 80, 160];
+export const ARM_MARK: RGB = [60, 160, 90];
 
 /** Paint a straight-alpha RGBA canvas and write it as a PNG. */
 async function writeRgbaPart(
@@ -339,4 +341,68 @@ export async function writePartsSet(
     if (omit.has(name)) continue;
     await write(dir);
   }
+}
+
+/**
+ * A body.png drawn neck to feet, 200x600: a 30 px neck on rows 0..39, so its
+ * top edge is mostly clear; a 160 px torso on rows 40..299 whose shoulders
+ * are squared with 20 px rounded corners, so its straight sides cover rows
+ * 60..299, under half the crop's height; and two 66 px legs from the crotch
+ * at row 300 (0.5 of the height) down, with an 8 px gap between them.
+ */
+async function writeFullBody(dir: string): Promise<void> {
+  await writeRgbaPart(dir, "body.png", 200, 600, (set) => {
+    for (let y = 0; y < 40; y++) for (let x = 85; x < 115; x++) set(x, y, DARK);
+    const r = 20;
+    for (let y = 40; y < 300; y++) {
+      for (let x = 20; x < 180; x++) {
+        // Distance past the nearer top corner's centre, 0 off the corners.
+        const dx = Math.max(0, 20 + r - (x + 0.5), x + 0.5 - (180 - r));
+        const dy = Math.max(0, 40 + r - (y + 0.5));
+        if (dx * dx + dy * dy <= r * r) set(x, y, DARK);
+      }
+    }
+    for (let y = 300; y < 600; y++) {
+      for (let x = 30; x < 96; x++) set(x, y, DARK);
+      for (let x = 104; x < 170; x++) set(x, y, DARK);
+    }
+  });
+}
+
+/**
+ * An arm.png. `"hanging"`: an upright 40x240 ellipse (about 1:6) with a
+ * 28x40 hand at its lower left, as an arm hangs slanting a little left to
+ * its hand, so its shoulder lies right of its crop's centre, 48x260; and an
+ * ARM_MARK patch inside the ellipse's left half, so a mirror shows.
+ * `"squat"`: a 120x40 ellipse, wider than tall — an arm too short for the
+ * rig to put an elbow under its shoulder — with the same patch.
+ */
+async function writeArm(dir: string, arm: "hanging" | "squat"): Promise<void> {
+  const [width, height] = arm === "hanging" ? [64, 268] : [128, 48];
+  await writeRgbaPart(dir, "arm.png", width, height, (set) => {
+    const bounds = { width, height };
+    if (arm === "hanging") {
+      // x 20..59, rows 4..243; the hand x 12..39, rows 224..263.
+      ellipse(set, bounds, 40, 124, 40, 240, SLEEVE);
+      ellipse(set, bounds, 26, 244, 28, 40, SKIN);
+    } else {
+      ellipse(set, bounds, 64, 24, 120, 40, SLEEVE);
+    }
+    const [x0, y0] = arm === "hanging" ? [26, 120] : [30, 20];
+    for (let y = y0; y < y0 + 8; y++)
+      for (let x = x0; x < x0 + 8; x++) set(x, y, ARM_MARK);
+  });
+}
+
+/**
+ * The parts set with a full body for the stock torso, plus one arm.png
+ * (`"hanging"` unless `arm` says otherwise).
+ */
+export async function writeFullBodyParts(
+  dir: string,
+  { arm = "hanging" }: { arm?: "hanging" | "squat" } = {},
+): Promise<void> {
+  await writePartsSet(dir, { omit: ["body.png"] });
+  await writeFullBody(dir);
+  await writeArm(dir, arm);
 }

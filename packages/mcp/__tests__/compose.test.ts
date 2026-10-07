@@ -929,8 +929,8 @@ describe("composeLayersFromParts", () => {
       layout: { eyebrow: { cx: 500 } } as unknown as LayoutOverride,
     });
     expect(error).toBe(
-      "layout.eyebrow: unknown role — expected one of hair_back, body, face, " +
-        "blush_L, blush_R, nose, mouth, mouth_open, eye_L, eye_R, iris_L, " +
+      "layout.eyebrow: unknown role — expected one of hair_back, body, arm_L, " +
+        "arm_R, face, blush_L, blush_R, nose, mouth, mouth_open, eye_L, eye_R, iris_L, " +
         "iris_R, lash_L, lash_R, brow_L, brow_R, hair_front",
     );
   });

@@ -22,6 +22,7 @@ import { ALPHA_OPAQUE, detectAlphaBbox as scanAlphaBbox } from "@ikijs/editor";
 import { cropToBuffer, decodePng } from "./node-images";
 import { measureDir, type MeasureReport, type NoseSpeck } from "./measure";
 import { denseCoreOf, isSpeckCore } from "./measure-turn";
+import { ARM_WIDTH, armPlacement } from "./compose-arms";
 import {
   AutoRigInputError,
   MAX_CANVAS_DIM,
@@ -118,6 +119,19 @@ interface NoseLayout extends Omit<RoleLayout, "cy"> {
   cy?: number;
 }
 
+/**
+ * An arm's layout. Its `cx`, `cy` and `w` are optional, each derived from the
+ * placed body when unset (compose-arms.ts): `w` is ARM_WIDTH of the body's
+ * width, and an unset `cx` or `cy` hangs the arm's shoulder pivot, the one
+ * the rig turns it about, on the body box's shoulder corner on that axis. A
+ * set one keeps every other role's meaning.
+ */
+export interface ArmLayout extends Omit<RoleLayout, "cx" | "cy" | "w"> {
+  cx?: number;
+  cy?: number;
+  w?: number;
+}
+
 /** A box in a part's own px, origin top-left. */
 interface Box {
   x: number;
@@ -156,8 +170,10 @@ const NOSE_TIP_AT = 0.66;
 // brow.png is the brow on the SCREEN RIGHT, its thick head at the image's left
 // end and its tail at the right; blush.png is the blush on the SCREEN LEFT,
 // its outer end (toward the face's edge) at the image's left end and its
-// inner end (toward the nose) at the right. A part drawn the other way round
-// is flipped for free with `mirrorParts`.
+// inner end (toward the nose) at the right; arm.png is the arm on the SCREEN
+// LEFT (the character's right), hanging, its shoulder at the image's top and
+// its hand at the bottom. A part drawn the other way round is flipped for
+// free with `mirrorParts`.
 // eye_*  = the WHITE sclera (upper lashes recolored white) = the blink clip mask + fold.
 // iris_* = colored disc on top, clipped to the sclera, drives gaze.
 // lash_lower_* = the lower lid's dark line and lashes, ABOVE the iris (it
@@ -175,6 +191,13 @@ const DEFAULT_LAYOUT = {
   // not a floating head; a full body on a tall canvas sets `layout.body`
   // itself. It rides the rig's `bodyWarp`, which the head hangs from.
   body: { src: "body.png", cx: 550, cy: 1017, w: 840, optional: true },
+  // The arms, one part for both: arm_R (screen left) takes arm.png as drawn
+  // and arm_L mirrors it, like the blush. They draw over the body and under
+  // the face. They have no cx/cy/w defaults: each is derived from the placed
+  // body (ArmLayout). OPTIONAL and opt-in: a parts dir without arm.png
+  // composes as a bust does, and `skipped` never lists them.
+  arm_L: { src: "arm.png", optional: true, mirror: true },
+  arm_R: { src: "arm.png", optional: true, mirror: false },
   // The face is drawn without a neck, so its box is the skull and centres
   // above the eye row (bob's skull at 437 against his eyes' 475).
   face: { src: "face.png", cx: 550, cy: 437, w: 400 },
@@ -228,7 +251,7 @@ const DEFAULT_LAYOUT = {
   brow_L: { src: "brow.png", cx: 645, cy: 405, w: 105, mirror: false },
   brow_R: { src: "brow.png", cx: 455, cy: 405, w: 105, mirror: true },
   hair_front: { src: "hair_front.png", cx: 550, cy: 425, w: 660 },
-} satisfies Record<string, RoleLayout | NoseLayout>;
+} satisfies Record<string, RoleLayout | NoseLayout | ArmLayout>;
 
 export type Role = keyof typeof DEFAULT_LAYOUT;
 
@@ -240,18 +263,27 @@ const LOWER_LASH_SRC = "eyewhite_lash_lower.png";
 /** A role the composer writes a layer for. */
 export type LayerRole = Role | keyof typeof LOWER_LASH;
 
-/**
- * The merged layout, typed so a non-nose default that drops its `cy` fails to
- * compile: `resolveLayout` builds it from DEFAULT_LAYOUT.
- */
-type ResolvedLayout = Record<Exclude<Role, "nose">, RoleLayout> & {
-  nose: NoseLayout;
-};
+/** The arm roles, placed off the body (ArmLayout). */
+type ArmRole = "arm_L" | "arm_R";
 
-/** Draw order (back -> front), mirrors @ikijs/editor ROLE_TABLE order. */
-const ORDER: LayerRole[] = [
+/**
+ * The merged layout, typed so a default other than the nose's and the arms'
+ * that drops its `cy` fails to compile: `resolveLayout` builds it from
+ * DEFAULT_LAYOUT.
+ */
+type ResolvedLayout = Record<Exclude<Role, "nose" | ArmRole>, RoleLayout> & {
+  nose: NoseLayout;
+} & Record<ArmRole, ArmLayout>;
+
+/**
+ * Draw order (back -> front): the roles of @ikijs/editor ROLE_TABLE the
+ * composer writes, in its order — a test holds it to that subsequence.
+ */
+export const ORDER: LayerRole[] = [
   "hair_back",
   "body",
+  "arm_L",
+  "arm_R",
   "face",
   "blush_L",
   "blush_R",
@@ -295,8 +327,9 @@ export interface ComposeInput {
   /**
    * Existing directory under cwd to write the role layers into. Callers reuse
    * one across runs (it must pre-exist), so the compose leaves it holding
-   * exactly the roles it reports: a skipped role's layer from an earlier run is
-   * removed rather than left for the next tool to pick up.
+   * exactly the roles it reports: the layer an earlier run wrote for any role
+   * this run does not write — a skipped role, or an arm once arm.png is gone
+   * — is removed rather than left for the next tool to pick up.
    */
   outDir: string;
   layout?: LayoutOverride;
@@ -337,7 +370,9 @@ export type ComposeResult =
       layers: ComposedLayer[];
       /**
        * Roles whose optional part was absent from the parts dir, and the lower
-       * lashes when the eyewhite draws no dark lower lid.
+       * lashes when the eyewhite draws no dark lower lid. The arms are opt-in
+       * and never listed: a parts dir without arm.png composes as a bust does,
+       * though an earlier compose's arm layers are still removed.
        */
       skipped: LayerRole[];
       preview: string;
@@ -445,9 +480,22 @@ function resolveLayout(
   for (const [role, set] of sets) {
     if (role === "face" || role === "nose") continue;
     if ((FACE_FEATURES as readonly Role[]).includes(role)) continue;
-    resolved[role] = { ...resolved[role], ...set };
+    mergeRole(resolved, role, set);
   }
   return resolved;
+}
+
+/**
+ * Merge an override's set fields onto a role's resolved entry. Generic over
+ * the role so one statement types for every kind of entry, the arms' among
+ * them, whose cx/cy/w may stay unset.
+ */
+function mergeRole<R extends Role>(
+  resolved: ResolvedLayout,
+  role: R,
+  set: { cx?: number; cy?: number; w?: number; h?: number },
+): void {
+  resolved[role] = { ...resolved[role], ...set };
 }
 
 /**
@@ -570,7 +618,7 @@ async function noseSizingOf(png: Buffer): Promise<NoseSizing> {
  */
 async function partBuffer(
   role: LayerRole,
-  cfg: Omit<RoleLayout, "cy">,
+  cfg: Omit<RoleLayout, "cx" | "cy">,
   partsDir: string,
   inMemory: Buffer | undefined,
   flipSource: boolean,
@@ -692,7 +740,7 @@ function assertOnCanvas(
 
 /** Where a part lands, centred on its layout cx/cy. The nose has its own. */
 function placement(
-  role: Exclude<Role, "nose">,
+  role: Exclude<Role, "nose" | ArmRole>,
   cfg: RoleLayout,
   w: number,
   h: number,
@@ -1122,6 +1170,49 @@ export async function composeLayersFromParts(
         skipped.push(role);
         continue;
       }
+      if (key === "arm_L" || key === "arm_R") {
+        const arm = layout[key];
+        // Arms are opt-in: a parts dir without arm.png composes as a bust
+        // does, the arms neither placed nor listed in `skipped`.
+        if (!fs.existsSync(path.join(partsDir, arm.src))) continue;
+        const body = placed.find((p) => p.role === "body");
+        if (body === undefined) {
+          throw new AutoRigInputError(
+            "arm.png: an arm needs body.png — the composer hangs each arm on the body's shoulder, and auto_rig_from_layers hangs it from the body",
+          );
+        }
+        const w = arm.w ?? Math.max(1, Math.round(ARM_WIDTH * body.part.w));
+        // Never null: the part is there, checked above.
+        const part = (await partBuffer(
+          role,
+          { ...arm, w },
+          partsDir,
+          undefined,
+          mirrored.has(arm.src),
+          canvas,
+        ))!;
+        const { left, top } = await armPlacement(key, arm, part, {
+          left: body.left,
+          top: body.top,
+          w: body.part.w,
+          h: body.part.h,
+        });
+        const unset = (["cx", "cy"] as const).filter(
+          (field) => arm[field] === undefined,
+        );
+        assertOnCanvas(
+          unset.length === 0
+            ? `layout.${key}.cx/cy`
+            : `layout.${key}.cx/cy (${unset.join("/")} unset: its shoulder pivot hangs on the shoulder corner of layout.body's box)`,
+          part.w,
+          part.h,
+          left,
+          top,
+          canvas,
+        );
+        placed.push({ role, part, left, top });
+        continue;
+      }
       const cfg = lower ? { ...layout[key], src: LOWER_LASH_SRC } : layout[key];
       const inMemory = splitSources.get(cfg.src);
       const part = await partBuffer(
@@ -1179,12 +1270,14 @@ export async function composeLayersFromParts(
       placed.push({ role, part, left, top });
     }
 
-    // Drop each skipped role's layer from an earlier compose into the same
-    // dir: left behind it would contradict `skipped`, since measureDir globs
-    // the directory (the report would still show a body) and the next
+    // Drop the layer an earlier compose into the same dir wrote for each role
+    // this run does not write — a skipped one, or an arm once arm.png is
+    // gone: left behind it would contradict the result, since measureDir
+    // globs the directory (the report would still show a body) and the next
     // auto_rig_from_layers would rig the stale file into the model. Only the
     // fixed ORDER role names, under the confined outDir, are ever removed.
-    for (const role of skipped) {
+    for (const role of ORDER) {
+      if (placed.some((p) => p.role === role)) continue;
       fs.rmSync(path.join(outDir, `${role}.png`), { force: true });
     }
     const layers: ComposedLayer[] = [];
