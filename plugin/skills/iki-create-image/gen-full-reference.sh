@@ -5,7 +5,7 @@
 # draws the SAME character, using the already-generated front reference (the
 # bust) as the attachment.
 #
-# Three whys baked into this script:
+# Four whys baked into this script:
 #   -i <reference>       the bust is the master: the face and hair parts and
 #                         the turn reference are drawn from it, so the full
 #                         body must carry the same character over, and a
@@ -18,11 +18,19 @@
 #                         canvas, and gets a bust back; this one asks for a new
 #                         framing and keeps only the character, its style and
 #                         the background colour. Like it, the prompt names no
-#                         hairstyle, eye colour or outfit: the attached bust
-#                         already carries identity.
+#                         hairstyle or eye colour: the attached bust carries
+#                         them.
+#   an outfit sentence   the bust shows no lower body, and unnamed the model
+#                         invents it (a tee-only bust came back with a yellow
+#                         skirt and loafers), so the optional third argument
+#                         names what the frame cuts off. And "hair at its full
+#                         length" turned a ponytail into hip-length hair, so
+#                         the hair is kept as drawn.
 #
 # Usage:
-#   gen-full-reference.sh <reference.png> <work_dir>
+#   gen-full-reference.sh <reference.png> <work_dir> [outfit]
+#   outfit: one sentence naming the bottoms, socks and shoes the bust cannot
+#   show. Without it the prompt only says to continue the outfit.
 #
 # Output: <work_dir>/reference-full.png. Per-job transcript in
 # <work_dir>/.gen-logs/.
@@ -31,10 +39,11 @@ set -u -o pipefail
 
 . "$(dirname "$0")/codex.sh"
 
-[ $# -eq 2 ] || die "usage: gen-full-reference.sh <reference.png> <work_dir>"
+{ [ $# -eq 2 ] || [ $# -eq 3 ]; } || die "usage: gen-full-reference.sh <reference.png> <work_dir> [outfit]"
 
 ref=$1
 work_dir=$2
+outfit=${3:-}
 [ -f "$ref" ] || die "reference image not found: $ref"
 ref=$(cd "$(dirname "$ref")" && pwd)/$(basename "$ref")
 
@@ -52,14 +61,22 @@ echo "[info] reference: $ref"
 echo "[info] work_dir:  $work_dir"
 echo "[info] output:    $out"
 echo "[info] model:     $CODEX_IMAGE_MODEL"
+echo "[info] outfit:    ${outfit:-(not given)}"
 echo
+
+if [ -n "$outfit" ]; then
+  outfit_line="$outfit"
+else
+  outfit_line="Continue the outfit down to the shoes in the same palette."
+fi
 
 codex_image_exec "$work_dir" "$log_dir/reference-full" "$ref" "$out" \
   "The attached image is the REFERENCE CHARACTER: a front-facing bust portrait.
 Use the image generation tool to draw the EXACT same character, same outfit,
 same colours, same line weight and same drawing style, now FULL BODY, head to
-toe. Continue the outfit down to the shoes in the same palette, and draw the
-hair at its full length. The whole figure front-facing and level, the head
+toe. $outfit_line Keep the hair exactly as drawn: tied hair (a ponytail, a bun,
+a braid) keeps its length and place, and only loose hair the bust's frame cuts
+off continues down. The whole figure front-facing and level, the head
 looking straight at the viewer, the shoulders squared. Arms hanging relaxed at
 the sides in a slight A-pose, each arm angled a little away from the body so
 there is a clear gap between the arm and the torso all the way down, hands open

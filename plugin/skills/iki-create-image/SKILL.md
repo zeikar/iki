@@ -15,12 +15,12 @@ do when Codex is not there.
 
 They sit beside this file, in `${CLAUDE_SKILL_DIR}`:
 
-| Command                                                            | Draws                                                                                                                                |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `gen-images.sh --check`                                            | nothing — runs the preflight alone and prints the model the jobs would use                                                           |
-| `gen-images.sh [--ref <png>] <work_dir> "<prompt>::<out.png>" ...` | a batch, up to five jobs at once. Without `--ref`, from the prompt alone: the front reference. With it, every job sees it: the parts |
-| `gen-turn-reference.sh <reference.png> <work_dir>`                 | `<work_dir>/reference-30.png`: the same character with the head turned 30° (the **iki-character-loop**'s style check)                |
-| `gen-full-reference.sh <reference.png> <work_dir>`                 | `<work_dir>/reference-full.png`: the same character drawn full body, head to toe, from the bust — only for a full-body character     |
+| Command                                                            | Draws                                                                                                                                                                                                |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gen-images.sh --check`                                            | nothing — runs the preflight alone and prints the model the jobs would use                                                                                                                           |
+| `gen-images.sh [--ref <png>] <work_dir> "<prompt>::<out.png>" ...` | a batch, up to five jobs at once. Without `--ref`, from the prompt alone: the front reference. With it, every job sees it: the parts                                                                 |
+| `gen-turn-reference.sh <reference.png> <work_dir>`                 | `<work_dir>/reference-30.png`: the same character with the head turned 30° (the **iki-character-loop**'s style check)                                                                                |
+| `gen-full-reference.sh <reference.png> <work_dir> [outfit]`        | `<work_dir>/reference-full.png`: the same character drawn full body, head to toe, from the bust — only for a full-body character; `[outfit]` names the bottoms, socks and shoes the bust cannot show |
 
 All three shell out to `codex exec` with Codex's built-in `image_generation`
 tool, write into `<work_dir>` (which must already exist) and keep each job's
@@ -90,6 +90,14 @@ drawn whole, the face is a fraction of the image, too small to draw the face
 parts or score the face against. So the front reference stays the master,
 and this one is drawn from it with it attached.
 
+The optional third argument is one sentence naming what the bust cannot show:
+the bottoms, socks and shoes. The bust has no lower body, and unnamed the
+model invents it (a tee-only bust came back with a yellow skirt and loafers).
+`full-body.md` Step 0 writes the sentence to `<workdir>/outfit.txt`; pass it
+as `"$(cat <workdir>/outfit.txt)"`. The prompt also keeps the hair as drawn:
+tied hair (a ponytail, a bun, a braid) keeps its length and place, and only
+loose hair the bust's frame cuts off continues down.
+
 Draw it again if the head, the outfit or the colours drifted from the front
 reference, an arm touches the torso, the legs have no gap between them, or a
 foot or the crown is cut by the image's edge: the body and the arm parts
@@ -136,7 +144,8 @@ rather use another tool, write `<workdir>/prompts.md` and stop:
   parts, `reference-full.png` for a full body's `body.png` and `arm.png` — and
   the prompt verbatim with `<STYLE>` filled in: for the turned reference, the
   prompt inside `gen-turn-reference.sh`; for the full-body reference, the one
-  inside `gen-full-reference.sh`.
+  inside `gen-full-reference.sh`, with the outfit sentence in place of its
+  default outfit line.
 
 Tell the user where the file is and wait. When they say the images are in
 place, check every path is there and a PNG (`file <path>`), then continue from
