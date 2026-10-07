@@ -13,6 +13,9 @@ describe("StandardParameter", () => {
       AngleX: "ParamAngleX",
       AngleY: "ParamAngleY",
       AngleZ: "ParamAngleZ",
+      BodyAngleX: "ParamBodyAngleX",
+      BodyAngleY: "ParamBodyAngleY",
+      BodyAngleZ: "ParamBodyAngleZ",
       Breath: "ParamBreath",
       BrowLeftY: "ParamBrowLY",
       BrowRightY: "ParamBrowRY",
@@ -21,6 +24,10 @@ describe("StandardParameter", () => {
       Cheek: "ParamCheek",
       HairSwayX: "ParamHairSwayX",
       HairSwayZ: "ParamHairSwayZ",
+      ArmLeft: "ParamArmL",
+      ArmRight: "ParamArmR",
+      ElbowLeft: "ParamElbowL",
+      ElbowRight: "ParamElbowR",
     });
   });
 });

@@ -255,8 +255,8 @@ describe("describeIki", () => {
 });
 
 describe("listStandardParameters", () => {
-  it("returns exactly 17 entries", () => {
-    expect(listStandardParameters()).toHaveLength(17);
+  it("returns exactly 24 entries", () => {
+    expect(listStandardParameters()).toHaveLength(24);
   });
 
   it("ids match the full set of StandardParameter values", () => {

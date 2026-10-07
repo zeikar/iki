@@ -241,14 +241,16 @@ block whose label text matches, set that block's `input[type=range]` value,
 and dispatch an `input` event (`browser_evaluate`), then screenshot
 before/after.
 
-| id                                                                    | panel label                                                  |
-| --------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `ParamEyeLOpen` / `ParamEyeROpen`                                     | Eye L / Eye R (blink-fold)                                   |
-| `ParamEyeBallX` / `ParamEyeBallY`                                     | Gaze X / Gaze Y                                              |
-| `ParamMouthOpenY` / `ParamMouthForm`                                  | Mouth Open / Mouth Form                                      |
-| `ParamAngleX` / `ParamAngleY` / `ParamAngleZ`                         | Head Angle / Head Angle Y / Head Angle Z (turn / nod / tilt) |
-| `ParamBrowLY` / `ParamBrowRY` / `ParamBrowLAngle` / `ParamBrowRAngle` | Brow L Y / Brow R Y / Brow L Angle / Brow R Angle            |
-| `ParamCheek`                                                          | Cheek (only with a blush)                                    |
+| id                                                                    | panel label                                                                                                             |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `ParamEyeLOpen` / `ParamEyeROpen`                                     | Eye L / Eye R (blink-fold)                                                                                              |
+| `ParamEyeBallX` / `ParamEyeBallY`                                     | Gaze X / Gaze Y                                                                                                         |
+| `ParamMouthOpenY` / `ParamMouthForm`                                  | Mouth Open / Mouth Form                                                                                                 |
+| `ParamAngleX` / `ParamAngleY` / `ParamAngleZ`                         | Head Angle / Head Angle Y / Head Angle Z (turn / nod / tilt)                                                            |
+| `ParamBrowLY` / `ParamBrowRY` / `ParamBrowLAngle` / `ParamBrowRAngle` | Brow L Y / Brow R Y / Brow L Angle / Brow R Angle                                                                       |
+| `ParamCheek`                                                          | Cheek (only with a blush)                                                                                               |
+| `ParamBodyAngleX` / `ParamBodyAngleY` / `ParamBodyAngleZ`             | Body Angle X / Body Angle Y / Body Angle Z (±10; + = turn to screen right / up / tilt clockwise)                        |
+| `ParamArmL` / `ParamArmR` / `ParamElbowL` / `ParamElbowR`             | Arm L / Arm R / Elbow L / Elbow R (degrees; + raises the arm outward, + bends the forearm the same way, on either side) |
 
 A clean console (no `IkiFormatError`/WebGL error) plus visibly-driving
 parameters = success.

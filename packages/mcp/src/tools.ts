@@ -215,6 +215,21 @@ const STANDARD_PARAMETER_INFO: StandardParameterInfo[] = [
       "Head tilt / roll degrees; positive tilts the top of the head toward the viewer's right (clockwise), as in Live2D.",
   },
   {
+    id: StandardParameter.BodyAngleX,
+    description:
+      "Body turn, degrees (-10 .. 10); positive turns the body toward the viewer's right, as AngleX does the head.",
+  },
+  {
+    id: StandardParameter.BodyAngleY,
+    description:
+      "Body lean, degrees (-10 .. 10); positive moves the upper body up, negative bows.",
+  },
+  {
+    id: StandardParameter.BodyAngleZ,
+    description:
+      "Body tilt, degrees (-10 .. 10); positive tilts the top toward the viewer's right (clockwise), as AngleZ does the head.",
+  },
+  {
     id: StandardParameter.Breath,
     description: "Idle breath (0 .. 1), cycled by the host.",
   },
@@ -247,6 +262,26 @@ const STANDARD_PARAMETER_INFO: StandardParameterInfo[] = [
     id: StandardParameter.HairSwayZ,
     description:
       "Hair-sway driver behind a head tilt. Physics OUTPUT — driven by the spring, hosts should not set it directly.",
+  },
+  {
+    id: StandardParameter.ArmLeft,
+    description:
+      "Left shoulder, degrees; positive raises the arm outward (mirrored on the right).",
+  },
+  {
+    id: StandardParameter.ArmRight,
+    description:
+      "Right shoulder, degrees; positive raises the arm outward (mirrored on the left).",
+  },
+  {
+    id: StandardParameter.ElbowLeft,
+    description:
+      "Left elbow, degrees; positive bends the forearm the way positive ArmLeft raises the arm.",
+  },
+  {
+    id: StandardParameter.ElbowRight,
+    description:
+      "Right elbow, degrees; positive bends the forearm the way positive ArmRight raises the arm.",
   },
 ];
 

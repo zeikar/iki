@@ -36,6 +36,14 @@ export const StandardParameter = {
    *  host's head-tracking maps 1:1; note this is the opposite sense from the
    *  CCW-positive brow angles below. */
   AngleZ: "ParamAngleZ",
+  /** Body turn, degrees (-10 .. 10). Positive turns the body toward the
+   *  viewer's right, as AngleX does the head. */
+  BodyAngleX: "ParamBodyAngleX",
+  /** Body lean, degrees (-10 .. 10). Positive moves the upper body up, negative bows. */
+  BodyAngleY: "ParamBodyAngleY",
+  /** Body tilt, degrees (-10 .. 10). Positive tilts the top toward the viewer's
+   *  right (clockwise on screen), as AngleZ does the head. */
+  BodyAngleZ: "ParamBodyAngleZ",
   /** Idle breath (0 .. 1), cycled by the host. */
   Breath: "ParamBreath",
   /** Left brow vertical raise/lower (-1 down .. 1 up). */
@@ -52,6 +60,14 @@ export const StandardParameter = {
   HairSwayX: "ParamHairSwayX",
   /** Hair sway behind a head tilt. Physics OUTPUT — driven by the spring, not set by the host. */
   HairSwayZ: "ParamHairSwayZ",
+  /** Left shoulder, degrees. Positive raises the arm outward (mirrored on the right). */
+  ArmLeft: "ParamArmL",
+  /** Right shoulder, degrees. Positive raises the arm outward (mirrored on the left). */
+  ArmRight: "ParamArmR",
+  /** Left elbow, degrees. Positive bends the forearm the way positive ArmLeft raises the arm. */
+  ElbowLeft: "ParamElbowL",
+  /** Right elbow, degrees. Positive bends the forearm the way positive ArmRight raises the arm. */
+  ElbowRight: "ParamElbowR",
 } as const;
 
 export type StandardParameterId =
