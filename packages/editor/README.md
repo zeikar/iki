@@ -59,7 +59,8 @@ leaves the document untouched.
 `generateIkiFromLayerSet` turns role-named layers (`face`, `eye_L`, `eye_R`,
 `mouth`, plus optional `iris_*`, `brow_*`, `lash_*`, `lash_lower_*`, `hair_front`, `hair_back`,
 …) into a rigged model that blinks, gazes, opens its mouth, turns its head over
-a torso that breathes, and emotes with its brows — including a
+a body warp that breathes, follows the head a little and turns on
+`ParamBodyAngleX/Y/Z`, and emotes with its brows — including a
 hair-sway physics rig when a `hair_front` layer is present. With a `blush_*`
 layer it declares `ParamCheek`, which fades the blush from faint at rest to
 as drawn. Every rigged model also declares the head motions Nod, Shake and
@@ -77,8 +78,10 @@ edge further outside the back hair painted behind it than the nod alone does —
 and the back hair stays behind; the neck and the
 ears the face layer paints are cut off into islands of the plate's own mesh,
 drawn behind the head — the neck stays (only the chin's shade slides across
-it), the ears lag the face, the far one narrowing. AngleZ rolls the head 14° about the chin; the torso only
-breathes.
+it), the ears lag the face, the far one narrowing. AngleZ rolls the head 14° about the chin.
+A `body` rides a body warp that breathes, follows the head's turn and tilt a
+little and turns on `ParamBodyAngleX/Y/Z`, its legs planted, and the head
+hangs from it.
 
 On a layer set with a `nose`, `options.turnTargets` — the cues a 30° reference
 measures (how far the eye pair slides, how much the far eye foreshortens,

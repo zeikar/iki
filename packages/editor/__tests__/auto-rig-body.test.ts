@@ -5,12 +5,18 @@ import {
   parseIkiModel,
   type IkiDeformer,
   type IkiGridWarp,
+  type IkiMatrixDeformer,
   type IkiMesh,
   type IkiModel,
   type IkiPart,
   type IkiWarpDeformer,
 } from "@ikijs/format";
-import { LayerGeometryError, type LayerInput } from "@ikijs/editor";
+import {
+  LayerGeometryError,
+  generateIkiFromLayerSet,
+  type LayerInput,
+  type TurnSolveReport,
+} from "@ikijs/editor";
 import { bindPointToRestGrid } from "../../engine/src/warp-grid";
 import {
   BODY_GRID_PAD,
@@ -26,8 +32,15 @@ import {
 import { buildHeadFrame } from "../src/auto-rig/head";
 import { bh, boxOfLayer, bw, cx, cy, roundTo } from "../src/auto-rig/layout";
 import { AMPLITUDE, BODY, ROLL_DEG } from "../src/auto-rig/profile";
-import { character } from "./helpers/character";
-import { BODY_BOX, CROTCH_ROW, LEG_RUNS, fullBody } from "./helpers/full-body";
+import type { GenerateOptions } from "../src/auto-rig/types";
+import { CANVAS, character } from "./helpers/character";
+import {
+  BODY_BOX,
+  CROTCH_ROW,
+  FEET_ROW,
+  LEG_RUNS,
+  fullBody,
+} from "./helpers/full-body";
 import * as oracle from "./helpers/render-oracle";
 
 const PAD = BODY_GRID_PAD;
@@ -572,5 +585,403 @@ describe("body.ts: the head on the body", () => {
       AMPLITUDE.breathHead,
       9,
     );
+  });
+});
+
+/** The layer set rigged, with the turn report it gave. */
+function rigged(
+  layers: LayerInput[],
+  options: GenerateOptions,
+  canvas: { width: number; height: number },
+): { model: IkiModel; report?: TurnSolveReport } {
+  let report: TurnSolveReport | undefined;
+  const model = generateIkiFromLayerSet(layers, canvas, {
+    ...options,
+    onTurnSolved: (r) => {
+      report = r;
+    },
+  });
+  return { model, report };
+}
+
+/** The head deformer, a matrix. */
+function headOf(model: IkiModel): IkiMatrixDeformer {
+  const d = model.deformers?.find((x) => x.id === "headDeformer");
+  if (d === undefined || d.kind === "warp") {
+    throw new Error("no matrix headDeformer");
+  }
+  return d;
+}
+
+const partOf = (model: IkiModel, id: string): IkiPart =>
+  model.parts.find((p) => p.id === id)!;
+
+/** Where the head's world affine takes its pivot, less the pivot. */
+function headCarry(model: IkiModel, params: oracle.ParamValues): Point {
+  const p = headOf(model).pivot;
+  const w = oracle.deformerWorld(model, "headDeformer", params);
+  return {
+    x: w[0] * p.x + w[2] * p.y + w[4] - p.x,
+    y: w[1] * p.x + w[3] * p.y + w[5] - p.y,
+  };
+}
+
+/** The head's world rotation, degrees, CCW-positive. */
+function headRoll(model: IkiModel, params: oracle.ParamValues): number {
+  const w = oracle.deformerWorld(model, "headDeformer", params);
+  return (Math.atan2(w[1], w[0]) * 180) / Math.PI;
+}
+
+/** How far the body's bottom row of vertices moves at `params`, at most. */
+function feetMove(model: IkiModel, params: oracle.ParamValues): number {
+  const rest = oracle.landVertices(model, "body");
+  const posed = oracle.landVertices(model, "body", params);
+  let bottom = Infinity;
+  for (let i = 1; i < rest.length; i += 2) bottom = Math.min(bottom, rest[i]);
+  let most = 0;
+  for (let i = 0; i < rest.length; i += 2) {
+    if (rest[i + 1] !== bottom) continue;
+    most = Math.max(
+      most,
+      Math.abs(posed[i] - rest[i]),
+      Math.abs(posed[i + 1] - rest[i + 1]),
+    );
+  }
+  return most;
+}
+
+describe("the body rig on a bust", () => {
+  const bust = character();
+  const withBody = rigged(bust.layers, bust.options, CANVAS);
+  const headOnly = rigged(
+    bust.layers.filter((l) => l.role !== "body"),
+    bust.options,
+    CANVAS,
+  );
+  const { model } = withBody;
+
+  it("hangs the head from bodyWarp and drops bodyDeformer", () => {
+    const ids = model.deformers!.map((d) => d.id);
+    expect(ids.slice(0, 2)).toEqual([BODY_WARP_ID, "headDeformer"]);
+    expect(ids).not.toContain("bodyDeformer");
+    expect(headOf(model).parent).toBe(BODY_WARP_ID);
+    const body = partOf(model, "body");
+    expect(body.deformer).toBe(BODY_WARP_ID);
+    expect(body.mesh).toBeDefined();
+    expect(() => parseIkiModel(model)).not.toThrow();
+  });
+
+  it("leaves the head rig as it was but for the head deformer and the neck's roll", () => {
+    const noOrder = ({ order: _, ...p }: IkiPart) => p;
+    for (const part of headOnly.model.parts) {
+      if (part.id === "face") continue;
+      expect(noOrder(partOf(model, part.id)), part.id).toEqual(noOrder(part));
+    }
+    // The face differs only in its roll: the neck island undoes the head's
+    // own roll, which the body's follow makes smaller.
+    const notRoll = (p: IkiPart) => ({
+      ...noOrder(p),
+      warps: p.warps?.filter((w) => w.parameter !== P.AngleZ),
+    });
+    const face = partOf(model, "face");
+    const bareFace = partOf(headOnly.model, "face");
+    expect(notRoll(face)).toEqual(notRoll(bareFace));
+    const roll = (p: IkiPart) => p.warps!.find((w) => w.parameter === P.AngleZ);
+    expect(roll(face)).toBeDefined();
+    expect(roll(face)).not.toEqual(roll(bareFace));
+    // The feature warps hang from the head unchanged.
+    const features = (m: IkiModel) =>
+      m.deformers!.filter(
+        (d) => d.kind === "warp" && d.parent === "headDeformer",
+      );
+    expect(features(model).length).toBeGreaterThan(0);
+    expect(features(model)).toEqual(features(headOnly.model));
+    // The head deformer: its parent, and its own roll and breath.
+    const head = headOf(model);
+    const bareHead = headOf(headOnly.model);
+    const rest = ({ parent: _p, bindings: _b, ...d }: IkiMatrixDeformer) => d;
+    expect(rest(head)).toEqual(rest(bareHead));
+    expect(bareHead.parent).toBeUndefined();
+    expect(head.bindings).not.toEqual(bareHead.bindings);
+    expect(head.bindings).toHaveLength(2);
+    expect(withBody.report).toBeDefined();
+    expect(withBody.report).toEqual(headOnly.report);
+  });
+
+  it("declares BodyAngleX/Y/Z ±10 only with a body", () => {
+    const ids = model.parameters.map((p) => p.id);
+    const z = ids.indexOf(P.AngleZ);
+    expect(ids.slice(z + 1, z + 4)).toEqual([
+      P.BodyAngleX,
+      P.BodyAngleY,
+      P.BodyAngleZ,
+    ]);
+    for (const [id, name] of [
+      [P.BodyAngleX, "Body Angle X"],
+      [P.BodyAngleY, "Body Angle Y"],
+      [P.BodyAngleZ, "Body Angle Z"],
+    ]) {
+      expect(model.parameters.find((p) => p.id === id)).toEqual({
+        id,
+        name,
+        min: -10,
+        max: 10,
+        default: 0,
+      });
+    }
+    // Without a body, the head hangs from nothing and rolls and breathes
+    // whole.
+    const bare = headOnly.model;
+    expect(
+      bare.parameters.filter((p) => p.id.startsWith("ParamBodyAngle")),
+    ).toEqual([]);
+    expect(bare.deformers!.map((d) => d.id)).not.toContain(BODY_WARP_ID);
+    const head = headOf(bare);
+    expect(head.parent).toBeUndefined();
+    const hh = buildHeadFrame(bust.layers, {}).hh;
+    expect(head.bindings).toEqual([
+      { parameter: P.AngleZ, channel: "rotate", from: ROLL_DEG, to: -ROLL_DEG },
+      {
+        parameter: P.Breath,
+        channel: "translateY",
+        from: 0,
+        to: roundTo(AMPLITUDE.breathHead * hh, 0.01),
+      },
+    ]);
+    // With one, both are the head's own share.
+    const own = headOwnRoll(true);
+    expect(headOf(model).bindings).toEqual([
+      { parameter: P.AngleZ, channel: "rotate", from: own, to: -own },
+      {
+        parameter: P.Breath,
+        channel: "translateY",
+        from: 0,
+        to: roundTo(headOwnBreath(true) * hh, 0.01),
+      },
+    ]);
+  });
+});
+
+/** The y of every part's placement and every matrix pivot (`placed`) and
+ *  of every warp grid point (`grid`), each in model order, and the model
+ *  with each of them (and the canvas's height) zeroed: what a canvas
+ *  extended down moves, and the rest. */
+function splitYs(model: IkiModel): {
+  placed: number[];
+  grid: number[];
+  rest: unknown;
+} {
+  const placed: number[] = [];
+  const grid: number[] = [];
+  const parts = model.parts.map((p) => {
+    placed.push(p.transform.y);
+    return { ...p, transform: { ...p.transform, y: 0 } };
+  });
+  const deformers = model.deformers!.map((d) => {
+    if (d.kind === "warp") {
+      const points = d.grid.points.map((v, i) => {
+        if (i % 2 === 0) return v;
+        grid.push(v);
+        return 0;
+      });
+      return { ...d, grid: { ...d.grid, points } };
+    }
+    placed.push(d.pivot.y);
+    return { ...d, pivot: { ...d.pivot, y: 0 } };
+  });
+  return {
+    placed,
+    grid,
+    rest: {
+      ...model,
+      canvas: { ...model.canvas, height: 0 },
+      parts,
+      deformers,
+    },
+  };
+}
+
+describe("the full body", () => {
+  const { layers, options, canvas } = fullBody();
+  const { model } = rigged(layers, options, canvas);
+  const frame = buildHeadFrame(layers, {});
+  const hh = frame.hh;
+  const pivot = headOf(model).pivot;
+  const box = boxOfLayer(bodyOf(layers));
+  const anchor = canvas.height / 2 - CROTCH_ROW;
+  const H = { x: cx(box), y: anchor };
+  /** Model x of a canvas column's centre, and y of a canvas row's. */
+  const colX = (c: number) => c + 0.5 - canvas.width / 2;
+  const rowY = (r: number) => canvas.height / 2 - r - 0.5;
+  const legColumns: number[] = [];
+  for (let c = 330; c <= 480; c += 30) legColumns.push(c);
+  for (let c = 521; c <= 671; c += 30) legColumns.push(c);
+
+  it("hangs the head at the frame's chin", () => {
+    expect(pivot).toEqual(onGrid({ x: frame.axisX, y: frame.chinY }));
+  });
+
+  it("rests on the art", () => {
+    const v = oracle.landVertices(model, "body");
+    const xs = v.filter((_, i) => i % 2 === 0);
+    const ys = v.filter((_, i) => i % 2 === 1);
+    expectNear(Math.min(...xs), box.x0, 2);
+    expectNear(Math.max(...xs), box.x1, 2);
+    expectNear(Math.min(...ys), box.y0, 2);
+    expectNear(Math.max(...ys), box.y1, 2);
+  });
+
+  it("plants everything under the hips at every body pose", () => {
+    const at = oracle.landerFor(model, "body");
+    const points: Point[] = [];
+    for (const y of [anchor, anchor - 1, anchor - 5, rowY(FEET_ROW)]) {
+      for (const c of legColumns) points.push({ x: colX(c), y });
+    }
+    for (const params of EXTREMES) {
+      const posed = oracle.landerFor(model, "body", params);
+      for (const { x, y } of points) {
+        const [a, b] = [at(x, y), posed(x, y)];
+        const label = `${JSON.stringify(params)} (${x}, ${y})`;
+        expect(Math.abs(b.x - a.x), label).toBeLessThan(0.01);
+        expect(Math.abs(b.y - a.y), label).toBeLessThan(0.01);
+      }
+    }
+    // The ramp is live right up to the planted line.
+    const tilt = oracle.landerFor(model, "body", { [P.BodyAngleZ]: 10 });
+    const x = colX(legColumns[0]);
+    const [a, b] = [at(x, anchor + 5), tilt(x, anchor + 5)];
+    expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeGreaterThan(0.01);
+  });
+
+  it("breathes: the shoulders lift, the chin's net is the head's, the feet stay", () => {
+    const breath = { [P.Breath]: 1 };
+    const top = (params: oracle.ParamValues) =>
+      oracle.landedYAt(model, "body", cx(box), box.y1, params);
+    expectNear(top(breath) - top({}), AMPLITUDE.breathBody * hh, 0.01);
+    const carry = headCarry(model, breath);
+    expectNear(carry.x, 0, 1e-3);
+    expectNear(carry.y, AMPLITUDE.breathHead * hh, 0.02);
+    expect(feetMove(model, breath)).toBeLessThan(0.1);
+  });
+
+  it("BodyAngleX and BodyAngleY carry the head without turning it, feet still", () => {
+    for (const t of [-1, 1]) {
+      const turn = { [P.BodyAngleX]: 10 * t };
+      const c = headCarry(model, turn);
+      expectNear(
+        c.x,
+        t * BODY.slide * hh - BODY.narrow * (pivot.x - H.x),
+        0.02,
+      );
+      expectNear(c.y, 0, 0.02);
+      expect(Math.abs(headRoll(model, turn))).toBeLessThan(0.01);
+      expect(feetMove(model, turn)).toBeLessThan(0.1);
+      // The torso's top row narrows about the body's centre, either way.
+      const top = (params: oracle.ParamValues) =>
+        oracle.landedXAt(model, "body", box.x1, box.y1, params) -
+        oracle.landedXAt(model, "body", box.x0, box.y1, params);
+      expect(top(turn) / top({})).toBeCloseTo(1 - BODY.narrow, 3);
+
+      const bow = { [P.BodyAngleY]: 10 * t };
+      const b = headCarry(model, bow);
+      expectNear(b.x, 0, 0.02);
+      expectNear(b.y, t * BODY.bow * hh, 0.02);
+      expect(Math.abs(headRoll(model, bow))).toBeLessThan(0.01);
+      expect(feetMove(model, bow)).toBeLessThan(0.1);
+    }
+  });
+
+  it("follows AngleX by bodyFollowX of BodyAngleX", () => {
+    for (const t of [-1, 1]) {
+      const follow = { [P.AngleX]: 30 * t };
+      const c = headCarry(model, follow);
+      const body = headCarry(model, { [P.BodyAngleX]: 10 * t });
+      expectNear(c.x, BODY.followX * body.x, 0.05);
+      expectNear(c.y, 0, 0.05);
+      expect(Math.abs(headRoll(model, follow))).toBeLessThan(0.01);
+      expect(feetMove(model, follow)).toBeLessThan(0.1);
+    }
+  });
+
+  it("rolls the head ROLL_DEG in the world at AngleZ ±30 while the body leans β about the hips", () => {
+    // The bust's neck outline and base (auto-rig.test.ts), moved with the
+    // head on the taller canvas.
+    const dy = canvas.height / 2 - CANVAS.height / 2;
+    const rest = oracle.landVertices(model, "face");
+    const neck: number[] = [];
+    for (let i = 0; i < rest.length / 2; i++) {
+      const [x, y] = [rest[i * 2], rest[i * 2 + 1]];
+      if (y < dy - 205 && (Math.abs(x - 0.5) >= 78 || y < dy - 255)) {
+        neck.push(i);
+      }
+    }
+    expect(neck.length).toBeGreaterThan(6);
+    for (const t of [-1, 1]) {
+      const tilt = { [P.AngleZ]: 30 * t };
+      expectNear(headRoll(model, tilt), -t * ROLL_DEG, 0.05);
+      const top = { x: cx(box), y: box.y1 };
+      const lean = rotation(top.x, top.y, H, -t * BODY.followRoll);
+      const at = oracle.landerFor(model, "body", tilt)(top.x, top.y);
+      expectNear(at.x, top.x + lean.x, 0.5);
+      expectNear(at.y, top.y + lean.y, 0.5);
+      expect(feetMove(model, tilt)).toBeLessThan(0.1);
+      const v = oracle.landVertices(model, "face", tilt);
+      for (const i of neck) {
+        const [x, y] = [rest[i * 2], rest[i * 2 + 1]];
+        const torso = oracle.warpPointAt(model, BODY_WARP_ID, x, y, tilt);
+        expectNear(v[i * 2], torso.x, 0.5);
+        expectNear(v[i * 2 + 1], torso.y, 0.5);
+      }
+    }
+  });
+
+  it("rolls the head with the body on BodyAngleZ alone", () => {
+    for (const t of [-1, 1]) {
+      const tilt = { [P.BodyAngleZ]: 10 * t };
+      expectNear(headRoll(model, tilt), -t * BODY.rollDeg, 0.05);
+      expect(feetMove(model, tilt)).toBeLessThan(0.1);
+    }
+  });
+
+  it("is the same rig, translated, on a canvas extended further down", () => {
+    const taller = fullBody({ extend: 1800 });
+    const a = splitYs(model);
+    const b = splitYs(
+      rigged(taller.layers, taller.options, taller.canvas).model,
+    );
+    for (const key of ["placed", "grid"] as const) {
+      expect(b[key]).toHaveLength(a[key].length);
+      b[key].forEach((y, i) => expect(y - a[key][i]).toBeCloseTo(100, 2));
+    }
+    expect(b.rest).toEqual(a.rest);
+
+    // The bust's head is the full body's, 800 px lower.
+    const bust = character();
+    const bustModel = rigged(bust.layers, bust.options, CANVAS).model;
+    const head = (m: IkiModel) =>
+      splitYs({
+        ...m,
+        parts: m.parts.filter((p) => p.id !== "body"),
+        deformers: m.deformers!.filter((d) => d.parent === "headDeformer"),
+      });
+    const full = head(model);
+    const low = head(bustModel);
+    expect(low.placed).toHaveLength(full.placed.length);
+    low.placed.forEach((y, i) =>
+      expect(full.placed[i] - y).toBeCloseTo(800, 2),
+    );
+    // A feature lattice's line is snapped to the 0.01 grid, and one sitting
+    // on a hundredth's tie can snap either way once moved by 800 (the
+    // mouth's does): one grid step, its keyforms unchanged.
+    expect(low.grid).toHaveLength(full.grid.length);
+    low.grid.forEach((y, i) => expectNear(full.grid[i] - y, 800, 0.01 + 1e-9));
+    const parts = (r: unknown) => (r as IkiModel).parts;
+    const warps = (r: unknown) => (r as IkiModel).deformers;
+    expect(parts(full.rest)).toEqual(parts(low.rest));
+    expect(warps(full.rest)).toEqual(warps(low.rest));
+  });
+
+  it("is deterministic", () => {
+    expect(rigged(layers, options, canvas).model).toEqual(model);
   });
 });

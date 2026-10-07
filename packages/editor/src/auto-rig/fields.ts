@@ -1222,7 +1222,8 @@ export function familyField(m: TurnModel, family: Family): Field {
     case "hair_back":
       return hairField(m, m.hairBack, NOD.hairBack);
     case "body":
-      // The torso does not take part in the head's turn.
+      // The torso has no turn field of its own: the body warp (`body.ts`)
+      // moves it.
       return () => [0, 0];
   }
 }

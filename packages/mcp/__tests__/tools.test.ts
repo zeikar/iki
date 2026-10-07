@@ -606,6 +606,29 @@ describe("autoRigFromLayers", () => {
     expect(result.error.length).toBeGreaterThan(0);
   });
 
+  it("returns { ok:false } for a body whose hips lie above the chin, naming the layer", async () => {
+    const dir = tmpDir();
+    const paths = await writeRequiredLayers(dir);
+    // Rows 5–25: wholly above the face's chin (row 79) and not cut by the
+    // canvas, so its hips (its middle) lie above the chin.
+    const body = await writeLayerPng(dir, "body.png", {
+      x: 30,
+      y: 5,
+      w: 40,
+      h: 21,
+    });
+    const outPath = path.join(dir, "model.iki");
+
+    const result = await autoRigFromLayers({
+      layers: [...paths, body].map((p) => ({ path: p })),
+      outputPath: outPath,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/layer "body.png": its hips/);
+    expect(fs.existsSync(outPath)).toBe(false);
+  });
+
   it("returns { ok:false } when the output directory does not exist (no file written)", async () => {
     const dir = tmpDir();
     const paths = await writeRequiredLayers(dir);

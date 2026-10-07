@@ -42,6 +42,8 @@ import {
 import { applyWarps } from "../../../engine/src/warp";
 import {
   applyWarpToChild,
+  bindPointToRestGrid,
+  sampleWarpGrid,
   type ResolvedWarpGrid,
 } from "../../../engine/src/warp-grid";
 
@@ -167,6 +169,49 @@ export function deformedGrid(
     );
   }
   return grid;
+}
+
+/** A matrix deformer's world affine, as the render resolves it — for one
+ *  hung from a warp, the rigid frame of the cell holding its pivot
+ *  (`warpRigidFrame`) times its own transform. */
+export function deformerWorld(
+  model: IkiModel,
+  deformerId: string,
+  params: ParamValues = {},
+): Affine {
+  const store = storeFor(model, params);
+  const world = resolveDeformers(model.deformers ?? [], store).worlds.get(
+    deformerId,
+  );
+  if (!world) {
+    throw new Error(
+      `render-oracle: "${deformerId}" is not a matrix deformer of this model`,
+    );
+  }
+  return world;
+}
+
+/** Where a model-space rest point `(x, y)` lands through a warp deformer:
+ *  bound to its RAW rest grid and sampled on its resolved grid, as a warp
+ *  child's vertex is (`applyWarpToChild`). */
+export function warpPointAt(
+  model: IkiModel,
+  warpId: string,
+  x: number,
+  y: number,
+  params: ParamValues = {},
+): { x: number; y: number } {
+  const warp = (model.deformers ?? []).find((d) => d.id === warpId);
+  if (warp?.kind !== "warp") {
+    throw new Error(
+      `render-oracle: "${warpId}" is not a warp deformer of this model`,
+    );
+  }
+  const [lx, ly] = sampleWarpGrid(
+    deformedGrid(model, warpId, params),
+    bindPointToRestGrid(x, y, warp.grid),
+  );
+  return { x: lx, y: ly };
 }
 
 /**

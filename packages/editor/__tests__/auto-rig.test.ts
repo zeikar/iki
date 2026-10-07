@@ -16,18 +16,111 @@ import {
   type TurnTargets,
 } from "@ikijs/editor";
 import { buildHeadFrame, type HeadFrame } from "../src/auto-rig/head";
-import { AMPLITUDE, NOD, ROLL_DEG, TURN } from "../src/auto-rig/profile";
+import { AMPLITUDE, BODY, NOD, ROLL_DEG, TURN } from "../src/auto-rig/profile";
 import { ROLE_TABLE } from "../src/auto-rig/roles";
 import type { GenerateOptions } from "../src/auto-rig/types";
 import { CANVAS, character, type CharacterOptions } from "./helpers/character";
-import {
-  landVertices,
-  landedCentroidX,
-  landedXAt,
-  landedYAt,
-  landerFor,
-  type ParamValues,
-} from "./helpers/render-oracle";
+import * as oracle from "./helpers/render-oracle";
+import { type ParamValues } from "./helpers/render-oracle";
+
+// The bust has a body, so its head hangs from the body warp, which carries
+// the chin's pivot on the follow of the turn and the tilt (and the breath).
+// These tests read the head's own motion; the carry is tested in
+// `auto-rig-body.test.ts`. So the readers below take every landing of a part
+// that rides the head less the body's carry of the head's pivot at that
+// pose, and read every other part raw. The head's world with a body is
+// T(carry)·its world without one for every head part under AngleX/AngleY,
+// and for every head part but the neck island under AngleZ (the neck rides
+// the torso, which rolls about the hips): a test reading the neck under a
+// roll, or the breath, reads the raw `oracle`.
+
+/** The body warp's landing of `headDeformer`'s pivot less the pivot; none
+ *  for a head that hangs from nothing. */
+function headCarry(model: IkiModel, params: ParamValues): [number, number] {
+  const head = model.deformers?.find((d) => d.id === "headDeformer");
+  if (head === undefined || head.kind === "warp" || head.parent === undefined) {
+    return [0, 0];
+  }
+  const { x, y } = head.pivot;
+  const at = oracle.warpPointAt(model, head.parent, x, y, params);
+  return [at.x - x, at.y - y];
+}
+
+/** Whether a part rides the head: on `headDeformer`, or on a warp hung from
+ *  it. */
+function ridesHead(model: IkiModel, partId: string): boolean {
+  const id = model.parts.find((p) => p.id === partId)?.deformer;
+  if (id === "headDeformer") return true;
+  return model.deformers?.find((d) => d.id === id)?.parent === "headDeformer";
+}
+
+/** The carry to take off a part's landings at `params`. */
+const carryOf = (
+  model: IkiModel,
+  partId: string,
+  params: ParamValues,
+): [number, number] =>
+  ridesHead(model, partId) ? headCarry(model, params) : [0, 0];
+
+function landVertices(
+  model: IkiModel,
+  partId: string,
+  params: ParamValues = {},
+): Float32Array {
+  const v = oracle.landVertices(model, partId, params);
+  const [dx, dy] = carryOf(model, partId, params);
+  return v.map((c, i) => c - (i % 2 === 0 ? dx : dy));
+}
+
+function landedXAt(
+  model: IkiModel,
+  partId: string,
+  restX: number,
+  restY: number,
+  params: ParamValues = {},
+): number {
+  return (
+    oracle.landedXAt(model, partId, restX, restY, params) -
+    carryOf(model, partId, params)[0]
+  );
+}
+
+function landedYAt(
+  model: IkiModel,
+  partId: string,
+  restX: number,
+  restY: number,
+  params: ParamValues = {},
+): number {
+  return (
+    oracle.landedYAt(model, partId, restX, restY, params) -
+    carryOf(model, partId, params)[1]
+  );
+}
+
+function landedCentroidX(
+  model: IkiModel,
+  partId: string,
+  params: ParamValues = {},
+): number {
+  return (
+    oracle.landedCentroidX(model, partId, params) -
+    carryOf(model, partId, params)[0]
+  );
+}
+
+function landerFor(
+  model: IkiModel,
+  partId: string,
+  params: ParamValues = {},
+): (restX: number, restY: number) => { x: number; y: number } {
+  const land = oracle.landerFor(model, partId, params);
+  const [dx, dy] = carryOf(model, partId, params);
+  return (restX, restY) => {
+    const { x, y } = land(restX, restY);
+    return { x: x - dx, y: y - dy };
+  };
+}
 
 function rig(
   opts: CharacterOptions = {},
@@ -303,6 +396,9 @@ describe("generateIkiFromLayerSet: the model", () => {
       P.AngleX,
       P.AngleY,
       P.AngleZ,
+      P.BodyAngleX,
+      P.BodyAngleY,
+      P.BodyAngleZ,
       P.EyeOpenLeft,
       P.EyeOpenRight,
       P.EyeballX,
@@ -385,7 +481,7 @@ describe("the head turn", () => {
     }
   });
 
-  it("keeps the neck's outline and base still while the chin, and its shade, slide over it", () => {
+  it("keeps the neck's outline and base on the torso while the chin, and its shade, slide over it", () => {
     const face = model.parts.find((p) => p.id === "face")!;
     const rest = landVertices(model, "face");
     // The neck's outline (its half-width is 78 below the jaw) and its base.
@@ -395,14 +491,12 @@ describe("the head turn", () => {
       if (y < -205 && (Math.abs(x - 0.5) >= 78 || y < -255)) still.push(i);
     }
     expect(still.length).toBeGreaterThan(6);
+    // On the head's turn and nod it holds where it is, relative to the head.
     for (const pose of [
       X30(-30),
       X30(30),
       { [P.AngleY]: -30 },
       { [P.AngleY]: 30 },
-      { [P.AngleZ]: -30 },
-      { [P.AngleZ]: 30 },
-      { [P.AngleX]: 30, [P.AngleY]: -30, [P.AngleZ]: 30 },
     ]) {
       const v = landVertices(model, "face", pose);
       for (const i of still) {
@@ -411,6 +505,33 @@ describe("the head turn", () => {
           rest[i * 2 + 1],
           0,
         );
+      }
+    }
+    // On a roll it undoes the head's own roll and rides the torso, which
+    // follows the tilt about the hips: it lands where the body warp puts it.
+    // With the turn too, the torso narrows on the turn's follow (x moves by
+    // −narrow·followX·(x − the body's centre)) while the head, and the neck
+    // with it, rides the chin's cell rigidly, moving every x as the chin's:
+    // the neck lands narrow·followX·(x − the chin's x) further out than the
+    // torso under it, sideways only.
+    const chinX = (
+      model.deformers!.find((d) => d.id === "headDeformer") as {
+        pivot: { x: number };
+      }
+    ).pivot.x;
+    for (const [pose, narrows] of [
+      [{ [P.AngleZ]: -30 }, false],
+      [{ [P.AngleZ]: 30 }, false],
+      [{ [P.AngleX]: 30, [P.AngleY]: -30, [P.AngleZ]: 30 }, true],
+    ] as const) {
+      const v = oracle.landVertices(model, "face", pose);
+      for (const i of still) {
+        const [x, y] = [rest[i * 2], rest[i * 2 + 1]];
+        const torso = oracle.warpPointAt(model, "bodyWarp", x, y, pose);
+        const gap = narrows ? BODY.narrow * BODY.followX * (x - chinX) : 0;
+        const label = `${JSON.stringify(pose)} vertex ${i}`;
+        expect(Math.abs(v[i * 2] - torso.x - gap), label).toBeLessThan(0.1);
+        expect(Math.abs(v[i * 2 + 1] - torso.y), label).toBeLessThan(0.1);
       }
     }
     // Under the chin the shade slides with it, most of the way.
@@ -2530,12 +2651,18 @@ describe("the other drivers", () => {
     expect(model.parameters.some((p) => p.id === P.Cheek)).toBe(false);
   });
 
-  it("breathes: the shoulders and the neck lift, the head a little less", () => {
+  it("breathes: the shoulders and the neck lift, the head a little less, the cut bottom still", () => {
+    // Raw: the head's net lift is the body warp's carry of the chin and its
+    // own breath together.
     const b = { [P.Breath]: 1 };
     const lift = (id: string, x: number, y: number) =>
-      (landedYAt(model, id, x, y, b) - landedYAt(model, id, x, y)) / HH;
+      (oracle.landedYAt(model, id, x, y, b) -
+        oracle.landedYAt(model, id, x, y)) /
+      HH;
     expect(lift("face", 0, 250)).toBeCloseTo(AMPLITUDE.breathHead, 3);
-    expect(lift("body", 0, -400)).toBeCloseTo(AMPLITUDE.breathBody, 3);
     expect(lift("face", 0, -240)).toBeCloseTo(AMPLITUDE.breathBody, 3);
+    // The torso's full band, and its bottom, cut by the canvas, planted.
+    expect(lift("body", 0, -300)).toBeCloseTo(AMPLITUDE.breathBody, 3);
+    expect(lift("body", 0, -500)).toBeCloseTo(0, 3);
   });
 });

@@ -3,10 +3,11 @@
  * parameter. The rules are a 2D rig's usual ones. A turn is parallax, not a
  * reshaped face: the face plate translates, the features in front of it lead
  * it by their depth (the nose most), the chin leads it too, the front hair
- * rides the face, the back hair drifts a little the other way, and the neck
- * and the torso stay where they are. A nod is the same parallax vertically;
- * a roll turns the head about the chin. Every curve is linear in its
- * parameter, so one keyform per extreme carries it exactly.
+ * rides the face, the back hair drifts a little the other way, and the torso,
+ * which the head hangs from, follows it only a little (`body.ts`). A nod is
+ * the same parallax vertically; a roll turns the head about the chin. Every
+ * curve is linear in its parameter, so one keyform per extreme carries it
+ * exactly.
  *
  * The magnitudes are our own values, `PROFILE_VALUES`, picked by eye on our
  * own characters (`packages/editor/AUTO-RIG.md`); what the rig reads —

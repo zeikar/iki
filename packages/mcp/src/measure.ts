@@ -348,9 +348,9 @@ export async function measureDir(
 
   // 1b. A straight cut through the drawing, wherever it falls in the bbox.
   for (const [role, m] of Object.entries(layers)) {
-    // `body` moves only as a rigid whole, and only on the breath, so no pose
-    // can uncover a cut in it; its top is deliberately cut flat where the jaw
-    // covers it.
+    // `body` bends as one drawing, so no pose opens a cut in it; its top is
+    // deliberately cut flat where the jaw covers it, and stays under the jaw
+    // because the head rides the body.
     if (role === "body") continue;
     if (
       m.flatCutRun > FLAT_CUT_MAX_FRAC * m.w &&

@@ -15,6 +15,7 @@ import {
   generateIkiFromLayerSet,
   parseLayerRoles,
   partIdsOfRole,
+  LayerGeometryError,
   TurnTargetError,
   type IrisStrand,
   type LayerSetMeasurer,
@@ -584,10 +585,11 @@ export async function autoRigFromLayers(
 
     // Internal pipeline — direct calls. By here roles + bboxes are validated, so
     // a throw is an invariant break / bug and must propagate to `isError` —
-    // except from the turn solve, the one part of the generator that reads
-    // CALLER input. It marks those with TurnTargetError (a field that is not a
-    // number, a target this layer set cannot reach), which is a fact about the
-    // request, not a bug.
+    // except for the generator's two input errors, each a fact about the
+    // request, not a bug: the turn solve, the one part of it that reads CALLER
+    // input, throws TurnTargetError (a field that is not a number, a target
+    // this layer set cannot reach); and art geometry the rig cannot build on
+    // (a body's hips with no room under its pivots) throws LayerGeometryError.
     let turn: TurnSolveReport | undefined;
     let model: IkiModel;
     try {
@@ -611,7 +613,9 @@ export async function autoRigFromLayers(
         },
       );
     } catch (e) {
-      if (!(e instanceof TurnTargetError)) throw e;
+      if (!(e instanceof TurnTargetError || e instanceof LayerGeometryError)) {
+        throw e;
+      }
       throw new AutoRigInputError(e.message);
     }
     const doc = new EditorDocument(model);

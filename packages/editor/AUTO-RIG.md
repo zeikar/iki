@@ -12,6 +12,7 @@ each constant is what it is.
 | `layout.ts`     | boxes, rounding, grid meshes                                                             |
 | `head.ts`       | the head's frame read off the layers: axis, eye row, chin, head unit, neck, jaw cut      |
 | `face-mesh.ts`  | the face plate's mesh: a head island and, under the jaw, a neck island                   |
+| `body.ts`       | the body warp: the hips, a weight field planted under them, its six 1D grid warps        |
 | `fields.ts`     | one displacement field per family, off the profile                                       |
 | `grid.ts`       | warp lattices, the AngleX × AngleY bake, and landing a point the engine's way            |
 | `solve.ts`      | the profile in this head's pixels; fitting the cues; room, clamps, refusals; report      |
@@ -26,13 +27,14 @@ each constant is what it is.
 The rig follows a 2D head rig's usual rules. A turn is parallax, not a
 reshaped face: the face plate translates, the features in front of it lead it
 by their depth (the nose most), the chin leads it too, the front hair rides
-the face, the back hair drifts a little the other way, and the neck and the
-torso stay where they are. A nod is the same parallax vertically; a roll turns
-the head about the chin. `profile.ts` derives how far each region moves at the
-extremes of each head parameter from a short list of our own values,
-`PROFILE_VALUES`. Lengths are in the head unit `hh` = the eye row → the chin
-tip at rest, and every curve is linear in its angle on each side of rest, so
-the keyforms at 0 and ±30 carry it exactly and a turn and a nod add.
+the face, the back hair drifts a little the other way, and the torso follows
+the head only a little, the head hung from it (see The body). A nod is the
+same parallax vertically; a roll turns the head about the chin. `profile.ts`
+derives how far each region moves at the extremes of each head parameter from
+a short list of our own values, `PROFILE_VALUES`. Lengths are in the head unit
+`hh` = the eye row → the chin tip at rest, and every curve is linear in its
+angle on each side of rest, so the keyforms at 0 and ±30 carry it exactly and
+a turn and a nod add.
 
 **How the values were picked.** By eye, on two of our own characters (Bob, the
 playground hero, and a long-haired one), in 2026-10. Each value's candidates
@@ -71,7 +73,9 @@ their height on the nod: those had candidates of their own, which read no
 better.
 
 **A turn is parallax, not a reshaped face.** At AngleX ±30, along the turn
-(far = the side the face turns toward):
+(far = the side the face turns toward), each region moves this far over the
+torso under the chin, which the body's follow carries a further 0.03 hh with
+the head:
 
 | Region               | Moves (hh)                                                                                                                                                                      | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -85,7 +89,7 @@ better.
 | front hair           | 1 × the plate over the face; 0 at the outline it draws, more on each row where the back hair paints behind that edge through every turn and nod, up to its follow over the face | eased evenly between the eyes' outer corners and the outline; over the far eye, on the eye's rows, as far as that eye's corner goes; its crown rides with the cap as far as back hair is painted behind its edges and gaps through every turn and nod (never where the face lies behind a gap), no crown row further than the one under it; elsewhere it eases into the back hair's turn toward its top. On its cap (its rows above the far eye's), the turn — alone or with the nod and the roll — never puts the outer edge further outside the back hair painted behind it than the nod alone puts it. Where the nod alone keeps it inside, the edge never leaves the back hair. The nod's own motion is the cap slide's. A cap row whose back hair at rest leaves its edge's own pixel bare draws the outline itself and is not bound (in a cell it shares with a blended row it eases toward the back hair's motion). |
 | back hair            | −0.012                                                                                                                                                                          | a slight counter-drift: the head moves in front of it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | neck (under the jaw) | 0                                                                                                                                                                               | the chin slides over it; the chin's shade on it slides with the chin (see below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| torso                | 0                                                                                                                                                                               | AngleX leaves it where it is                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| torso                | 0.03 at the chest (`bodyFollowX` × BodyAngleX's slide)                                                                                                                          | the body warp's follow, easing to nothing at the hips: the legs stay planted                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 A nod (AngleY ±30, screen-down at −30 / up at +30) moves the plate's top
 0.18 / 0.10 and the chin 0.135 / 0.10 (the face shortens a little looking
@@ -178,21 +182,110 @@ first, then ears, then head:
 The face layer carries a neck when, below its widest row, the plate settles
 onto a narrow plateau that runs on for at least 12 % of its height. A plate without
 one is all head island: a face drawn without a neck, its neck drawn on the torso
-(which never turns), slides whole over the torso's neck, with no jaw cut, chin-shade
-band or hidden rows.
+(which turns only with the body's small follow), slides whole over the torso's
+neck, with no jaw cut, chin-shade band or hidden rows.
 
 The plate, the blush and both hair layers carry their own AngleX and AngleY
 keyforms (per vertex, under `headDeformer`); each feature family rides its own
 small warp grid, baked from its field at `AngleX, AngleY ∈ {−30, 0, 30}`:
 
-| Family (grid)      | Parts                                                                 |
-| ------------------ | --------------------------------------------------------------------- |
-| `eyeWarp_L/R`      | `eye_*`, `iris_*`, `pupil_*`, `highlight_*`, `lash_lower_*`, `lash_*` |
-| `browWarp_L/R`     | `brow_*`                                                              |
-| `noseWarp`         | `nose`                                                                |
-| `mouthWarp`        | `mouth`, `mouth_open`                                                 |
-| — (own keyforms)   | `face`, `blush_*`, `hair_front`, `hair_back`                          |
-| — (`bodyDeformer`) | `body`: breath only                                                   |
+| Family (grid)    | Parts                                                                 |
+| ---------------- | --------------------------------------------------------------------- |
+| `eyeWarp_L/R`    | `eye_*`, `iris_*`, `pupil_*`, `highlight_*`, `lash_lower_*`, `lash_*` |
+| `browWarp_L/R`   | `brow_*`                                                              |
+| `noseWarp`       | `nose`                                                                |
+| `mouthWarp`      | `mouth`, `mouth_open`                                                 |
+| — (own keyforms) | `face`, `blush_*`, `hair_front`, `hair_back`                          |
+| — (`bodyWarp`)   | `body`: breath, BodyAngleX/Y/Z, the follow                            |
+
+## The body
+
+With a `body` layer, the body rides one root warp, `bodyWarp` (`body.ts`). It
+turns the upper body on BodyAngleX/Y/Z (±10), follows the head's turn
+(AngleX) and tilt (AngleZ) a little, and breathes, while everything under the
+hips stays planted. `headDeformer` hangs from it: a matrix deformer under a
+warp rides the cell that holds its pivot rigidly (the engine's
+`warpRigidFrame`), so the head moves and turns with the upper body but is
+never sheared or narrowed by it.
+
+**The bands.** Each of the warp's six 1D grid warps offsets a lattice point by
+its row line's weight times one field. Its row lines run, top to bottom:
+
+- band A, weight 1, from 6 px (`BODY_GRID_PAD`) above the highest of the
+  body's top and the pivots down to `yFull`: 0.8 hh (`CHEST_DROP`) under the
+  chin, or 6 px above the lowest pivot if that is lower;
+- the ramp, weight smoothstep from the hips' line up to `yFull`, so the waist
+  eases out of the hips and into the chest;
+- the hips' line, weight 0, and one weight-0 cell down to 6 px under the lower
+  of the hips and the body's bottom.
+
+Every pivot lies above `yFull`, and the engine binds a point on a row line
+into the cell below it, so each pivot's cell is all weight 1: it moves by one
+affine map, and the head rides it rigidly. On a body too short for that,
+`yFull` is the midpoint of the hips and the lowest pivot, a hundredth clear of
+each (every line and pivot is on the 0.01 grid the model is written on). Hips
+less than 0.02 px under the lowest pivot leave no line between them, and the
+rig refuses the layer with `LayerGeometryError`, which `@ikijs/mcp` reports as
+`{ ok: false }`. The body's mesh is cut on every lattice row line inside its
+box, the hips' line and `yFull` among them, each gap split into rows at most
+48 px tall, so no triangle drags the legs along with the waist.
+
+**The hips**, the weight-0 line, by the first rule that applies:
+
+1. the leg split: the top edge of the first body row, 0.35–0.75 of the crop's
+   height down, holding two or more opaque runs (`rowRuns`) each at least 0.1
+   of the crop's width;
+2. the cut: a body crop that reaches the canvas's last row, as a waist-cut
+   bust does, is planted at its bottom edge;
+3. otherwise, half the body's height under its top.
+
+**The keyforms**, keyed at rest and at each extreme. Each offset is the one at
+the + extreme on a weight-1 point p = (x, y); H is the body's centre x on the
+hips' line, and the − extreme mirrors the shift and the angle (the narrowing
+holds):
+
+| Warp (in this order)       | Stops      | Offset at the + extreme                                                 |
+| -------------------------- | ---------- | ----------------------------------------------------------------------- |
+| `ParamBodyAngleX`          | −10, 0, 10 | x by `bodySlide`·hh − `bodyNarrow`·(x − H.x): slides, narrows about H.x |
+| `ParamBodyAngleY`          | −10, 0, 10 | y by `bodyBow`·hh: + rises, − bows                                      |
+| `ParamBodyAngleZ`          | −10, 0, 10 | a clockwise rotation about H by `bodyRoll`                              |
+| `ParamAngleX` (the follow) | −30, 0, 30 | BodyAngleX's field at `bodyFollowX` of it                               |
+| `ParamAngleZ` (the follow) | −30, 0, 30 | a clockwise rotation about H by β = `bodyFollowZ` × `bodyRoll` (1.2°)   |
+| `ParamBreath`              | 0, 1       | y by `breath`·hh (0.03): the shoulders' breath                          |
+
+**The head on the body.** The warp already moves the chin's cell, so the head
+deformer's own bindings are what the body leaves:
+
+- **Breath.** The cell lifts the chin 0.03 hh, so the head's own breath is
+  (`breathHead` − `breathBody`)·hh, a 0.01 hh drop, and its net is still
+  0.02 hh. The neck island's own (`breathBody` − `breathHead`)·hh, relative
+  to the head, lands it at 0.03 hh with the shoulders.
+- **AngleZ.** At ±30 the follow rolls the chin's cell by exactly β (the cell
+  is a pure rotation there), so the head's own roll is `ROLL_DEG` − β
+  (12.8°) and its world roll stays 14°. The neck island undoes the head's own
+  roll only, so it rides the torso; the long hair hangs against the world
+  roll.
+- **BodyAngleZ alone.** The head's own roll is 0, and its world roll is the
+  body's. The hair's hang reads AngleZ only, so the hair rolls rigidly with
+  the head.
+- **BodyAngleX, BodyAngleY and the AngleX follow** carry the head without
+  turning it.
+
+Without a body there is no body warp: `headDeformer` is the root, and rolls
+14° and breathes 0.02 hh on its own. The model declares BodyAngleX/Y/Z
+("Body Angle X/Y/Z", −10..10) only with a body.
+
+**Provisional values.** Our own, to be picked by eye on Bob's full body; not
+yet compared:
+
+| Value         | Rule                                                                         | Provisional |
+| ------------- | ---------------------------------------------------------------------------- | ----------- |
+| `bodySlide`   | BodyAngleX ±10: the upper body slides this far, hh                           | 0.1         |
+| `bodyNarrow`  | BodyAngleX ±10: it narrows by this share of its width, about its centre      | 0.05        |
+| `bodyBow`     | BodyAngleY ±10: it rises (+) or bows (−) this far, hh                        | 0.06        |
+| `bodyRoll`    | BodyAngleZ ±10 rolls it this many degrees about the hips                     | 4           |
+| `bodyFollowX` | AngleX ±30: the body follows the head's turn at this share of BodyAngleX ±10 | 0.3         |
+| `bodyFollowZ` | AngleZ ±30: the body follows the head's tilt at this share of `bodyRoll`     | 0.3         |
 
 ## Style knobs and the fit
 
@@ -285,16 +378,23 @@ curvature the plate would need to put the eyes that far in front of its edge.
   by the time the open drawing is half grown) while the open drawing grows out
   of its top lip, both widening to 1.2×; without it, the closed mouth opens
   down to 0.8 of its width and widens to 1.2×.
-- **Roll** — `headDeformer` rolls 14° at AngleZ ±30 about the
-  chin; the neck island undoes it. Long hair gives back 35 % of the roll toward
-  its ends (hanging); hair that ends above the chin (a fringe) rolls with the
-  head. Keyed at AngleZ 0 and ±30.
+- **Roll** — the head rolls 14° in the world at AngleZ ±30 about the chin:
+  on a body, the body's follow rolls the chin's cell β (1.2°) about the hips
+  and `headDeformer` rolls the rest, 12.8°; without one, `headDeformer` rolls
+  all 14°. The neck island undoes the head's own roll, so it stays on the
+  torso. Long hair gives back 35 % of the world roll toward its ends
+  (hanging); hair that ends above the chin (a fringe) rolls with the head.
+  Keyed at AngleZ 0 and ±30. On BodyAngleZ the head and its hair roll with
+  the body, unhung.
 - **Hair sway** — with `hair_front`, two springs (`AngleX → HairSwayX`,
   `AngleZ → HairSwayZ`) drive root-pinned swings of both hair layers, their
   ends travelling 0.08 hh at full sway (±20), growing down the layer as
   `t^1.4`. A spring settles on its target, so a held turn keeps the hair a
   quarter swung toward it (a held roll, 40 %).
 - **Breath** — the shoulders (and the neck) lift 0.03 hh, the head 0.02 hh.
+  On a body, the body warp lifts the chin's cell with the shoulders, so the
+  head's own breath is the difference, a 0.01 hh drop; the hips and what lies
+  under them stay.
 
 ## Expressions and motions
 
@@ -415,6 +515,14 @@ One clip per group, so a host plays (`Nod`, 0). Keys are `[t s, value]`.
   report reads the iris's painted span, not what a lock covers of it, so a
   render measures a slightly smaller farEyeRatio than the report.
 - The nod is linear from 0 to each extreme; so is the turn.
+- The neck island rides the head rigidly, while the torso under it narrows on
+  the body's follow of the turn: at AngleX ±30 a neck point lands
+  `bodyNarrow` × `bodyFollowX` (0.015) times its distance from the chin's x
+  further out than the torso under it, about 1–2 px across the neck on the
+  bust.
+- The body warp's rotations are linear keyforms, so between the stops a point
+  D from the hips lies on the chord of its arc, about D·θ²/8 short of it, θ
+  the roll at the extreme (`bodyRoll` on BodyAngleZ, β on the follow).
 - `laugh`'s shut eyes are the blink's fold, with no smile arch: the happy eye
   (an EyeSmile parameter) is deferred.
 - `surprised` cannot widen the eyes: EyeOpen rests at its max.

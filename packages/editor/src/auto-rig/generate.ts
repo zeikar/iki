@@ -1,13 +1,15 @@
 /**
  * `generateIkiFromLayerSet`: role layers in, a rigged `.iki` out.
  *
- * The rig's shape is a 2D head rig's usual one (`profile.ts`): a torso that
- * only breathes; a head deformer that rolls about the chin and breathes; one
- * small warp grid per feature (each eye, each brow, the nose, the mouth),
- * translating and foreshortening it by its own lead over the plate; and the
- * plate, the hair and the blush moved by per-vertex keyforms of their own —
- * the plate as up to four islands of one drawing: a head that slides, a neck
- * that stays and two ears that lag. Blink, gaze, brows, mouth, breath and
+ * The rig's shape is a 2D head rig's usual one (`profile.ts`): a body warp
+ * (`body.ts`) that breathes, follows the head's turn and tilt a little and
+ * turns on BodyAngleX/Y/Z, its legs planted; a head deformer hung from it
+ * that rolls about the chin and breathes; one small warp grid per feature
+ * (each eye, each brow, the nose, the mouth), translating and foreshortening
+ * it by its own lead over the plate; and the plate, the hair and the blush
+ * moved by per-vertex keyforms of their own — the plate as up to four
+ * islands of one drawing: a head that slides, a neck that stays on the torso
+ * and two ears that lag. Blink, gaze, brows, mouth, breath and
  * hair sway are part warps and bindings under those. The model also declares
  * the default expressions and the Nod, Shake and Tilt motions
  * (`animations.ts`).
@@ -25,8 +27,15 @@ import {
   type IkiPart,
   type IkiPhysics,
   type IkiWarp,
+  type IkiWarpDeformer,
 } from "@ikijs/format";
 import { DEFAULT_MOTIONS, defaultExpressions } from "./animations";
+import {
+  BODY_WARP_ID,
+  buildBodyWarp,
+  headOwnBreath,
+  headOwnRoll,
+} from "./body";
 import { checkHeadEdges, checkLayers, checkStrandEdges } from "./checks";
 import { renderedLander, sideIrises, solveContext } from "./context";
 import { buildHeadFrame, type HeadFrame } from "./head";
@@ -93,7 +102,6 @@ import {
 } from "./drivers";
 import {
   AMPLITUDE,
-  ROLL_DEG,
   STYLE_KNOBS,
   resolveStyle,
   type ResolvedStyle,
@@ -212,6 +220,16 @@ export function generateIkiFromLayerSet(
   });
   const turn: TurnModel = { ...fit.model, frame };
 
+  // --- the body warp the head hangs from ---
+  const bodyWarp = has("body")
+    ? buildBodyWarp({
+        body: byRole.get("body")!,
+        chin: { x: frame.axisX, y: frame.chinY },
+        hh: frame.hh,
+        pivots: [],
+      })
+    : undefined;
+
   // --- parts, with the warps and bindings that are not the turn's ---
   const parts: IkiPart[] = [];
   const reach = new Map<string, Reach>();
@@ -271,8 +289,15 @@ export function generateIkiFromLayerSet(
       part.deformer = WARP_ID[family];
       continue;
     }
-    part.deformer = family === "body" ? "bodyDeformer" : "headDeformer";
-    if (family === "body" || part.mesh === undefined) continue;
+    if (family === "body") {
+      // Its mesh is cut on the body warp's lattice lines (`bodyMesh`), and
+      // the warp is its whole motion.
+      part.deformer = BODY_WARP_ID;
+      part.mesh = bodyWarp!.mesh;
+      continue;
+    }
+    part.deformer = "headDeformer";
+    if (part.mesh === undefined) continue;
     const own = familyField(turn, family);
     const fieldOf: (i: number) => Field =
       part.id === "face" ? plateFields(turn, regionOf, own) : () => own;
@@ -289,7 +314,7 @@ export function generateIkiFromLayerSet(
     canvas: { width: canvas.width, height: canvas.height },
     parameters,
     parts,
-    deformers: deformers(frame, grids, has("body") ? box("body") : undefined),
+    deformers: deformers(frame, grids, bodyWarp?.deformer),
     ...(has("hair_front") ? { physics: hairPhysics() } : {}),
     expressions: defaultExpressions(new Set(parameters.map((p) => p.id))),
     motions: DEFAULT_MOTIONS,
@@ -392,10 +417,17 @@ function buildPart(
     case "face":
       if (region?.some((r) => r === "neck")) {
         const isNeck = region.map((r) => r === "neck");
-        // The neck stays on the shoulders through the roll, and rises with
-        // them on a breath (the head rises less).
+        // The neck stays on the shoulders through the roll, undoing the
+        // head's own roll only, and rises with them on a breath (the head
+        // rises less).
         warps.push(
-          tiltHang(mesh!, b, pivot, (_y, i) => (isNeck[i] ? 1 : 0)),
+          tiltHang(
+            mesh!,
+            b,
+            pivot,
+            (_y, i) => (isNeck[i] ? 1 : 0),
+            headOwnRoll(byRole.has("body")),
+          ),
           localWarp(P.Breath, mesh!, b, [0, 1], (_p, v, i) =>
             v === 1 && isNeck[i]
               ? [0, (AMPLITUDE.breathBody - AMPLITUDE.breathHead) * hh]
@@ -596,34 +628,26 @@ function meshScale(role: string, frame: HeadFrame): number {
 function deformers(
   frame: HeadFrame,
   grids: Grids,
-  body: Box | undefined,
+  bodyWarp: IkiWarpDeformer | undefined,
 ): IkiDeformer[] {
   const out: IkiDeformer[] = [];
-  if (body !== undefined) {
-    out.push({
-      id: "bodyDeformer",
-      pivot: { x: roundTo(cx(body), 0.01), y: roundTo(body.y1, 0.01) },
-      bindings: [
-        {
-          parameter: P.Breath,
-          channel: "translateY",
-          from: 0,
-          to: roundTo(AMPLITUDE.breathBody * frame.hh, 0.01),
-        },
-      ],
-    });
-  }
+  if (bodyWarp !== undefined) out.push(bodyWarp);
+  // On a body, the head's roll and breath are its own, on top of what the
+  // body warp already gives the chin (`headOwnRoll`, `headOwnBreath`).
+  const hasBody = bodyWarp !== undefined;
+  const roll = headOwnRoll(hasBody);
   out.push({
     id: "headDeformer",
+    ...(hasBody ? { parent: BODY_WARP_ID } : {}),
     pivot: { x: roundTo(frame.axisX, 0.01), y: roundTo(frame.chinY, 0.01) },
     bindings: [
       // AngleZ is clockwise-positive (Live2D's); a rotation is CCW-positive.
-      { parameter: P.AngleZ, channel: "rotate", from: ROLL_DEG, to: -ROLL_DEG },
+      { parameter: P.AngleZ, channel: "rotate", from: roll, to: -roll },
       {
         parameter: P.Breath,
         channel: "translateY",
         from: 0,
-        to: roundTo(AMPLITUDE.breathHead * frame.hh, 0.01),
+        to: roundTo(headOwnBreath(hasBody) * frame.hh, 0.01),
       },
     ],
   });
@@ -685,6 +709,11 @@ function declareParameters(roles: Set<string>): IkiParameter[] {
   add(P.AngleX, "Head Angle", -30, 30, 0);
   add(P.AngleY, "Head Angle Y", -30, 30, 0);
   add(P.AngleZ, "Head Angle Z", -30, 30, 0);
+  if (roles.has("body")) {
+    add(P.BodyAngleX, "Body Angle X", -10, 10, 0);
+    add(P.BodyAngleY, "Body Angle Y", -10, 10, 0);
+    add(P.BodyAngleZ, "Body Angle Z", -10, 10, 0);
+  }
   add(P.EyeOpenLeft, "Eye L", 0, 1, 1);
   add(P.EyeOpenRight, "Eye R", 0, 1, 1);
   if ([...roles].some((r) => /^(iris|pupil|highlight)_/.test(r))) {

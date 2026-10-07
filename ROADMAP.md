@@ -30,7 +30,7 @@ deliberately deferred.
    - Neck and ears: the ones the face layer paints are cut into islands of the plate's own mesh, drawn behind the head — the neck stays under the sliding chin, the ears lag the face
    - Head nod: `AngleY` moves each region by the profile's own values
    - Head tilt: `AngleZ` rolls the head 14° about the chin, clockwise-positive to match Live2D
-   - Torso: `body` rides a `bodyDeformer` that only breathes — a turn leaves it where it is
+   - Torso: `body` rides `bodyWarp` — breath, `BodyAngleX/Y/Z`, a small follow of the head's turn and tilt, legs planted — with the head hung from it
    - Keyforms at 0 and ±30 only, since every profile curve is linear in its angle: each feature family rides its own `warp2d` grid over the 3×3 of turn × nod, and the plate, the blush and both hair layers carry their own keyforms
    - Per-character `style` knobs scale the profile: the turn's amount, the features' lead, how far the front hair follows the face and at the outline, the blink and the sway
    - Deferred: ML segmentation of a single flat illustration (today the parts arrive as separate layers)

@@ -150,7 +150,7 @@ const DEFAULT_LAYOUT = {
   // without them still composes (head-only character).
   hair_back: { src: "hair_back.png", cx: 550, cy: 523, w: 800, optional: true },
   // The torso, cut off by the canvas bottom, so the character is not a
-  // floating head. It rides its own `bodyDeformer`, which only breathes.
+  // floating head. It rides the rig's `bodyWarp`, which the head hangs from.
   body: { src: "body.png", cx: 550, cy: 1017, w: 840, optional: true },
   // The face is drawn without a neck, so its box is the skull and centres
   // above the eye row (bob's skull at 437 against his eyes' 475).

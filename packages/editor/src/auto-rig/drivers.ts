@@ -60,9 +60,10 @@ export function localWarp(
   };
 }
 
-/** The roll AngleZ `v` gives the head, radians, CCW-positive (AngleZ is
- *  clockwise-positive, Live2D's). */
-export const rollOf = (v: number): number => (-v / 30) * ROLL_DEG * DEG;
+/** The roll AngleZ `v` gives a head that rolls `deg` at ±30, radians,
+ *  CCW-positive (AngleZ is clockwise-positive, Live2D's). */
+export const rollOf = (v: number, deg = ROLL_DEG): number =>
+  (-v / 30) * deg * DEG;
 
 /** How far past its own box, per side, a part's vertices can travel under
  *  its warps (each at its extremes, summed) and its translate bindings —
@@ -258,21 +259,24 @@ export function hairSway(
 }
 
 /**
- * Hang under a roll: the head rotates about `pivot`; each vertex is turned
- * back by `weight(y, i)` of that — all of it for the neck, which stays on
- * its shoulders, some of it for long hair, which hangs rather than swinging
- * out like a board.
+ * Hang under a roll: the head rotates `deg` about `pivot` at AngleZ ±30;
+ * each vertex is turned back by `weight(y, i)` of that. The head's world roll
+ * is `ROLL_DEG`; on a body its own roll is that less the body's roll at the
+ * chin (`headOwnRoll`). The neck undoes all of the head's own roll, so it
+ * rides the torso; long hair undoes some of the world roll, so it hangs
+ * rather than swinging out like a board.
  */
 export function tiltHang(
   mesh: IkiMesh,
   box: Box,
   pivot: Vec,
   weight: (y: number, i: number) => number,
+  deg = ROLL_DEG,
 ): IkiWarp {
   return localWarp(P.AngleZ, mesh, box, Z_STOPS, ([x, y], v, i) => {
     const g = weight(y, i);
     if (g === 0 || v === 0) return [0, 0];
-    const a = -g * rollOf(v);
+    const a = -g * rollOf(v, deg);
     const px = x - pivot[0];
     const py = y - pivot[1];
     return [

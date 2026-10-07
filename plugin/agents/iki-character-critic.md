@@ -185,9 +185,9 @@ for: a straight seam appearing on turn, the head sliding off the shoulders, the
 iris spilling past the lids at extreme gaze, the eye vanishing entirely at
 blink, brows hidden under hair.
 
-The neck is drawn on the torso and never moves with the head, so its flat top
-must stay hidden behind the face. Look at the combined pose for that top, or its
-corners, showing beside or under the jaw. That is art or placement, not a rig
+The neck is drawn on the torso and follows the head only a little, so its flat
+top must stay hidden behind the face. Look at the combined pose for that top, or
+its corners, showing beside or under the jaw. That is art or placement, not a rig
 defect, so never escalate it. When the top sits too low behind the face, it is a
 `retune` of `layout.body`: a smaller `cy`, or a larger `h` (a flat torso
 stretches about 10 % unseen). When the neck is too wide for the jaw, or too
