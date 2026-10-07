@@ -130,11 +130,13 @@ version of this loop; it is ignored.
 
 **A full-body character** (only when the user asked for one) also needs
 `<workdir>/reference-full.png` and the canvas's height. Once `reference.png`
-is picked, draw `reference-full.png` and write `<workdir>/canvas.json` as the
-**iki-character** skill's `full-body.md` Step 0 says. On a restart, reuse an
-existing `reference-full.png`, as the other two. `canvas.json` stays tunable:
-the artist edits its `canvasHeight` on a critic `retune`, as it does
-`style.json`.
+is picked, draw `reference-full.png` and write `<workdir>/outfit.txt`, `<workdir>/figure.json` (the figure's
+measurements) and `<workdir>/canvas.json` as the **iki-character** skill's
+`full-body.md` Step 0 says. On a restart, reuse an existing `reference-full.png`,
+`outfit.txt` and `figure.json`, as the other two. The `canvas.json` written there is
+provisional until round 1's measuring compose corrects it (`full-body.md`
+Step 2); from round 2 on the artist edits its `canvasHeight` only on a critic
+`retune`, as it does `style.json`.
 
 Then go to Step 1. `reference.png` and `reference-30.png` (and, for a full
 body, `reference-full.png`) are frozen, because every round reads them and
@@ -150,7 +152,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    its namespace; a bare `iki-character-artist` does not resolve. A full body
    also passes `reference-full` (`<workdir>/reference-full.png`, which its
    `body.png` and `arm.png` jobs attach instead) and `canvas` (the contents of
-   `<workdir>/canvas.json`, whose `canvasHeight` its compose step passes).
+   `<workdir>/canvas.json`, whose `canvasHeight` its compose step passes;
+   `<workdir>/figure.json` sits beside it).
 
    **Expect several dispatches per round.** Generation runs as backgrounded
    jobs and a subagent cannot wait on them, so the artist returns while the
@@ -401,8 +404,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `turn.achieved`, `turn.clamped` and `turn.strandOverlap`, or "none" when no
    turn was solved) so the critic can check the render against the rig's own
    report and tell a clamp this art forced from a new turn defect. It returns
-   scores and typed findings. A full body also passes `reference-full` and
-   `body-renders` (the whole-canvas `full-*.png` poses); its `renders` and
+   scores and typed findings. A full body also passes `reference-full`, `figure` (the
+   contents of `<workdir>/figure.json`) and `body-renders` (the whole-canvas `full-*.png` poses); its `renders` and
    `turn-pair` are the bust crops.
 4. Route: `regenerate` and `retune` go back to the artist — a `retune` names a
    `layout.json` key, a `mirror-parts.json` entry or a `style.json` knob, or on

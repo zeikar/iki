@@ -58,6 +58,9 @@ artist agent applies your findings; the orchestrator arbitrates.
 - `reference-full` — a full body only: the same character head to toe, drawn
   from `reference`. The target for the figure: the `body` axis and the body's
   placement. The face is still `reference`'s.
+- `figure` — a full body only: the contents of `<workdir>/figure.json`, the
+  measurements of `reference-full` (`s`, `chin`, `soles`, `bodyWidth`,
+  `shoulderSpan`, in its pixels).
 - `layers` — the composed role-layer dir (`face.png`, `eye_L.png`, …, `preview.png`).
 - `renders` — screenshots of the rigged model in the engine: rest, head-turn,
   blink, gaze, the between-stop poses (`ParamAngleX`/`ParamAngleY` at 15°,
@@ -237,6 +240,11 @@ scale is fixed, it is a `retune` to a smaller `layout.body.w` and arms' `w`
 (`layout.arm_L.w` and `layout.arm_R.w`, together). An arm-cap warning
 (`arm_R: its shoulder cap reaches …`, or no body paint on its pivot's row) is
 a `retune` of that `layout.arm_*` entry, by the px or onto the row it names.
+A body whose shoulder span reads narrower than `figure`'s `shoulderSpan` × `s`
+by more than ~10 % (a tank cut: bare shoulder between the armhole and the
+sleeve at a raise) is a `regenerate` of `body.png`, with the garment over each
+shoulder to the shoulder point and down to the armpit, never a `retune` of
+`layout.body.w`.
 
 `turn` asks whether the motion reads right, not whether it survives — judged
 by eye on the rig's own renders. At the between-stop `ParamAngleX` pose (15°)

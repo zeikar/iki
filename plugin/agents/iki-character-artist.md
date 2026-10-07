@@ -59,8 +59,13 @@ You own the character assets. You do not own the packages.
   comes down, over the eye's height) and `sway` (0–5, default 1: the hair sway
   amplitude). Change it only on a critic `retune` that names a knob.
 - `<workdir>/canvas.json` — a full body's `{ "canvasHeight": N }`, which the
-  orchestrator writes and you pass to `compose_layers_from_parts`. Change it
-  only on a critic `retune` that names it.
+  orchestrator writes provisionally and you pass to `compose_layers_from_parts`.
+  Round 1's measuring compose corrects it to the composed chin row
+  (`full-body.md` Step 2); after that, change it only on a critic `retune` that
+  names it.
+- `<workdir>/figure.json` — a full body's measurements of `reference-full`
+  (`s`, `chin`, `soles`, `bodyWidth`, `shoulderSpan`), which the orchestrator
+  writes (`full-body.md` Step 0). You read it; you never edit it.
 
 ## You must NOT edit
 
@@ -81,6 +86,7 @@ You own the character assets. You do not own the packages.
 - `style` — the contents of `<workdir>/style.json` (`{}` until a critic
   `retune` names a knob). You pass it to the rig.
 - `canvas` — a full body only: the contents of `<workdir>/canvas.json`.
+  `<workdir>/figure.json` sits beside it.
 - `findings` — the critic's typed findings (absent on round 1).
 - `round` — which iteration this is.
 
@@ -90,7 +96,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/iki-character/SKILL.md` first — it carries
 the role table,
 the prompt patterns and the hard-won pitfalls. For a full body, also read
 `${CLAUDE_PLUGIN_ROOT}/skills/iki-character/full-body.md`: its `body.png` and
-`arm.png` prompts, and how the body and the arms are placed. Then:
+`arm.png` prompts, how the body and the arms are placed, and how round 1's first
+compose corrects the provisional `canvas.json`. Then:
 
 1. **Generate parts** (only when you have `regenerate` findings, or on round 1):
 
@@ -226,7 +233,7 @@ RETUNED: <layout.json keys, mirror-parts.json entries, style.json knobs and canv
 MEASURE: <"all geometry checks passed", or the remaining warnings and why>
 MODEL: <path to the rigged .iki, or "none" — see BLOCKED>
 TURN: <the result's turn.achieved, turn.clamped and turn.strandOverlap ("none" when absent), or "none" when no turn was solved>
-ESCALATED: <critic findings you did not act on, and any refusal you escalated, verbatim, or "none">
+ESCALATED: <critic findings you did not act on, and any refusal you escalated, verbatim — on a full body, a final canvas height over 4096, with H — or "none">
 BLOCKED: <"none", or what stopped the round — for a usage limit, the reset time; for a refused rig, that no model came out>
 NOTES: <anything the orchestrator should know>
 ```

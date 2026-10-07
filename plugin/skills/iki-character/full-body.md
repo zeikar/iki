@@ -18,32 +18,61 @@ are the bust's, drawn against `reference.png` as `SKILL.md` says.
 ## Step 0 — The full-body reference and the canvas height
 
 Draw `iki-char/reference.png` as `SKILL.md` Step 0 says: it stays the master.
-Once it is final, run the **iki-create-image** skill's
-`gen-full-reference.sh iki-char/reference.png iki-char`. It draws
-`iki-char/reference-full.png` from it: the same character head to toe, arms in
-a slight A-pose, on a 1:3 portrait. It is one more billed image. Check it
-against that skill's redraw list before drawing any part. A restart reuses it.
+Once it is final, write `iki-char/outfit.txt`: one sentence for what the bust
+cannot show (the bottoms, socks, shoes), from the user's concept and the bust.
+Street's: "Denim shorts, white socks and high-top sneakers." A restart or a
+redraw reuses the file. Then run the **iki-create-image** skill's
+`gen-full-reference.sh iki-char/reference.png iki-char "$(cat iki-char/outfit.txt)"`.
+It draws `iki-char/reference-full.png` from it: the same character head to toe,
+arms in a slight A-pose, on a 1:3 portrait. It is one more billed image. Check
+it against that skill's redraw list before drawing any part. A restart reuses
+it.
 
-Read the figure's height in heads off `reference-full.png`: crown to soles,
-over crown to chin. The crown is the top of the hair.
+**The scale.** The head keeps its size, so the figure is scaled to the head by
+the face's width: s = the composed face's `w` (`layout.face.w` when set, else
+the composer's 400) ÷ the reference's face width, ears included and hair
+excluded, read at eye level on `reference-full.png`. The composer only fixes
+the face's width and keeps the generated face's own aspect unless
+`layout.face.h` is set. Street: s = 400 / 225 = 1.78.
 
-The canvas height is then H = 128 + heads × 533 + ~100, rounded up to even:
+Cross-check the reading on the reference alone, against the skull's height,
+dome to chin. The dome is the skull's top under the hair, never the hair's top.
+On our characters the face's width with the ears has come out near three
+quarters of it: street's reference 225 : 300, bob's composed head 400 : 533. A
+reading more than ~5 % off that is usually a misread (hair over the ears, or
+the hair's top taken for the dome), so remeasure before trusting s. It is a
+sanity check, not a required proportion: a head drawn deliberately long or
+wide passes on the measurement.
 
-- 128 is bob's crown row and 533 his crown-to-chin height, measured on his
-  composed layers. The face's defaults are his, so a head composed on them
-  lands about there; the hair's layout moves the crown a little.
-- ~100 px is the margin under the soles.
-- 6 heads → 3426, 6.5 → 3694, 7 → 3960.
-
-Write it to `iki-char/canvas.json`:
+**The figure.** Read four more things on `reference-full.png` now, in its
+pixels: the chin's row and the soles' row, the body's width (its widest span
+without the arms) and the shoulder span (the body's width at the shoulder
+points, where the arms join). Save them with s in `iki-char/figure.json`,
+beside `canvas.json`, where Step 2 and the critic read them:
 
 ```json
-{ "canvasHeight": 3694 }
+{ "s": 1.78, "chin": 375, "soles": 2050, "bodyWidth": 520, "shoulderSpan": 470 }
 ```
 
-Over 4096 (past about 7¼ heads), stop and tell the user. The composer's canvas
-ends at 4096, and the head's scale is fixed: the canvas grows to fit the
-figure, and the head never shrinks to fit the canvas.
+(`bodyWidth` and `shoulderSpan` above are placeholders; the keys are the
+contract.) Then write a provisional `iki-char/canvas.json`:
+
+H = 661 + (soles − chin) × s + ~100, rounded up to even
+
+- 661 is the default layout's chin row, the face's `top + height` with bob's
+  face at `w` 400. The generated face's aspect sets its real height and the
+  parts do not exist yet, so Step 2's first compose replaces 661 with the
+  composed face's real chin row.
+- ~100 px is the margin under the soles.
+- Street (soles y≈2050, chin y≈375 on its reference): 661 + 1675 × 1.78 +
+  100 → 3744; it ran on 3742.
+
+```json
+{ "canvasHeight": 3744 }
+```
+
+A provisional value over 4096 is written as 4096: the composer refuses more,
+and the measuring compose of Step 2 has to be able to run.
 
 ## Step 1 — The body and the arm, against the full-body reference
 
@@ -64,7 +93,9 @@ bust's `body.png` prompt.
   into the shoulders at the bottom. The neck is ONE flat, even skin-shadow tone
   a shade darker than face skin, from the cut down to the collar: NO cast
   shadow, NO V-shaped shadow, NO gradient, NO highlight. Keep the neck's side
-  outlines. **NO arms**: each shoulder ends in a clean, rounded outline, and the
+  outlines. **NO arms**: the garment covers each shoulder out to the shoulder
+  point and down to the armpit, a cap of fabric over the shoulder, with NO
+  sleeve tube and NO sleeve hem; each shoulder ends in a clean, rounded outline, and the
   torso's sides are drawn complete from the armpit down, with NO gap, NO shadow
   and NO sleeve where an arm would join. **Do not draw any head, face, chin, jaw
   line or hair.** Legs straight, with a clear gap between them from the crotch
@@ -77,7 +108,12 @@ bust's `body.png` prompt.
   rest. The neck is the bust's, for the bust's reason: the face slides over it,
   so its flat top has to stay hidden behind the face through the turn, the nod
   and the roll. The arms are drawn on their own and hung over the shoulders, so
-  the torso must be whole where they join: a raised arm uncovers it. The rig
+  the torso must be whole where they join: a raised arm uncovers it. The arm
+  piece carries the sleeve, so the torso is sleeveless and only the
+  shoulder's cover is the body's. A sleeve drawn on the body stacks under the
+  arm's and shows as a flap when the arm rises (street's round 1); a tank cut
+  narrows the shoulders ~12 % and bares the shoulder between the armhole and
+  the sleeve at a raise (round 2). The rig
   plants the legs below the hip line, the first row 35–75% of the way down the
   body where two legs show apart; with no gap there, it plants them halfway down
   the body, so keep the gap.)_
@@ -100,22 +136,40 @@ bust's `body.png` prompt.
 
 ## Step 2 — Compose the tall canvas
 
-Pass `canvasHeight` from `iki-char/canvas.json` on every compose.
+Pass `canvasHeight` from `iki-char/canvas.json` on every compose. Read s, the
+chin and soles rows and the two widths from `iki-char/figure.json` (Step 0);
+measure them again on `reference-full.png` only if the file is missing.
 
 **The body.** Set `layout.body` in `iki-char/layout.json` before the first
 compose; the bust's default lands it mid-canvas.
 
-- `w` = the reference's body width × (533 / the reference's crown-to-chin
-  height), both read on `reference-full.png`. The body width is its widest
-  span without the arms: shoulder to shoulder where the arms join, or a
-  skirt's hem where that is wider.
+- `w` = `bodyWidth` × s. The body width is the reference's widest span
+  without the arms: shoulder to shoulder where the arms join, or a skirt's hem
+  where that is wider.
 - Compose once and read, from the result's `layers`, the body's `height` and
   the chin's row: the face's `top + height`, ~661 on the default layout. This
-  pass only measures; skip its report, as the body is not placed yet.
+  pass only measures; skip its report, as the body is not placed yet. On
+  round 1 only, it also fixes the canvas: recompute
+  H = chin + (soles − chin) × s + ~100, rounded up to even, and when it
+  differs from the provisional `canvas.json`, write the new value before the
+  placing compose; the canvas grows downward, so nothing else moves. Later
+  rounds change `canvasHeight` only on a critic `retune`, so a tuned value is
+  never overwritten. On this final H, "over 4096" is a stop: the composer's
+  canvas ends at 4096 and the head's scale is fixed (the canvas grows to fit
+  the figure, and the head never shrinks to fit the canvas), so report
+  `ESCALATED` with H against the 4096 cap, for the orchestrator to
+  tell the user, and make no placing compose. A provisional capped at 4096 can
+  come out valid here: a chin measured at 600 instead of 661 gives 4039 for a
+  figure that wanted 4100.
 - Set `cy` so the body's top sits ~200 px above the chin:
   `cy = chin - 200 + height / 2`. That is bob's neck (209 px above his chin),
   and the bust's `body.png` note in `SKILL.md` says why. Compose again; with
   `w` unchanged the height stays the same.
+
+**The shoulders.** On `preview.png`, read the body's span at the shoulder
+points, where the arms join, against `shoulderSpan` × s. Under
+~90 % is a tank cut: regenerate `body.png` (billed) with the garment over each
+shoulder, not a wider `layout.body.w`, which scales the hips with it.
 
 **The arms.** They start on their derived defaults. `w` is 0.4 of the body's
 width, and each shoulder pivot hangs on the body box's shoulder corner, 0.12
