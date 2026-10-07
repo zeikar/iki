@@ -779,6 +779,198 @@ describe("autoRigFromLayers", () => {
     expect(result.error).toMatch(/too many layers/);
   });
 
+  it("rigs a layer set whose decoded pixels pass the old 64 Mi budget", async () => {
+    const dir = tmpDir();
+    const dims = { w: 4096, h: 4096 };
+    // Five 4096² layers decode 80 Mi px.
+    const paths = [
+      ...(await writeRequiredLayers(dir, dims)),
+      await writeLayerPng(
+        dir,
+        "body.png",
+        { x: 30, y: 80, w: 40, h: 110 },
+        dims,
+      ),
+    ];
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("refuses a request once its decoded pixels pass 128 Mi", async () => {
+    const dir = tmpDir();
+    const big = await writeLayerPng(
+      dir,
+      "big.png",
+      { x: 20, y: 20, w: 60, h: 60 },
+      { w: 4096, h: 4096 },
+    );
+    const outPath = path.join(dir, "model.iki");
+    // Eight 4096² decodes reach 128 Mi exactly; the ninth passes it.
+    const fileNames = [
+      "face",
+      "eye_L",
+      "eye_R",
+      "mouth",
+      "body",
+      "iris_L",
+      "iris_R",
+      "brow_L",
+      "brow_R",
+    ];
+
+    const result = await autoRigFromLayers({
+      layers: fileNames.map((name) => ({ path: big, fileName: `${name}.png` })),
+      outputPath: outPath,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("total decoded pixels exceed 134217728");
+    expect(fs.existsSync(outPath)).toBe(false);
+  });
+
+  it("accepts a lossless atlas over the old 5 MiB ceiling", async () => {
+    const dir = tmpDir();
+    const side = 2000;
+    // A 1200² gaussian-noise face, as writeNoisyLayers paints, barely
+    // compresses: its lossless atlas lands between the old ceiling and 12 MiB.
+    const noisy = await sharp({
+      create: {
+        width: 1200,
+        height: 1200,
+        channels: 4,
+        background: { r: 200, g: 120, b: 60, alpha: 1 },
+        noise: { type: "gaussian", mean: 128, sigma: 40 },
+      },
+    })
+      .png()
+      .toBuffer();
+    const face = path.join(dir, "face.png");
+    await sharp({
+      create: {
+        width: side,
+        height: side,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .composite([{ input: noisy, left: 400, top: 400 }])
+      .png()
+      .toFile(face);
+    const dims = { w: side, h: side };
+    const paths = [
+      face,
+      await writeLayerPng(
+        dir,
+        "eye_L.png",
+        { x: 600, y: 700, w: 240, h: 160 },
+        dims,
+      ),
+      await writeLayerPng(
+        dir,
+        "eye_R.png",
+        { x: 1160, y: 700, w: 240, h: 160 },
+        dims,
+      ),
+      await writeLayerPng(
+        dir,
+        "mouth.png",
+        { x: 840, y: 1200, w: 320, h: 160 },
+        dims,
+      ),
+    ];
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.atlasBytes).toBeGreaterThan(5 * 1024 * 1024);
+    expect(result.atlasBytes).toBeLessThan(12 * 1024 * 1024);
+  });
+
+  // A page's crops: each opaque rect grown 1 px a side (detectAlphaBbox,
+  // clamped to the canvas) — eye 14x10, face 62x62, mouth 18x10 — packed with
+  // ATLAS_PADDING (2) on each crop's right and bottom.
+  it("refuses an atlas page over 4096 px on a side, naming its widest or tallest crop, and writes nothing", async () => {
+    // A hair_back across a 4096-wide canvas crops to 4096x82 and gets a row of
+    // its own: 4098 wide; rows 64 + 84 + 12 tall.
+    const wideDir = tmpDir();
+    const wideDims = { w: 4096, h: 100 };
+    const wideOut = path.join(wideDir, "model.iki");
+    const wide = await autoRigFromLayers({
+      layers: [
+        ...(await writeRequiredLayers(wideDir, wideDims)),
+        await writeLayerPng(
+          wideDir,
+          "hair_back.png",
+          { x: 0, y: 10, w: 4096, h: 80 },
+          wideDims,
+        ),
+      ].map((p) => ({ path: p })),
+      outputPath: wideOut,
+    });
+    expect(wide).toEqual({
+      ok: false,
+      error:
+        'atlas page 4098x160 exceeds max side 4096 (its widest crop: "hair_back" 4096x82)',
+    });
+    expect(fs.existsSync(wideOut)).toBe(false);
+
+    // Down a 4096-tall canvas it crops to 82x4096, and every crop shares one
+    // row 4098 tall: 16 + 16 + 64 + 84 + 20 wide.
+    const tallDir = tmpDir();
+    const tallDims = { w: 100, h: 4096 };
+    const tallOut = path.join(tallDir, "model.iki");
+    const tall = await autoRigFromLayers({
+      layers: [
+        ...(await writeRequiredLayers(tallDir, tallDims)),
+        await writeLayerPng(
+          tallDir,
+          "hair_back.png",
+          { x: 10, y: 0, w: 80, h: 4096 },
+          tallDims,
+        ),
+      ].map((p) => ({ path: p })),
+      outputPath: tallOut,
+    });
+    expect(tall).toEqual({
+      ok: false,
+      error:
+        'atlas page 200x4098 exceeds max side 4096 (its tallest crop: "hair_back" 82x4096)',
+    });
+    expect(fs.existsSync(tallOut)).toBe(false);
+  });
+
+  it("rigs a layer set whose atlas page is exactly 4096 px wide", async () => {
+    // The hair_back crops to 4094x82 (columns 1..4094), its row 4096 wide.
+    const dir = tmpDir();
+    const dims = { w: 4096, h: 100 };
+    const result = await autoRigFromLayers({
+      layers: [
+        ...(await writeRequiredLayers(dir, dims)),
+        await writeLayerPng(
+          dir,
+          "hair_back.png",
+          { x: 2, y: 10, w: 4092, h: 80 },
+          dims,
+        ),
+      ].map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const model = parseIkiModel(
+      JSON.parse(fs.readFileSync(result.path, "utf8")),
+    );
+    const meta = await sharp(pngOf(model.textures[0])).metadata();
+    expect([meta.width, meta.height]).toEqual([4096, 160]);
+  });
+
   it("returns { ok:false } when the output path does not end in .iki", async () => {
     const dir = tmpDir();
     const paths = await writeRequiredLayers(dir);

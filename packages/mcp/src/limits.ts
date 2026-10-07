@@ -19,16 +19,23 @@ export const MAX_LAYERS = 64;
 export const MAX_LAYER_DIM = 4096;
 /** Max per-side dimension (px) of the derived canvas. */
 export const MAX_CANVAS_DIM = 4096;
-/** Max area (px²) of each packed atlas page. */
-export const MAX_ATLAS_AREA = 4096 * 4096;
+/** Max per-side length (px) of each packed atlas page. WebGL2 guarantees only
+ *  2048, but 4096 or more is near-universal; the engine refuses a texture over
+ *  the device's own limit on either side and leaves its parts untextured. Both
+ *  sides within it also bound a page's area at 4096². */
+export const MAX_ATLAS_SIDE = 4096;
 /** Decoded-pixel ceiling per input PNG, passed to sharp `limitInputPixels`. */
 export const MAX_INPUT_PIXELS = 4096 * 4096;
-/** Aggregate decoded-pixel budget across ALL layers in one request, so a set of
- *  many large PNGs cannot exhaust memory even though each passes MAX_LAYER_DIM. */
-export const MAX_TOTAL_PIXELS = 64 * 1024 * 1024;
+/** Aggregate decoded-pixel budget across ALL layers in one request. Layers
+ *  decode one at a time, so it bounds the request's total work, not its peak
+ *  memory. A full body's 21 layers at 1100 × 3650 decode 84.3 M px. */
+export const MAX_TOTAL_PIXELS = 128 * 1024 * 1024;
 /** Max length (bytes) of the base64 atlas data URI embedded in the model,
- *  summed over its pages. */
-export const MAX_OUTPUT_BYTES = 5 * 1024 * 1024;
+ *  summed over its pages. Sized for the loop's lossless re-rig of a full body:
+ *  measured on bob's layers, a lossless atlas costs 1.56 data-URI bytes per
+ *  crop px (1,677,898 B over 1,075,888 px), and a full body on a canvas up to
+ *  4096 tall crops to at most ~5 M px, about 8 MB. */
+export const MAX_OUTPUT_BYTES = 12 * 1024 * 1024;
 
 /**
  * Expected, caller-input-caused failure. The tool catches ONLY this class and

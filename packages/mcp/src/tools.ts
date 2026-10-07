@@ -36,7 +36,7 @@ import {
   MAX_LAYERS,
   MAX_LAYER_DIM,
   MAX_CANVAS_DIM,
-  MAX_ATLAS_AREA,
+  MAX_ATLAS_SIDE,
   MAX_TOTAL_PIXELS,
   MAX_OUTPUT_BYTES,
   resolveInputPath,
@@ -410,8 +410,9 @@ function expectInput<T>(label: string, fn: () => T): T {
  */
 const LOSSLESS_PAGE_ROLE = "nose";
 
-/** Pack `crops` onto one atlas page, refused over MAX_ATLAS_AREA, and render
- *  it — palette-quantized to `quantizeColors` when that is set. */
+/** Pack `crops` onto one atlas page and render it — palette-quantized to
+ *  `quantizeColors` when that is set. A page over MAX_ATLAS_SIDE on either side
+ *  is refused before rendering, naming its widest (or tallest) crop. */
 async function renderAtlasPage(
   crops: AtlasCrop[],
   quantizeColors: number | undefined,
@@ -419,9 +420,18 @@ async function renderAtlasPage(
   const layout = packAtlas(
     crops.map((c) => ({ id: c.id, width: c.width, height: c.height })),
   );
-  if (layout.pageWidth * layout.pageHeight > MAX_ATLAS_AREA) {
+  const over =
+    layout.pageWidth > MAX_ATLAS_SIDE
+      ? ({ side: "width", crop: "widest" } as const)
+      : layout.pageHeight > MAX_ATLAS_SIDE
+        ? ({ side: "height", crop: "tallest" } as const)
+        : undefined;
+  if (over !== undefined) {
+    const crop = layout.placements.reduce((a, b) =>
+      b[over.side] > a[over.side] ? b : a,
+    );
     throw new AutoRigInputError(
-      `atlas page ${layout.pageWidth}x${layout.pageHeight} exceeds max area ${MAX_ATLAS_AREA}`,
+      `atlas page ${layout.pageWidth}x${layout.pageHeight} exceeds max side ${MAX_ATLAS_SIDE} (its ${over.crop} crop: "${crop.id}" ${crop.width}x${crop.height})`,
     );
   }
   const dataUri = await renderAtlasToDataUri(crops, layout, quantizeColors);
