@@ -240,7 +240,8 @@ export interface LayerSetMeasurer {
    * it: only the set's opaque union, this layer's per-row opaque extent and
    * the `LayerInput` it returns outlive the call, so the host may drop `rgba`
    * as soon as it returns. Returns the layer's `LayerInput` — its crop
-   * box, the face's `rowHalfWidths`, the face's and hair layers' `rowRuns`, the nose's
+   * box, the face's `rowHalfWidths`, the face's, hair layers', body's and
+   * arms' `rowRuns`, the nose's
    * `denseCore` unless that is a speck of its crop (`isSpeckCore`) — or
    * `null` for an empty layer, one with no pixel at or above
    * `ALPHA_BBOX_THRESHOLD`, which it records nothing for: the host reports
@@ -363,6 +364,16 @@ function facePlateHalfOf(layers: LayerInput[]): number {
  */
 const STRAND_MIN_RUN_FRACTION = 0.5;
 
+/** The roles whose layers `add` records `rowRuns` for (see `LayerInput`). */
+const ROW_RUN_ROLES: ReadonlySet<string> = new Set([
+  "face",
+  "hair_front",
+  "hair_back",
+  "body",
+  "arm_L",
+  "arm_R",
+]);
+
 /**
  * Start measuring a layer set on a `canvas`-sized canvas: the pass a host runs
  * between decoding its layers and `generateIkiFromLayerSet`. `add` each
@@ -424,10 +435,9 @@ export function createLayerSetMeasurer(canvas: {
     // while its pixels are still here — one pass over the same pixels.
     const rowLeft = new Int32Array(canvasH).fill(canvasW);
     const rowRight = new Int32Array(canvasH).fill(-1);
-    const rowRuns: number[][] | undefined =
-      role === "face" || role === "hair_front" || role === "hair_back"
-        ? []
-        : undefined;
+    const rowRuns: number[][] | undefined = ROW_RUN_ROLES.has(role)
+      ? []
+      : undefined;
     for (let y = 0; y < canvasH; y++) {
       // Every opaque pixel lies inside the crop, so only its rows hold runs.
       let runs: number[] | undefined;

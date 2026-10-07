@@ -107,7 +107,7 @@ describe("createLayerSetMeasurer", () => {
     expect(measurer.finish().layers).toEqual(inputs);
   });
 
-  it("measures the face's and each hair layer's opaque runs per crop row, gaps and empty rows included", () => {
+  it("measures the face's, each hair layer's, the body's and the arms' opaque runs per crop row, gaps and empty rows included", () => {
     const measurer = createLayerSetMeasurer({ width: CANVAS, height: CANVAS });
     const inputs = [
       ...strandLayers(),
@@ -121,6 +121,14 @@ describe("createLayerSetMeasurer", () => {
         { x: 12, y: 8, w: 5, h: 1 },
         { x: 30, y: 8, w: 2, h: 1, alpha: 77 },
       ]),
+      // A 20-px torso on rows 82..89 over two 6-px legs on rows 90..97, a gap
+      // on columns 46..53 between them.
+      layer("body", [
+        { x: 40, y: 82, w: 20, h: 8 },
+        { x: 40, y: 90, w: 6, h: 8 },
+        { x: 54, y: 90, w: 6, h: 8 },
+      ]),
+      layer("arm_L", [{ x: 5, y: 60, w: 6, h: 20 }]),
     ].map((l) => measurer.add(l)!);
     const byRole = new Map(inputs.map((l) => [l.role, l]));
 
@@ -149,8 +157,25 @@ describe("createLayerSetMeasurer", () => {
       ...Array(60).fill([20, 80]),
       [],
     ]);
+    // The torso's rows hold one run, the legs' two, in a crop from row 81.
+    expect(byRole.get("body")!.rowRuns).toEqual([
+      [],
+      ...Array(8).fill([40, 60]),
+      ...Array(8).fill([40, 46, 54, 60]),
+      [],
+    ]);
+    // Every arm row one run, in a crop from row 59.
+    expect(byRole.get("arm_L")!.rowRuns).toEqual([
+      [],
+      ...Array(20).fill([5, 11]),
+      [],
+    ]);
     for (const l of inputs) {
-      if (!["face", "hair_front", "hair_back"].includes(l.role)) {
+      if (
+        !["face", "hair_front", "hair_back", "body", "arm_L", "arm_R"].includes(
+          l.role,
+        )
+      ) {
         expect(l.rowRuns).toBeUndefined();
       }
     }
