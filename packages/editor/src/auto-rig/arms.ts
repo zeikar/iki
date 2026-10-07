@@ -32,10 +32,11 @@
  * forearm_R < face … < hair_front. The forearm draws over the upper arm,
  * which draws over the cap.
  *
- * Signs: ParamArmX + raises the arm outward on either side and ParamElbowX +
- * turns the forearm the same way, both in degrees 1:1. A rotation is
- * CCW-positive, so an arm whose shoulder lies right of the body's axis (+x,
- * the character's left) turns CCW for +, and one at −x turns CW.
+ * Signs: ParamArmX + raises the arm outward on either side, in degrees 1:1.
+ * A rotation is CCW-positive, so an arm whose shoulder lies right of the
+ * body's axis (+x, the character's left) turns CCW for +, and one at −x turns
+ * CW. ParamElbowX + bends the forearm toward the body, the opposite turn to
+ * the shoulder's +: it turns CW on the +x side, CCW on the −x side.
  */
 
 import {
@@ -71,9 +72,16 @@ export const CAP_INSET = 3;
 /** The cap's rim ring's width, as a share of the cap radius: the painted line
  *  and a little skin inside it. Our own value. */
 export const CAP_RIM = 0.25;
-/** ParamArmX and ParamElbowX, degrees: from a little across the body to
- *  150° out, 30° short of straight up. Our own values. */
-export const ARM_RANGE = [-30, 150] as const;
+/** ParamArmX, degrees, picked by eye on street: 32° out is where the sleeve
+ *  still covers the shoulder (past 30 its dome lifts off the shoulder line and
+ *  bare skin shows), −8 across is where the arm rests against the hip. Our own
+ *  values; the span 40 puts 0, half the max, the max and the min on the
+ *  playground's slider steps ((max − min) / 100 = 0.4). */
+export const ARM_RANGE = [-8, 32] as const;
+/** ParamElbowX, degrees, picked by eye on street: 90° toward the body lays the
+ *  forearm across the belly, −10 is a natural small outward bend. Our own
+ *  values; the span 100 makes step 1, so 0, 45, 90 and −10 sit on steps. */
+export const ELBOW_RANGE = [-10, 90] as const;
 /** Each arm's shoulder and elbow parameters. */
 export const ARM_PARAMS: Record<ArmRole, { arm: string; elbow: string }> = {
   arm_L: { arm: P.ArmLeft, elbow: P.ElbowLeft },
@@ -357,8 +365,9 @@ export function armParts(
 /**
  * The arm's two matrix deformers: `armDeformer_X`, hung from the body warp
  * at the shoulder, and `forearmDeformer_X`, hung from it at the elbow. Each
- * turns on its parameter, declared over `ARM_RANGE`, by side × the value in
- * degrees.
+ * turns on its parameter: the shoulder's, declared over `ARM_RANGE`, by
+ * side × the value in degrees; the elbow's, declared over `ELBOW_RANGE`, by
+ * −side × the value.
  */
 export function armDeformers(
   role: ArmRole,
@@ -367,25 +376,29 @@ export function armDeformers(
   const ids = ARM_IDS[role];
   const params = ARM_PARAMS[role];
   // A binding maps the parameter's range onto [from, to]: these give
-  // side · value, so 0 rests.
-  const rotate = (parameter: string): IkiDeformerBinding => ({
+  // sign · value, so 0 rests.
+  const rotate = (
+    parameter: string,
+    range: readonly [number, number],
+    sign: number,
+  ): IkiDeformerBinding => ({
     parameter,
     channel: "rotate",
-    from: g.side * ARM_RANGE[0],
-    to: g.side * ARM_RANGE[1],
+    from: sign * range[0],
+    to: sign * range[1],
   });
   return [
     {
       id: ids.armDeformer,
       parent: BODY_WARP_ID,
       pivot: { ...g.shoulder },
-      bindings: [rotate(params.arm)],
+      bindings: [rotate(params.arm, ARM_RANGE, g.side)],
     },
     {
       id: ids.forearmDeformer,
       parent: ids.armDeformer,
       pivot: { ...g.elbow },
-      bindings: [rotate(params.elbow)],
+      bindings: [rotate(params.elbow, ELBOW_RANGE, -g.side)],
     },
   ];
 }

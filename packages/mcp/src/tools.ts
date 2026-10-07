@@ -278,12 +278,12 @@ const STANDARD_PARAMETER_INFO: StandardParameterInfo[] = [
   {
     id: StandardParameter.ElbowLeft,
     description:
-      "Left elbow, degrees; positive bends the forearm the way positive ArmLeft raises the arm.",
+      "Left elbow, degrees; positive bends the forearm toward the body (the flexion of a hanging arm), negative a little outward (mirrored on the right).",
   },
   {
     id: StandardParameter.ElbowRight,
     description:
-      "Right elbow, degrees; positive bends the forearm the way positive ArmRight raises the arm.",
+      "Right elbow, degrees; positive bends the forearm toward the body (the flexion of a hanging arm), negative a little outward (mirrored on the left).",
   },
 ];
 

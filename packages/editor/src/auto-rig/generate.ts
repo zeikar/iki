@@ -34,6 +34,7 @@ import {
 import { DEFAULT_MOTIONS, defaultExpressions } from "./animations";
 import {
   ARM_RANGE,
+  ELBOW_RANGE,
   armDeformers,
   armGeometry,
   armParts,
@@ -747,13 +748,14 @@ function declareParameters(roles: Set<string>): IkiParameter[] {
     add(P.BodyAngleZ, "Body Angle Z", -10, 10, 0);
   }
   const [armMin, armMax] = ARM_RANGE;
+  const [elbowMin, elbowMax] = ELBOW_RANGE;
   if (roles.has("arm_L")) {
     add(P.ArmLeft, "Arm L", armMin, armMax, 0);
-    add(P.ElbowLeft, "Elbow L", armMin, armMax, 0);
+    add(P.ElbowLeft, "Elbow L", elbowMin, elbowMax, 0);
   }
   if (roles.has("arm_R")) {
     add(P.ArmRight, "Arm R", armMin, armMax, 0);
-    add(P.ElbowRight, "Elbow R", armMin, armMax, 0);
+    add(P.ElbowRight, "Elbow R", elbowMin, elbowMax, 0);
   }
   add(P.EyeOpenLeft, "Eye L", 0, 1, 1);
   add(P.EyeOpenRight, "Eye R", 0, 1, 1);

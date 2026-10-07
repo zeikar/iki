@@ -15,10 +15,12 @@ import {
 import {
   ARM_IDS,
   ARM_PARAMS,
+  ARM_RANGE,
   CAP_INSET,
   CAP_RIM,
   CAP_SEGMENTS,
   ELBOW_AT,
+  ELBOW_RANGE,
   armDeformers,
   armGeometry,
   armParts,
@@ -470,16 +472,18 @@ describe("arms.ts: deformers", () => {
     }
   });
 
-  it("turns each 1:1 in degrees, + outward: CCW on arm_L at +x, CW on arm_R", () => {
+  it("turns each 1:1 in degrees: the shoulder + outward, the elbow + toward the body", () => {
     const binding = (parameter: string, from: number, to: number) => [
       { parameter, channel: "rotate", from, to },
     ];
     const [armL, foreL] = rig("arm_L").deformers;
-    expect(armL.bindings).toEqual(binding(P.ArmLeft, -30, 150));
-    expect(foreL.bindings).toEqual(binding(P.ElbowLeft, -30, 150));
+    const [aMin, aMax] = ARM_RANGE;
+    const [eMin, eMax] = ELBOW_RANGE;
+    expect(armL.bindings).toEqual(binding(P.ArmLeft, aMin, aMax));
+    expect(foreL.bindings).toEqual(binding(P.ElbowLeft, -eMin, -eMax));
     const [armR, foreR] = rig("arm_R").deformers;
-    expect(armR.bindings).toEqual(binding(P.ArmRight, 30, -150));
-    expect(foreR.bindings).toEqual(binding(P.ElbowRight, 30, -150));
+    expect(armR.bindings).toEqual(binding(P.ArmRight, -aMin, -aMax));
+    expect(foreR.bindings).toEqual(binding(P.ElbowRight, eMin, eMax));
   });
 });
 
@@ -592,7 +596,7 @@ describe("arms on the full body", () => {
     }
   });
 
-  it("declares Arm L / Elbow L and Arm R / Elbow R, −30..150, after the body angles", () => {
+  it("declares Arm L / Elbow L and Arm R / Elbow R over their ranges, after the body angles", () => {
     const ids = model.parameters.map((p) => p.id);
     const z = ids.indexOf(P.BodyAngleZ);
     expect(ids.slice(z + 1, z + 5)).toEqual([
@@ -607,11 +611,12 @@ describe("arms on the full body", () => {
       [P.ArmRight, "Arm R"],
       [P.ElbowRight, "Elbow R"],
     ]) {
+      const range = /Elbow/.test(id) ? ELBOW_RANGE : ARM_RANGE;
       expect(model.parameters.find((p) => p.id === id)).toEqual({
         id,
         name,
-        min: -30,
-        max: 150,
+        min: range[0],
+        max: range[1],
         default: 0,
       });
     }
@@ -673,12 +678,10 @@ describe("arms on the full body", () => {
   });
 
   it("raises each arm outward about its shoulder", () => {
-    for (const [role, deg] of [
-      ["arm_L", 90],
-      ["arm_R", -90],
-    ] as const) {
+    for (const role of ARMS) {
       const g = geometry(role);
-      const pose = { [ARM_PARAMS[role].arm]: 90 };
+      const deg = g.side * ARM_RANGE[1];
+      const pose = { [ARM_PARAMS[role].arm]: ARM_RANGE[1] };
       const world = oracle.deformerWorld(
         model,
         ARM_IDS[role].armDeformer,
@@ -697,12 +700,10 @@ describe("arms on the full body", () => {
   });
 
   it("bends the forearm about the elbow, the upper arm still", () => {
-    for (const [role, deg] of [
-      ["arm_L", 90],
-      ["arm_R", -90],
-    ] as const) {
+    for (const role of ARMS) {
       const g = geometry(role);
-      const pose = { [ARM_PARAMS[role].elbow]: 90 };
+      const deg = -g.side * ELBOW_RANGE[1];
+      const pose = { [ARM_PARAMS[role].elbow]: ELBOW_RANGE[1] };
       expect(oracle.landVertices(model, role, pose)).toEqual(
         oracle.landVertices(model, role),
       );
@@ -717,6 +718,10 @@ describe("arms on the full body", () => {
         1e-3,
         role,
       );
+      // Toward the body: the band's bottom ends nearer its axis.
+      expect(Math.abs(bottomOf(role, pose).x - AXIS)).toBeLessThan(
+        Math.abs(bottomOf(role).x - AXIS),
+      );
     }
   });
 
@@ -728,8 +733,10 @@ describe("arms on the full body", () => {
       indices: model.parts.find((p) => p.id === id)!.mesh!.indices,
     }));
     const poses: oracle.ParamValues[] = [
-      ...[0, 45, 90, 150].map((v) => ({ [P.ElbowLeft]: v })),
-      { [P.ArmLeft]: 60, [P.ElbowLeft]: 120 },
+      ...[ELBOW_RANGE[0], 0, ELBOW_RANGE[1] / 2, ELBOW_RANGE[1]].map((v) => ({
+        [P.ElbowLeft]: v,
+      })),
+      { [P.ArmLeft]: ARM_RANGE[1] / 2, [P.ElbowLeft]: ELBOW_RANGE[1] },
     ];
     const reach = Math.min(...g.capRays);
     for (const pose of poses) {

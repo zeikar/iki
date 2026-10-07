@@ -73,8 +73,9 @@ artist agent applies your findings; the orchestrator arbitrates.
   you feed `measure_turn_reference`.
 - `body-renders` — a full body only: whole-canvas renders, captured like the
   turn pair: `full-rest`, `full-turn-p30` (`ParamAngleX` 30, the body
-  following the head a little), `ParamArmL` / `ParamArmR` at 90 and 150,
-  `ParamElbowL` / `ParamElbowR` at 90, and `ParamBodyAngleX` / `Y` / `Z` at
+  following the head a little), `ParamArmL` / `ParamArmR` at 16 and 32
+  (`full-arm-{l,r}-16`, `-32`), `ParamElbowL` / `ParamElbowR` at −10, 45 and
+  90 (`full-elbow-{l,r}-m10`, `-45`, `-90`), and `ParamBodyAngleX` / `Y` / `Z` at
   ±10. For a full body, `renders` and `turn-pair` are bust crops: the
   canvas's top square, at a bust's scale, so the face is judged and measured
   exactly as on a bust.
@@ -205,8 +206,8 @@ iris spilling past the lids at extreme gaze, the eye vanishing entirely at
 blink, brows hidden under hair.
 
 On a full body, `rig` also looks at `body-renders` for: a gap or seam at a
-shoulder's cap at `ParamArmL` / `ParamArmR` 90 and 150; the elbow's cap at
-`ParamElbowL` / `ParamElbowR` 90; the legs planted — the feet still — at every
+shoulder's cap at `ParamArmL` / `ParamArmR` 16 and 32; the elbow's cap at
+`ParamElbowL` / `ParamElbowR` −10, 45 and 90; the legs planted — the feet still — at every
 BodyAngle pose; and a smooth waist, with no kink at the hip line. A cap or
 seam fault while the measure's arm checks pass sits on the rig's own pivots:
 an `escalate` on `packages/editor/src/auto-rig/`. An arm painted on the body

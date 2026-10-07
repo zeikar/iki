@@ -64,9 +64,9 @@ export const StandardParameter = {
   ArmLeft: "ParamArmL",
   /** Right shoulder, degrees. Positive raises the arm outward (mirrored on the left). */
   ArmRight: "ParamArmR",
-  /** Left elbow, degrees. Positive bends the forearm the way positive ArmLeft raises the arm. */
+  /** Left elbow, degrees. Positive bends the forearm toward the body (the flexion of a hanging arm), negative a little outward (mirrored on the right). */
   ElbowLeft: "ParamElbowL",
-  /** Right elbow, degrees. Positive bends the forearm the way positive ArmRight raises the arm. */
+  /** Right elbow, degrees. Positive bends the forearm toward the body (the flexion of a hanging arm), negative a little outward (mirrored on the left). */
   ElbowRight: "ParamElbowR",
 } as const;
 

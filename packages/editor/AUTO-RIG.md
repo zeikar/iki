@@ -356,14 +356,21 @@ Each has one `rotate` binding on its parameter:
 
 | Parameter                     | Name              | Range, default | Turns                                    |
 | ----------------------------- | ----------------- | -------------- | ---------------------------------------- |
-| `ParamArmL` / `ParamArmR`     | Arm L / Arm R     | −30..150, 0    | the arm about the shoulder, 1° per unit  |
-| `ParamElbowL` / `ParamElbowR` | Elbow L / Elbow R | −30..150, 0    | the forearm about the elbow, 1° per unit |
+| `ParamArmL` / `ParamArmR`     | Arm L / Arm R     | −8..32, 0      | the arm about the shoulder, 1° per unit  |
+| `ParamElbowL` / `ParamElbowR` | Elbow L / Elbow R | −10..90, 0     | the forearm about the elbow, 1° per unit |
 
 A positive value raises the arm outward on either side: a rotation is
 CCW-positive, so an arm whose shoulder lies right of the body's axis (+x, the
-character's left) turns CCW for +, and one left of it CW. The elbow's + turns
-the forearm the same way, so a raised arm with a + elbow points the forearm
-up. The range runs from a little across the body to 150° out. Each pair is
+character's left) turns CCW for +, and one left of it CW. The elbow's + is
+the opposite turn: it bends the forearm toward the body, the flexion of a
+hanging arm (hand to the belly or hip), and its − bends it a little outward.
+Both ranges are our own, picked by eye on street: the shoulder runs from 8°
+across the body (where the arm rests against the hip) to 32° out (past 30° the
+sleeve's dome lifts off the shoulder line and bare skin shows); the elbow from
+10° outward to 90° inward. The playground's sliders step by (max − min) / 100,
+so each span is chosen to put 0, half the max, the max and the min on a step
+(0.4 and 1). Both elbows at 45+ with the shoulders at 0 cross the hands in
+front of the body: drive that pose with a little shoulder raise. Each pair is
 declared only with its arm layer, after Body Angle X/Y/Z.
 
 **Draw order:** hair_back < body < elbow_L, arm_L, forearm_L, elbow_R, arm_R,

@@ -363,11 +363,15 @@ changing any of them mid-loop or on a restart invalidates every prior score.
        ["full-body-y-p10", whole, { ParamBodyAngleY: 10 }],
        ["full-body-z-m10", whole, { ParamBodyAngleZ: -10 }],
        ["full-body-z-p10", whole, { ParamBodyAngleZ: 10 }],
-       ["full-arm-l-90", whole, { ParamArmL: 90 }],
-       ["full-arm-l-150", whole, { ParamArmL: 150 }],
-       ["full-arm-r-90", whole, { ParamArmR: 90 }],
-       ["full-arm-r-150", whole, { ParamArmR: 150 }],
+       ["full-arm-l-16", whole, { ParamArmL: 16 }],
+       ["full-arm-l-32", whole, { ParamArmL: 32 }],
+       ["full-arm-r-16", whole, { ParamArmR: 16 }],
+       ["full-arm-r-32", whole, { ParamArmR: 32 }],
+       ["full-elbow-l-m10", whole, { ParamElbowL: -10 }],
+       ["full-elbow-l-45", whole, { ParamElbowL: 45 }],
        ["full-elbow-l-90", whole, { ParamElbowL: 90 }],
+       ["full-elbow-r-m10", whole, { ParamElbowR: -10 }],
+       ["full-elbow-r-45", whole, { ParamElbowR: 45 }],
        ["full-elbow-r-90", whole, { ParamElbowR: 90 }],
      ];
      if (api) api.reset();
@@ -390,10 +394,12 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `full-rest`; `full-turn-p30` (`ParamAngleX` 30: the body follows the head a
    little); `ParamBodyAngleX`, `ParamBodyAngleY` and `ParamBodyAngleZ` at ±10
    ("Body Angle X", "Body Angle Y", "Body Angle Z"); `ParamArmL` and
-   `ParamArmR` at 90 and 150 ("Arm L", "Arm R"); and `ParamElbowL` and
-   `ParamElbowR` at 90 ("Elbow L", "Elbow R"). Standalone, the arm and elbow
-   sliders step by 1.8° from −30, so 90 lands on 90.6 and a reset on 0.6, not
-   0 — too little to see, and why they come last. Pass `filename`, move the
+   `ParamArmR` at 16 and 32 ("Arm L", "Arm R"; `full-arm-{l,r}-16`,
+   `full-arm-{l,r}-32`); and `ParamElbowL` and `ParamElbowR` at −10, 45 and 90
+   ("Elbow L", "Elbow R"; `full-elbow-{l,r}-m10`, `-45`, `-90`). Standalone,
+   the arm span (−8..32) and the elbow span (−10..90) put every pose and 0 on
+   a slider step, so each lands exactly and a reset returns to 0. They come
+   last because a pose's values are set and cleared one after another. Pass `filename`, move the
    file and decode it into `<workdir>/renders/` with `decode-renders.cjs` as
    for the turn pair; it runs to several MB. The bust crops are the critic's
    `renders` and `turn-pair`, the `full-*.png` its `body-renders`.
