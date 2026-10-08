@@ -58,6 +58,10 @@ artist agent applies your findings; the orchestrator arbitrates.
 - `reference-full` — a full body only: the same character head to toe, drawn
   from `reference`. The target for the figure: the `body` axis and the body's
   placement. The face is still `reference`'s.
+- `reference-wave` — a full body with a pose forearm only: the figure with its
+  right hand raised in a wave. The target for the pose forearm
+  (`forearm_pose.png`): the raised hand's height, the palm, the thumb, the
+  sleeve or the bare forearm.
 - `figure` — a full body only: the contents of `<workdir>/figure.json`, the
   measurements of `reference-full` (`s`, `chin`, `soles`, `bodyWidth`,
   `shoulderSpan`, in its pixels).
@@ -77,7 +81,11 @@ artist agent applies your findings; the orchestrator arbitrates.
   following the head a little), `ParamArmL` / `ParamArmR` at 16 and 32
   (`full-arm-{l,r}-16`, `-32`), `ParamElbowL` / `ParamElbowR` at −10, 45 and
   90 (`full-elbow-{l,r}-m10`, `-45`, `-90`), and `ParamBodyAngleX` / `Y` / `Z` at
-  ±10. For a full body, `renders` and `turn-pair` are the model's
+  ±10. With a pose forearm it also lists five poses: `full-pose-l` and
+  `full-pose-r` (the switch `ParamArmPoseL` / `ParamArmPoseR` at 1),
+  `full-pose-r-angle-m15` and `full-pose-r-angle-p15` (the switch at 1 and
+  `ParamArmPoseAngleR` at −15 and 15), and `full-pose-r-half` (the switch at
+  0.5). For a full body, `renders` and `turn-pair` are the model's
   square at the canvas's top, its top 1100 rows at a bust's scale, so the face is judged and measured
   exactly as on a bust.
 - `round` — which iteration this is.
@@ -190,7 +198,9 @@ the source art.
 
 On a full body, `body` judges the figure against `reference-full` on
 `body-renders` and `preview.png`: its proportions, shoulder width, leg length,
-garment and symmetry. `face`, `eyes`, `hair`, `palette`, `line` and `turn` are
+garment and symmetry. A full body with a pose forearm also judges
+`forearm_pose.png` against `reference-wave` on `full-pose-r`: the raised hand's
+height, the palm, the thumb and the sleeve or bare forearm. `face`, `eyes`, `hair`, `palette`, `line` and `turn` are
 judged on the bust crops against `reference`, as on a bust. It is still 8 axes,
 out of 40.
 
@@ -209,7 +219,14 @@ blink, brows hidden under hair.
 On a full body, `rig` also looks at `body-renders` for: a gap or seam at a
 shoulder's cap at `ParamArmL` / `ParamArmR` 16 and 32; the elbow's cap at
 `ParamElbowL` / `ParamElbowR` −10, 45 and 90; the legs planted — the feet still — at every
-BodyAngle pose; and a smooth waist, with no kink at the hip line. A cap or
+BodyAngle pose; and a smooth waist, with no kink at the hip line. With a pose forearm, at
+`full-pose-l` and `full-pose-r` no hanging forearm or elbow cap shows and the
+pose forearm's elbow end covers the seam at the arm's elbow; the hand draws
+over the hair and the face where it passes; the joint stays closed at
+`full-pose-r-angle-m15` and `-p15`; at `full-pose-r-half` both forearms show at
+half strength sharing the elbow, which is the crossfade's midpoint and
+expected, but two elbow ends apart are a `retune` of `layout.forearm_pose_*` by
+the measure's px. A cap or
 seam fault while the measure's arm checks pass sits on the rig's own pivots:
 an `escalate` on `packages/editor/src/auto-rig/`. An arm painted on the body
 (it stays put while the arm over it raises) is a `regenerate` of `body.png`
@@ -242,6 +259,10 @@ scale is fixed, it is a `retune` to a smaller `layout.body.w` and arms' `w`
 (`layout.arm_L.w` and `layout.arm_R.w`, together). An arm-cap warning
 (`arm_R: its shoulder cap reaches …`, or no body paint on its pivot's row) is
 a `retune` of that `layout.arm_*` entry, by the px or onto the row it names.
+A pose-forearm pivot or width warning is a `retune` of `layout.forearm_pose_*`;
+a length warning naming no `w`, or an open elbow end, is a `regenerate` of
+`forearm_pose.png`; a thumb facing out is a `retune` of `mirror-parts.json`
+naming `forearm_pose.png`.
 A body whose shoulder span reads narrower than `figure`'s `shoulderSpan` × `s`
 by more than ~10 % (a tank cut: bare shoulder between the armhole and the
 sleeve at a raise) is a `regenerate` of `body.png`, with the garment over each
@@ -334,7 +355,8 @@ Every finding carries a `type`, and the type decides who acts:
   evidence.
   A part drawn facing the other way (an eye whose lash stops short of its outer
   corner instead of its tear duct) is a retune too: target `mirror-parts.json`,
-  naming the part file. **Free** — recomposing and re-rigging cost nothing, so
+  naming the part file. On a full body with a pose forearm, `layout.forearm_pose_*`
+  is among the retune targets. **Free** — recomposing and re-rigging cost nothing, so
   prefer this whenever it can work.
 - **`escalate`** — the fix lies outside the parts dir, `layout.json`,
   `mirror-parts.json`, `style.json` and `canvas.json`:

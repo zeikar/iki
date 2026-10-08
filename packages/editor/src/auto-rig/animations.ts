@@ -4,8 +4,7 @@
  *
  * The expressions' and head motions' values are our own, picked by eye on Bob
  * and the long-haired character (2026-10) from soft, medium and strong
- * candidates; the Wave's are provisional, to be picked by eye on street. A
- * term's
+ * candidates; the Wave's were picked by eye on street. A term's
  * blend follows its parameter: EyeOpen multiplies, so the procedural blink
  * keeps running under it (at 0 the eyes stay shut); MouthOpenY overwrites,
  * and a host's lip-sync, written after the expression, wins; everything else
@@ -222,7 +221,7 @@ const HEAD_MOTIONS: Record<string, IkiMotionClip[]> = {
  * clip's `fadeIn` / `fadeOut` equal that ramp, because a clip's fade blends
  * every curve, the switch included, and the absent fade (0.4 s) would stretch
  * the crossfade. Every curve is keyed 0 at both ends, so the clip starts and
- * ends at rest. The values are provisional, our own, to be picked by eye.
+ * ends at rest. The values are our own, picked by eye on street.
  */
 const WAVE: Record<string, IkiMotionClip[]> = {
   Wave: [

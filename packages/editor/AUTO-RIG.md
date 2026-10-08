@@ -405,8 +405,8 @@ upper arm never swaps).
 A positive value tips the raised hand outward, away from the body, mirrored
 per side. The pose forearm points up from its pivot where the hanging
 forearm points down, so its rotate binding takes −side × the value: the
-elbow's multiplier, which gives the shoulder's reading. The range is our own
-and provisional, the span 30 putting 0, ±7.5 and ±15 on the slider's 0.3
+elbow's multiplier, which gives the shoulder's reading. The range is our own,
+picked by eye on street, the span 30 putting 0, ±7.5 and ±15 on the slider's 0.3
 steps. The pair is declared only with the layer, right after that side's
 Elbow. It is measured out of the head: a rest render does not show it, so
 `createLayerSetMeasurer` keeps it out of the opaque union and the per-role
@@ -555,7 +555,7 @@ model with a pose forearm adds `Wave` (below the table).
   and 1.7 s. Every curve is keyed 0 at its first and last key. `fadeIn` and
   `fadeOut` equal the switch's ramp (0.15 s), because a clip's fade blends
   every curve, the switch included, and the default 0.4 s would stretch the
-  crossfade. The values are provisional, our own.
+  crossfade. The values are our own, picked by eye on street.
 - **Blends.** EyeOpen multiplies, so the procedural blink keeps running
   under it and at 0 the eyes stay shut. MouthOpenY overwrites, and a host's
   lip-sync, written after the expression, wins. Every other term adds onto a

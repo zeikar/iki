@@ -271,7 +271,7 @@ before/after.
 | `ParamBodyAngleX` / `ParamBodyAngleY` / `ParamBodyAngleZ`             | Body Angle X / Body Angle Y / Body Angle Z (±10; + = turn to screen right / up / tilt clockwise; only with a body; the body also follows the head's turn and tilt a little)    |
 | `ParamArmL` / `ParamArmR` / `ParamElbowL` / `ParamElbowR`             | Arm L / Arm R / Elbow L / Elbow R (degrees; Arm −8..32, + raises the arm outward; Elbow −10..90, + bends the forearm toward the body; mirrored per side; only with arm layers) |
 | `ParamArmPoseL` / `ParamArmPoseR`                                     | Arm Pose L / Arm Pose R (0..1; 0 the hanging forearm, 1 the drawn pose forearm; only with the pose forearm)                                                                    |
-| `ParamArmPoseAngleL` / `ParamArmPoseAngleR`                           | Arm Pose Angle L / Arm Pose Angle R (degrees, provisionally −15..15; + tips the raised hand outward, mirrored per side; only with the pose forearm)                            |
+| `ParamArmPoseAngleL` / `ParamArmPoseAngleR`                           | Arm Pose Angle L / Arm Pose Angle R (degrees, −15..15, picked by eye on street; + tips the raised hand outward, mirrored per side; only with the pose forearm)                 |
 
 A clean console (no `IkiFormatError`/WebGL error) plus visibly-driving
 parameters = success.

@@ -61,7 +61,8 @@ That is why the caps below are not optional, and why the critic is asked to call
 
 Every `regenerate` is a billed `codex exec` taking minutes. A full part set is
 11 parts × 2 variants = 22 jobs. A full body adds `reference-full.png` (one
-job) and `arm.png` (two).
+job), `arm.png` (two), and, with a pose forearm, `reference-wave.png` (one) and
+`forearm_pose.png` (two).
 
 **You cannot check the quota up front.** `codex login status` reports
 authentication and nothing else — its output is byte-identical before and after
@@ -133,13 +134,17 @@ version of this loop; it is ignored.
 is picked, draw `reference-full.png` and write `<workdir>/outfit.txt`, `<workdir>/figure.json` (the figure's
 measurements) and `<workdir>/canvas.json` as the **iki-character** skill's
 `full-body.md` Step 0 says. On a restart, reuse an existing `reference-full.png`,
-`outfit.txt` and `figure.json`, as the other two. The `canvas.json` written there is
+`outfit.txt` and `figure.json`, as the other two. A full body with a pose
+forearm also draws `<workdir>/reference-wave.png` from `reference-full.png`
+with the **iki-create-image** skill's `gen-wave-reference.sh` (the
+**iki-character** skill's `full-body.md` Step 0 says how), reused on a restart
+and frozen like the other references. The `canvas.json` written there is
 provisional until round 1's measuring compose corrects it (`full-body.md`
 Step 2); from round 2 on the artist edits its `canvasHeight` only on a critic
 `retune`, as it does `style.json`.
 
 Then go to Step 1. `reference.png` and `reference-30.png` (and, for a full
-body, `reference-full.png`) are frozen, because every round reads them and
+body, `reference-full.png` and `reference-wave.png`) are frozen, because every round reads them and
 changing any of them mid-loop or on a restart invalidates every prior score.
 
 ### Step 1 — round
@@ -151,7 +156,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    (none on round 1). Both agents ship inside this plugin, so the dispatch name carries
    its namespace; a bare `iki-character-artist` does not resolve. A full body
    also passes `reference-full` (`<workdir>/reference-full.png`, which its
-   `body.png` and `arm.png` jobs attach instead) and `canvas` (the contents of
+   `body.png` and `arm.png` jobs attach instead), `reference-wave`
+   (`<workdir>/reference-wave.png`, which its `forearm_pose.png` jobs attach), and `canvas` (the contents of
    `<workdir>/canvas.json`, whose `canvasHeight` its compose step passes;
    `<workdir>/figure.json` sits beside it).
 
@@ -335,7 +341,17 @@ changing any of them mid-loop or on a restart invalidates every prior score.
        ParamArmR: "Arm R",
        ParamElbowL: "Elbow L",
        ParamElbowR: "Elbow R",
+       ParamArmPoseL: "Arm Pose L",
+       ParamArmPoseR: "Arm Pose R",
+       ParamArmPoseAngleL: "Arm Pose Angle L",
+       ParamArmPoseAngleR: "Arm Pose Angle R",
      };
+     // A model without a pose forearm has no such parameter or slider.
+     const hasPose = api
+       ? api.getParams().some((p) => p.id === "ParamArmPoseR")
+       : [...document.querySelectorAll(".control label span")].some(
+           (s) => s.textContent === LABEL.ParamArmPoseR,
+         );
      const set = (id, value) => {
        if (api) return api.setParam(id, value);
        const input = [...document.querySelectorAll(".control")]
@@ -386,11 +402,25 @@ changing any of them mid-loop or on a restart invalidates every prior score.
        ["full-elbow-r-m10", whole, { ParamElbowR: -10 }],
        ["full-elbow-r-45", whole, { ParamElbowR: 45 }],
        ["full-elbow-r-90", whole, { ParamElbowR: 90 }],
+       ["full-pose-l", whole, { ParamArmPoseL: 1 }],
+       ["full-pose-r", whole, { ParamArmPoseR: 1 }],
+       [
+         "full-pose-r-angle-m15",
+         whole,
+         { ParamArmPoseR: 1, ParamArmPoseAngleR: -15 },
+       ],
+       [
+         "full-pose-r-angle-p15",
+         whole,
+         { ParamArmPoseR: 1, ParamArmPoseAngleR: 15 },
+       ],
+       ["full-pose-r-half", whole, { ParamArmPoseR: 0.5 }],
      ];
      if (api) api.reset();
      await nextFrame();
      const shots = { rest: bust(), "full-rest": whole() };
      for (const [pose, capture, values] of poses) {
+       if (pose.startsWith("full-pose") && !hasPose) continue;
        for (const [id, value] of Object.entries(values)) set(id, value);
        await nextFrame();
        shots[pose] = capture();
@@ -412,7 +442,16 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    ("Elbow L", "Elbow R"; `full-elbow-{l,r}-m10`, `-45`, `-90`). Standalone,
    the arm span (−8..32) and the elbow span (−10..90) put every pose and 0 on
    a slider step, so each lands exactly and a reset returns to 0. They come
-   last because a pose's values are set and cleared one after another. Pass `filename`, move the
+   last because a pose's values are set and cleared one after another.
+   A model with a pose forearm adds five more: `full-pose-l` and `full-pose-r`
+   (the switch `ParamArmPoseL` / `ParamArmPoseR` at 1; "Arm Pose L", "Arm Pose
+   R"), `full-pose-r-angle-m15` and `full-pose-r-angle-p15` (the switch at 1
+   and `ParamArmPoseAngleR` at −15 and 15; "Arm Pose Angle R"; a pose with two
+   values sets both), and `full-pose-r-half` (the switch at 0.5, the crossfade's
+   midpoint). The snippet skips them on a model without the pose forearm: in a
+   checkout it looks for `ParamArmPoseR` in `window.__iki.getParams()`, and
+   standalone for an "Arm Pose R" slider in the panel. The reset after each
+   pose also returns the switch and the rock to 0. Pass `filename`, move the
    file and decode it into `<workdir>/renders/` with `decode-renders.cjs` as
    for the turn pair; it runs to about 80 MB. The bust crops are the critic's
    `renders` and `turn-pair`, the `full-*.png` its `body-renders`.
@@ -424,7 +463,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    turn was solved) so the critic can check the render against the rig's own
    report and tell a clamp this art forced from a new turn defect. It returns
    scores and typed findings. A full body also passes `reference-full`, `figure` (the
-   contents of `<workdir>/figure.json`) and `body-renders` (the whole-canvas `full-*.png` poses); its `renders` and
+   contents of `<workdir>/figure.json`) and `body-renders` (the whole-canvas `full-*.png` poses) and, with a pose forearm,
+   `reference-wave`; its `renders` and
    `turn-pair` are the bust crops.
 4. Route: `regenerate` and `retune` go back to the artist — a `retune` names a
    `layout.json` key, a `mirror-parts.json` entry or a `style.json` knob, or on

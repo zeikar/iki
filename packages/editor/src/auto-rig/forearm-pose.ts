@@ -64,8 +64,8 @@ export const POSE_IDS: Record<ForearmPoseRole, string> = {
   forearm_pose_L: "armPoseDeformer_L",
   forearm_pose_R: "armPoseDeformer_R",
 };
-/** ParamArmPoseAngleX, degrees: provisional, to be picked by eye. Our own
- *  values; the span 30 puts 0, ±7.5 and ±15 on the playground's slider steps
+/** ParamArmPoseAngleX, degrees: our own, picked by eye on street;
+ *  the span 30 puts 0, ±7.5 and ±15 on the playground's slider steps
  *  ((max − min) / 100 = 0.3). */
 export const POSE_ANGLE_RANGE = [-15, 15] as const;
 
