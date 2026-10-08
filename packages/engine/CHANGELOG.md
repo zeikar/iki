@@ -1,5 +1,12 @@
 # @ikijs/engine
 
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [e4a3dac]
+  - @ikijs/format@0.8.0
+
 ## 0.6.0
 
 ### Minor Changes
