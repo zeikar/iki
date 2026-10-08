@@ -67,6 +67,7 @@ import {
   cellsFor,
   cx,
   cy,
+  columnMesh,
   gridMesh,
   roundTo,
   unionBoxes,
@@ -641,31 +642,6 @@ function hairFrontGrid(
     (_, r) => b.y1 - (bh(b) * r) / rows,
   );
   return { xs, ys };
-}
-
-/** A mesh over `b` on `grid`; row 0 on top, each cell split as `gridMesh`'s. */
-function columnMesh(b: Box, grid: HairFrontGrid): IkiMesh {
-  const { xs } = grid;
-  const rows = grid.ys.length - 1;
-  const vertices: number[] = [];
-  const uvs: number[] = [];
-  for (let r = 0; r <= rows; r++) {
-    for (const x of xs) {
-      const u = (x - b.x0) / bw(b);
-      vertices.push(roundTo(u - 0.5, 1e-5), roundTo(0.5 - r / rows, 1e-5));
-      uvs.push(roundTo(u, 1e-5), roundTo(r / rows, 1e-5));
-    }
-  }
-  const n = xs.length;
-  const indices: number[] = [];
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c + 1 < n; c++) {
-      const tl = r * n + c;
-      const bl = tl + n;
-      indices.push(bl, bl + 1, tl, tl, bl + 1, tl + 1);
-    }
-  }
-  return { vertices, uvs, indices };
 }
 
 function meshScale(role: string, frame: HeadFrame): number {

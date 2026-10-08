@@ -203,11 +203,30 @@ export const BROW_TILT = 15;
 
 // --- mouth ----------------------------------------------------------------------
 
+/** Where a mouth's Form bend and widen are centred, and how far they reach:
+ *  the centre x, the half-width, and the corners' lift. A stack of mouth parts
+ *  (the lip set) shares the frame of their union, so every part at the same x
+ *  moves the same and the corners stay joined; the default is the part's own
+ *  box, as the single closed mouth has always had. */
+export interface MouthFrame {
+  c: number;
+  half: number;
+  amp: number;
+}
+
+export const mouthFrameOf = (box: Box): MouthFrame => ({
+  c: cx(box),
+  half: bw(box) / 2,
+  amp: 0.3 * bh(box),
+});
+
 /** Smile lifts the corners and widens the mouth a little; frown the reverse. */
-export function mouthForm(mesh: IkiMesh, box: Box): IkiWarp {
-  const a = 0.3 * bh(box);
-  const c = cx(box);
-  const half = bw(box) / 2;
+export function mouthForm(
+  mesh: IkiMesh,
+  box: Box,
+  frame: MouthFrame = mouthFrameOf(box),
+): IkiWarp {
+  const { c, half, amp: a } = frame;
   return localWarp(P.MouthForm, mesh, box, [-1, 0, 1], ([x], v) => {
     if (v === 0) return [0, 0];
     const u = (x - c) / half;
@@ -228,8 +247,12 @@ export function mouthOpenGrow(mesh: IkiMesh, box: Box): IkiWarp {
 }
 
 /** The closed lips widen as they open (and fade). */
-export function mouthWiden(mesh: IkiMesh, box: Box): IkiWarp {
-  const c = cx(box);
+export function mouthWiden(
+  mesh: IkiMesh,
+  box: Box,
+  frame: MouthFrame = mouthFrameOf(box),
+): IkiWarp {
+  const c = frame.c;
   return localWarp(P.MouthOpen, mesh, box, [0, 1], ([x], v) => [
     v * (AMPLITUDE.mouthOpenWidth - 1) * (x - c),
     0,
