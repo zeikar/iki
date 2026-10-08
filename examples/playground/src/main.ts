@@ -6,6 +6,11 @@ const canvas = document.getElementById("iki") as HTMLCanvasElement;
 const controls = document.getElementById("controls") as HTMLDivElement;
 const panel = controls.parentElement!;
 
+// A full body is framed in a view this many times its width. 2.5 holds the
+// rig's declared ranges in their worst combination with headroom: the arms
+// reach 580 px past the box on a 1100-wide model, and the view leaves 825.
+const FULL_BODY_VIEW_WIDTH = 2.5;
+
 const player = new IkiPlayer(canvas);
 // start() may be called any time, but nothing renders until the first load()
 // resolves. load() swaps the model atomically — you never see a partial frame.
@@ -259,6 +264,27 @@ async function loadModel(rawModel: unknown): Promise<void> {
   // not on screen and rebuild the sliders from the wrong descriptors.
   if (superseded) return;
   parsedModel = parsed;
+  // A taller-than-wide model is a full body: frame it in a view wider than it.
+  // A class sizes the canvas, not inline styles, so a caller's own
+  // style.width/height set before the load keeps winning.
+  const { width: modelW, height: modelH } = parsed.canvas;
+  if (modelH > modelW) {
+    player.setView({
+      x: 0,
+      y: 0,
+      width: FULL_BODY_VIEW_WIDTH * modelW,
+      height: modelH,
+    });
+    canvas.classList.add("full-body");
+    canvas.style.setProperty(
+      "--view-aspect",
+      String((FULL_BODY_VIEW_WIDTH * modelW) / modelH),
+    );
+  } else {
+    player.setView();
+    canvas.classList.remove("full-body");
+    canvas.style.removeProperty("--view-aspect");
+  }
   buildControls();
   buildAnimationControls(parsed);
   if (failedTextures.length > 0) {

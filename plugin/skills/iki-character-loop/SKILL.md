@@ -279,28 +279,37 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    Rendering stays with you because the Playwright browser is a single shared
    resource; two agents driving it collide.
    **A full-body model** (its `canvas.json` sets a `canvasHeight`, H). The
-   playground's canvas is square, so a tall model draws letterboxed in it, its
-   head about a third of a bust's. Before loading it — standalone once Idle is
-   unchecked, in a checkout once `pnpm playground` is up — size the canvas to
-   560 px wide and ceil(560·H/1100) px tall with `browser_evaluate`:
+   playground frames a taller-than-wide model in a view 2.5 × its width, with
+   room each side for the arms' reach in any combined pose, so a raised arm
+   shows whole. Size the canvas to that view at a bust's scale before loading
+   it — standalone once Idle is unchecked, in a checkout once `pnpm playground`
+   is up — 1400 px wide and ceil(560·H/1100) px tall, with `browser_evaluate`:
    ```js
    () => {
      const H = 3694; // canvas.json's canvasHeight
      const canvas = document.getElementById("iki");
-     canvas.style.width = "560px";
+     canvas.style.width = "1400px";
      canvas.style.height = `${Math.ceil((560 * H) / 1100)}px`;
    };
    ```
-   The engine re-fits the model to the canvas's client size every frame, at
-   the smaller of width / 1100 and height / H, so the model fills that width:
-   the head keeps a bust's scale, and the canvas's top square holds the
-   model's top 1100 rows, as a bust's square canvas does. Then load the `.iki`
-   as above and, with no slider touched, capture every pose in ONE
-   `browser_evaluate`: its first capture is the untouched rest. Take no
-   screenshots, as the page cannot show a canvas this tall at once. Each pose
+   The engine fits the view to the canvas's client size every frame, by the
+   width at exactly 560/1100: the head keeps a bust's scale, the model's box
+   sits in the canvas's middle two fifths, and its top 1100 rows are the
+   square at the canvas's top starting three tenths of its width in, as a bust's
+   square canvas holds them. Then load the `.iki` as above and check the build
+   with `browser_evaluate`:
+   `() => document.getElementById("iki").classList.contains("full-body")`. True
+   means the playground frames the view (a checkout always does). False means
+   the deployed playground predates it: the engine then fits the model's box by
+   the canvas's height, still centred and 0.05 % larger than a bust's, so the
+   arms still show whole and the same crops hold the face within a pixel;
+   proceed and say so in the round's report. With no slider touched, capture
+   every pose in ONE `browser_evaluate`: its first capture is the untouched
+   rest. Take no screenshots, as the page cannot show a canvas this tall at
+   once, and the capture JSON runs to about 80 MB for a figure street's size. Each pose
    is a PNG data URL, taken two frames after it is set: the whole canvas for a
-   body pose, and for a bust pose its top `canvas.width`-square, drawn onto a
-   2D canvas of that size — the pixels a bust's render would hold, so the face
+   body pose, and for a bust pose the model's square, drawn onto a 2D canvas
+   of that size — the pixels a bust's render would hold, so the face
    is judged and measured exactly as on a bust. The snippet runs on both
    paths: it drives `window.__iki` by id in a checkout, and the panel's sliders
    by label standalone, where `window.__iki` does not exist. Every pose is
@@ -337,10 +346,14 @@ changing any of them mid-loop or on a restart invalidates every prior score.
      };
      const whole = () => canvas.toDataURL("image/png");
      const bust = () => {
-       const side = canvas.width;
+       // The model's square: two fifths of the canvas, three tenths in.
+       const side = (canvas.width * 2) / 5;
+       const x0 = (canvas.width * 3) / 10;
        const crop = document.createElement("canvas");
        crop.width = crop.height = side;
-       crop.getContext("2d").drawImage(canvas, 0, 0); // the top square
+       crop
+         .getContext("2d")
+         .drawImage(canvas, x0, 0, side, side, 0, 0, side, side);
        return crop.toDataURL("image/png");
      };
      const poses = [
@@ -387,11 +400,11 @@ changing any of them mid-loop or on a restart invalidates every prior score.
      return JSON.stringify(shots);
    };
    ```
-   The bust poses are this step's own, as bust crops: `rest`; the turn pair
+   The bust poses are this step's own, as the model's square: `rest`; the turn pair
    `measure_turn_reference` reads (`rest`, `turn-m30`, `turn-p30`, the last
    also the head-turn); `blink`, `gaze`, the between-stop `turn-15`, `nod-15`
-   and `blink-half`, and `combined`. The body poses are the whole canvas:
-   `full-rest`; `full-turn-p30` (`ParamAngleX` 30: the body follows the head a
+   and `blink-half`, and `combined`. The body poses are the whole canvas, 2.5 × the
+   model's width with the figure in the middle: `full-rest`; `full-turn-p30` (`ParamAngleX` 30: the body follows the head a
    little); `ParamBodyAngleX`, `ParamBodyAngleY` and `ParamBodyAngleZ` at ±10
    ("Body Angle X", "Body Angle Y", "Body Angle Z"); `ParamArmL` and
    `ParamArmR` at 16 and 32 ("Arm L", "Arm R"; `full-arm-{l,r}-16`,
@@ -401,7 +414,7 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    a slider step, so each lands exactly and a reset returns to 0. They come
    last because a pose's values are set and cleared one after another. Pass `filename`, move the
    file and decode it into `<workdir>/renders/` with `decode-renders.cjs` as
-   for the turn pair; it runs to several MB. The bust crops are the critic's
+   for the turn pair; it runs to about 80 MB. The bust crops are the critic's
    `renders` and `turn-pair`, the `full-*.png` its `body-renders`.
 3. Dispatch **`iki:iki-character-critic`** with `reference`, `reference-30`, `layers`,
    `renders` (the render paths), `turn-pair` (`<workdir>/renders/rest.png`,

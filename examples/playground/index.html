@@ -34,7 +34,12 @@
         background: #14151a;
         color: #e7e7ea;
       }
+      /* Fills the viewport (a taller canvas grows it): a long panel must not push the figure below the fold. */
       #stage {
+        position: sticky;
+        top: 0;
+        min-height: 100vh;
+        align-self: flex-start;
         flex: 1;
         display: grid;
         place-items: center;
@@ -42,6 +47,12 @@
       canvas {
         width: min(70vmin, 560px);
         height: min(70vmin, 560px);
+      }
+      /* Bounded by the stage's width and the viewport's height; a bust keeps the square. */
+      canvas.full-body {
+        width: min(100%, calc(90vh * var(--view-aspect)));
+        height: auto;
+        aspect-ratio: var(--view-aspect);
       }
       #panel {
         width: 280px;

@@ -238,11 +238,11 @@ Load the `.iki` and confirm it renders + animates. Both paths use the Model
 picker's "Load a .iki file…" entry to load it and drive the same parameters —
 only the load order and how you address them (id vs. panel label) differ.
 
-A full-body model draws letterboxed in the playground's square canvas, its
-head about a third of a bust's. To see it at the bust's scale, size the canvas
-as the **iki-character-loop** skill's Step 1 does: before loading, set its CSS
-size to 560 px wide and ceil(560·H/1100) px tall, H being its `canvasHeight`
-(`browser_evaluate`). The engine fits the model to the canvas every frame.
+The playground frames a full-body model whole by itself, in a view 2.5 × its
+width. To see it at the bust's scale, size the canvas as the
+**iki-character-loop** skill's Step 1 does: before loading, set its CSS size to
+1400 px wide and ceil(560·H/1100) px tall, H being its `canvasHeight`
+(`browser_evaluate`).
 
 **Standalone (default):** open https://zeikar.dev/iki/playground/ (Playwright
 MCP or a normal browser) and **uncheck Idle before loading anything** —

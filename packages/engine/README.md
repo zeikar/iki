@@ -38,18 +38,30 @@ the rest of the tick, and the engine reports that case rather than let a host
 read `[]` and conclude the model declares no parameters. Parameter writes are
 clamped to the declared range; unknown ids and non-finite values are ignored.
 
+**Framing.** By default the player fits the model's box and centres it on the
+canvas. `player.setView({ x, y, width, height })` frames something else: the
+view's centre and size in model units (origin at the model's centre, +y up). A
+full body whose raised arms leave the box passes a wider view, e.g.
+`{ x: 0, y: 0, width: 2.5 * model.canvas.width, height: model.canvas.height }`; a face
+crop passes a smaller one. How much room is the host's call, because a combined
+pose sets the reach and the host knows its pose set; the playground's 2.5 × the
+width is the worked example. The view survives `load()`, and `setView()` with
+no argument restores the default. Unlike `setParameter`, which ignores bad
+values, `setView` throws on a non-finite centre or a non-positive size.
+
 ## API
 
-| Export                                           | What it is                                                                                                       |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `IkiPlayer`                                      | The renderer: `load` / `start` / `stop` / `setParameter` / `getParameter` / `getParameters` / `destroy`          |
-| `IkiLoadResult`                                  | `{ failedTextures, superseded }` returned by `load()`                                                            |
-| `ParameterStore`                                 | The clamped parameter map the player drives                                                                      |
-| `IkiMotion`                                      | Idle, clips, expressions, physics and chains, stepped as one; `playExpression` / `stopExpression` / `playMotion` |
-| `IdleMotion`                                     | Auto-blink / breath / gaze-drift driver                                                                          |
-| `PhysicsMotion`                                  | Spring-mass-damper secondary motion (`model.physics`)                                                            |
-| `HairChainMotion`                                | Multi-segment angular chain with gravity (`model.physicsChains`)                                                 |
-| `translate` `rotate` `scale` `multiply` `toMat3` | The 2D affine helpers the engine itself uses                                                                     |
+| Export                                           | What it is                                                                                                          |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `IkiPlayer`                                      | The renderer: `load` / `start` / `stop` / `setParameter` / `setView` / `getParameter` / `getParameters` / `destroy` |
+| `IkiView`                                        | `{ x, y, width, height }`: the framing `setView` takes, centre and size in model units                              |
+| `IkiLoadResult`                                  | `{ failedTextures, superseded }` returned by `load()`                                                               |
+| `ParameterStore`                                 | The clamped parameter map the player drives                                                                         |
+| `IkiMotion`                                      | Idle, clips, expressions, physics and chains, stepped as one; `playExpression` / `stopExpression` / `playMotion`    |
+| `IdleMotion`                                     | Auto-blink / breath / gaze-drift driver                                                                             |
+| `PhysicsMotion`                                  | Spring-mass-damper secondary motion (`model.physics`)                                                               |
+| `HairChainMotion`                                | Multi-segment angular chain with gravity (`model.physicsChains`)                                                    |
+| `translate` `rotate` `scale` `multiply` `toMat3` | The 2D affine helpers the engine itself uses                                                                        |
 
 ## Motion drivers
 
@@ -145,6 +157,8 @@ left unwritten by idle; a one-shot or an expression can still drive it.
   premultiplied (so LINEAR filtering never blends a transparent texel's rgb
   into an edge), the shader keeps them so, and the canvas is created with
   `premultipliedAlpha: true`.
+- Nothing clips at the model's box: the canvas's edge is the only clip besides
+  masks, so a part outside the box shows if the view leaves room for it.
 - Clipping masks use the stencil buffer. If the context grants no stencil, the
   affected parts render unclipped and `load()` logs it.
 - Textures are decoded from `data:` URIs only; external URLs are skipped with a

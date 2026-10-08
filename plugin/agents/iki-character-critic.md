@@ -71,13 +71,14 @@ artist agent applies your findings; the orchestrator arbitrates.
   beside an empty `debug/` dir), captured via `canvas.toDataURL` rather than
   screenshotted (the measurement needs the render's own transparency): what
   you feed `measure_turn_reference`.
-- `body-renders` — a full body only: whole-canvas renders, captured like the
-  turn pair: `full-rest`, `full-turn-p30` (`ParamAngleX` 30, the body
+- `body-renders` — a full body only: whole-canvas renders of a canvas 2.5 × the
+  model's width, the figure centred with room each side for a raised arm in
+  any pose, so a hand never clips at the canvas; captured like the turn pair: `full-rest`, `full-turn-p30` (`ParamAngleX` 30, the body
   following the head a little), `ParamArmL` / `ParamArmR` at 16 and 32
   (`full-arm-{l,r}-16`, `-32`), `ParamElbowL` / `ParamElbowR` at −10, 45 and
   90 (`full-elbow-{l,r}-m10`, `-45`, `-90`), and `ParamBodyAngleX` / `Y` / `Z` at
-  ±10. For a full body, `renders` and `turn-pair` are bust crops: the
-  canvas's top square, at a bust's scale, so the face is judged and measured
+  ±10. For a full body, `renders` and `turn-pair` are the model's
+  square at the canvas's top, its top 1100 rows at a bust's scale, so the face is judged and measured
   exactly as on a bust.
 - `round` — which iteration this is.
 - `scores` — the previous rounds' `SCORES:` lines, so you can compare each axis

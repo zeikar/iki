@@ -15,6 +15,7 @@ import {
   translate,
 } from "./affine";
 import { evaluateTransform, resolveDeformers } from "./deform";
+import { checkedView, projectView, type IkiView } from "./view";
 import { applyWarps } from "./warp";
 import { applyWarpToChild, type ResolvedWarpGrid } from "./warp-grid";
 
@@ -76,6 +77,8 @@ interface PartMesh {
  * bindings. `load()` is async — it decodes and uploads textures before swapping
  * the model in. Mesh parts additionally carry per-vertex UV and optional warp
  * keyforms, interpolated each frame on the CPU into a dynamic vertex buffer.
+ * The model's box is fitted and centred on the canvas unless the host frames
+ * something else with {@link IkiPlayer.setView}.
  */
 export class IkiPlayer {
   private readonly gl: WebGL2RenderingContext;
@@ -95,6 +98,7 @@ export class IkiPlayer {
   private readonly stencilAvailable: boolean;
 
   private model?: IkiModel;
+  private view?: IkiView;
   private parts: IkiPart[] = [];
   private params = new ParameterStore([]);
   private rafId?: number;
@@ -498,6 +502,19 @@ export class IkiPlayer {
   }
 
   /**
+   * Frame the canvas on `view` (centre and size in model units) instead of the
+   * model's box, which is the default. Pass a wider view for a full body whose
+   * raised arms leave the box (how much room is the host's call: a combined
+   * pose sets the reach), or a smaller one for a face crop. Parts clip at the
+   * canvas's edge, never at the view. The view survives `load()`; `setView()`
+   * with no argument restores the default. Throws on a non-finite centre or a
+   * non-positive size.
+   */
+  setView(view?: IkiView): void {
+    this.view = view ? checkedView(view) : undefined;
+  }
+
+  /**
    * Current value of a parameter, or 0 for an unknown id.
    *
    * Hosts need this to avoid shadowing the engine's state: the motion drivers
@@ -567,12 +584,15 @@ export class IkiPlayer {
 
     if (!this.model) return;
 
-    // Fit the logical model canvas into the drawing buffer, preserving aspect,
-    // and convert model units to clip space.
+    // Fit the view into the drawing buffer, preserving aspect, and convert
+    // model units to clip space. Unset, the view is the model's box: the fit
+    // the player always had.
     const { width: modelW, height: modelH } = this.model.canvas;
-    const fit = Math.min(width / modelW, height / modelH);
-    const clipX = (fit * 2) / width;
-    const clipY = (fit * 2) / height;
+    const project = projectView(
+      width,
+      height,
+      this.view ?? { x: 0, y: 0, width: modelW, height: modelH },
+    );
 
     gl.useProgram(this.program);
 
@@ -595,14 +615,13 @@ export class IkiPlayer {
         this.drawClipped(
           index,
           maskIndices,
-          clipX,
-          clipY,
+          project,
           deformerWorlds,
           warpGrids,
         );
       } else {
         // Unclipped (or stencil unavailable — load() already reported it).
-        this.drawPart(index, clipX, clipY, deformerWorlds, warpGrids);
+        this.drawPart(index, project, deformerWorlds, warpGrids);
       }
     }
   }
@@ -617,8 +636,7 @@ export class IkiPlayer {
   private drawClipped(
     index: number,
     maskIndices: number[],
-    clipX: number,
-    clipY: number,
+    project: Affine,
     deformerWorlds: Map<string, Affine> | undefined,
     warpGrids: Map<string, ResolvedWarpGrid> | undefined,
   ): void {
@@ -636,7 +654,7 @@ export class IkiPlayer {
     gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
     gl.uniform1f(this.uAlphaCutoff, MASK_ALPHA_CUTOFF);
     for (const maskIndex of maskIndices) {
-      this.drawPart(maskIndex, clipX, clipY, deformerWorlds, warpGrids);
+      this.drawPart(maskIndex, project, deformerWorlds, warpGrids);
     }
 
     // 2. Draw the consumer only where stencil == 1; restore color writes first.
@@ -645,7 +663,7 @@ export class IkiPlayer {
     gl.stencilMask(0x00);
     gl.stencilFunc(gl.EQUAL, 1, 0xff);
     gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
-    this.drawPart(index, clipX, clipY, deformerWorlds, warpGrids);
+    this.drawPart(index, project, deformerWorlds, warpGrids);
 
     // 3. Restore every stencil state this pass changed (colorMask + u_alphaCutoff
     //    already restored above) so the next unmasked part renders normally.
@@ -663,8 +681,7 @@ export class IkiPlayer {
    */
   private drawPart(
     index: number,
-    clipX: number,
-    clipY: number,
+    project: Affine,
     deformerWorlds: Map<string, Affine> | undefined,
     warpGrids: Map<string, ResolvedWarpGrid> | undefined,
   ): void {
@@ -679,12 +696,13 @@ export class IkiPlayer {
     const t = this.evaluate(part);
     // Warp-child mesh parts bypass the affine dWorld·TRS chain entirely: their
     // vertices are computed by the per-frame grid pipeline below (which bakes
-    // part TRS into model-space positions), so u_matrix carries ONLY clip-scale.
+    // part TRS into model-space positions), so u_matrix carries ONLY the view
+    // projection.
     const warpChild = this.partMeshes.get(index)?.warpDeformer;
     // clip <- project <- [deformer?] <- translate <- rotate <- scale(size)
     let m: ReturnType<typeof multiply>;
     if (warpChild) {
-      m = scale(clipX, clipY);
+      m = project;
     } else if (part.deformer !== undefined) {
       const dWorld = deformerWorlds!.get(part.deformer);
       if (!dWorld) {
@@ -692,11 +710,11 @@ export class IkiPlayer {
           `part "${part.id}" references unknown deformer "${part.deformer}"`,
         );
       }
-      m = multiply(multiply(scale(clipX, clipY), dWorld), translate(t.x, t.y));
+      m = multiply(multiply(project, dWorld), translate(t.x, t.y));
       m = multiply(m, rotate(t.rotation));
       m = multiply(m, scale(part.width * t.scaleX, part.height * t.scaleY));
     } else {
-      m = multiply(scale(clipX, clipY), translate(t.x, t.y));
+      m = multiply(project, translate(t.x, t.y));
       m = multiply(m, rotate(t.rotation));
       m = multiply(m, scale(part.width * t.scaleX, part.height * t.scaleY));
     }
