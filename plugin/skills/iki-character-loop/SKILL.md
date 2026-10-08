@@ -434,7 +434,7 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    changeset. A render-vs-report `escalate` (the critic's Δ beyond ±0.05)
    comes off the palette-quantized model, so confirm it losslessly before
    deciding: call `auto_rig_from_layers` yourself on the same layers (every
-   `<workdir>/layers/*.png` but `preview.png`) with the same `style`, no
+   `<workdir>/layers/*.png` but the previews, `preview.png` and `preview-pose.png`) with the same `style`, no
    `quantizeColors`, and `outputPath: <workdir>/iki-character-lossless.iki`;
    load that file and capture the same three poses as in step 2, decoding them
    into `<workdir>/renders/lossless/` (a full body: on the canvas still sized

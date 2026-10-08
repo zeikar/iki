@@ -28,10 +28,10 @@ export const ARM_ROLES = ["arm_L", "arm_R"] as const;
 export const CAP_OVERLAP = 0.5;
 
 /** A px figure as the report prints it: pivots sit on half px. */
-const px = (v: number) => `${Number(v.toFixed(1))}`;
+export const px = (v: number) => `${Number(v.toFixed(1))}`;
 
 /** Decode a role's layer in `absDir` and measure it on `measurer`. */
-async function measured(
+export async function measured(
   measurer: LayerSetMeasurer,
   absDir: string,
   role: string,

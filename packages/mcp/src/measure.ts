@@ -17,6 +17,7 @@ import path from "node:path";
 import { decodePng, detectAlphaBbox } from "./node-images";
 import { AutoRigInputError, MAX_LAYERS, resolveInputDir } from "./limits";
 import { ARM_ROLES, armWarnings } from "./measure-arms";
+import { POSE_ROLES, forearmPoseWarnings } from "./measure-forearm-pose";
 import { SPECK_CORE_FRACTION, denseCoreOf, isSpeckCore } from "./measure-turn";
 
 // Iris width as a fraction of sclera width. Below the floor the eye reads as a
@@ -208,8 +209,11 @@ export async function layerStats(filePath: string): Promise<LayerStats | null> {
 
 const pct = (v: number) => `${(v * 100).toFixed(0)}%`;
 
-/** An arm's seams show once it raises, every other part's on the head turn. */
-const isArm = (role: string) => (ARM_ROLES as readonly string[]).includes(role);
+/** An arm's seams show once it raises, every other part's on the head turn. A
+ *  pose forearm raises with its arm, and shows only once the switch is on. */
+const isArm = (role: string) =>
+  (ARM_ROLES as readonly string[]).includes(role) ||
+  (POSE_ROLES as readonly string[]).includes(role);
 
 /** A nose's dense core that `isSpeckCore` judged a speck of its part, as sizes
  *  in px: compose's verdict on the trimmed source part, or the composed
@@ -386,6 +390,9 @@ export async function measureDir(
 
   // 1c. The arms: each needs a body, and its shoulder cap the torso under it.
   warnings.push(...(await armWarnings(absDir, layers)));
+
+  // 1d. The pose forearms: each needs its arm, and its elbow end the arm's elbow.
+  warnings.push(...(await forearmPoseWarnings(absDir, layers)));
 
   // 2/3/4. Eye stack geometry, per side.
   for (const side of ["L", "R"]) {

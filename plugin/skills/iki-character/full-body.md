@@ -8,8 +8,9 @@ to Steps 0–3.
 ## When
 
 Only when the user asks for a full body. It is opt-in per character: a full
-body is a `canvasHeight` over 1100 plus an `arm.png`. A bust never reads this
-file, and its flow is unchanged.
+body is a `canvasHeight` over 1100 plus an `arm.png`. A full body also draws a
+pose forearm (`forearm_pose.png`, the raised arm that makes the Wave) unless the
+user says no wave. A bust never reads this file, and its flow is unchanged.
 
 The head keeps the bust's size and place. The canvas grows downward from its
 top-left corner, so the face and hair parts, their prompts and their layout
@@ -27,6 +28,18 @@ It draws `iki-char/reference-full.png` from it: the same character head to toe,
 arms in a slight A-pose, on a 1:3 portrait. It is one more billed image. Check
 it against that skill's redraw list before drawing any part. A restart reuses
 it.
+
+Then, for the pose forearm, run that skill's
+`gen-wave-reference.sh iki-char/reference-full.png iki-char`. It draws
+`iki-char/reference-wave.png` from the full-body reference: the same figure
+with its right hand raised in a wave. It is one more billed image, and it is
+what `forearm_pose.png` is drawn against and what the critic judges it by. It
+shows the raised forearm itself in the character's style and the figure's
+proportions: the sleeve's cuff, the skin, the line and the hand's pose, where
+`arm.png`'s reference shows a hanging arm the model tends to redraw hanging, and
+`reference-full.png` shows no raised forearm at all. Check it against that
+skill's redraw list. When it did not come back usable, `reference-full.png`
+stands in. A restart reuses it. Skip it only when the user says no wave.
 
 **The scale.** The head keeps its size, so the figure is scaled to the head by
 the face's width: s = the composed face's `w` (`layout.face.w` when set, else
@@ -77,15 +90,17 @@ the composed face's chin row, which starts at 661
 A provisional value over 4096 is written as 4096: the composer refuses more,
 and the measuring compose of Step 2 has to be able to run.
 
-## Step 1 — The body and the arm, against the full-body reference
+## Step 1 — The body, the arm and the pose forearm, against the references
 
-Each `gen-images.sh` run attaches one `--ref`, so draw the parts in two runs:
+Each `gen-images.sh` run attaches one `--ref`, so draw the parts in three runs:
 
 - the face and hair parts — every part `SKILL.md` Step 1 lists but `body.png`
   — with `--ref iki-char/reference.png`, as for a bust;
-- `body.png` and `arm.png`, with `--ref iki-char/reference-full.png`.
+- `body.png` and `arm.png`, with `--ref iki-char/reference-full.png`;
+- `forearm_pose.png`, with `--ref iki-char/reference-wave.png`
+  (`reference-full.png` when the wave reference did not come back usable).
 
-Keep the one `<STYLE>` string in both. The two prompts below replace the
+Keep the one `<STYLE>` string in all three. The prompts below replace the
 bust's `body.png` prompt.
 
 - **body.png** — "A front-facing anime paper-doll body, `<STYLE>`, in the
@@ -136,6 +151,26 @@ bust's `body.png` prompt.
   hand, so draw the whole arm, hand included, longer than it is wide. A hand
   that came out at the lower RIGHT is the other side's arm: add `"arm.png"` to
   `iki-char/mirror-parts.json` and recompose — free.)_
+- **forearm_pose.png** — "The raised forearm and hand of the character's RIGHT
+  arm, the one waving on the SCREEN LEFT of the reference, `<STYLE>`, drawn on
+  its own as a paper-doll piece: the forearm pointing straight UP, the open
+  hand at the TOP of the image with the palm toward the viewer, fingers
+  together and relaxed, the THUMB at the image's RIGHT (toward the body), the
+  forearm dressed as it is in the reference (its sleeve and cuff if it wears
+  one, bare skin if the sleeve ends above the elbow), and at the BOTTOM a
+  rounded, closed elbow end outlined all the way round by its own line. Only the forearm and the
+  hand: NO upper arm, NO shoulder, NO torso, NO head. Transparent background,
+  centred with margin on every side. A portrait image twice as tall as it is
+  wide." _(Generate 2 variants, the second worded as "a puppet's forearm
+  piece". It is drawn against `reference-wave.png` because that image shows
+  the raised forearm itself in this character's style; `arm.png`'s reference
+  would show a hanging arm. The composer makes both sides from it,
+  `forearm_pose_R` as drawn and `forearm_pose_L` mirrored, scales it so its
+  elbow end is as wide as the hanging arm's elbow and pins that end on the
+  arm's elbow. A thumb at the image's LEFT is the other side's piece: add
+  `"forearm_pose.png"` to `iki-char/mirror-parts.json` and recompose — free.
+  An open or flat elbow end, or a sleeve, cuff or bare skin that does not match
+  `arm.png`'s, is a regeneration.)_
 
 ## Step 2 — Compose the tall canvas
 
@@ -191,6 +226,26 @@ or `cy` centres the arm's box, as for every other role, not its pivot: start
 from the box the compose placed (`left + width / 2`, `top + height / 2` in the
 result) and move from there.
 
+**The pose forearm.** It needs no layout to start: the composer derives it
+from the placed arm, scaling it so its elbow end is as wide as the arm's elbow
+run and pinning that end on the arm's elbow. Tune the arms first, since the
+pose forearm follows their elbow. Then read `preview-pose.png`, the switch at 1
+as the rig draws it (the hanging forearm hidden below the elbow, the pose
+forearm over everything), against `reference-wave.png`, for the raised hand's
+height and the joint at the elbow. `preview.png` keeps the rest pose, where the
+pose forearm is invisible. `cx` / `cy` centre the box as for every role, so
+start from the box the compose placed. The report's pose checks, each with its
+fix:
+
+- **Pivot** (`forearm_pose_R: its elbow end is … px off arm_R's elbow`): set
+  `layout.forearm_pose_R.cx` / `cy` to the values the warning names — free.
+- **Width** (`… px wide, … % off arm_R's elbow run`): set
+  `layout.forearm_pose_R.w` to the value named — free.
+- **Length** (`its length from the elbow end to the hand …`): when the warning
+  names a `w`, set it — free. Otherwise regenerate `forearm_pose.png` with the
+  forearm and hand as long as the hanging arm's below its elbow. Billed.
+- **An edge** (`… edge is opaque … once the arm raises`): as for any part.
+
 **The report's full-body checks**, each fixed for free:
 
 - **Feet cut** (`body: its bottom row is the canvas's last`): raise
@@ -205,8 +260,8 @@ result) and move from there.
 ## Step 3 — Rig
 
 Add `arm_L` and `arm_R` to the layers, and `forearm_pose_L` and `forearm_pose_R`
-when the compose wrote them, with everything else the compose wrote but
-`preview.png`.
+when the compose wrote them, with everything else the compose wrote but the
+previews (`preview.png`, `preview-pose.png`).
 
 - An atlas page can reach 4096 px on a side. A device whose WebGL limit is
   2048 then loads the model with those parts untextured; a limit of 4096 or
@@ -216,6 +271,11 @@ when the compose wrote them, with everything else the compose wrote but
 
 ## Pitfalls
 
+- **The pose forearm drawn with the upper arm.** The joint doubles: the upper
+  arm is `arm.png`'s, and stays under the pose forearm. Draw the forearm and
+  the hand only, with a closed elbow end.
+- **The pose forearm's cuff longer than `arm.png`'s.** The sleeve steps at the
+  elbow when the switch is on. Compare the cuff on `preview-pose.png`.
 - **Arms leaked into `body.png`.** "NO arms" is a negation like "NO nose", so
   check every variant. Painted arms never move while the arms over them do.
   Hanging beside the torso, they also show as legs to the rig: it plants the

@@ -20,7 +20,7 @@ type SetPixel = (x: number, y: number, rgb: RGB, alpha?: number) => void;
 
 const WHITE: RGB = [255, 255, 255];
 const DARK: RGB = [20, 20, 30];
-const SKIN: RGB = [240, 205, 180];
+export const SKIN: RGB = [240, 205, 180];
 const BLUE: RGB = [40, 90, 200];
 const LIP: RGB = [190, 90, 90];
 const HAIR: RGB = [90, 60, 50];
@@ -32,7 +32,7 @@ export const EYE_MARK_BELOW: RGB = [230, 190, 200];
 export const EYE_MARK_BESIDE: RGB = [240, 215, 150];
 const BLUSH: RGB = [245, 160, 170];
 export const BLUSH_MARK: RGB = [200, 80, 100];
-const SLEEVE: RGB = [70, 80, 160];
+export const SLEEVE: RGB = [70, 80, 160];
 export const ARM_MARK: RGB = [60, 160, 90];
 
 /** Paint a straight-alpha RGBA canvas and write it as a PNG. */
@@ -395,14 +395,36 @@ async function writeArm(dir: string, arm: "hanging" | "squat"): Promise<void> {
 }
 
 /**
+ * A forearm_pose.png, 56x150: the forearm raised, an upright 40x100 sleeve
+ * ellipse with a 36x50 skin hand on top, rounded and closed at its bottom
+ * (elbow) end, and an ARM_MARK patch inside the sleeve's left half, so a
+ * mirror shows. Scaled to the hanging arm's elbow run it reaches about as
+ * far up from the elbow as the hanging arm does down.
+ */
+async function writeForearmPose(dir: string): Promise<void> {
+  const bounds = { width: 56, height: 150 };
+  await writeRgbaPart(dir, "forearm_pose.png", 56, 150, (set) => {
+    ellipse(set, bounds, 28, 100, 40, 100, SLEEVE);
+    ellipse(set, bounds, 28, 30, 36, 50, SKIN);
+    for (let y = 95; y < 103; y++)
+      for (let x = 16; x < 24; x++) set(x, y, ARM_MARK);
+  });
+}
+
+/**
  * The parts set with a full body for the stock torso, plus one arm.png
- * (`"hanging"` unless `arm` says otherwise).
+ * (`"hanging"` unless `arm` says otherwise), and with `pose` one
+ * forearm_pose.png.
  */
 export async function writeFullBodyParts(
   dir: string,
-  { arm = "hanging" }: { arm?: "hanging" | "squat" } = {},
+  {
+    arm = "hanging",
+    pose = false,
+  }: { arm?: "hanging" | "squat"; pose?: boolean } = {},
 ): Promise<void> {
   await writePartsSet(dir, { omit: ["body.png"] });
   await writeFullBody(dir);
   await writeArm(dir, arm);
+  if (pose) await writeForearmPose(dir);
 }

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
+import { armGeometry, createLayerSetMeasurer } from "@ikijs/editor";
 import { formatMeasureReport, measureLayers } from "../src/measure";
 
 /**
@@ -674,6 +675,122 @@ describe("arms", () => {
         (w) => /^arm_/.test(w) && /the head turns|on turn\./.test(w),
       ),
     ).toEqual([]);
+  });
+
+  describe("pose forearms", () => {
+    /** The hanging arm's elbow row and its last painted row, canvas px. */
+    async function armRows(dir: string) {
+      const { data } = await sharp(path.join(dir, "arm_R.png"))
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      const layer = createLayerSetMeasurer(TALL).add({
+        role: "arm_R",
+        fileName: "arm_R.png",
+        rgba: data,
+      })!;
+      const { elbow } = armGeometry(layer, 0);
+      return {
+        elbow: Math.round(TALL.height / 2 - elbow.y - 0.5),
+        last: layer.bbox.y + layer.bbox.h - 1,
+      };
+    }
+
+    /** A pose forearm `w` wide on columns centred on `cx`, its rounded end
+     *  (here a rect's flat one) `w / 2` under the elbow row, reaching `reach`
+     *  px above it. */
+    const poseAt =
+      (elbow: number, reach: number, cx = 60, w = 30) =>
+      (set: SetPixel) =>
+        rect(set, cx - w / 2, elbow - reach, w, reach + w / 2 + 1, DARK);
+
+    /** The pose checks, less the generic edge ones a rect's sides trip. */
+    const poseChecks = (warnings: string[]) =>
+      warnings.filter(
+        (w) =>
+          w.startsWith("forearm_pose_R: ") &&
+          !/edge is opaque|straight flat edge/.test(w),
+      );
+
+    async function withPose(
+      pose: (elbow: number, last: number) => (set: SetPixel) => void,
+    ): Promise<string> {
+      const dir = await bodyWith({ arm_R: armAt(60) });
+      const { elbow, last } = await armRows(dir);
+      await writeLayer(dir, "forearm_pose_R.png", pose(elbow, last), TALL);
+      return dir;
+    }
+
+    it("passes a pose forearm standing on the arm's elbow", async () => {
+      const dir = await withPose((e, last) => poseAt(e, last - e));
+      expect(poseChecks((await measureOk(dir)).warnings)).toEqual([]);
+    });
+
+    it("warns of a pivot 10 px to the side, with the cx and cy to set", async () => {
+      const dir = await withPose((e, last) => poseAt(e, last - e, 70));
+      const warnings = poseChecks((await measureOk(dir)).warnings);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toMatch(
+        /^forearm_pose_R: its elbow end is 10 px off arm_R's elbow .* Remove layout\.forearm_pose_R\.cx\/cy .* or set layout\.forearm_pose_R\.cx to 60 and layout\.forearm_pose_R\.cy to \d+ \(free\)\.$/,
+      );
+    });
+
+    it("warns of an elbow end 20 % wider, with the w to set", async () => {
+      const dir = await withPose((e, last) => poseAt(e, last - e, 60, 36));
+      const warnings = poseChecks((await measureOk(dir)).warnings);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toMatch(
+        /^forearm_pose_R: its elbow end is 36 px wide, 20% off arm_R's elbow run \(30 px\) .* Set layout\.forearm_pose_R\.w to 30 \(free\)\.$/,
+      );
+    });
+
+    it("warns of a pose forearm twice as tall as a regeneration", async () => {
+      const dir = await withPose((e, last) => poseAt(e, 2 * (last - e)));
+      const warnings = poseChecks((await measureOk(dir)).warnings);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toMatch(
+        /^forearm_pose_R: its length from the elbow end to the hand is [\d.]+ px against arm_R's [\d.]+ px .* Regenerate forearm_pose\.png .* Billed\.$/,
+      );
+    });
+
+    it("names one free w for a pose forearm uniformly too big", async () => {
+      const dir = await withPose((e, last) =>
+        poseAt(e, Math.round(1.2 * (last - e)), 60, 36),
+      );
+      const warnings = poseChecks((await measureOk(dir)).warnings);
+      expect(warnings).toHaveLength(2);
+      expect(warnings[0]).toMatch(
+        /Set layout\.forearm_pose_R\.w to 30 \(free\)\.$/,
+      );
+      expect(warnings[1]).toMatch(
+        /Set layout\.forearm_pose_R\.w to 30 \(free\), which fixes the width too\.$/,
+      );
+      expect(warnings.join("\n")).not.toMatch(/Billed/);
+    });
+
+    it("reports, rather than throws, for a body on another canvas height", async () => {
+      const dir = await withPose((e, last) => poseAt(e, last - e));
+      await writeLayer(dir, "body.png", torso, { width: CANVAS, height: 700 });
+      const result = await measureLayers({ layersDir: dir });
+      expect(result.ok).toBe(true);
+    });
+
+    it("warns of a pose forearm without its arm", async () => {
+      const dir = await bodyWith({});
+      await writeLayer(dir, "forearm_pose_R.png", poseAt(200, 100), TALL);
+      expect(poseChecks((await measureOk(dir)).warnings)).toEqual([
+        "forearm_pose_R: no arm_R layer — a pose forearm hangs from its arm's elbow, and auto_rig_from_layers refuses it.",
+      ]);
+    });
+
+    it("words a cut pose forearm's seam as the arm raising", async () => {
+      const dir = tmpDir();
+      await writeLayer(dir, "forearm_pose_R.png", armAt(60, 100, 60), TALL);
+      const top = (await measureOk(dir)).warnings.find((w) =>
+        /^forearm_pose_R: .* top edge is opaque/.test(w),
+      );
+      expect(top).toMatch(/a straight seam once the arm raises\. Cause:/);
+    });
   });
 });
 

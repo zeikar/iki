@@ -22,7 +22,12 @@ import { ALPHA_OPAQUE, detectAlphaBbox as scanAlphaBbox } from "@ikijs/editor";
 import { cropToBuffer, decodePng } from "./node-images";
 import { measureDir, type MeasureReport, type NoseSpeck } from "./measure";
 import { denseCoreOf, isSpeckCore } from "./measure-turn";
-import { ARM_WIDTH, armPlacement } from "./compose-arms";
+import {
+  ARM_WIDTH,
+  armPlacement,
+  forearmPosePlacement,
+  forearmPoseWidth,
+} from "./compose-arms";
 import {
   AutoRigInputError,
   MAX_CANVAS_DIM,
@@ -124,7 +129,10 @@ interface NoseLayout extends Omit<RoleLayout, "cy"> {
  * placed body when unset (compose-arms.ts): `w` is ARM_WIDTH of the body's
  * width, and an unset `cx` or `cy` hangs the arm's shoulder pivot, the one
  * the rig turns it about, on the body box's shoulder corner on that axis. A
- * set one keeps every other role's meaning.
+ * set one keeps every other role's meaning. The pose forearms share its shape
+ * with their own derivation (compose-arms.ts): an unset `w` scales the
+ * forearm's elbow end to the placed arm's elbow run, and an unset `cx` or
+ * `cy` pins its elbow-end pivot on the arm's elbow.
  */
 export interface ArmLayout extends Omit<RoleLayout, "cx" | "cy" | "w"> {
   cx?: number;
@@ -172,8 +180,11 @@ const NOSE_TIP_AT = 0.66;
 // its outer end (toward the face's edge) at the image's left end and its
 // inner end (toward the nose) at the right; arm.png is the arm on the SCREEN
 // LEFT (the character's right), hanging, its shoulder at the image's top and
-// its hand at the bottom. A part drawn the other way round is flipped for
-// free with `mirrorParts`.
+// its hand at the bottom; forearm_pose.png is that arm's forearm raised, on
+// the SCREEN LEFT too: standing up from its elbow, the open hand at the
+// image's top with the thumb at its right (toward the body), a rounded
+// closed elbow end at the bottom. A part drawn the other way round is
+// flipped for free with `mirrorParts`.
 // eye_*  = the WHITE sclera (upper lashes recolored white) = the blink clip mask + fold.
 // iris_* = colored disc on top, clipped to the sclera, drives gaze.
 // lash_lower_* = the lower lid's dark line and lashes, ABOVE the iris (it
@@ -251,6 +262,14 @@ const DEFAULT_LAYOUT = {
   brow_L: { src: "brow.png", cx: 645, cy: 405, w: 105, mirror: false },
   brow_R: { src: "brow.png", cx: 455, cy: 405, w: 105, mirror: true },
   hair_front: { src: "hair_front.png", cx: 550, cy: 425, w: 660 },
+  // The pose forearms, one drawing for both: forearm_pose_R (screen left)
+  // takes forearm_pose.png as drawn and forearm_pose_L mirrors it, like the
+  // arms. The rig draws them above the face and the hair, so they come last.
+  // No cx/cy/w defaults: an unset `w` scales the forearm's elbow end to the
+  // placed arm's elbow run, an unset `cx` or `cy` pins its elbow-end pivot
+  // on the arm's elbow (ArmLayout). OPTIONAL and opt-in, like the arms.
+  forearm_pose_L: { src: "forearm_pose.png", optional: true, mirror: true },
+  forearm_pose_R: { src: "forearm_pose.png", optional: true, mirror: false },
 } satisfies Record<string, RoleLayout | NoseLayout | ArmLayout>;
 
 export type Role = keyof typeof DEFAULT_LAYOUT;
@@ -265,15 +284,20 @@ export type LayerRole = Role | keyof typeof LOWER_LASH;
 
 /** The arm roles, placed off the body (ArmLayout). */
 type ArmRole = "arm_L" | "arm_R";
+/** The pose forearm roles, placed off their arm's elbow (ArmLayout). */
+type PoseRole = "forearm_pose_L" | "forearm_pose_R";
 
 /**
- * The merged layout, typed so a default other than the nose's and the arms'
- * that drops its `cy` fails to compile: `resolveLayout` builds it from
+ * The merged layout, typed so a default other than the nose's, the arms' and
+ * the pose forearms' that drops its `cy` fails to compile: `resolveLayout` builds it from
  * DEFAULT_LAYOUT.
  */
-type ResolvedLayout = Record<Exclude<Role, "nose" | ArmRole>, RoleLayout> & {
+type ResolvedLayout = Record<
+  Exclude<Role, "nose" | ArmRole | PoseRole>,
+  RoleLayout
+> & {
   nose: NoseLayout;
-} & Record<ArmRole, ArmLayout>;
+} & Record<ArmRole | PoseRole, ArmLayout>;
 
 /**
  * Draw order (back -> front): the roles of @ikijs/editor ROLE_TABLE the
@@ -301,6 +325,8 @@ export const ORDER: LayerRole[] = [
   "brow_L",
   "brow_R",
   "hair_front",
+  "forearm_pose_L",
+  "forearm_pose_R",
 ];
 
 /**
@@ -370,12 +396,20 @@ export type ComposeResult =
       layers: ComposedLayer[];
       /**
        * Roles whose optional part was absent from the parts dir, and the lower
-       * lashes when the eyewhite draws no dark lower lid. The arms are opt-in
-       * and never listed: a parts dir without arm.png composes as a bust does,
-       * though an earlier compose's arm layers are still removed.
+       * lashes when the eyewhite draws no dark lower lid. The arms and the
+       * pose forearms are opt-in and never listed: a parts dir without
+       * arm.png composes as a bust does, though an earlier compose's arm
+       * layers are still removed.
        */
       skipped: LayerRole[];
+      /** The rest pose, flattened: a pose forearm is invisible there, so it
+       *  never shows in this one. */
       preview: string;
+      /** Written only with a pose forearm: the switch at 1 as the rig draws
+       *  it — each arm with a pose forearm cropped to the rows above its
+       *  elbow (the hanging forearm hidden), the pose forearms over
+       *  everything. */
+      previewPose?: string;
       measure: MeasureReport;
     }
   | { ok: false; error: string };
@@ -606,24 +640,28 @@ async function noseSizingOf(png: Buffer): Promise<NoseSizing> {
   return { box: core, whole: false };
 }
 
+/** A part trimmed and flipped, not yet resized: a PNG and its size. */
+interface Trimmed {
+  data: Buffer;
+  w: number;
+  h: number;
+}
+
 /**
- * Trim/mirror a part and resize it to its layout width. The nose is resized so
- * its dense core, not its whole part, comes out `w` wide (and `h` tall when
- * set), unless its whole part stood in for the core. Either way the nose's
- * sizing decision (`noseSizingOf`) always comes back as `nose`, and no other
- * role has one. `inMemory` carries the eye pair's two split buffers; every
- * other role is read from the parts dir. `flipSource` is a `mirrorParts` entry
- * for the file the role is cut from.
+ * Trim/mirror a part, ready to be resized (`sizedPart`). `inMemory` carries
+ * the eye pair's two split buffers; every other role is read from the parts
+ * dir. `flipSource` is a `mirrorParts` entry for the file the role is cut
+ * from. A pose forearm is measured between this and the resize, to learn the
+ * width that fits it to its arm.
  * Missing optional part -> null; missing required part -> AutoRigInputError.
  */
-async function partBuffer(
+async function trimmedPart(
   role: LayerRole,
-  cfg: Omit<RoleLayout, "cx" | "cy">,
+  cfg: Omit<RoleLayout, "cx" | "cy" | "w">,
   partsDir: string,
   inMemory: Buffer | undefined,
   flipSource: boolean,
-  canvas: Canvas,
-): Promise<{ buf: Buffer; w: number; h: number; nose?: NoseSizing } | null> {
+): Promise<Trimmed | null> {
   let img: sharp.Sharp;
   if (inMemory !== undefined) {
     img = sharp(inMemory);
@@ -673,7 +711,27 @@ async function partBuffer(
   // source decode limit, so the size the resize WOULD produce can be checked
   // against the canvas while only the bounded buffer is allocated.
   const trimmed = await img.png().toBuffer({ resolveWithObject: true });
-  const { width: trimmedW, height: trimmedH } = trimmed.info;
+  return {
+    data: trimmed.data,
+    w: trimmed.info.width,
+    h: trimmed.info.height,
+  };
+}
+
+/**
+ * Resize a trimmed part to its layout width. The nose is resized so its dense
+ * core, not its whole part, comes out `w` wide (and `h` tall when set),
+ * unless its whole part stood in for the core. Either way the nose's sizing
+ * decision (`noseSizingOf`) always comes back as `nose`, and no other role
+ * has one.
+ */
+async function sizedPart(
+  role: LayerRole,
+  cfg: Omit<RoleLayout, "cx" | "cy">,
+  trimmed: Trimmed,
+  canvas: Canvas,
+): Promise<{ buf: Buffer; w: number; h: number; nose?: NoseSizing }> {
+  const { w: trimmedW, h: trimmedH } = trimmed;
   // What `w`/`h` size: the nose's dense core, measured on the trimmed, flipped
   // part — the whole part scales with it, feather and all — or that whole
   // part when it has no core or the core is a speck, and every other role's
@@ -711,6 +769,23 @@ async function partBuffer(
 }
 
 /**
+ * Trim/mirror a part and resize it to its layout width: `trimmedPart` then
+ * `sizedPart`. Missing optional part -> null; missing required part ->
+ * AutoRigInputError.
+ */
+async function partBuffer(
+  role: LayerRole,
+  cfg: Omit<RoleLayout, "cx" | "cy">,
+  partsDir: string,
+  inMemory: Buffer | undefined,
+  flipSource: boolean,
+  canvas: Canvas,
+): Promise<{ buf: Buffer; w: number; h: number; nose?: NoseSizing } | null> {
+  const trimmed = await trimmedPart(role, cfg, partsDir, inMemory, flipSource);
+  return trimmed === null ? null : sizedPart(role, cfg, trimmed, canvas);
+}
+
+/**
  * Refuse a placed part that lands nowhere on the canvas. Running off an edge is
  * legitimate — a bust's `body` is meant to be cut off by the canvas bottom — so
  * the test is INTERSECTION, not containment. A part that misses the canvas
@@ -740,7 +815,7 @@ function assertOnCanvas(
 
 /** Where a part lands, centred on its layout cx/cy. The nose has its own. */
 function placement(
-  role: Exclude<Role, "nose" | ArmRole>,
+  role: Exclude<Role, "nose" | ArmRole | PoseRole>,
   cfg: RoleLayout,
   w: number,
   h: number,
@@ -1157,6 +1232,10 @@ export async function composeLayersFromParts(
       part: { buf: Buffer; w: number; h: number };
       left: number;
       top: number;
+      /** An arm's, for a pose forearm to hang from: the rig's elbow pivot on
+       *  the canvas and the elbow seam's run, px. */
+      elbow?: { x: number; y: number };
+      elbowRun?: number;
     }[] = [];
     const skipped: LayerRole[] = [];
     // Compose's verdict on the nose's source part when its core was a speck,
@@ -1191,12 +1270,17 @@ export async function composeLayersFromParts(
           mirrored.has(arm.src),
           canvas,
         ))!;
-        const { left, top } = await armPlacement(key, arm, part, {
-          left: body.left,
-          top: body.top,
-          w: body.part.w,
-          h: body.part.h,
-        });
+        const { left, top, elbow, elbowRun } = await armPlacement(
+          key,
+          arm,
+          part,
+          {
+            left: body.left,
+            top: body.top,
+            w: body.part.w,
+            h: body.part.h,
+          },
+        );
         const unset = (["cx", "cy"] as const).filter(
           (field) => arm[field] === undefined,
         );
@@ -1204,6 +1288,64 @@ export async function composeLayersFromParts(
           unset.length === 0
             ? `layout.${key}.cx/cy`
             : `layout.${key}.cx/cy (${unset.join("/")} unset: its shoulder pivot hangs on the shoulder corner of layout.body's box)`,
+          part.w,
+          part.h,
+          left,
+          top,
+          canvas,
+        );
+        placed.push({ role, part, left, top, elbow, elbowRun });
+        continue;
+      }
+      if (key === "forearm_pose_L" || key === "forearm_pose_R") {
+        const pose = layout[key];
+        // Opt-in like the arms: neither placed nor listed in `skipped`.
+        if (!fs.existsSync(path.join(partsDir, pose.src))) continue;
+        const armRole = key === "forearm_pose_L" ? "arm_L" : "arm_R";
+        const arm = placed.find((p) => p.role === armRole);
+        if (arm?.elbow === undefined || arm.elbowRun === undefined) {
+          throw new AutoRigInputError(
+            "forearm_pose.png: a pose forearm needs arm.png — the composer pins it on the arm's elbow, and auto_rig_from_layers hangs it from the arm",
+          );
+        }
+        // Never null: the part is there, checked above.
+        const trimmed = (await trimmedPart(
+          role,
+          pose,
+          partsDir,
+          undefined,
+          mirrored.has(pose.src),
+        ))!;
+        const w =
+          pose.w ?? (await forearmPoseWidth(key, trimmed, arm.elbowRun));
+        let part;
+        try {
+          part = await sizedPart(role, { ...pose, w }, trimmed, canvas);
+        } catch (err) {
+          // A derived w the user never set is not blamed on the layout key.
+          if (pose.w === undefined && err instanceof AutoRigInputError) {
+            throw new AutoRigInputError(
+              err.message.replace(
+                `layout.${role}.w:`,
+                `layout.${role}.w (unset: scaled to ${armRole}'s elbow run):`,
+              ),
+            );
+          }
+          throw err;
+        }
+        const { left, top } = await forearmPosePlacement(
+          key,
+          pose,
+          part,
+          arm.elbow,
+        );
+        const unset = (["cx", "cy"] as const).filter(
+          (field) => pose[field] === undefined,
+        );
+        assertOnCanvas(
+          unset.length === 0
+            ? `layout.${key}.cx/cy`
+            : `layout.${key}.cx/cy (${unset.join("/")} unset: its elbow-end pivot hangs on the elbow of layout.${armRole}'s placed arm)`,
           part.w,
           part.h,
           left,
@@ -1280,6 +1422,14 @@ export async function composeLayersFromParts(
       if (placed.some((p) => p.role === role)) continue;
       fs.rmSync(path.join(outDir, `${role}.png`), { force: true });
     }
+    // The pose preview exists only with a pose forearm, so it is swept with
+    // the layers: left behind it would show a forearm the layers no longer
+    // hold.
+    const posed = (role: LayerRole) =>
+      role === "forearm_pose_L" || role === "forearm_pose_R";
+    if (!placed.some((p) => posed(p.role))) {
+      fs.rmSync(path.join(outDir, "preview-pose.png"), { force: true });
+    }
     const layers: ComposedLayer[] = [];
     const preview: { input: Buffer; left: number; top: number }[] = [];
     for (const { role, part, left, top } of placed) {
@@ -1298,7 +1448,7 @@ export async function composeLayersFromParts(
         left,
         top,
       });
-      preview.push({ input: part.buf, left, top });
+      if (!posed(role)) preview.push({ input: part.buf, left, top });
     }
 
     // Flattened preview over a light bg so transparency reads clearly.
@@ -1316,12 +1466,59 @@ export async function composeLayersFromParts(
     const previewPath = path.join(outDir, "preview.png");
     writeFileAtomic(previewPath, previewPng);
 
+    // The switch at 1, as the rig draws it: an arm whose side has a pose
+    // forearm keeps the rows above its elbow (the upper arm and the sleeve;
+    // the hanging forearm hides), and the pose forearms, last in `placed`,
+    // draw over everything.
+    let previewPosePath: string | undefined;
+    if (placed.some((p) => posed(p.role))) {
+      const pose: { input: Buffer; left: number; top: number }[] = [];
+      for (const { role, part, left, top, elbow } of placed) {
+        const armPosed =
+          elbow !== undefined &&
+          placed.some(
+            (p) =>
+              p.role ===
+              (role === "arm_L" ? "forearm_pose_L" : "forearm_pose_R"),
+          );
+        if (!armPosed) {
+          pose.push({ input: part.buf, left, top });
+          continue;
+        }
+        const rows = Math.min(part.h, Math.max(1, Math.round(elbow.y - top)));
+        pose.push({
+          input: await sharp(part.buf)
+            .extract({ left: 0, top: 0, width: part.w, height: rows })
+            .png()
+            .toBuffer(),
+          left,
+          top,
+        });
+      }
+      const posePng = await sharp({
+        create: {
+          width: canvas.width,
+          height: canvas.height,
+          channels: 4,
+          background: { r: 245, g: 245, b: 248, alpha: 1 },
+        },
+      })
+        .composite(pose)
+        .png()
+        .toBuffer();
+      previewPosePath = path.join(outDir, "preview-pose.png");
+      writeFileAtomic(previewPosePath, posePng);
+    }
+
     return {
       ok: true,
       outDir,
       layers,
       skipped,
       preview: previewPath,
+      ...(previewPosePath === undefined
+        ? {}
+        : { previewPose: previewPosePath }),
       measure: await measureDir(outDir, noseSpeck),
     };
   } catch (err) {

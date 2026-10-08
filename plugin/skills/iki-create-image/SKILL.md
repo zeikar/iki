@@ -1,6 +1,6 @@
 ---
 name: iki-create-image
-description: Draw the images an Iki character is built from — the front reference, the role-separated part PNGs drawn against it, the 30° turned reference, and for a full-body character the full-body reference drawn from the front one — with the Codex CLI's image tool on a model the plugin pins, or hand the user the prompts to run in another image tool when Codex is not set up. Used by the iki-character and iki-character-loop skills; not for general image requests.
+description: Draw the images an Iki character is built from — the front reference, the role-separated part PNGs drawn against it, the 30° turned reference, and for a full-body character the full-body reference drawn from the front one and the waving reference drawn from that — with the Codex CLI's image tool on a model the plugin pins, or hand the user the prompts to run in another image tool when Codex is not set up. Used by the iki-character and iki-character-loop skills; not for general image requests.
 user-invocable: false
 ---
 
@@ -21,8 +21,9 @@ They sit beside this file, in `${CLAUDE_SKILL_DIR}`:
 | `gen-images.sh [--ref <png>] <work_dir> "<prompt>::<out.png>" ...` | a batch, up to five jobs at once. Without `--ref`, from the prompt alone: the front reference. With it, every job sees it: the parts                                                                 |
 | `gen-turn-reference.sh <reference.png> <work_dir>`                 | `<work_dir>/reference-30.png`: the same character with the head turned 30° (the **iki-character-loop**'s style check)                                                                                |
 | `gen-full-reference.sh <reference.png> <work_dir> [outfit]`        | `<work_dir>/reference-full.png`: the same character drawn full body, head to toe, from the bust — only for a full-body character; `[outfit]` names the bottoms, socks and shoes the bust cannot show |
+| `gen-wave-reference.sh <reference-full.png> <work_dir>`            | `<work_dir>/reference-wave.png`: the full-body reference with the right hand raised in a wave — only for a full body that gets a pose forearm; what `forearm_pose.png` is drawn against              |
 
-All three shell out to `codex exec` with Codex's built-in `image_generation`
+All four shell out to `codex exec` with Codex's built-in `image_generation`
 tool, write into `<work_dir>` (which must already exist) and keep each job's
 transcript in `<work_dir>/.gen-logs/`. **Billed, minutes per image** — confirm
 the user is OK spending before the first job. Run them as background Bash jobs
@@ -107,6 +108,24 @@ It drives the body and arm parts, where the body is placed on the tall canvas,
 and the critic's body score. The front reference stays the face's: the face
 and hair parts, the face layout, the turned reference and the face score.
 
+## The waving reference
+
+Only for a full body that gets a pose forearm (`forearm_pose.png`, the
+**iki-character** skill's `full-body.md`), and drawn FROM `reference-full.png`
+once that one is final: `gen-wave-reference.sh <workdir>/reference-full.png
+<workdir>` writes `<workdir>/reference-wave.png`, the same figure with its right
+hand (on the viewer's left) raised in a wave. It is one more billed image, and
+the pose forearm is drawn against it because it shows the raised forearm
+itself — the sleeve's cuff, the skin, the line and the hand's pose at the
+figure's proportions — where `arm.png`'s reference shows a hanging arm the
+model tends to redraw hanging, and `reference-full.png` shows no raised
+forearm at all. It is also the critic's target for the pose forearm.
+
+Draw it again if the raised hand's thumb faces out (away from the body), the
+upper arm left the torso, or the outfit drifted from `reference-full.png`.
+When it does not come back usable, `reference-full.png` stands in as the
+pose forearm's reference.
+
 ## Failed jobs and quota
 
 **You cannot check quota up front.** `codex login status` reports
@@ -141,11 +160,13 @@ rather use another tool, write `<workdir>/prompts.md` and stop:
 - one entry per image: the exact path to save it at (the composer reads parts
   by filename), which reference to attach — none for the front reference,
   `reference.png` for the turned and full-body references and the face and hair
-  parts, `reference-full.png` for a full body's `body.png` and `arm.png` — and
+  parts, `reference-full.png` for a full body's `body.png` and `arm.png`, and
+  `reference-wave.png` for its `forearm_pose.png` — and
   the prompt verbatim with `<STYLE>` filled in: for the turned reference, the
   prompt inside `gen-turn-reference.sh`; for the full-body reference, the one
   inside `gen-full-reference.sh`, with the outfit sentence in place of its
-  default outfit line.
+  default outfit line; for the waving reference, the one inside
+  `gen-wave-reference.sh` (attach `reference-full.png`).
 
 Tell the user where the file is and wait. When they say the images are in
 place, check every path is there and a PNG (`file <path>`), then continue from

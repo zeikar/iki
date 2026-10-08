@@ -79,6 +79,8 @@ You own the character assets. You do not own the packages.
 - `reference-full` — a full body only: the same character head to toe, drawn
   from `reference`. `body.png` and `arm.png` are drawn against it and placed
   by it.
+- `reference-wave` — a full body with a pose forearm only: `reference-full`
+  with the right hand raised in a wave. `forearm_pose.png` is drawn against it.
 - `workdir` — scratch dir **under the project cwd** (MCP output is confined
   there), created by the orchestrator with `parts/`, `layers/`, `layout.json`
   and `style.json` (both `{}` on round 1) already there, and `canvas.json`
@@ -95,9 +97,9 @@ You own the character assets. You do not own the packages.
 Read `${CLAUDE_PLUGIN_ROOT}/skills/iki-character/SKILL.md` first — it carries
 the role table,
 the prompt patterns and the hard-won pitfalls. For a full body, also read
-`${CLAUDE_PLUGIN_ROOT}/skills/iki-character/full-body.md`: its `body.png` and
-`arm.png` prompts, how the body and the arms are placed, and how round 1's first
-compose corrects the provisional `canvas.json`. Then:
+`${CLAUDE_PLUGIN_ROOT}/skills/iki-character/full-body.md`: its `body.png`,
+`arm.png` and `forearm_pose.png` prompts, how the body and the arms are placed,
+and how round 1's first compose corrects the provisional `canvas.json`. Then:
 
 1. **Generate parts** (only when you have `regenerate` findings, or on round 1):
 
@@ -107,9 +109,10 @@ compose corrects the provisional `canvas.json`. Then:
    ```
 
    This attaches the reference to every job so the parts share one anchor.
-   A full body fires two batches, since each takes one `--ref`: the face and
-   hair parts with `--ref <reference>`, and `body.png` and `arm.png` with
-   `--ref <reference-full>`.
+   A full body fires three batches, since each takes one `--ref`: the face and
+   hair parts with `--ref <reference>`, `body.png` and `arm.png` with
+   `--ref <reference-full>`, and `forearm_pose.png` with
+   `--ref <reference-wave>`.
 
    The jobs run in the background and you cannot wait on them, so you will
    return with the batch still in flight — say so and let the orchestrator
@@ -175,7 +178,8 @@ compose corrects the provisional `canvas.json`. Then:
 ## Applying findings
 
 - **`retune`** — change the value in `layout.json` (or the entry in
-  `mirror-parts.json`), recompose, re-read the report. A `retune` of
+  `mirror-parts.json`), recompose, re-read the report. That includes a pose
+  forearm's `layout.forearm_pose_*` (`cx` / `cy` / `w`). A `retune` of
   `style.<knob>` edits that key in `style.json` and re-rigs. A `retune` of
   `canvasHeight` edits `canvas.json` and recomposes. On a full body, a new
   `layout.body.w` also re-sets its `cy` as `full-body.md` Step 2 does, so the
@@ -220,6 +224,13 @@ compose corrects the provisional `canvas.json`. Then:
   a free `layout.arm_*` move: shift that arm's `cx` toward the body by the px
   it names (its `cy` onto the shoulder when the body has no paint on the
   pivot's row), and recompose — not a reason to regenerate the arm.
+- A pose-forearm check (`forearm_pose_R: its elbow end is … px off arm_R's
+elbow`, `… px wide, … % off arm_R's elbow run`) names its own free retune:
+  remove `layout.forearm_pose_*.cx` / `cy` (so it stays pinned on the elbow)
+  or set them, or set `w`, to the values it gives and recompose. Tune the arms first, since the pose forearm follows their elbow.
+  A length warning that names no `w` is a regeneration of `forearm_pose.png`.
+  A thumb at the image's left is the other side's piece: add
+  `"forearm_pose.png"` to `mirror-parts.json`, free.
 - A white garment — a full body's shirt, socks or shoes — on a part that came
   back opaque on white keys out with the ground (`keyWhiteToAlpha`) and shows
   as holes. Regenerate that part, asking for a transparent background.

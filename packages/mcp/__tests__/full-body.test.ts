@@ -8,7 +8,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
-import { armGeometry, createLayerSetMeasurer } from "@ikijs/editor";
+import {
+  armGeometry,
+  createLayerSetMeasurer,
+  forearmPoseGeometry,
+} from "@ikijs/editor";
 import { ROLE_TABLE } from "../../editor/src/auto-rig/roles";
 import { ARM_WIDTH, SHOULDER_DROP } from "../src/compose-arms";
 import {
@@ -21,7 +25,13 @@ import {
 import { parseIkiModel } from "@ikijs/format";
 import { decodePng } from "../src/node-images";
 import { autoRigFromLayers } from "../src/tools";
-import { ARM_MARK, writeFullBodyParts, writePartsSet } from "./helpers/parts";
+import {
+  ARM_MARK,
+  SKIN,
+  SLEEVE,
+  writeFullBodyParts,
+  writePartsSet,
+} from "./helpers/parts";
 
 const createdDirs: string[] = [];
 /** Parts are read-only input, so the fixture lives in the system temp dir. */
@@ -402,6 +412,237 @@ describe("arms", () => {
       }),
     ).toMatch(/^layout\.arm_L: .*layer "arm\.png": the arm is too short/);
   });
+
+  describe("the pose forearm", () => {
+    let poseParts: string;
+    let posed: ComposeOk;
+    const layout = { body };
+
+    beforeAll(async () => {
+      poseParts = partsDir();
+      await writeFullBodyParts(poseParts, { pose: true });
+      posed = await composeOk({
+        partsDir: poseParts,
+        outDir: outDir(),
+        canvasHeight: TALL,
+        layout,
+      });
+    }, 30_000);
+
+    /** A composed layer as the rig measures it. */
+    async function measuredLayer(result: ComposeOk, role: string) {
+      const { rgba } = await decodePng(layerOf(result, role).path);
+      return createLayerSetMeasurer({ width: CANVAS, height: TALL }).add({
+        role,
+        fileName: `${role}.png`,
+        rgba,
+      })!;
+    }
+
+    /** A pose forearm's pivot and elbow-end width, and its arm's elbow and
+     *  seam run, in canvas px. */
+    async function jointOf(
+      result: ComposeOk,
+      pose: "forearm_pose_L" | "forearm_pose_R",
+      arm: "arm_L" | "arm_R",
+    ) {
+      const a = armGeometry(await measuredLayer(result, arm), 0);
+      const b = forearmPoseGeometry(await measuredLayer(result, pose));
+      return {
+        elbow: { x: a.elbow.x + CANVAS / 2, y: TALL / 2 - a.elbow.y },
+        pivot: { x: b.pivot.x + CANVAS / 2, y: TALL / 2 - b.pivot.y },
+        armRun: a.seamRun[1] - a.seamRun[0],
+        poseRun: 2 * b.radius,
+      };
+    }
+
+    /** The RGB of a PNG's pixel (x, y). */
+    async function rgbAt(file: string, x: number, y: number) {
+      const { rgba, width } = await decodePng(file);
+      const i = (y * width + x) * 4;
+      return [rgba[i], rgba[i + 1], rgba[i + 2]];
+    }
+
+    it("composes forearm_pose_R as drawn and forearm_pose_L mirrored, and flips both under mirrorParts", async () => {
+      const flipped = await composeOk({
+        partsDir: poseParts,
+        outDir: outDir(),
+        canvasHeight: TALL,
+        layout,
+        mirrorParts: ["forearm_pose.png"],
+      });
+      for (const [result, sign] of [
+        [posed, 1],
+        [flipped, -1],
+      ] as const) {
+        for (const [role, side] of [
+          ["forearm_pose_R", -1],
+          ["forearm_pose_L", 1],
+        ] as const) {
+          const layer = layerOf(result, role);
+          const mark = await markColumn(layer.path);
+          expect(
+            Math.sign(mark - (layer.left + layer.width / 2)),
+            `${role}, mirrored: ${sign === -1}`,
+          ).toBe(side * sign);
+        }
+      }
+    });
+
+    it("pins each pose forearm's pivot on its arm's elbow, scaled to the elbow run", async () => {
+      for (const [pose, arm] of [
+        ["forearm_pose_R", "arm_R"],
+        ["forearm_pose_L", "arm_L"],
+      ] as const) {
+        const { elbow, pivot, armRun, poseRun } = await jointOf(
+          posed,
+          pose,
+          arm,
+        );
+        expect(Math.abs(pivot.x - elbow.x), pose).toBeLessThanOrEqual(1);
+        expect(Math.abs(pivot.y - elbow.y), pose).toBeLessThanOrEqual(1);
+        expect(Math.abs(poseRun - armRun), pose).toBeLessThanOrEqual(1);
+      }
+    });
+
+    it("honours a set w and a set cx/cy", async () => {
+      const result = await composeOk({
+        partsDir: poseParts,
+        outDir: outDir(),
+        canvasHeight: TALL,
+        layout: {
+          body,
+          forearm_pose_R: { w: 120, cx: 300, cy: 1000 },
+          forearm_pose_L: { w: 90 },
+        },
+      });
+      const r = layerOf(result, "forearm_pose_R");
+      expect(r.width).toBe(120);
+      expect([r.left, r.top]).toEqual([240, Math.round(1000 - r.height / 2)]);
+      // A set w alone leaves the pivot on the elbow.
+      expect(layerOf(result, "forearm_pose_L").width).toBe(90);
+      const { elbow, pivot } = await jointOf(result, "forearm_pose_L", "arm_L");
+      expect(Math.abs(pivot.x - elbow.x)).toBeLessThanOrEqual(1);
+      expect(Math.abs(pivot.y - elbow.y)).toBeLessThanOrEqual(1);
+    });
+
+    it("refuses a pose forearm without its arm", async () => {
+      const noArm = partsDir();
+      await writeFullBodyParts(noArm, { pose: true });
+      fs.rmSync(path.join(noArm, "arm.png"));
+      expect(
+        await composeError({
+          partsDir: noArm,
+          outDir: outDir(),
+          canvasHeight: TALL,
+          layout,
+        }),
+      ).toBe(
+        "forearm_pose.png: a pose forearm needs arm.png — the composer pins it on the arm's elbow, and auto_rig_from_layers hangs it from the arm",
+      );
+    });
+
+    it("leaves preview.png the rest pose, byte for byte, and swaps the hanging forearm out of preview-pose.png", async () => {
+      const bare = partsDir();
+      await writeFullBodyParts(bare);
+      const without = await composeOk({
+        partsDir: bare,
+        outDir: outDir(),
+        canvasHeight: TALL,
+        layout,
+      });
+      expect(without.previewPose).toBeUndefined();
+      expect(
+        fs.readFileSync(posed.preview).equals(fs.readFileSync(without.preview)),
+      ).toBe(true);
+      expect(fs.existsSync(path.join(posed.outDir, "preview-pose.png"))).toBe(
+        true,
+      );
+      expect(posed.previewPose).toBe(
+        path.join(posed.outDir, "preview-pose.png"),
+      );
+
+      const BG = [245, 245, 248];
+      const near = (got: number[], want: number[]) =>
+        got.every((c, i) => Math.abs(c - want[i]) <= 3);
+      const { elbow } = await jointOf(posed, "forearm_pose_R", "arm_R");
+      const pose = layerOf(posed, "forearm_pose_R");
+      // On A's run-centre column, from under the pose forearm's rounded end
+      // down to A's last painted row there: only the hanging forearm paints
+      // there, so the pose preview shows what is under it (the torso or the
+      // background) and the rest preview shows the sleeve or the skin.
+      const x = Math.round(elbow.x);
+      const first = pose.top + pose.height;
+      const armLayer = await decodePng(layerOf(posed, "arm_R").path);
+      let last = first;
+      for (let y = first; y < TALL; y++) {
+        if (armLayer.rgba[(y * armLayer.width + x) * 4 + 3] === 255) last = y;
+      }
+      expect(last).toBeGreaterThan(first + 20);
+      for (let y = first; y <= last; y++) {
+        const under = await rgbAt(posed.previewPose!, x, y);
+        // The torso's edge may run through the column: a blend of the
+        // torso and the background, never the sleeve or the skin.
+        expect(
+          near(under, [...SLEEVE]) || near(under, [...SKIN]),
+          `row ${y} ${under}`,
+        ).toBe(false);
+        expect(
+          under.every((c, i) => c >= [20, 20, 30][i] - 3 && c <= BG[i] + 3),
+          `row ${y} ${under}`,
+        ).toBe(true);
+        // The hanging forearm paints there at rest, wherever it is
+        // sleeve, skin or the mark on it.
+        expect(await rgbAt(posed.preview, x, y), `rest row ${y}`).not.toEqual(
+          under,
+        );
+      }
+
+      // In B's hand: B's skin in the pose preview where nothing else covers
+      // it at rest, which shows the background there.
+      const { rgba, width } = await decodePng(pose.path);
+      const rest = await decodePng(posed.preview);
+      let hand: { x: number; y: number } | undefined;
+      for (let y = pose.top; y < pose.top + pose.height && !hand; y++) {
+        for (let c = pose.left; c < pose.left + pose.width; c++) {
+          const i = (y * width + c) * 4;
+          if (
+            rgba[i + 3] === 255 &&
+            near([rgba[i], rgba[i + 1], rgba[i + 2]], [...SKIN]) &&
+            near([rest.rgba[i], rest.rgba[i + 1], rest.rgba[i + 2]], BG)
+          ) {
+            hand = { x: c, y };
+            break;
+          }
+        }
+      }
+      expect(hand).toBeDefined();
+      expect(
+        near(await rgbAt(posed.previewPose!, hand!.x, hand!.y), [...SKIN]),
+      ).toBe(true);
+    });
+
+    it("removes the pose layers and preview-pose.png once forearm_pose.png is gone", async () => {
+      const dir = partsDir();
+      await writeFullBodyParts(dir, { pose: true });
+      const out = outDir();
+      const input = { partsDir: dir, outDir: out, canvasHeight: TALL, layout };
+      await composeOk(input);
+      expect(fs.existsSync(path.join(out, "preview-pose.png"))).toBe(true);
+
+      fs.rmSync(path.join(dir, "forearm_pose.png"));
+      const result = await composeOk(input);
+      for (const file of [
+        "forearm_pose_L.png",
+        "forearm_pose_R.png",
+        "preview-pose.png",
+      ]) {
+        expect(fs.existsSync(path.join(out, file)), file).toBe(false);
+      }
+      expect(result.previewPose).toBeUndefined();
+      expect(result.skipped).toEqual([]);
+    });
+  });
 });
 
 describe("end to end", () => {
@@ -465,5 +706,52 @@ describe("end to end", () => {
       );
       expect(Math.abs(TALL / 2 - pivot.y - cornerY), id).toBeLessThanOrEqual(1);
     }
+  }, 120_000);
+
+  it("rigs a full body with pose forearms and its Wave", async () => {
+    const parts = partsDir();
+    await writeFullBodyParts(parts, { pose: true });
+    const out = outDir();
+    const composed = await composeOk({
+      partsDir: parts,
+      outDir: out,
+      canvasHeight: TALL,
+      layout: { body: { w: 600, cy: 1585 } },
+    });
+    expect(composed.layers).toHaveLength(23);
+    expect(
+      composed.measure.warnings.filter((w) => w.startsWith("forearm_pose_")),
+    ).toEqual([]);
+
+    const rigged = await autoRigFromLayers({
+      layers: composed.layers.map((l) => ({ path: l.path })),
+      outputPath: path.join(out, "full-body.iki"),
+    });
+    if (!rigged.ok) throw new Error(`rig failed: ${rigged.error}`);
+    const model = parseIkiModel(
+      JSON.parse(fs.readFileSync(rigged.path, "utf8")),
+    );
+    const bindingsOf = (id: string) =>
+      model.parts.find((p) => p.id === id)!.bindings;
+    for (const side of ["L", "R"]) {
+      expect(bindingsOf(`forearm_pose_${side}`)).toEqual([
+        {
+          parameter: `ParamArmPose${side}`,
+          channel: "opacity",
+          from: 0,
+          to: 1,
+        },
+      ]);
+      for (const id of [`forearm_${side}`, `elbow_${side}`]) {
+        expect(bindingsOf(id), id).toContainEqual({
+          parameter: `ParamArmPose${side}`,
+          channel: "opacity",
+          from: 1,
+          to: 0,
+        });
+      }
+    }
+    expect(model.parameters.map((p) => p.id)).toContain("ParamArmPoseR");
+    expect(Object.keys(model.motions ?? {})).toContain("Wave");
   }, 120_000);
 });

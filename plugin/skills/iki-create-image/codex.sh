@@ -1,6 +1,6 @@
-# codex.sh — sourced by gen-images.sh, gen-turn-reference.sh and
-# gen-full-reference.sh: the model every image job runs on, the preflight, and
-# the one `codex exec` call they share.
+# codex.sh — sourced by gen-images.sh, gen-turn-reference.sh,
+# gen-full-reference.sh and gen-wave-reference.sh: the model every image job
+# runs on, the preflight, and the one `codex exec` call they share.
 
 # The image model, kept here rather than left to Codex's own default: that is
 # whatever ~/.codex/config.toml names, usually a large reasoning model, which

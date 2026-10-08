@@ -86,7 +86,7 @@ A full body also draws `reference-full.png` from this one and sets the canvas's 
 
 Use the **iki-create-image** skill to draw the parts **in parallel** into the parts dir (`iki-char/parts/`), with `iki-char/reference.png` attached to every job (`--ref`). Keep a **shared style descriptor** in every prompt so the parts read as one character (same hair color, eye color, line weight, flat anime cel-shading). Demand a **transparent background, front-facing, centered** part. (If a part comes back opaque-on-white instead of transparent, the composer's `keyWhiteToAlpha` fallback keys near-white to alpha — but transparent is better.)
 
-A full body draws `body.png` and `arm.png` against `reference-full.png` instead, in a second run with prompts of their own: `full-body.md` Step 1.
+A full body draws `body.png` and `arm.png` against `reference-full.png` instead, in a second run with prompts of their own, and `forearm_pose.png` against `reference-wave.png` in a third: `full-body.md` Step 1.
 
 Prompt skeleton (fill `<STYLE>` consistently, e.g. "flat anime cel-shaded, soft lavender hair, blue eyes, clean line art"):
 
@@ -165,7 +165,7 @@ just compose.
 
 ### Step 3 — Auto-rig to a renderable `.iki` via MCP
 
-Call `auto_rig_from_layers` with the layer paths `compose_layers_from_parts` returned (everything it wrote but `preview.png`) and an `outputPath` ending in `.iki` whose parent directory already exists. A full body adds `arm_L` / `arm_R` to the layers: `full-body.md` Step 3. Input shape:
+Call `auto_rig_from_layers` with the layer paths `compose_layers_from_parts` returned (everything it wrote but the previews, `preview.png` and `preview-pose.png`) and an `outputPath` ending in `.iki` whose parent directory already exists. A full body adds `arm_L` / `arm_R` to the layers: `full-body.md` Step 3. Input shape:
 
 ```jsonc
 {

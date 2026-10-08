@@ -382,4 +382,59 @@ describe("the editor app's layer import and auto_rig_from_layers", () => {
     // The legs part: the fixture reaches the body warp's leg split.
     expect(runsOf(layers, "body")).toContainEqual([32, 47, 53, 68]);
   });
+
+  it("rig a full body with pose forearms identically", async () => {
+    const dir = tmpDir();
+    const size: Size = { width: 100, height: 160 };
+    const paths = [
+      ...(await writeLayerSet(dir, size)),
+      await writeRects(
+        dir,
+        "body.png",
+        [
+          { x: 30, y: 80, w: 40, h: 40 },
+          { x: 32, y: 120, w: 15, h: 30 },
+          { x: 53, y: 120, w: 15, h: 30 },
+        ],
+        size,
+      ),
+      await writeRects(dir, "arm_L.png", [{ x: 72, y: 82, w: 8, h: 50 }], size),
+      await writeRects(dir, "arm_R.png", [{ x: 20, y: 82, w: 8, h: 50 }], size),
+      // Raised forearms standing up from each arm's elbow.
+      await writeRects(
+        dir,
+        "forearm_pose_L.png",
+        [{ x: 72, y: 70, w: 8, h: 30 }],
+        size,
+      ),
+      await writeRects(
+        dir,
+        "forearm_pose_R.png",
+        [{ x: 20, y: 70, w: 8, h: 30 }],
+        size,
+      ),
+    ];
+    const out = path.join(dir, "model.iki");
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: out,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const written: unknown = JSON.parse(fs.readFileSync(out, "utf8"));
+
+    stubCanvas();
+    const { layers, turnOptions } = buildLayerInputs(await decodeForApp(paths));
+    const model = generateIkiFromLayerSet(
+      layers,
+      { width: layers[0].canvasW, height: layers[0].canvasH },
+      turnOptions,
+    );
+    expect(withoutAtlas(model)).toEqual(withoutAtlas(written));
+    expect(model.parts.map((p) => p.id)).toEqual(
+      expect.arrayContaining(["forearm_pose_L", "forearm_pose_R"]),
+    );
+    expect(model.motions?.Wave).toBeDefined();
+  });
 });
