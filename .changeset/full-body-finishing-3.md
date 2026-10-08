@@ -15,7 +15,7 @@ elbow, rocks, and gives the character a Wave.
   part each, drawn above the face and hair on `armPoseDeformer_X` hung from
   the arm's shoulder deformer at its elbow; a complementary opacity swap
   against the arm's forearm band and elbow cap; `forearmPoseGeometry` /
-  `ForearmPoseGeometry` and `endPivot` exported; the layer measurer leaves a
+  `ForearmPoseGeometry` exported; the layer measurer leaves a
   rest-hidden layer out of the head's union; `defaultMotions` with a `Wave`
   (right hand, 2.2 s), attached only where its three parameters are declared.
 - `@ikijs/mcp`: `forearm_pose.png` composed onto each arm's elbow (scaled from
