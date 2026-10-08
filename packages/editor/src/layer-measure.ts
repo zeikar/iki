@@ -237,11 +237,12 @@ function jawRowsOf(
 export interface LayerSetMeasurer {
   /**
    * Measure one layer while its `rgba` is in memory, keeping no reference to
-   * it: only the set's opaque union, this layer's per-row opaque extent and
+   * it: only the set's opaque union (a pose forearm, hidden at rest, stays out
+   * of it and of the per-role edges), this layer's per-row opaque extent and
    * the `LayerInput` it returns outlive the call, so the host may drop `rgba`
    * as soon as it returns. Returns the layer's `LayerInput` — its crop
-   * box, the face's `rowHalfWidths`, the face's, hair layers', body's and
-   * arms' `rowRuns`, the nose's
+   * box, the face's `rowHalfWidths`, the face's, hair layers', body's, arms'
+   * and pose forearms' `rowRuns`, the nose's
    * `denseCore` unless that is a speck of its crop (`isSpeckCore`) — or
    * `null` for an empty layer, one with no pixel at or above
    * `ALPHA_BBOX_THRESHOLD`, which it records nothing for: the host reports
@@ -372,6 +373,17 @@ const ROW_RUN_ROLES: ReadonlySet<string> = new Set([
   "body",
   "arm_L",
   "arm_R",
+  "forearm_pose_L",
+  "forearm_pose_R",
+]);
+
+/** The roles a rest render does not show: a pose forearm's switch rests at 0
+ *  (`forearm-pose.ts`), so it joins neither the opaque union nor the per-role
+ *  edges. A longer forearm than the set's, or a lower eye row, would otherwise
+ *  widen the head and feed the solve a role it cannot land. */
+const REST_HIDDEN_ROLES: ReadonlySet<string> = new Set([
+  "forearm_pose_L",
+  "forearm_pose_R",
 ]);
 
 /**
@@ -403,8 +415,9 @@ export function createLayerSetMeasurer(canvas: {
     );
   }
 
-  // Union of EVERY layer's opaque pixels — the silhouette the head half-width
-  // is measured off in `finish`. Every layer folds in, so a body or an
+  // Union of every layer's opaque pixels that a rest render shows
+  // (`REST_HIDDEN_ROLES` stay out) — the silhouette the head half-width is
+  // measured off in `finish`. Every such layer folds in, so a body or an
   // accessory crossing the eye band widens the span; that is deliberate,
   // because a rest render of the finished rig shows the same union and
   // measures the same.
@@ -431,10 +444,12 @@ export function createLayerSetMeasurer(canvas: {
     }
     const bbox = detectAlphaBbox(rgba, canvasW, canvasH);
     if (bbox === null) return null;
-    // Fold this layer into the silhouette AND record its own per-row extent
-    // while its pixels are still here — one pass over the same pixels.
+    // Fold this layer into the silhouette (a hidden role is skipped) AND
+    // record its own per-row extent while its pixels are still here — one
+    // pass over the same pixels.
     const rowLeft = new Int32Array(canvasH).fill(canvasW);
     const rowRight = new Int32Array(canvasH).fill(-1);
+    const hidden = REST_HIDDEN_ROLES.has(role);
     const rowRuns: number[][] | undefined = ROW_RUN_ROLES.has(role)
       ? []
       : undefined;
@@ -453,14 +468,14 @@ export function createLayerSetMeasurer(canvas: {
           runs.push(x);
           inRun = on;
         }
-        if (!on) continue;
+        if (!on || hidden) continue;
         opaque[p] = 1;
         if (x < rowLeft[y]) rowLeft[y] = x;
         if (x > rowRight[y]) rowRight[y] = x;
       }
       if (runs !== undefined && inRun) runs.push(canvasW);
     }
-    rowSpansByRole.push({ role, rowLeft, rowRight });
+    if (!hidden) rowSpansByRole.push({ role, rowLeft, rowRight });
     const layer: LayerInput = {
       role,
       fileName,

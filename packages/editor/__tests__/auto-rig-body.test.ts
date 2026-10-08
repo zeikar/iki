@@ -1181,4 +1181,10 @@ describe("refusals", () => {
       ),
     ).toThrow(/arm_L needs a body layer/);
   });
+
+  it("refuses a pose forearm without its arm in the role parse", () => {
+    expect(() =>
+      parseLayerRoles([...required, "body.png", "forearm_pose_R.png"]),
+    ).toThrow(/forearm_pose_R needs an arm_R layer/);
+  });
 });

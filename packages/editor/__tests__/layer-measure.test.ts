@@ -172,9 +172,16 @@ describe("createLayerSetMeasurer", () => {
     ]);
     for (const l of inputs) {
       if (
-        !["face", "hair_front", "hair_back", "body", "arm_L", "arm_R"].includes(
-          l.role,
-        )
+        ![
+          "face",
+          "hair_front",
+          "hair_back",
+          "body",
+          "arm_L",
+          "arm_R",
+          "forearm_pose_L",
+          "forearm_pose_R",
+        ].includes(l.role)
       ) {
         expect(l.rowRuns).toBeUndefined();
       }
@@ -209,6 +216,21 @@ describe("createLayerSetMeasurer", () => {
         { role: "hair_front", x: 39 },
       ],
     });
+  });
+
+  it("leaves a pose forearm, hidden at rest, out of the head's span and edges but records its runs", () => {
+    const without = measure(strandLayers());
+    // Wider than the bangs across the eye band (rows 29..49).
+    const measurer = createLayerSetMeasurer({ width: CANVAS, height: CANVAS });
+    const inputs = [
+      ...strandLayers(),
+      layer("forearm_pose_R", [{ x: 0, y: 30, w: 100, h: 10 }]),
+    ].map((l) => measurer.add(l)!);
+    const result = measurer.finish();
+    expect(result.headHalfWidth).toBe(without.headHalfWidth);
+    expect(result.turnOptions.headEdges).toEqual(without.turnOptions.headEdges);
+    const pose = inputs.find((l) => l.role === "forearm_pose_R")!;
+    expect(pose.rowRuns).toEqual([[], ...Array(10).fill([0, 100]), []]);
   });
 
   it("measures each iris against the side strand outward of it, as @ikijs/mcp reports it", () => {

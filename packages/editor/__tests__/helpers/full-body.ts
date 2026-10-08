@@ -2,9 +2,11 @@
  * `character()`'s bust standing on a full body: every head layer keeps its
  * box on a canvas extended down by `extend` px, and the torso layer becomes a
  * figure down to the feet whose `rowRuns` split into two legs at the crotch,
- * optionally with two capsule arms hanging beside it. No pixels: the
+ * optionally with two capsule arms hanging beside it and two capsule pose
+ * forearms standing up from their elbows. No pixels: the
  * generator reads geometry only.
  */
+import { armGeometry } from "../../src/auto-rig/arms";
 import type { GenerateOptions, LayerInput } from "../../src/auto-rig/types";
 import { CANVAS, character } from "./character";
 
@@ -30,6 +32,28 @@ export const ARM_L_BOX = { x: 701, y: 780, w: 100, h: 700 };
 /** Each arm's round top (the deltoid cap) and bottom (the hand), px. */
 export const ARM_RADIUS = 50;
 
+/** Each pose forearm's crop: a capsule as wide as the arm, standing up from its
+ *  arm's elbow — its last row is the elbow's row plus ARM_RADIUS, so the
+ *  shoulder rule run from the bottom lands its pivot on the elbow — 400 tall.
+ *  `forearm_pose_R` over `arm_R`, `forearm_pose_L` over `arm_L`. */
+function poseBox(armBox: typeof ARM_R_BOX): typeof ARM_R_BOX {
+  const probe: LayerInput = {
+    role: "arm_R",
+    fileName: "arm_R.png",
+    canvasW: CANVAS.width,
+    canvasH: CANVAS.height,
+    bbox: { ...armBox },
+    cropW: armBox.w,
+    cropH: armBox.h,
+    rowRuns: capsuleRuns(armBox),
+  };
+  const elbow = armGeometry(probe, BODY_BOX.x + BODY_BOX.w / 2).elbow;
+  const elbowRow = CANVAS.height / 2 - elbow.y - 0.5;
+  return { x: armBox.x, y: elbowRow + ARM_RADIUS - 399, w: armBox.w, h: 400 };
+}
+export const POSE_R_BOX = poseBox(ARM_R_BOX);
+export const POSE_L_BOX = poseBox(ARM_L_BOX);
+
 /** A capsule filling `box`: one run per row, centred on the crop, a half-disc
  *  of ARM_RADIUS at the top and the bottom (each read at the row's centre)
  *  and the crop's full width between. */
@@ -48,13 +72,15 @@ function capsuleRuns(box: typeof ARM_R_BOX): number[][] {
 
 /**
  * The full body. With `arms`, it also carries `arm_L` and `arm_R`, capsules
- * hanging beside the torso. Off by default: the body's own cases read the
+ * hanging beside the torso, and with `poses` (which needs `arms`), the
+ * `forearm_pose_L` and `forearm_pose_R` capsules. Off by default: the body's own cases read the
  * figure without them.
  */
 export function fullBody({
   extend = 1600,
   arms = false,
-}: { extend?: number; arms?: boolean } = {}): {
+  poses = false,
+}: { extend?: number; arms?: boolean; poses?: boolean } = {}): {
   layers: LayerInput[];
   options: GenerateOptions;
   canvas: { width: number; height: number };
@@ -87,6 +113,9 @@ export function fullBody({
     rowRuns: capsuleRuns(box),
   });
   const limbs = arms ? [arm("arm_L", ARM_L_BOX), arm("arm_R", ARM_R_BOX)] : [];
+  const raised = poses
+    ? [arm("forearm_pose_L", POSE_L_BOX), arm("forearm_pose_R", POSE_R_BOX)]
+    : [];
   // Model y is centred on the canvas (`layout.ts`), so a box that keeps its
   // canvas rows moves up by half the extension.
   const { left, right } = bust.options.strandEdges!;
@@ -97,5 +126,5 @@ export function fullBody({
       right: { ...right!, y: right!.y + extend / 2 },
     },
   };
-  return { layers: [body, ...limbs, ...head], options, canvas };
+  return { layers: [body, ...limbs, ...head, ...raised], options, canvas };
 }

@@ -7,7 +7,12 @@
  */
 
 import { boxOfLayer, cx, type Box } from "./layout";
-import { checkArmsHaveBody, REQUIRED_ROLES, roleSpec } from "./roles";
+import {
+  checkArmsHaveBody,
+  checkPosesHaveArms,
+  REQUIRED_ROLES,
+  roleSpec,
+} from "./roles";
 import {
   TurnTargetError,
   type GenerateOptions,
@@ -155,6 +160,7 @@ export function checkLayers(
   }
   // `parseLayerRoles` refuses it too; a direct caller may not have run it.
   checkArmsHaveBody(seen);
+  checkPosesHaveArms(seen);
 }
 
 /** Each entry names a layer of this set; the outermost left edge lies left

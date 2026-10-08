@@ -40,19 +40,19 @@ leaves the document untouched.
 
 ## API
 
-| Area               | Exports                                                                                                                                                                                                           |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document           | `EditorDocument`, `EditCommand`                                                                                                                                                                                   |
-| Part edits         | `AddPart`, `DeletePart`, `SetPartColor`, `SetPartWidth`, `SetPartHeight`, `SetPartOrder`, `SetPartTransform`, `SetPartBindings`, `SetPartMesh`, `SetPartDeformer`                                                 |
-| Deformer edits     | `AddDeformer`, `DeleteDeformer`, `SetDeformerParent`, `SetDeformerTransform`, `SetDeformerBindings`, `SetDeformerPivot` (+ `X`/`Y`), `CaptureGridKeyform`                                                         |
-| Physics edits      | `AddPhysicsRig`, `SetPhysicsRig`, `DeletePhysicsRig`                                                                                                                                                              |
-| Referential guards | `validateDeformerReparent`, `validateDeformerDelete`, `validatePartAttach`                                                                                                                                        |
-| Atlas              | `packAtlas`, `uvRectFor`, `ATLAS_PADDING`, `UV_INSET_PX`                                                                                                                                                          |
-| Grid keyforms      | `computeGridOffsets`, `interpolateGridOffsets`, `upsertGridKeyform`                                                                                                                                               |
-| Factories          | `createDefaultPart`, `createDefaultMatrixDeformer`, `createDefaultWarpDeformer`, `createGridMesh`                                                                                                                 |
-| Pixels             | `detectAlphaBbox`, `ALPHA_BBOX_THRESHOLD`, `AlphaBbox`, `ALPHA_OPAQUE`, `HEAD_BAND`, `SPECK_CORE_FRACTION`, `denseCoreOf`, `isSpeckCore`, `foregroundSpan`, `headHalfOf`                                          |
-| Auto-rig           | `generateIkiFromLayerSet`, `parseLayerRoles`, `partIdsOfRole`, `createLayerSetMeasurer`, `armGeometry`, `ArmGeometry`, `TurnTargets`, `DEFAULT_TURN_TARGETS`, `TurnSolveReport`, `RigStyle`, `LayerGeometryError` |
-| Bindings           | `captureBindingEndpoint`                                                                                                                                                                                          |
+| Area               | Exports                                                                                                                                                                                                                                                         |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Document           | `EditorDocument`, `EditCommand`                                                                                                                                                                                                                                 |
+| Part edits         | `AddPart`, `DeletePart`, `SetPartColor`, `SetPartWidth`, `SetPartHeight`, `SetPartOrder`, `SetPartTransform`, `SetPartBindings`, `SetPartMesh`, `SetPartDeformer`                                                                                               |
+| Deformer edits     | `AddDeformer`, `DeleteDeformer`, `SetDeformerParent`, `SetDeformerTransform`, `SetDeformerBindings`, `SetDeformerPivot` (+ `X`/`Y`), `CaptureGridKeyform`                                                                                                       |
+| Physics edits      | `AddPhysicsRig`, `SetPhysicsRig`, `DeletePhysicsRig`                                                                                                                                                                                                            |
+| Referential guards | `validateDeformerReparent`, `validateDeformerDelete`, `validatePartAttach`                                                                                                                                                                                      |
+| Atlas              | `packAtlas`, `uvRectFor`, `ATLAS_PADDING`, `UV_INSET_PX`                                                                                                                                                                                                        |
+| Grid keyforms      | `computeGridOffsets`, `interpolateGridOffsets`, `upsertGridKeyform`                                                                                                                                                                                             |
+| Factories          | `createDefaultPart`, `createDefaultMatrixDeformer`, `createDefaultWarpDeformer`, `createGridMesh`                                                                                                                                                               |
+| Pixels             | `detectAlphaBbox`, `ALPHA_BBOX_THRESHOLD`, `AlphaBbox`, `ALPHA_OPAQUE`, `HEAD_BAND`, `SPECK_CORE_FRACTION`, `denseCoreOf`, `isSpeckCore`, `foregroundSpan`, `headHalfOf`                                                                                        |
+| Auto-rig           | `generateIkiFromLayerSet`, `parseLayerRoles`, `partIdsOfRole`, `createLayerSetMeasurer`, `armGeometry`, `ArmGeometry`, `forearmPoseGeometry`, `ForearmPoseGeometry`, `TurnTargets`, `DEFAULT_TURN_TARGETS`, `TurnSolveReport`, `RigStyle`, `LayerGeometryError` |
+| Bindings           | `captureBindingEndpoint`                                                                                                                                                                                                                                        |
 
 ## Auto-rig
 
@@ -85,6 +85,10 @@ hangs from it. `arm_L` / `arm_R`, each a whole arm drawn hanging with its
 shoulder at the top, hang from it too: each becomes an elbow cap, an upper
 arm and a forearm cut from the one crop, turning about the shoulder and the
 elbow on `ParamArmL/R` and `ParamElbowL/R`. An arm needs a `body`.
+`forearm_pose_L` / `forearm_pose_R`, a second forearm drawn raised, swap in for
+the hanging one at the elbow on `ParamArmPoseL/R` and rock on
+`ParamArmPoseAngleL/R`; a model with them also declares a `Wave` motion. A
+pose forearm needs its arm.
 
 On a layer set with a `nose`, `options.turnTargets` — the cues a 30° reference
 measures (how far the eye pair slides, how much the far eye foreshortens,

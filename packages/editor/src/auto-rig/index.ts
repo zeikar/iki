@@ -11,5 +11,6 @@ export {
 } from "./types";
 export { type RigStyle } from "./profile";
 export { armGeometry, type ArmGeometry } from "./arms";
+export { forearmPoseGeometry, type ForearmPoseGeometry } from "./forearm-pose";
 export { parseLayerRoles, partIdsOfRole } from "./roles";
 export { generateIkiFromLayerSet } from "./generate";

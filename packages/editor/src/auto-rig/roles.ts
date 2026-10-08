@@ -15,7 +15,8 @@ export type Family =
   | "hair_front"
   | "hair_back"
   | "body"
-  | "arm";
+  | "arm"
+  | "forearm_pose";
 
 export interface RoleSpec {
   role: string;
@@ -53,6 +54,9 @@ export const ROLE_TABLE: readonly RoleSpec[] = [
   { role: "brow_L", family: "brow_L" },
   { role: "brow_R", family: "brow_R" },
   { role: "hair_front", family: "hair_front" },
+  // Drawn above the face and the hair: a raised hand passes them.
+  { role: "forearm_pose_L", family: "forearm_pose" },
+  { role: "forearm_pose_R", family: "forearm_pose" },
 ];
 
 export const REQUIRED_ROLES: readonly string[] = ROLE_TABLE.filter(
@@ -118,10 +122,23 @@ export function checkArmsHaveBody(roles: Iterable<string>): void {
   }
 }
 
+/** A pose forearm hangs from its arm's elbow (`forearm-pose.ts`): throws on a
+ *  pose forearm role among `roles` without its arm. */
+export function checkPosesHaveArms(roles: Iterable<string>): void {
+  const has = new Set(roles);
+  for (const side of ["L", "R"]) {
+    if (has.has(`forearm_pose_${side}`) && !has.has(`arm_${side}`)) {
+      throw new Error(
+        `auto-rig: forearm_pose_${side} needs an arm_${side} layer (a pose forearm hangs from its arm's elbow)`,
+      );
+    }
+  }
+}
+
 /**
  * Map file names to roles. Throws on an unknown role, a role named twice, a
- * required role (`face`, `eye_L`, `eye_R`, `mouth`) missing, or an arm
- * without a body.
+ * required role (`face`, `eye_L`, `eye_R`, `mouth`) missing, an arm without a
+ * body, or a pose forearm without its arm.
  */
 export function parseLayerRoles(
   fileNames: string[],
@@ -151,5 +168,6 @@ export function parseLayerRoles(
     );
   }
   checkArmsHaveBody(seen.keys());
+  checkPosesHaveArms(seen.keys());
   return out;
 }

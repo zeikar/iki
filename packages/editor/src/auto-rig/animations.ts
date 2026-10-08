@@ -2,15 +2,18 @@
  * The expressions and motions an auto-rigged model declares, each with a
  * description a host (an LLM, say) picks it by.
  *
- * The values are our own, picked by eye on Bob and the long-haired character
- * (2026-10) from soft, medium and strong candidates. A term's
+ * The expressions' and head motions' values are our own, picked by eye on Bob
+ * and the long-haired character (2026-10) from soft, medium and strong
+ * candidates; the Wave's are provisional, to be picked by eye on street. A
+ * term's
  * blend follows its parameter: EyeOpen multiplies, so the procedural blink
  * keeps running under it (at 0 the eyes stay shut); MouthOpenY overwrites,
  * and a host's lip-sync, written after the expression, wins; everything else
- * adds onto a parameter that rests at 0, clamped to its range. Only Shake
- * sets a fade; everything else plays with the format's
- * `DEFAULT_FADE_SECONDS`, capped at half a clip. No curve sets an
- * interpolation, so each is smooth.
+ * adds onto a parameter that rests at 0, clamped to its range. Among the
+ * head motions only Shake sets a fade; they and the expressions play with the
+ * format's `DEFAULT_FADE_SECONDS`, capped at half a clip, and none of their
+ * curves sets an interpolation, so each is smooth. The Wave sets its fades to
+ * its switch's ramp and keys that switch linear.
  */
 
 import {
@@ -150,7 +153,7 @@ export function defaultExpressions(
  * the head toward the viewer's right. No `Idle` group, so the procedural idle
  * stays whole.
  */
-export const DEFAULT_MOTIONS: Record<string, IkiMotionClip[]> = {
+const HEAD_MOTIONS: Record<string, IkiMotionClip[]> = {
   Nod: [
     {
       description: "Nods yes: agreement, acknowledgement, understanding.",
@@ -210,3 +213,70 @@ export const DEFAULT_MOTIONS: Record<string, IkiMotionClip[]> = {
     },
   ],
 };
+
+/**
+ * The Wave: the right hand raised, rocked three times, lowered. Declared only
+ * with the pose forearm's three parameters, because the validator rejects a
+ * curve on an undeclared parameter and a bust has none of them (`defaultMotions`).
+ * The switch is `linear` and ramps over the clip's first and last 0.15 s; the
+ * clip's `fadeIn` / `fadeOut` equal that ramp, because a clip's fade blends
+ * every curve, the switch included, and the absent fade (0.4 s) would stretch
+ * the crossfade. Every curve is keyed 0 at both ends, so the clip starts and
+ * ends at rest. The values are provisional, our own, to be picked by eye.
+ */
+const WAVE: Record<string, IkiMotionClip[]> = {
+  Wave: [
+    {
+      description:
+        "Waves hello with the right hand: greeting, goodbye, getting attention.",
+      duration: 2.2,
+      fadeIn: 0.15,
+      fadeOut: 0.15,
+      curves: [
+        {
+          parameter: P.ArmPoseRight,
+          interpolation: "linear",
+          keys: [
+            [0, 0],
+            [0.15, 1],
+            [2.05, 1],
+            [2.2, 0],
+          ],
+        },
+        {
+          parameter: P.ArmRight,
+          keys: [
+            [0, 0],
+            [0.4, 10],
+            [1.8, 10],
+            [2.2, 0],
+          ],
+        },
+        {
+          parameter: P.ArmPoseAngleRight,
+          keys: [
+            [0, 0],
+            [0.5, 0],
+            [0.7, 12],
+            [1.0, -12],
+            [1.3, 12],
+            [1.7, 0],
+            [2.2, 0],
+          ],
+        },
+      ],
+    },
+  ],
+};
+
+/** The motions a model with the `declared` parameters can play: the head's
+ *  always, and the Wave when the right arm, its pose switch and its pose
+ *  angle are all declared. */
+export function defaultMotions(
+  declared: ReadonlySet<string>,
+): Record<string, IkiMotionClip[]> {
+  const waves = [P.ArmRight, P.ArmPoseRight, P.ArmPoseAngleRight].every((id) =>
+    declared.has(id),
+  );
+  return waves ? { ...HEAD_MOTIONS, ...WAVE } : HEAD_MOTIONS;
+}

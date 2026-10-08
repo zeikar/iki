@@ -11,7 +11,8 @@ The result is a `.iki` model that blinks (eyelid fold), gazes, lip-syncs, turns,
 nods and tilts its head with hair that sways behind it, and emotes with its
 brows — playable in the browser with [`@ikijs/engine`](https://www.npmjs.com/package/@ikijs/engine).
 Drawn full body (opt-in), a character raises and bends its arms and turns its
-body too. It also declares head motions (Nod, Shake, Tilt) and up to six default
+body too, and with a pose forearm waves. It also declares head motions (Nod,
+Shake, Tilt) and, with a pose forearm, a Wave, and up to six default
 expressions (smile, laugh, angry, sad, surprised, shy; shy needs the cheek
 blush), each with a description a host picks by.
 

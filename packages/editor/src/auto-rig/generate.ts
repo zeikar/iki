@@ -6,15 +6,16 @@
  * turns on BodyAngleX/Y/Z, its legs planted; a head deformer hung from it
  * that rolls about the chin and breathes; each arm hung from it too, as an
  * upper arm, a forearm and an elbow cap turning about the shoulder and the
- * elbow (`arms.ts`); one small warp grid per feature
+ * elbow (`arms.ts`), and with a drawn pose forearm a switch that swaps it in
+ * for the hanging one (`forearm-pose.ts`); one small warp grid per feature
  * (each eye, each brow, the nose, the mouth), translating and foreshortening
  * it by its own lead over the plate; and the plate, the hair and the blush
  * moved by per-vertex keyforms of their own — the plate as up to four
  * islands of one drawing: a head that slides, a neck that stays on the torso
  * and two ears that lag. Blink, gaze, brows, mouth, breath and
  * hair sway are part warps and bindings under those. The model also declares
- * the default expressions and the Nod, Shake and Tilt motions
- * (`animations.ts`).
+ * the default expressions and the Nod, Shake and Tilt motions, and
+ * with a pose forearm the Wave (`animations.ts`).
  */
 
 import {
@@ -31,7 +32,7 @@ import {
   type IkiWarp,
   type IkiWarpDeformer,
 } from "@ikijs/format";
-import { DEFAULT_MOTIONS, defaultExpressions } from "./animations";
+import { defaultExpressions, defaultMotions } from "./animations";
 import {
   ARM_RANGE,
   ELBOW_RANGE,
@@ -41,6 +42,14 @@ import {
   type ArmGeometry,
   type ArmRole,
 } from "./arms";
+import {
+  POSE_ANGLE_RANGE,
+  POSE_OF_ARM,
+  POSE_PARAMS,
+  forearmPoseDeformer,
+  forearmPosePart,
+  type ForearmPoseRole,
+} from "./forearm-pose";
 import {
   BODY_WARP_ID,
   buildBodyWarp,
@@ -154,6 +163,10 @@ const isGridFamily = (f: Family): f is GridFamily => f in WARP_ID;
 /** An arm's spec: the `arm` family, whose roles `arms.ts` rigs. */
 const isArm = (spec: RoleSpec): spec is RoleSpec & { role: ArmRole } =>
   spec.family === "arm";
+/** A pose forearm's spec: the `forearm_pose` family, whose roles
+ *  `forearm-pose.ts` rigs. */
+const isPose = (spec: RoleSpec): spec is RoleSpec & { role: ForearmPoseRole } =>
+  spec.family === "forearm_pose";
 const GRID_PAD = 6;
 
 type Grids = Map<Family, { lattice: Lattice; keyforms: number[][] }>;
@@ -261,10 +274,22 @@ export function generateIkiFromLayerSet(
     const layer = byRole.get(spec.role);
     if (layer === undefined) continue;
     if (isArm(spec)) {
-      // Three parts cut from the one crop, on the arm's two deformers.
+      // Three parts cut from the one crop, on the arm's two deformers; with a
+      // pose forearm, the forearm and the cap swap out for it.
+      const pose = POSE_OF_ARM[spec.role];
       parts.push(
-        ...armParts(spec.role, layer, arms.get(spec.role)!, parts.length),
+        ...armParts(
+          spec.role,
+          layer,
+          arms.get(spec.role)!,
+          parts.length,
+          has(pose) ? POSE_PARAMS[pose].pose : undefined,
+        ),
       );
+      continue;
+    }
+    if (isPose(spec)) {
+      parts.push(forearmPosePart(spec.role, layer, parts.length));
       continue;
     }
     const built = buildPart(
@@ -325,8 +350,8 @@ export function generateIkiFromLayerSet(
       part.mesh = bodyWarp!.mesh;
       continue;
     }
-    // `armParts` hung each arm part on its own deformer.
-    if (family === "arm") continue;
+    // `armParts` and `forearmPosePart` hung each on its own deformer.
+    if (family === "arm" || family === "forearm_pose") continue;
     part.deformer = "headDeformer";
     if (part.mesh === undefined) continue;
     const own = familyField(turn, family);
@@ -345,10 +370,10 @@ export function generateIkiFromLayerSet(
     canvas: { width: canvas.width, height: canvas.height },
     parameters,
     parts,
-    deformers: deformers(frame, grids, bodyWarp?.deformer, arms),
+    deformers: deformers(frame, grids, bodyWarp?.deformer, arms, byRole),
     ...(has("hair_front") ? { physics: hairPhysics() } : {}),
     expressions: defaultExpressions(new Set(parameters.map((p) => p.id))),
-    motions: DEFAULT_MOTIONS,
+    motions: defaultMotions(new Set(parameters.map((p) => p.id))),
   };
 
   // Reported only for a model that validates.
@@ -661,10 +686,15 @@ function deformers(
   grids: Grids,
   bodyWarp: IkiWarpDeformer | undefined,
   arms: Map<ArmRole, ArmGeometry>,
+  byRole: Map<string, LayerInput>,
 ): IkiDeformer[] {
   const out: IkiDeformer[] = [];
   if (bodyWarp !== undefined) out.push(bodyWarp);
   for (const [role, g] of arms) out.push(...armDeformers(role, g));
+  for (const [role, arm] of arms) {
+    const pose = POSE_OF_ARM[role];
+    if (byRole.has(pose)) out.push(forearmPoseDeformer(pose, arm));
+  }
   // On a body, the head's roll and breath are its own, on top of what the
   // body warp already gives the chin (`headOwnRoll`, `headOwnBreath`).
   const hasBody = bodyWarp !== undefined;
@@ -747,15 +777,23 @@ function declareParameters(roles: Set<string>): IkiParameter[] {
     add(P.BodyAngleY, "Body Angle Y", -10, 10, 0);
     add(P.BodyAngleZ, "Body Angle Z", -10, 10, 0);
   }
+  const addPose = (side: string, pose: string, angle: string) => {
+    add(pose, `Arm Pose ${side}`, 0, 1, 0);
+    add(angle, `Arm Pose Angle ${side}`, ...POSE_ANGLE_RANGE, 0);
+  };
   const [armMin, armMax] = ARM_RANGE;
   const [elbowMin, elbowMax] = ELBOW_RANGE;
   if (roles.has("arm_L")) {
     add(P.ArmLeft, "Arm L", armMin, armMax, 0);
     add(P.ElbowLeft, "Elbow L", elbowMin, elbowMax, 0);
+    if (roles.has("forearm_pose_L"))
+      addPose("L", P.ArmPoseLeft, P.ArmPoseAngleLeft);
   }
   if (roles.has("arm_R")) {
     add(P.ArmRight, "Arm R", armMin, armMax, 0);
     add(P.ElbowRight, "Elbow R", elbowMin, elbowMax, 0);
+    if (roles.has("forearm_pose_R"))
+      addPose("R", P.ArmPoseRight, P.ArmPoseAngleRight);
   }
   add(P.EyeOpenLeft, "Eye L", 0, 1, 1);
   add(P.EyeOpenRight, "Eye R", 0, 1, 1);

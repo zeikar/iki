@@ -4,24 +4,25 @@
 rigged `.iki`. This note is the model behind it; the code comments say why
 each constant is what it is.
 
-| Module          | Job                                                                                           |
-| --------------- | --------------------------------------------------------------------------------------------- |
-| `types.ts`      | the public shapes: `LayerInput`, `TurnTargets`, `TurnSolveReport`, …                          |
-| `profile.ts`    | the defaults (our own: the head's picked by eye, the body's provisional), style knobs         |
-| `roles.ts`      | the role table (draw order, family) and `parseLayerRoles`                                     |
-| `layout.ts`     | boxes, rounding, grid meshes                                                                  |
-| `head.ts`       | the head's frame read off the layers: axis, eye row, chin, head unit, neck, jaw cut           |
-| `face-mesh.ts`  | the face plate's mesh: a head island and, under the jaw, a neck island                        |
-| `body.ts`       | the body warp: the hips, a weight field planted under them, its six 1D grid warps             |
-| `arms.ts`       | the arms: shoulder and elbow off the runs; elbow cap, upper arm and forearm cut from one crop |
-| `fields.ts`     | one displacement field per family, off the profile                                            |
-| `grid.ts`       | warp lattices, the AngleX × AngleY bake, and landing a point the engine's way                 |
-| `solve.ts`      | the profile in this head's pixels; fitting the cues; room, clamps, refusals; report           |
-| `context.ts`    | what the solve reads off the layers; the lander that reads a rig back as drawn                |
-| `checks.ts`     | input checks: a malformed layer throws, a malformed turn option `TurnTargetError`             |
-| `drivers.ts`    | everything but the turn: blink fold, gaze, brows, mouth, hair sway, roll hang                 |
-| `animations.ts` | the default expressions and motions, each described; filtered to the declared parameters      |
-| `generate.ts`   | assembly: parts, meshes, deformers, parameters, physics, expressions, motions                 |
+| Module            | Job                                                                                           |
+| ----------------- | --------------------------------------------------------------------------------------------- |
+| `types.ts`        | the public shapes: `LayerInput`, `TurnTargets`, `TurnSolveReport`, …                          |
+| `profile.ts`      | the defaults (our own: the head's picked by eye, the body's provisional), style knobs         |
+| `roles.ts`        | the role table (draw order, family) and `parseLayerRoles`                                     |
+| `layout.ts`       | boxes, rounding, grid meshes                                                                  |
+| `head.ts`         | the head's frame read off the layers: axis, eye row, chin, head unit, neck, jaw cut           |
+| `face-mesh.ts`    | the face plate's mesh: a head island and, under the jaw, a neck island                        |
+| `body.ts`         | the body warp: the hips, a weight field planted under them, its six 1D grid warps             |
+| `arms.ts`         | the arms: shoulder and elbow off the runs; elbow cap, upper arm and forearm cut from one crop |
+| `forearm-pose.ts` | the pose forearm: a second, raised forearm swapped in at the elbow, rocked about it           |
+| `fields.ts`       | one displacement field per family, off the profile                                            |
+| `grid.ts`         | warp lattices, the AngleX × AngleY bake, and landing a point the engine's way                 |
+| `solve.ts`        | the profile in this head's pixels; fitting the cues; room, clamps, refusals; report           |
+| `context.ts`      | what the solve reads off the layers; the lander that reads a rig back as drawn                |
+| `checks.ts`       | input checks: a malformed layer throws, a malformed turn option `TurnTargetError`             |
+| `drivers.ts`      | everything but the turn: blink fold, gaze, brows, mouth, hair sway, roll hang                 |
+| `animations.ts`   | the default expressions and motions, each described; filtered to the declared parameters      |
+| `generate.ts`     | assembly: parts, meshes, deformers, parameters, physics, expressions, motions                 |
 
 ## The model: the default rig
 
@@ -200,6 +201,7 @@ small warp grid, baked from its field at `AngleX, AngleY ∈ {−30, 0, 30}`:
 | — (`bodyWarp`)            | `body`: breath, BodyAngleX/Y/Z, the follow                                            |
 | — (`armDeformer_L/R`)     | `arm_*`: the upper arm, about the shoulder (`ParamArmL/R`)                            |
 | — (`forearmDeformer_L/R`) | `forearm_*` and `elbow_*`: the forearm and its cap, about the elbow (`ParamElbowL/R`) |
+| — (`armPoseDeformer_L/R`) | `forearm_pose_*`: the raised forearm, about A's elbow (`ParamArmPoseAngleL/R`)        |
 
 ## The body
 
@@ -376,8 +378,39 @@ front of the body: drive that pose with a little shoulder raise. Each pair is
 declared only with its arm layer, after Body Angle X/Y/Z.
 
 **Draw order:** hair_back < body < elbow_L, arm_L, forearm_L, elbow_R, arm_R,
-forearm_R < face … < hair_front. The forearm draws over the upper arm, which
-draws over the cap.
+forearm_R < face … < hair_front < forearm_pose_L, forearm_pose_R. The forearm
+draws over the upper arm, which draws over the cap.
+
+**The pose forearm.** A `forearm_pose_L` / `forearm_pose_R` layer (it needs
+its arm: `auto-rig: forearm_pose_L needs an arm_L layer …`) is a second
+forearm drawn raised, standing up from the elbow, that swaps in for the
+hanging one (`forearm-pose.ts`). Its geometry is the shoulder rule run from
+the bottom: r_e is half the median width over the rows 0.10–0.30 of the
+crop's height up from the crop's bottom, and the pivot lies r_e above the last
+painted row, at the run centre of the row the pivot lands in. The rig does not use that pivot: the part sits on
+`armPoseDeformer_X`, a child of `armDeformer_X` pivoting at A's elbow, so
+`ParamElbowX` never moves it and the shoulder still carries it; the
+composer puts the drawing's elbow end on that pivot and `measure_layers`
+warns when it is off. The part has no mesh: the engine draws a meshless part
+as its full-box quad with its texture rect, and a rigid part needs no more.
+The swap is a pair of opacity bindings on `ParamArmPoseX`: A's forearm and
+elbow cap go 1 → 0, the pose forearm 0 → 1, exclusive by construction (the
+upper arm never swaps).
+
+| Parameter                                   | Name                                | Range, default | Does                                                        |
+| ------------------------------------------- | ----------------------------------- | -------------- | ----------------------------------------------------------- |
+| `ParamArmPoseL` / `ParamArmPoseR`           | Arm Pose L / Arm Pose R             | 0..1, 0        | 0 the hanging forearm, 1 the drawn one, a crossfade between |
+| `ParamArmPoseAngleL` / `ParamArmPoseAngleR` | Arm Pose Angle L / Arm Pose Angle R | −15..15, 0     | the pose forearm about the elbow, 1° per unit               |
+
+A positive value tips the raised hand outward, away from the body, mirrored
+per side. The pose forearm points up from its pivot where the hanging
+forearm points down, so its rotate binding takes −side × the value: the
+elbow's multiplier, which gives the shoulder's reading. The range is our own
+and provisional, the span 30 putting 0, ±7.5 and ±15 on the slider's 0.3
+steps. The pair is declared only with the layer, right after that side's
+Elbow. It is measured out of the head: a rest render does not show it, so
+`createLayerSetMeasurer` keeps it out of the opaque union and the per-role
+edges, while recording its `rowRuns`.
 
 ## Style knobs and the fit
 
@@ -503,7 +536,8 @@ choosing from the descriptions, say. A term adds unless noted.
 | `surprised` | BrowLY/BrowRY +0.8 · MouthOpenY 0.9 (overwrite)                                                               | "Surprised, mouth dropped open: startled, amazed. For shock, sudden news or disbelief."                |
 | `shy`       | Cheek +1 · EyeBallY −0.65 (gaze down) · MouthForm +0.4 · BrowLAngle −0.25 / BrowRAngle +0.25                  | "Shy or embarrassed: bashful, flustered. For being praised, teased or caught off guard."               |
 
-One clip per group, so a host plays (`Nod`, 0). Keys are `[t s, value]`.
+One clip per group, so a host plays (`Nod`, 0). Keys are `[t s, value]`. A
+model with a pose forearm adds `Wave` (below the table).
 
 | Group   | Curve  | Keys                                                        | Duration | Fade-in | Description                                                               |
 | ------- | ------ | ----------------------------------------------------------- | -------- | ------- | ------------------------------------------------------------------------- |
@@ -511,6 +545,17 @@ One clip per group, so a host plays (`Nod`, 0). Keys are `[t s, value]`.
 | `Shake` | AngleX | (0, 0) (0.2, −18) (0.45, 18) (0.7, −16) (0.95, 10) (1.2, 0) | 1.2 s    | 0.15 s  | "Shakes the head no: disagreement, refusal, disbelief."                   |
 | `Tilt`  | AngleZ | (0, 0) (0.35, 20) (1, 20) (1.4, 0)                          | 1.4 s    | 0.4 s   | "Tilts the head to one side and back: curiosity, puzzlement, a question." |
 
+- **The Wave.** `defaultMotions(declared)` returns the head groups always
+  and `Wave` only when `ParamArmR`, `ParamArmPoseR` and `ParamArmPoseAngleR`
+  are all declared: the validator rejects a curve on an undeclared parameter,
+  and a bust has none of them. "Waves hello with the right hand: greeting,
+  goodbye, getting attention.", 2.2 s: the switch linear, 0 → 1 over the
+  first 0.15 s, held, 1 → 0 over the last 0.15 s; `ParamArmR` a small lift
+  (10) through the wave; `ParamArmPoseAngleR` three rocks (±12) between 0.5
+  and 1.7 s. Every curve is keyed 0 at its first and last key. `fadeIn` and
+  `fadeOut` equal the switch's ramp (0.15 s), because a clip's fade blends
+  every curve, the switch included, and the default 0.4 s would stretch the
+  crossfade. The values are provisional, our own.
 - **Blends.** EyeOpen multiplies, so the procedural blink keeps running
   under it and at 0 the eyes stay shut. MouthOpenY overwrites, and a host's
   lip-sync, written after the expression, wins. Every other term adds onto a
@@ -523,8 +568,10 @@ One clip per group, so a host plays (`Nod`, 0). Keys are `[t s, value]`.
   and the eyes, which the rig always declares, so a model with only the
   required layers keeps those three. A kept expression keeps only its terms
   on parameters the model declares; each keeps a term on EyeOpen, MouthOpenY
-  or MouthForm, so none is emptied. The motions move the head angles only,
-  which are always declared.
+  or MouthForm, so none is emptied. The head motions use ids that are always
+  declared (the head angles); the Wave moves the right arm and its pose
+  forearm, so it is attached only when its three ids are declared, which is
+  why the motions are filtered too.
 - **Brow signs.** Brow angles are raw per side and CCW-positive on screen.
   The character's left brow sits at +x, so its inner end is its screen-left
   end, which a CCW turn drops; the right brow's inner end is its screen-right
@@ -534,8 +581,10 @@ One clip per group, so a host plays (`Nod`, 0). Keys are `[t s, value]`.
 - **Fades.** No expression sets a fade, so each fades over the format's
   `DEFAULT_FADE_SECONDS` (0.4 s); so do Nod and Tilt, capped at half the
   clip. Shake fades in over 0.15 s: its first swing peaks at 0.2 s, and the
-  default fade damped it. No curve sets an interpolation, so each is
-  `smooth`. There is no `Idle` group, so the procedural idle stays whole.
+  default fade damped it. The Wave fades in and out over its switch's 0.15 s
+  ramp, and its switch curve is `linear`, so the crossfade lasts exactly the
+  ramp. No other curve sets an interpolation, so each is `smooth`. There is
+  no `Idle` group, so the procedural idle stays whole.
 - **How the values were picked.** By eye, on Bob (with his blush) and the
   long-haired character, in 2026-10: soft, medium and strong candidates
   (0.7, 1 and 1.3 times a starting set of our own) for the expressions, the
@@ -621,7 +670,10 @@ One clip per group, so a host plays (`Nod`, 0). Keys are `[t s, value]`.
 - No glue between an arm's two bands: each turns rigidly, and only the cap
   covers the joint; nothing bends the sleeve's outline round the elbow.
 - The arms draw behind the face and the front hair, so a raised hand can go
-  under a side lock.
+  under a side lock; the pose forearm draws above both.
+- The swap is a crossfade, so midway both forearms show at half strength, and
+  a clip interrupted mid-wave fades the switch back over its fade rather than
+  snapping it.
 - The legs never move: everything under the hips is planted.
 - `laugh`'s shut eyes are the blink's fold, with no smile arch: the happy eye
   (an EyeSmile parameter) is deferred.

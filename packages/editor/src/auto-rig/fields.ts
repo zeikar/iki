@@ -1223,8 +1223,9 @@ export function familyField(m: TurnModel, family: Family): Field {
       return hairField(m, m.hairBack, NOD.hairBack);
     case "body":
     case "arm":
+    case "forearm_pose":
       // The torso and the arms have no turn field of their own: the body
-      // warp (`body.ts`) moves them.
+      // warp (`body.ts`) moves them, and the pose forearm rides its arm.
       return () => [0, 0];
   }
 }

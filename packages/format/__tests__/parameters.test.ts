@@ -28,6 +28,10 @@ describe("StandardParameter", () => {
       ArmRight: "ParamArmR",
       ElbowLeft: "ParamElbowL",
       ElbowRight: "ParamElbowR",
+      ArmPoseLeft: "ParamArmPoseL",
+      ArmPoseRight: "ParamArmPoseR",
+      ArmPoseAngleLeft: "ParamArmPoseAngleL",
+      ArmPoseAngleRight: "ParamArmPoseAngleR",
     });
   });
 });

@@ -285,6 +285,26 @@ const STANDARD_PARAMETER_INFO: StandardParameterInfo[] = [
     description:
       "Right elbow, degrees; positive bends the forearm toward the body (the flexion of a hanging arm), negative a little outward (mirrored on the left).",
   },
+  {
+    id: StandardParameter.ArmPoseLeft,
+    description:
+      "Left pose-forearm switch, 0..1; 0 the hanging forearm, 1 the drawn pose forearm, between them a crossfade of the two. Declared by auto-rigged models with a pose forearm.",
+  },
+  {
+    id: StandardParameter.ArmPoseRight,
+    description:
+      "Right pose-forearm switch, 0..1; 0 the hanging forearm, 1 the drawn pose forearm, between them a crossfade of the two. Declared by auto-rigged models with a pose forearm.",
+  },
+  {
+    id: StandardParameter.ArmPoseAngleLeft,
+    description:
+      "Left pose forearm's own small rotation about the elbow, degrees; positive tips the raised hand outward, away from the body (mirrored on the right).",
+  },
+  {
+    id: StandardParameter.ArmPoseAngleRight,
+    description:
+      "Right pose forearm's own small rotation about the elbow, degrees; positive tips the raised hand outward, away from the body (mirrored on the left).",
+  },
 ];
 
 export function listStandardParameters(): StandardParameterInfo[] {

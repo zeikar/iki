@@ -68,6 +68,14 @@ export const StandardParameter = {
   ElbowLeft: "ParamElbowL",
   /** Right elbow, degrees. Positive bends the forearm toward the body (the flexion of a hanging arm), negative a little outward (mirrored on the left). */
   ElbowRight: "ParamElbowR",
+  /** Left pose-forearm switch (0 .. 1): 0 the hanging forearm, 1 the drawn pose forearm, between them a crossfade of the two. Declared by auto-rigged models with a pose forearm. */
+  ArmPoseLeft: "ParamArmPoseL",
+  /** Right pose-forearm switch (0 .. 1): 0 the hanging forearm, 1 the drawn pose forearm, between them a crossfade of the two. Declared by auto-rigged models with a pose forearm. */
+  ArmPoseRight: "ParamArmPoseR",
+  /** Left pose forearm's own small rotation about the elbow, degrees. Positive tips the raised hand outward, away from the body (mirrored on the right). */
+  ArmPoseAngleLeft: "ParamArmPoseAngleL",
+  /** Right pose forearm's own small rotation about the elbow, degrees. Positive tips the raised hand outward, away from the body (mirrored on the left). */
+  ArmPoseAngleRight: "ParamArmPoseAngleR",
 } as const;
 
 export type StandardParameterId =

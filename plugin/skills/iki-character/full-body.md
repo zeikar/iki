@@ -204,8 +204,9 @@ result) and move from there.
 
 ## Step 3 — Rig
 
-Add `arm_L` and `arm_R` to the layers, with everything else the compose wrote
-but `preview.png`.
+Add `arm_L` and `arm_R` to the layers, and `forearm_pose_L` and `forearm_pose_R`
+when the compose wrote them, with everything else the compose wrote but
+`preview.png`.
 
 - An atlas page can reach 4096 px on a side. A device whose WebGL limit is
   2048 then loads the model with those parts untextured; a limit of 4096 or

@@ -5,9 +5,10 @@ import {
   type IkiModel,
 } from "@ikijs/format";
 import { generateIkiFromLayerSet, type LayerInput } from "@ikijs/editor";
-import { defaultExpressions } from "../src/auto-rig/animations";
+import { defaultExpressions, defaultMotions } from "../src/auto-rig/animations";
 import { REQUIRED_ROLES } from "../src/auto-rig/roles";
 import { CANVAS, character, type CharacterOptions } from "./helpers/character";
+import { fullBody } from "./helpers/full-body";
 
 function rig(
   opts: CharacterOptions = {},
@@ -97,5 +98,59 @@ describe("the auto-rig's default expressions and motions", () => {
         parameters: e.parameters.filter((t) => t.parameter !== P.EyeballY),
       })),
     );
+  });
+});
+
+describe("the Wave motion", () => {
+  const rigOf = (f: ReturnType<typeof fullBody>) =>
+    generateIkiFromLayerSet(f.layers, f.canvas, f.options);
+  const posed = rigOf(fullBody({ arms: true, poses: true }));
+
+  it("is declared only with the pose forearm", () => {
+    expect(Object.keys(rig().motions!)).toEqual(["Nod", "Shake", "Tilt"]);
+    expect(Object.keys(rigOf(fullBody({ arms: true })).motions!)).toEqual([
+      "Nod",
+      "Shake",
+      "Tilt",
+    ]);
+    expect(Object.keys(posed.motions!)).toEqual([
+      "Nod",
+      "Shake",
+      "Tilt",
+      "Wave",
+    ]);
+  });
+
+  it("drops the Wave when one of its parameters is not declared", () => {
+    const declared = new Set(posed.parameters.map((p) => p.id));
+    expect(Object.keys(defaultMotions(declared))).toContain("Wave");
+    for (const id of [P.ArmRight, P.ArmPoseRight, P.ArmPoseAngleRight]) {
+      const without = new Set(declared);
+      without.delete(id);
+      expect(Object.keys(defaultMotions(without))).not.toContain("Wave");
+    }
+  });
+
+  it("keys three curves back to rest, within range, fading as the switch ramps", () => {
+    const [clip] = posed.motions!.Wave;
+    expect(clip.curves.map((c) => c.parameter)).toEqual([
+      P.ArmPoseRight,
+      P.ArmRight,
+      P.ArmPoseAngleRight,
+    ]);
+    const [sw, ...others] = clip.curves;
+    expect(sw.interpolation).toBe("linear");
+    for (const c of others) expect(c.interpolation).toBeUndefined();
+    for (const c of clip.curves) {
+      const param = posed.parameters.find((p) => p.id === c.parameter)!;
+      expect(c.keys[0][1]).toBe(0);
+      expect(c.keys.at(-1)![1]).toBe(0);
+      for (const [, v] of c.keys) {
+        expect(v).toBeGreaterThanOrEqual(param.min);
+        expect(v).toBeLessThanOrEqual(param.max);
+      }
+    }
+    expect(clip.fadeIn).toBe(sw.keys[1][0]);
+    expect(clip.fadeOut).toBe(sw.keys[1][0]);
   });
 });

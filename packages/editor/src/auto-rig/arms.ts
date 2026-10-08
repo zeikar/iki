@@ -134,12 +134,74 @@ export interface ArmGeometry {
 }
 
 /**
+ * An end's pivot, read off the widest opaque run of each crop row
+ * (`rowRuns`; a row without one, or a layer without runs, reads as the crop):
+ * the radius is half the median width over the `CAP_ROWS` rows counted from
+ * `end` (the top, or the bottom for a crop drawn the other way up), and the
+ * pivot lies that radius in from the end's first painted row, at the run
+ * centre of the row it lands in. `point` is on the 0.01 grid, as the written
+ * model is. `row` is the pivot's crop row, fractional, counted from the top.
+ */
+export function endPivot(
+  layer: LayerInput,
+  end: "top" | "bottom",
+): { point: Point; radius: number; row: number } {
+  const { bbox, canvasW, canvasH, rowRuns } = layer;
+  // Crop row k's widest run, canvas columns [start, end).
+  const span = runSpan(layer);
+  // Row k counted from the named end, as a crop row.
+  const from = (k: number) => (end === "top" ? k : bbox.h - 1 - k);
+  const painted =
+    rowRuns?.flatMap((runs, k) => (runs.length > 0 ? [k] : [])) ?? [];
+  const firstK =
+    end === "top" ? (painted[0] ?? 0) : (painted.at(-1) ?? bbox.h - 1);
+
+  const lo = Math.ceil(CAP_ROWS[0] * bbox.h);
+  // At least one row, on a crop too short for the band to hold one.
+  const hi = Math.max(lo, Math.floor(CAP_ROWS[1] * bbox.h));
+  const widths: number[] = [];
+  for (let k = lo; k <= hi; k++) {
+    const [s, e] = span(from(k));
+    widths.push(e - s);
+  }
+  widths.sort((p, q) => p - q);
+  const radius = widths[widths.length >> 1] / 2;
+
+  // The pivot's row, fractional: the radius in from the first painted row.
+  const ks = end === "top" ? firstK + radius : firstK - radius;
+  const [s, e] = span(Math.round(ks));
+  return {
+    point: {
+      x: roundTo((s + e) / 2 - canvasW / 2, 0.01),
+      y: roundTo(canvasH / 2 - (bbox.y + ks + 0.5), 0.01),
+    },
+    radius,
+    row: ks,
+  };
+}
+
+/** Crop row k's widest run, canvas columns [start, end); the crop's columns
+ *  for a row without one. */
+function runSpan(layer: LayerInput): (k: number) => [number, number] {
+  const { bbox, rowRuns } = layer;
+  return (k) => {
+    const runs = rowRuns?.[k] ?? [];
+    if (runs.length === 0) return [bbox.x, bbox.x + bbox.w];
+    let [s, e] = [runs[0], runs[1]];
+    for (let i = 2; i < runs.length; i += 2) {
+      if (runs[i + 1] - runs[i] > e - s) [s, e] = [runs[i], runs[i + 1]];
+    }
+    return [s, e];
+  };
+}
+
+/**
  * The arm's pivots, read off the widest opaque run of each crop row
  * (`rowRuns`); a row without one, or a layer without runs, reads as the
  * crop:
- * - r_u is half the median width over the `CAP_ROWS` rows;
- * - the shoulder pivot lies r_u under the first painted row's centre, at the
- *   run centre of the row it lands in;
+ * - the shoulder pivot and r_u are `endPivot(layer, "top")`: r_u is half the
+ *   median width over the `CAP_ROWS` rows, the pivot lies r_u under the first
+ *   painted row's centre, at the run centre of the row it lands in;
  * - the elbow is the centre of the row `ELBOW_AT` of the way from there to
  *   the last painted row, at its run centre;
  * - the cap radius is half the elbow's run + 1 px, kept inside the crop;
@@ -156,16 +218,7 @@ export interface ArmGeometry {
 export function armGeometry(layer: LayerInput, bodyAxisX: number): ArmGeometry {
   const { bbox, canvasW, canvasH, rowRuns } = layer;
   const b = boxOfLayer(layer);
-  // Crop row k's widest run, canvas columns [start, end).
-  const span = (k: number): [number, number] => {
-    const runs = rowRuns?.[k] ?? [];
-    if (runs.length === 0) return [bbox.x, bbox.x + bbox.w];
-    let [s, e] = [runs[0], runs[1]];
-    for (let i = 2; i < runs.length; i += 2) {
-      if (runs[i + 1] - runs[i] > e - s) [s, e] = [runs[i], runs[i + 1]];
-    }
-    return [s, e];
-  };
+  const span = runSpan(layer);
   const centreX = (k: number) => {
     const [s, e] = span(k);
     return (s + e) / 2 - canvasW / 2;
@@ -175,26 +228,9 @@ export function armGeometry(layer: LayerInput, bodyAxisX: number): ArmGeometry {
 
   const painted =
     rowRuns?.flatMap((runs, k) => (runs.length > 0 ? [k] : [])) ?? [];
-  const first = painted[0] ?? 0;
   const last = painted.at(-1) ?? bbox.h - 1;
 
-  const lo = Math.ceil(CAP_ROWS[0] * bbox.h);
-  // At least one row, on a crop too short for the band to hold one.
-  const hi = Math.max(lo, Math.floor(CAP_ROWS[1] * bbox.h));
-  const widths: number[] = [];
-  for (let k = lo; k <= hi; k++) {
-    const [s, e] = span(k);
-    widths.push(e - s);
-  }
-  widths.sort((p, q) => p - q);
-  const ru = widths[widths.length >> 1] / 2;
-
-  // The shoulder's row, fractional: r_u under the first painted row.
-  const ks = first + ru;
-  const shoulder = {
-    x: roundTo(centreX(Math.round(ks)), 0.01),
-    y: roundTo(rowY(ks), 0.01),
-  };
+  const { point: shoulder, radius: ru, row: ks } = endPivot(layer, "top");
   const ke = Math.round(ks + ELBOW_AT * (last - ks));
   if (ke <= ks) {
     throw new LayerGeometryError(
@@ -263,13 +299,17 @@ function meshOf(vertices: number[], indices: number[]): IkiMesh {
  * vertex takes the column just past the run, the inner one `CAP_RIM` of the
  * cap radius inward, both at the seam's row, kept inside the crop. Their
  * texture rect is the host's, as every part's is: all take the crop's
- * (`partIdsOfRole`).
+ * (`partIdsOfRole`). With a `poseSwitch` (the arm has a pose forearm,
+ * `forearm-pose.ts`), the cap and the forearm fade out on it, 1 to 0, as the
+ * pose forearm fades in: the pair is exclusive by construction. The upper arm
+ * never swaps.
  */
 export function armParts(
   role: ArmRole,
   layer: LayerInput,
   g: ArmGeometry,
   order: number,
+  poseSwitch?: string,
 ): [IkiPart, IkiPart, IkiPart] {
   const b = boxOfLayer(layer);
   const lx = (x: number) => roundTo((x - cx(b)) / bw(b), 1e-5);
@@ -342,6 +382,7 @@ export function armParts(
     deformer: string,
     z: number,
     mesh: IkiMesh,
+    swaps = false,
   ): IkiPart => ({
     id,
     color: [1, 1, 1, 1],
@@ -351,23 +392,55 @@ export function armParts(
     order: z,
     deformer,
     mesh,
+    ...(swaps && poseSwitch !== undefined
+      ? {
+          bindings: [
+            {
+              parameter: poseSwitch,
+              channel: "opacity" as const,
+              from: 1,
+              to: 0,
+            },
+          ],
+        }
+      : {}),
   });
   const ids = ARM_IDS[role];
   return [
-    part(ids.cap, ids.forearmDeformer, order, {
-      vertices,
-      uvs,
-      indices: [...fan, ...ring],
-    }),
+    part(
+      ids.cap,
+      ids.forearmDeformer,
+      order,
+      {
+        vertices,
+        uvs,
+        indices: [...fan, ...ring],
+      },
+      true,
+    ),
     part(role, ids.armDeformer, order + 1, meshOf(band(0.5, seam), quad)),
     part(
       ids.forearm,
       ids.forearmDeformer,
       order + 2,
       meshOf(band(seam, -0.5), quad),
+      true,
     ),
   ];
 }
+
+/** A rotate binding mapping the parameter's range onto [from, to]: it gives
+ *  sign · value degrees, so 0 rests. */
+export const rotateBinding = (
+  parameter: string,
+  range: readonly [number, number],
+  sign: number,
+): IkiDeformerBinding => ({
+  parameter,
+  channel: "rotate",
+  from: sign * range[0],
+  to: sign * range[1],
+});
 
 /**
  * The arm's two matrix deformers: `armDeformer_X`, hung from the body warp
@@ -382,30 +455,18 @@ export function armDeformers(
 ): [IkiMatrixDeformer, IkiMatrixDeformer] {
   const ids = ARM_IDS[role];
   const params = ARM_PARAMS[role];
-  // A binding maps the parameter's range onto [from, to]: these give
-  // sign · value, so 0 rests.
-  const rotate = (
-    parameter: string,
-    range: readonly [number, number],
-    sign: number,
-  ): IkiDeformerBinding => ({
-    parameter,
-    channel: "rotate",
-    from: sign * range[0],
-    to: sign * range[1],
-  });
   return [
     {
       id: ids.armDeformer,
       parent: BODY_WARP_ID,
       pivot: { ...g.shoulder },
-      bindings: [rotate(params.arm, ARM_RANGE, g.side)],
+      bindings: [rotateBinding(params.arm, ARM_RANGE, g.side)],
     },
     {
       id: ids.forearmDeformer,
       parent: ids.armDeformer,
       pivot: { ...g.elbow },
-      bindings: [rotate(params.elbow, ELBOW_RANGE, -g.side)],
+      bindings: [rotateBinding(params.elbow, ELBOW_RANGE, -g.side)],
     },
   ];
 }
