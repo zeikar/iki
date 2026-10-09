@@ -11,6 +11,12 @@
  * Composing is deterministic: same parts -> same layers, so re-run freely after
  * tuning `layout` (no image re-generation needed).
  *
+ * The mouth has two routes. `mouth.png` (+ optional `mouth_open.png`) is a
+ * closed drawing and an open one that cross-fade. `mouth_keyed.png` (the open
+ * mouth, its inside flat #00FF00) + `mouth_interior.png` is the lip set: the
+ * composer keys and splits it into `mouth_inner` / `lip_lower` / `lip_upper` on
+ * one frame (./compose-lips), which the rig folds open like an eyelid.
+ *
  * `sharp` must stay confined to @ikijs/mcp; part decoding goes through
  * ./node-images, this package's single image-decode boundary.
  */
@@ -29,6 +35,15 @@ import {
   forearmPosePlacement,
   forearmPoseWidth,
 } from "./compose-arms";
+import {
+  INTERIOR_SRC,
+  KEYED_SRC,
+  closedLips,
+  keyBorderWhite,
+  keyGreen,
+  prepInterior,
+  splitLipSet,
+} from "./compose-lips";
 import {
   AutoRigInputError,
   MAX_CANVAS_DIM,
@@ -237,6 +252,18 @@ const DEFAULT_LAYOUT = {
     w: 76,
     optional: true,
   },
+  // The lip set's ONE frame, mouth_open's place: the keyed mouth is split into
+  // mouth_inner / lip_lower / lip_upper and all three land here, so a retune
+  // moves them together. lip_lower and lip_upper have no key of their own
+  // (LIP_FRAME). OPTIONAL and opt-in: with mouth_keyed.png + mouth_interior.png
+  // it stands in for mouth and mouth_open.
+  mouth_inner: {
+    src: KEYED_SRC,
+    cx: 550,
+    cy: 596,
+    w: 76,
+    optional: true,
+  },
   // eye_* (sclera) and lash_* share the eyewhite's cropped frame via noTrim (so
   // they are NOT re-bboxed independently): the upper lash stays anchored ABOVE
   // the sclera center, so on blink it folds DOWN over the eye like the sample
@@ -275,8 +302,14 @@ const LOWER_LASH = { lash_lower_L: "eye_L", lash_lower_R: "eye_R" } as const;
 /** The eyewhite's lower lid, split in memory like the sclera and lash. */
 const LOWER_LASH_SRC = "eyewhite_lash_lower.png";
 
+/** The lip set's other two layers, and the role whose frame they are cut on. */
+const LIP_FRAME = {
+  lip_lower: "mouth_inner",
+  lip_upper: "mouth_inner",
+} as const;
+
 /** A role the composer writes a layer for. */
-export type LayerRole = Role | keyof typeof LOWER_LASH;
+export type LayerRole = Role | keyof typeof LOWER_LASH | keyof typeof LIP_FRAME;
 
 /** The arm roles, placed off the body (ArmLayout). */
 type ArmRole = "arm_L" | "arm_R";
@@ -310,6 +343,9 @@ export const ORDER: LayerRole[] = [
   "nose",
   "mouth",
   "mouth_open",
+  "mouth_inner",
+  "lip_lower",
+  "lip_upper",
   "eye_L",
   "eye_R",
   "iris_L",
@@ -336,6 +372,7 @@ const PART_FILES = [
       .filter((src) => !src.startsWith("eyewhite_")),
   ),
   EYEWHITE_SRC,
+  INTERIOR_SRC,
 ];
 
 /** Per-role placement overrides; anything omitted keeps the default above. */
@@ -395,11 +432,14 @@ export type ComposeResult =
        * lashes when the eyewhite draws no dark lower lid. The arms and the
        * pose forearms are opt-in and never listed: a parts dir without
        * arm.png composes as a bust does, though an earlier compose's arm
-       * layers are still removed.
+       * layers are still removed. The lip roles are never listed either, and
+       * with the lip set neither are `mouth` and `mouth_open`, which the set
+       * stands in for.
        */
       skipped: LayerRole[];
       /** The rest pose, flattened: a pose forearm is invisible there, so it
-       *  never shows in this one. */
+       *  never shows in this one, and the lip set shows closed, as the rig
+       *  draws the rest pose. */
       preview: string;
       /** Written only with a pose forearm: the switch at 1 as the rig draws
        *  it — each arm with a pose forearm cropped to the rows above its
@@ -420,6 +460,7 @@ const FACE_FEATURES = [
   "blush_R",
   "mouth",
   "mouth_open",
+  "mouth_inner",
   "eye_L",
   "eye_R",
   "iris_L",
@@ -645,10 +686,10 @@ interface Trimmed {
 
 /**
  * Trim/mirror a part, ready to be resized (`sizedPart`). `inMemory` carries
- * the eye pair's two split buffers; every other role is read from the parts
- * dir. `flipSource` is a `mirrorParts` entry for the file the role is cut
- * from. A pose forearm is measured between this and the resize, to learn the
- * width that fits it to its arm.
+ * the eye pair's two split buffers and the lip set's keyed mouth; every other
+ * role is read from the parts dir. `flipSource` is a `mirrorParts` entry for
+ * the file the role is cut from. A pose forearm is measured between this and
+ * the resize, to learn the width that fits it to its arm.
  * Missing optional part -> null; missing required part -> AutoRigInputError.
  */
 async function trimmedPart(
@@ -670,7 +711,10 @@ async function trimmedPart(
       // Name the role, not just the file: one source feeds two roles
       // (brow.png -> brow_L/brow_R), so the path alone does not say what broke.
       throw new AutoRigInputError(
-        `missing part source for role "${role}": ${srcPath}`,
+        `missing part source for role "${role}": ${srcPath}` +
+          (role === "mouth"
+            ? " — draw mouth.png (with mouth_open.png), or the lip set's mouth_keyed.png + mouth_interior.png"
+            : ""),
       );
     }
     const png = await decodePng(srcPath);
@@ -686,7 +730,8 @@ async function trimmedPart(
   // bbox, less any stray speck beside the drawing.
   if (!cfg.noTrim) {
     // The rest of the pipeline reads this trimmed raw, so the source is
-    // decoded and trimmed once. Only file sources are trimmed, and they are
+    // decoded and trimmed once. Only file sources and the keyed mouth are
+    // trimmed (the eye pair's halves are noTrim), and the file sources are
     // raw already, so a part with no stray speck composes byte-identically.
     const kept = await img
       .trim({ threshold: TRIM_THRESHOLD })
@@ -834,6 +879,7 @@ function placement(
  */
 function nosePlacement(
   layout: ResolvedLayout,
+  mouthKey: "mouth" | "mouth_inner",
   box: Box,
   w: number,
   h: number,
@@ -847,14 +893,14 @@ function nosePlacement(
   } else {
     const eyeRow = (layout.eye_L.cy + layout.eye_R.cy) / 2;
     const tipRow = Math.round(
-      eyeRow + NOSE_TIP_AT * (layout.mouth.cy - eyeRow),
+      eyeRow + NOSE_TIP_AT * (layout[mouthKey].cy - eyeRow),
     );
     top = tipRow - (box.y + box.h - 1);
   }
   assertOnCanvas(
     cy !== undefined
       ? "layout.nose.cx/cy"
-      : "layout.nose.cx/cy (cy unset: its tip row comes from layout.eye_L/eye_R/mouth.cy)",
+      : `layout.nose.cx/cy (cy unset: its tip row comes from layout.eye_L/eye_R/${mouthKey}.cy)`,
     w,
     h,
     left,
@@ -1086,6 +1132,71 @@ async function prepEyeSplit(
 }
 
 /**
+ * The lip set's two sources, keyed and prepared, or `undefined` for the legacy
+ * mouth. Opt-in like the arms: both files present is the set, neither is the
+ * legacy route, and one without the other, or either beside the legacy
+ * drawings, is refused (auto_rig_from_layers refuses the mix; the composer
+ * refuses it first, naming what to remove). Both are decoded here, at source
+ * resolution, because the key reads the antialiasing of the source's own
+ * pixels (./compose-lips); a part with no alpha has its white ground keyed
+ * first.
+ */
+async function prepLipSources(
+  partsDir: string,
+  mirrored: Set<string>,
+): Promise<
+  | {
+      keyedPng: Buffer;
+      interior: { png: Buffer; cavity: [number, number, number] };
+    }
+  | undefined
+> {
+  const has = (name: string) => fs.existsSync(path.join(partsDir, name));
+  const keyed = has(KEYED_SRC);
+  const interior = has(INTERIOR_SRC);
+  if (keyed && !interior) {
+    throw new AutoRigInputError(
+      `${KEYED_SRC} needs ${INTERIOR_SRC}: the composer fits the drawn interior into the keyed opening — draw it (billed)`,
+    );
+  }
+  if (interior && !keyed) {
+    throw new AutoRigInputError(
+      `${INTERIOR_SRC} needs ${KEYED_SRC}: the composer cuts the lip set from the keyed open mouth and fits the interior into its opening — draw it (billed)`,
+    );
+  }
+  if (!keyed) return undefined;
+  const legacy = ["mouth.png", "mouth_open.png"].filter(has);
+  if (legacy.length > 0) {
+    throw new AutoRigInputError(
+      `${KEYED_SRC}/${INTERIOR_SRC} cannot be composed beside mouth.png/mouth_open.png (the lip set replaces the mouth drawings, and auto_rig_from_layers refuses the mix) — remove ${legacy.join(" and ")}`,
+    );
+  }
+
+  const k = await decodePng(path.join(partsDir, KEYED_SRC));
+  const keyedRgba = keyGreen(
+    k.hasAlpha ? k.rgba : keyWhiteToAlpha(k.rgba),
+    k.width,
+    k.height,
+  );
+  const i = await decodePng(path.join(partsDir, INTERIOR_SRC));
+  const prepared = await prepInterior(
+    i.hasAlpha ? i.rgba : keyBorderWhite(i.rgba, i.width, i.height),
+    i.width,
+    i.height,
+  );
+  return {
+    keyedPng: await sharp(keyedRgba, {
+      raw: { width: k.width, height: k.height, channels: 4 },
+    })
+      .png()
+      .toBuffer(),
+    interior: mirrored.has(INTERIOR_SRC)
+      ? { ...prepared, png: await sharp(prepared.png).flop().png().toBuffer() }
+      : prepared,
+  };
+}
+
+/**
  * Compose a parts directory into role-named layers plus a flattened preview,
  * then measure the result so the caller sees the geometry checks inline.
  *
@@ -1128,6 +1239,19 @@ export async function composeLayersFromParts(
       splitSources.set(LOWER_LASH_SRC, split.lashLower);
     }
 
+    const lips = await prepLipSources(partsDir, mirrored);
+    // The set's split, stashed where mouth_inner is placed for the two lip
+    // layers cut on the same frame.
+    let lipSplit:
+      | {
+          split: Awaited<ReturnType<typeof splitLipSet>>;
+          w: number;
+          h: number;
+          left: number;
+          top: number;
+        }
+      | undefined;
+
     // Place every role before writing any: a rejected placement must leave
     // outDir as the last compose left it, not half overwritten.
     const placed: {
@@ -1145,6 +1269,47 @@ export async function composeLayersFromParts(
     // for the report; otherwise the report judges the composed nose layer.
     let noseSpeck: NoseSpeck | undefined;
     for (const role of ORDER) {
+      // With the lip set, mouth and mouth_open are neither placed nor listed in
+      // `skipped`: the set stands in for them.
+      if (lips !== undefined && (role === "mouth" || role === "mouth_open")) {
+        continue;
+      }
+      if (role === "mouth_inner") {
+        // Opt-in like the arms: without the lip set, nothing to place.
+        if (lips === undefined) continue;
+        const cfg = layout.mouth_inner;
+        // Never null: the keyed part is in memory.
+        const part = (await partBuffer(
+          role,
+          cfg,
+          partsDir,
+          lips.keyedPng,
+          mirrored.has(KEYED_SRC),
+          canvas,
+        ))!;
+        const split = await splitLipSet(
+          part.buf,
+          part.w,
+          part.h,
+          lips.interior,
+        );
+        const { left, top } = placement(role, cfg, part.w, part.h, canvas);
+        lipSplit = { split, w: part.w, h: part.h, left, top };
+        placed.push({
+          role,
+          part: { buf: split.inner, w: part.w, h: part.h },
+          left,
+          top,
+        });
+        continue;
+      }
+      if (role === "lip_lower" || role === "lip_upper") {
+        if (lipSplit === undefined) continue;
+        const { split, w, h, left, top } = lipSplit;
+        const buf = role === "lip_lower" ? split.lower : split.upper;
+        placed.push({ role, part: { buf, w, h }, left, top });
+        continue;
+      }
       // A lower lash is placed by its eye's layout, on the sclera's frame.
       const lower = role === "lash_lower_L" || role === "lash_lower_R";
       const key: Role = lower ? LOWER_LASH[role] : role;
@@ -1286,7 +1451,14 @@ export async function composeLayersFromParts(
         noseSpeck = part.nose?.speck;
         const { core, bounds } = await coreAndBoundsOf(part.buf);
         const box = part.nose?.whole ? bounds : (core ?? bounds);
-        ({ left, top } = nosePlacement(layout, box, part.w, part.h, canvas));
+        ({ left, top } = nosePlacement(
+          layout,
+          lips === undefined ? "mouth" : "mouth_inner",
+          box,
+          part.w,
+          part.h,
+          canvas,
+        ));
       } else {
         ({ left, top } = placement(key, layout[key], part.w, part.h, canvas));
       }
@@ -1333,6 +1505,24 @@ export async function composeLayersFromParts(
     if (!placed.some((p) => posed(p.role))) {
       fs.rmSync(path.join(outDir, "preview-pose.png"), { force: true });
     }
+    // The preview shows the lip set shut, as the rig draws the rest pose.
+    const closed =
+      lipSplit === undefined
+        ? undefined
+        : await closedLips(
+            lipSplit.split.upper,
+            lipSplit.split.lower,
+            lipSplit.split.opening,
+          );
+    // What a role contributes to a rest-pose preview: the lips shut, the
+    // interior left out (shut, it has no height); null for nothing.
+    const restInput = (role: LayerRole, buf: Buffer): Buffer | null => {
+      if (role === "mouth_inner") return null;
+      if (closed === undefined) return buf;
+      if (role === "lip_upper") return closed.upper;
+      if (role === "lip_lower") return closed.lower;
+      return buf;
+    };
     const layers: ComposedLayer[] = [];
     const preview: { input: Buffer; left: number; top: number }[] = [];
     for (const { role, part, left, top } of placed) {
@@ -1351,7 +1541,8 @@ export async function composeLayersFromParts(
         left,
         top,
       });
-      if (!posed(role)) preview.push({ input: part.buf, left, top });
+      const input = restInput(role, part.buf);
+      if (!posed(role) && input !== null) preview.push({ input, left, top });
     }
 
     // Flattened preview over a light bg so transparency reads clearly.
@@ -1385,7 +1576,8 @@ export async function composeLayersFromParts(
               (role === "arm_L" ? "forearm_pose_L" : "forearm_pose_R"),
           );
         if (!armPosed) {
-          pose.push({ input: part.buf, left, top });
+          const input = restInput(role, part.buf);
+          if (input !== null) pose.push({ input, left, top });
           continue;
         }
         const rows = Math.min(part.h, Math.max(1, Math.round(elbow.y - top)));

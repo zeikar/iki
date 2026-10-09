@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -10,20 +11,35 @@ import {
   type LayerInput,
   type Opening,
 } from "@ikijs/editor";
+import { parseIkiModel } from "@ikijs/format";
+import { autoRigFromLayers } from "../src/tools";
+import {
+  ORDER,
+  composeLayersFromParts,
+  type ComposeInput,
+  type ComposeResult,
+} from "../src/compose";
+import { denseCoreOf } from "../src/measure-turn";
 import {
   closedLips,
+  keyBorderWhite,
   keyGreen,
   prepInterior,
   splitLipSet,
 } from "../src/compose-lips";
 import { decodePng } from "../src/node-images";
+import { luma as lumaOf } from "../src/trim";
 import {
   CAVITY,
   LIP_RIM,
   TEETH,
   TONGUE,
   writeInterior,
+  writeFullBodyParts,
   writeKeyedMouth,
+  writeLipParts,
+  writePartsSet,
+  writeSoftNose,
 } from "./helpers/parts";
 
 type RGB = [number, number, number];
@@ -215,6 +231,74 @@ describe("keyGreen", () => {
     );
     const rgba = keyGreen(src, W, H);
     expect(px(rgba, W, 5, 30)).toEqual([...odd, 255]);
+  });
+});
+
+describe("keyBorderWhite", () => {
+  const W = 40;
+  const H = 30;
+  const ground = (g: RGB) =>
+    paint(W, H, (x, y) =>
+      x >= 10 && x < 30 && y >= 8 && y < 22 ? (y < 12 ? TEETH : CAVITY) : g,
+    );
+
+  it("keys the white corners and keeps the teeth", () => {
+    const out = keyBorderWhite(ground([255, 255, 255]), W, H);
+    expect(px(out, W, 0, 0)[3]).toBe(0);
+    expect(px(out, W, 39, 29)[3]).toBe(0);
+    expect(px(out, W, 15, 9)).toEqual([...TEETH, 255]);
+    expect(px(out, W, 15, 15)).toEqual([...CAVITY, 255]);
+  });
+
+  it("keys only the corners of a drawing that runs off the image", () => {
+    const oval = paint(W, H, (x, y) =>
+      ((x + 0.5 - 20) / 26) ** 2 + ((y + 0.5 - 15) / 18) ** 2 <= 1
+        ? CAVITY
+        : [255, 255, 255],
+    );
+    const out = keyBorderWhite(oval, W, H);
+    expect(px(out, W, 0, 0)[3]).toBe(0);
+    expect(px(out, W, 20, 15)).toEqual([...CAVITY, 255]);
+    expect(px(out, W, 20, 0)).toEqual([...CAVITY, 255]);
+  });
+
+  it("leaves a cavity that fills the image alone", () => {
+    const full = paint(W, H, () => CAVITY);
+    expect(keyBorderWhite(full, W, H)).toEqual(full);
+  });
+
+  it("refuses a checkerboard fake transparency", () => {
+    for (const other of [204, 230, 238, 245]) {
+      const checker = paint(W, H, (x, y) =>
+        (x + y) % 2 === 0 ? [255, 255, 255] : [other, other, other],
+      );
+      expect(() => keyBorderWhite(checker, W, H)).toThrow(
+        other >= 238 ? /too noisy or shaded/ : /came back opaque on a/,
+      );
+    }
+  });
+
+  it("keys a clean white ground that a drawing touches a third of the border of", () => {
+    const strip = paint(W, H, (x) => (x < 6 ? CAVITY : [255, 255, 255]));
+    const out = keyBorderWhite(strip, W, H);
+    expect(px(out, W, 39, 29)[3]).toBe(0);
+    expect(px(out, W, 2, 10)).toEqual([...CAVITY, 255]);
+  });
+
+  it("refuses a cream ground rather than stretching it into the opening", () => {
+    expect(() => keyBorderWhite(ground([240, 228, 205]), W, H)).toThrow(
+      /non-white ground/,
+    );
+  });
+
+  it("refuses a ground too noisy to key", () => {
+    // A white ground with a gradient along the border: the pixels within
+    // ±4 of the border's median own under GROUND_BORDER_SHARE of it.
+    const noisy = paint(W, H, (x) => {
+      const v = 238 + Math.floor((17 * x) / (W - 1));
+      return [v, v, v];
+    });
+    expect(() => keyBorderWhite(noisy, W, H)).toThrow(/too noisy or shaded/);
   });
 });
 
@@ -511,5 +595,456 @@ describe("splitLipSet and closedLips", () => {
       ).toEqual(
         buffers.upper.subarray((y * W + hook) * 4, (y * W + hook) * 4 + 4),
       );
+  });
+});
+
+describe("composeLayersFromParts: the lip set", () => {
+  const dirs: string[] = [];
+  afterAll(() => {
+    for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
+  });
+  const parts = (): string => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "iki-lips-parts-"));
+    dirs.push(d);
+    return d;
+  };
+  /** Output resolves under cwd; node_modules is gitignored. */
+  const out = (): string => {
+    const d = fs.mkdtempSync(
+      path.join(process.cwd(), "node_modules", ".iki-mcp-lips-"),
+    );
+    dirs.push(d);
+    return d;
+  };
+  type Ok = Extract<ComposeResult, { ok: true }>;
+  const ok = async (input: ComposeInput): Promise<Ok> => {
+    const r = await composeLayersFromParts(input);
+    if (!r.ok) throw new Error(`expected ok, got: ${r.error}`);
+    return r;
+  };
+  const err = async (input: ComposeInput): Promise<string> => {
+    const r = await composeLayersFromParts(input);
+    if (r.ok) throw new Error("expected a failure, got ok");
+    return r.error;
+  };
+  const digest = (dir: string) =>
+    fs
+      .readdirSync(dir)
+      .sort()
+      .map(
+        (f) =>
+          `${f}:${crypto
+            .createHash("sha256")
+            .update(fs.readFileSync(path.join(dir, f)))
+            .digest("hex")}`,
+      );
+  const lipParts = async (opts?: Parameters<typeof writeLipParts>[1]) => {
+    const d = parts();
+    await writeLipParts(d, opts);
+    return d;
+  };
+  const layerOf = (r: Ok, role: string) =>
+    r.layers.find((l) => l.role === role)!;
+  const LIPS = ["mouth_inner", "lip_lower", "lip_upper"] as const;
+
+  let result: Ok;
+  let outDir: string;
+  beforeAll(async () => {
+    outDir = out();
+    result = await ok({ partsDir: await lipParts(), outDir });
+  });
+
+  it("writes the three layers on one frame, in draw order, and no legacy mouth", () => {
+    const [inner, lower, upper] = LIPS.map((r) => layerOf(result, r));
+    for (const l of [lower, upper]) {
+      expect([l.width, l.height, l.left, l.top]).toEqual([
+        inner.width,
+        inner.height,
+        inner.left,
+        inner.top,
+      ]);
+    }
+    expect(inner.left).toBe(Math.round(550 - inner.width / 2));
+    expect(inner.top).toBe(Math.round(596 - inner.height / 2));
+    const roles = result.layers.map((l) => l.role);
+    const at = (r: string) => roles.indexOf(r as never);
+    expect(at("mouth_inner")).toBe(at("nose") + 1);
+    expect(at("lip_lower")).toBe(at("mouth_inner") + 1);
+    expect(at("lip_upper")).toBe(at("lip_lower") + 1);
+    expect(at("eye_L")).toBe(at("lip_upper") + 1);
+    expect(roles).not.toContain("mouth");
+    expect(roles).not.toContain("mouth_open");
+    expect(fs.existsSync(path.join(outDir, "mouth.png"))).toBe(false);
+    for (const r of [...LIPS, "mouth", "mouth_open"])
+      expect(result.skipped).not.toContain(r);
+    // ORDER keeps the lip roles after mouth_open.
+    expect(ORDER.indexOf("lip_upper")).toBe(ORDER.indexOf("mouth_open") + 3);
+  });
+
+  async function openingOf(dir: string) {
+    const measurer = createLayerSetMeasurer({ width: 1100, height: 1100 });
+    const byRole = new Map<string, LayerInput>();
+    for (const role of LIPS) {
+      const { rgba } = await decodePng(path.join(dir, `${role}.png`));
+      byRole.set(role, measurer.add({ role, fileName: `${role}.png`, rgba })!);
+    }
+    return { byRole, opening: mouthOpening(byRole) };
+  }
+
+  it("meets the rig's contract on the canvas, and the report has no lip warning", async () => {
+    const { byRole, opening } = await openingOf(outDir);
+    const lowerRuns = columnRuns(byRole.get("lip_lower")!);
+    expect(opening.w).toBeGreaterThanOrEqual(3);
+    for (let x = opening.x0; x <= opening.x1; x++) {
+      const c = opening.at(x);
+      expect(c.Tu).toBeLessThanOrEqual(c.T);
+      expect(c.T).toBeLessThanOrEqual(c.lineTop);
+      expect(c.lineH).toBeGreaterThan(0);
+      if (lowerRuns.has(x)) expect(c.Bl).toBeGreaterThan(c.Bb);
+    }
+    const lipLines = result.measure.warnings.filter((w) =>
+      /^(mouth_inner|lip_lower|lip_upper)/.test(w),
+    );
+    expect(lipLines).toEqual([]);
+    expect(result.measure.lips?.opening.width).toBe(
+      opening.x1 - opening.x0 + 1,
+    );
+  });
+
+  it("previews the set closed: the line on the seam, no interior", async () => {
+    // The fixture's hair_front blob covers the mouth by default.
+    const dir = out();
+    const shown = await ok({
+      partsDir: await lipParts(),
+      outDir: dir,
+      layout: { hair_front: { cy: 150, w: 200 } },
+    });
+    const { opening } = await openingOf(dir);
+    const preview = await decodePng(shown.preview);
+    const seamRow = Math.round(550 - opening.at(opening.centre).seam);
+    const dark = (y: number) =>
+      lumaOf(preview.rgba, (y * preview.width + opening.centre) * 4) < 60;
+    expect([seamRow - 2, seamRow - 1, seamRow].some(dark)).toBe(true);
+    // Inside the frame: the fixture's eye whites antialias into the ground
+    // elsewhere on the canvas, near TEETH's colour.
+    const frame = shown.layers.find((l) => l.role === "mouth_inner")!;
+    const inFrame = await sharp(shown.preview)
+      .extract({
+        left: frame.left,
+        top: frame.top,
+        width: frame.width,
+        height: frame.height,
+      })
+      .ensureAlpha()
+      .raw()
+      .toBuffer();
+    expect(countNear(inFrame, TEETH, 3)).toBe(0);
+    expect(countNear(inFrame, TONGUE, 12)).toBe(0);
+  });
+
+  it("moves the three together on one layout key", async () => {
+    const moved = await ok({
+      partsDir: await lipParts(),
+      outDir: out(),
+      layout: { mouth_inner: { cx: 500 } },
+    });
+    for (const r of LIPS) {
+      const l = layerOf(moved, r);
+      expect(l.left).toBe(Math.round(500 - l.width / 2));
+    }
+    expect(layerOf(moved, "lip_upper").left).toBe(
+      layerOf(moved, "mouth_inner").left,
+    );
+  });
+
+  it("has no key for the lip layers, and scales with the face", async () => {
+    expect(
+      await err({
+        partsDir: await lipParts(),
+        outDir: out(),
+        layout: { lip_upper: {} } as never,
+      }),
+    ).toMatch(/unknown role/);
+    const wide = await ok({
+      partsDir: await lipParts(),
+      outDir: out(),
+      layout: { face: { w: 800 } },
+    });
+    expect(
+      Math.abs(layerOf(wide, "mouth_inner").width - 152),
+    ).toBeLessThanOrEqual(1);
+  });
+
+  it("places the nose's tip by layout.mouth_inner.cy", async () => {
+    const d = parts();
+    await writePartsSet(d, {
+      omit: ["mouth.png", "mouth_open.png", "nose.png"],
+    });
+    await writeKeyedMouth(d);
+    await writeInterior(d);
+    await writeSoftNose(d);
+    const dir = out();
+    await ok({
+      partsDir: d,
+      outDir: dir,
+      layout: { mouth_inner: { cy: 633 } },
+    });
+    const nose = await decodePng(path.join(dir, "nose.png"));
+    const core = denseCoreOf(nose.rgba, nose.width, nose.height)!;
+    // 475 + 0.66 * (633 - 475) = 579.28.
+    expect(core.y + core.h - 1).toBe(579);
+  });
+
+  /** Overwrite a part with its pixels after `paint` has had its way. */
+  async function repaint(
+    file: string,
+    paint: (set: (x: number, y: number, rgb: RGB) => void, w: number) => void,
+  ) {
+    const { data, info } = await sharp(file)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    paint(
+      (x, y, rgb) => data.set([...rgb, 255], (y * info.width + x) * 4),
+      info.width,
+    );
+    await sharp(data, {
+      raw: { width: info.width, height: info.height, channels: 4 },
+    })
+      .png()
+      .toFile(`${file}.tmp`);
+    fs.renameSync(`${file}.tmp`, file);
+  }
+  /** The mean column of a layer's pixels near `rgb`, as a share of the canvas
+   *  frame it was composed on. */
+  async function meanX(
+    file: string,
+    near: (rgba: Buffer, i: number) => boolean,
+  ) {
+    const { rgba } = await decodePng(file);
+    let sum = 0;
+    let n = 0;
+    for (let i = 0; i < rgba.length; i += 4) {
+      if (!near(rgba, i)) continue;
+      sum += (i / 4) % 1100;
+      n++;
+    }
+    return sum / n;
+  }
+
+  it("flips the interior under mirrorParts", async () => {
+    const d = await lipParts();
+    // A tongue patch on the drawing's left only.
+    await repaint(path.join(d, "mouth_interior.png"), (set, w) => {
+      for (let y = 15; y < 35; y++)
+        for (let x = 30; x < 45; x++) set(x, y, TONGUE);
+      void w;
+    });
+    const tongue = (rgba: Buffer, i: number) => isNear(rgba, i, TONGUE, 6);
+    const plain = out();
+    await ok({ partsDir: d, outDir: plain });
+    const flipped = out();
+    await ok({
+      partsDir: d,
+      outDir: flipped,
+      mirrorParts: ["mouth_interior.png"],
+    });
+    const a = await meanX(path.join(plain, "mouth_inner.png"), tongue);
+    const b = await meanX(path.join(flipped, "mouth_inner.png"), tongue);
+    expect(a).toBeLessThan(550 - 3);
+    expect(b).toBeGreaterThan(550 + 3);
+  });
+
+  it("flips the keyed mouth under mirrorParts", async () => {
+    const d = await lipParts();
+    // A dark patch past the left end of the outline: a corner pixel set that
+    // the split hands to lip_upper whole.
+    await repaint(path.join(d, "mouth_keyed.png"), (set) => {
+      for (let y = 15; y < 25; y++)
+        for (let x = 0; x < 10; x++) set(x, y, [20, 20, 30]);
+    });
+    const dark = (rgba: Buffer, i: number) => isNear(rgba, i, [20, 20, 30], 6);
+    const plain = out();
+    await ok({ partsDir: d, outDir: plain });
+    const flipped = out();
+    await ok({
+      partsDir: d,
+      outDir: flipped,
+      mirrorParts: ["mouth_keyed.png"],
+    });
+    const a = await meanX(path.join(plain, "lip_upper.png"), dark);
+    const b = await meanX(path.join(flipped, "lip_upper.png"), dark);
+    expect(a).toBeLessThan(550 - 1);
+    expect(b).toBeGreaterThan(550 + 1);
+  });
+
+  it("keeps the teeth of an interior drawn opaque on white", async () => {
+    const d = await lipParts();
+    const file = path.join(d, "mouth_interior.png");
+    await sharp(file)
+      .flatten({ background: "#ffffff" })
+      .removeAlpha()
+      .png()
+      .toFile(`${file}.opaque`);
+    fs.renameSync(`${file}.opaque`, file);
+    expect((await sharp(file).metadata()).hasAlpha).toBe(false);
+    const dir = out();
+    await ok({ partsDir: d, outDir: dir });
+    const inner = await decodePng(path.join(dir, "mouth_inner.png"));
+    expect(countNear(inner.rgba, TEETH, 12)).toBeGreaterThan(0);
+    expect(countNear(inner.rgba, TONGUE, 12)).toBeGreaterThan(0);
+    // The oval's white corners were keyed: no more near-white than the same
+    // interior drawn on transparency (the teeth's resampling overshoot).
+    const clean = out();
+    await ok({ partsDir: await lipParts(), outDir: clean });
+    const reference = await decodePng(path.join(clean, "mouth_inner.png"));
+    const white = (b: Buffer) => countNear(b, [255, 255, 255], 3);
+    expect(white(inner.rgba)).toBeLessThanOrEqual(white(reference.rgba) + 5);
+  });
+
+  it("refuses an interior opaque on a non-white ground", async () => {
+    const d = await lipParts();
+    const file = path.join(d, "mouth_interior.png");
+    await sharp(file)
+      .flatten({ background: "#f0e4cd" })
+      .removeAlpha()
+      .png()
+      .toFile(`${file}.opaque`);
+    fs.renameSync(`${file}.opaque`, file);
+    expect(await err({ partsDir: d, outDir: out() })).toMatch(
+      /opaque on a non-white ground/,
+    );
+  });
+
+  it("composes an interior that fills the image or runs off its edges", async () => {
+    const opaque = async (
+      paintAt: (x: number, y: number) => RGB,
+    ): Promise<string> => {
+      const d = await lipParts();
+      const buf = Buffer.alloc(100 * 50 * 3);
+      for (let y = 0; y < 50; y++)
+        for (let x = 0; x < 100; x++) buf.set(paintAt(x, y), (y * 100 + x) * 3);
+      await sharp(buf, { raw: { width: 100, height: 50, channels: 3 } })
+        .png()
+        .toFile(path.join(d, "mouth_interior.png"));
+      return d;
+    };
+    const full = await opaque(() => CAVITY);
+    await ok({ partsDir: full, outDir: out() });
+    const oval = await opaque((x, y) =>
+      ((x + 0.5 - 50) / 60) ** 2 + ((y + 0.5 - 25) / 32) ** 2 <= 1
+        ? CAVITY
+        : [255, 255, 255],
+    );
+    await ok({ partsDir: oval, outDir: out() });
+  });
+
+  it("shows the lip set closed in preview-pose.png too", async () => {
+    const d = parts();
+    await writeFullBodyParts(d, { pose: true });
+    fs.rmSync(path.join(d, "mouth.png"));
+    fs.rmSync(path.join(d, "mouth_open.png"));
+    await writeKeyedMouth(d);
+    await writeInterior(d);
+    const shown = await ok({
+      partsDir: d,
+      outDir: out(),
+      canvasHeight: 3650,
+      layout: {
+        body: { w: 600, cy: 1585 },
+        hair_front: { cy: 150, w: 200 },
+      },
+    });
+    expect(shown.previewPose).toBeDefined();
+    const frame = layerOf(shown, "mouth_inner");
+    const inFrame = await sharp(shown.previewPose!)
+      .extract({
+        left: frame.left,
+        top: frame.top,
+        width: frame.width,
+        height: frame.height,
+      })
+      .ensureAlpha()
+      .raw()
+      .toBuffer();
+    expect(countNear(inFrame, TEETH, 3)).toBe(0);
+    expect(countNear(inFrame, TONGUE, 12)).toBe(0);
+    expect(countNear(inFrame, [240, 205, 180], 12)).toBeGreaterThan(0);
+  });
+
+  it("refuses what the lip set cannot be cut from, naming the file", async () => {
+    const without = async (...extra: ((d: string) => Promise<void>)[]) => {
+      const d = parts();
+      await writePartsSet(d, { omit: ["mouth.png", "mouth_open.png"] });
+      for (const w of extra) await w(d);
+      return d;
+    };
+    const run = async (d: string) => err({ partsDir: d, outDir: out() });
+    expect(await run(await without((d) => writeKeyedMouth(d)))).toMatch(
+      /mouth_interior\.png/,
+    );
+    expect(await run(await without((d) => writeInterior(d)))).toMatch(
+      /mouth_keyed\.png/,
+    );
+    const mixed = parts();
+    await writePartsSet(mixed, { omit: ["mouth_open.png"] });
+    await writeKeyedMouth(mixed);
+    await writeInterior(mixed);
+    const mixedError = await run(mixed);
+    expect(mixedError).toMatch(/cannot be composed beside/);
+    expect(mixedError).toMatch(/remove mouth\.png$/);
+    expect(await run(await lipParts({ keyed: { noGreen: true } }))).toMatch(
+      /no green opening/,
+    );
+    expect(await run(await lipParts({ keyed: { broken: true } }))).toMatch(
+      /not closed/,
+    );
+    expect(await run(await lipParts({ keyed: { twoRegions: true } }))).toMatch(
+      /green outside the opening/,
+    );
+    expect(await run(await lipParts({ keyed: { spill: true } }))).toMatch(
+      /green outside the opening/,
+    );
+    expect(await run(await lipParts({ interior: { allRim: true } }))).toMatch(
+      /nothing but lips/,
+    );
+    expect(await run(await without())).toMatch(
+      /mouth_keyed\.png \+ mouth_interior\.png/,
+    );
+  });
+
+  it("leaves the legacy route alone and sweeps stale lip layers", async () => {
+    const d = parts();
+    await writePartsSet(d);
+    const stale = out();
+    fs.writeFileSync(path.join(stale, "lip_upper.png"), "stale");
+    await ok({ partsDir: d, outDir: stale });
+    expect(fs.existsSync(path.join(stale, "lip_upper.png"))).toBe(false);
+    const fresh = out();
+    await ok({ partsDir: d, outDir: fresh });
+    expect(digest(stale)).toEqual(digest(fresh));
+    expect(fs.existsSync(path.join(fresh, "mouth.png"))).toBe(true);
+    for (const r of LIPS)
+      expect(fs.existsSync(path.join(fresh, `${r}.png`))).toBe(false);
+
+    const dir = out();
+    fs.writeFileSync(path.join(dir, "mouth.png"), "stale");
+    await ok({ partsDir: await lipParts(), outDir: dir });
+    expect(fs.existsSync(path.join(dir, "mouth.png"))).toBe(false);
+  });
+
+  it("rigs: the composer's output meets the rig's reader", async () => {
+    const outputPath = path.join(outDir, "model.iki");
+    const rigged = await autoRigFromLayers({
+      layers: result.layers.map((l) => ({ path: l.path })),
+      outputPath,
+    });
+    expect(rigged.ok).toBe(true);
+    const model = parseIkiModel(
+      JSON.parse(fs.readFileSync(outputPath, "utf8")),
+    );
+    expect(model.parts.map((p) => p.id)).toEqual(
+      expect.arrayContaining([...LIPS]),
+    );
   });
 });

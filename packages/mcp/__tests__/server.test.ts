@@ -6,7 +6,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { IKI_FORMAT_VERSION } from "@ikijs/format";
 import { createIkiMcpServer } from "../src/server";
-import { writePartsSet } from "./helpers/parts";
+import { writeLipParts, writePartsSet } from "./helpers/parts";
 import { FAR_IRIS_W, IRIS_W, writeTurnPair } from "./helpers/turn-pair";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
@@ -362,6 +362,27 @@ describe("MCP server integration", () => {
     const lines = texts[0].text.split("\n");
     expect(lines.slice(0, paths.length)).toEqual(paths);
     expect(lines[paths.length]).toBe(`# layers  (${outDir})`);
+  });
+
+  it("compose_layers_from_parts composes the lip set in place of mouth", async () => {
+    pair = await createPair();
+    const partsDir = tmpDir();
+    await writeLipParts(partsDir);
+    const outDir = tmpDir();
+
+    const result = await pair.client.callTool({
+      name: "compose_layers_from_parts",
+      arguments: { partsDir, outDir },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const roles = (
+      result.structuredContent as { layers: { role: string }[] }
+    ).layers.map((l) => l.role);
+    expect(roles).toEqual(
+      expect.arrayContaining(["mouth_inner", "lip_lower", "lip_upper"]),
+    );
+    expect(roles).not.toContain("mouth");
   });
 
   it("compose_layers_from_parts passes canvasHeight through the tool schema", async () => {

@@ -18,6 +18,7 @@ import { decodePng, detectAlphaBbox } from "./node-images";
 import { AutoRigInputError, MAX_LAYERS, resolveInputDir } from "./limits";
 import { ARM_ROLES, armWarnings } from "./measure-arms";
 import { POSE_ROLES, forearmPoseWarnings } from "./measure-forearm-pose";
+import { isLipRole, lipWarnings, type LipFacts } from "./measure-lips";
 import { SPECK_CORE_FRACTION, denseCoreOf, isSpeckCore } from "./measure-turn";
 
 // Iris width as a fraction of sclera width. Below the floor the eye reads as a
@@ -102,6 +103,15 @@ export interface MeasureReport {
   /** Roles whose PNG is fully transparent — nothing to measure. */
   empty: string[];
   warnings: string[];
+  /**
+   * The lip set's opening as the rig reads it, set whenever the three lip
+   * layers are present and readable. The fold's dead zone `deadZone` is the
+   * `MouthOpen` below which the slit between the lips has not opened, and
+   * it varies with the drawing (0.04 on one opening, 0.33 on another), so a
+   * half-open mouth that shows no slit is judged against it, not against a
+   * fixed number.
+   */
+  lips?: LipFacts;
 }
 
 export type MeasureResult =
@@ -326,6 +336,9 @@ export async function measureDir(
   //    kept 44 px of margin and the default layout pushed it 70 px off-canvas,
   //    so redrawing it reproduced the clip exactly.
   for (const [role, m] of Object.entries(layers)) {
+    // A lip layer's straight edges are the split's cuts, not the art's; the
+    // lip checks read what the rig does with them.
+    if (isLipRole(role)) continue;
     const edges: [string, number, number, number][] = [
       ["top", m.edgeTop, m.w, m.marginTop],
       ["left", m.edgeLeft, m.h, m.marginLeft],
@@ -372,7 +385,7 @@ export async function measureDir(
     // `body` bends as one drawing, so no pose opens a cut in it; its top is
     // deliberately cut flat where the jaw covers it, and stays under the jaw
     // because the head rides the body.
-    if (role === "body") continue;
+    if (role === "body" || isLipRole(role)) continue;
     if (
       m.flatCutRun > FLAT_CUT_MAX_FRAC * m.w &&
       m.flatCutRun >= FLAT_CUT_MIN_PX
@@ -393,6 +406,11 @@ export async function measureDir(
 
   // 1d. The pose forearms: each needs its arm, and its elbow end the arm's elbow.
   warnings.push(...(await forearmPoseWarnings(absDir, layers)));
+
+  // 1e. The lip set: the fold's contract per column, the opening's size, the
+  //     line's weight, key green left, an interior with holes.
+  const lip = await lipWarnings(absDir, layers);
+  warnings.push(...lip.warnings);
 
   // 2/3/4. Eye stack geometry, per side.
   for (const side of ["L", "R"]) {
@@ -525,7 +543,12 @@ export async function measureDir(
     if (layers[role] === undefined) warnings.push(`${role}: missing — ${why}.`);
   }
 
-  return { layers, empty, warnings };
+  return {
+    layers,
+    empty,
+    warnings,
+    ...(lip.lips === undefined ? {} : { lips: lip.lips }),
+  };
 }
 
 /**
@@ -580,6 +603,14 @@ export function formatMeasureReport(
         `${`${m.bboxCx.toFixed(0)},${m.bboxCy.toFixed(0)}`.padEnd(14)} ` +
         `${`${m.massCx.toFixed(0)},${m.massCy.toFixed(0)}`.padEnd(13)} ` +
         `${m.marginTop}/${m.marginBottom}/${m.marginLeft}/${m.marginRight}`,
+    );
+  }
+
+  if (result.lips !== undefined) {
+    const { opening, deadZone } = result.lips;
+    lines.push(
+      "",
+      `lips: opening ${opening.width} px wide, ${opening.height} px tall at its centre under a ${opening.line} px line — no slit below MouthOpen ${deadZone.toFixed(2)}`,
     );
   }
 

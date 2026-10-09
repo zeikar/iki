@@ -63,7 +63,7 @@ const KEY_MIN_SHARE = 0.05;
 const STRAY_KEY_FRACTION = 0.02;
 /** The opening's width, as a share of the frame's, under which it is too
  *  small to fold. */
-const MIN_OPENING_WIDTH = 0.3;
+export const MIN_OPENING_WIDTH = 0.3;
 /** A second hole as a share of the largest, from which the opening is not
  *  one region. */
 const SECOND_HOLE_FRACTION = 0.05;
@@ -304,6 +304,96 @@ export function keyGreen(rgba: Buffer, W: number, H: number): Buffer {
     throw new AutoRigInputError(
       `${KEYED_SRC}: green outside the opening (${strayPx} px in ${strays.length} regions beside the opening's) — the key must be one flat region inside the outline; regenerate with no green elsewhere`,
     );
+  }
+  return out;
+}
+
+/** Levels (per channel) from the ground's median colour within which a pixel
+ *  is the ground. Near-white teeth (250, 248, 245) sit 5..10 off a pure white
+ *  ground, so a floor like the legacy parts' 238 would key them out. */
+const GROUND_TOLERANCE = 4;
+/** A border whose median is light in every channel (over this) is a ground,
+ *  not the drawing: a darker or more saturated one means the drawing itself
+ *  reaches the edges. A mid-grey ground under it therefore passes through, read
+ *  as the drawing reaching the edges. */
+const GROUND_LIGHT = 200;
+/** The floor of a light ground the interior is keyed against: a light ground
+ *  under it in some channel (cream, grey) is not white. */
+const GROUND_MIN = 238;
+/** The share of the border a white ground must own: under it the ground has
+ *  heavy noise, a gradient or a checkerboard "fake transparency" along the
+ *  border itself (a checkerboard owns about half), and the key would leave a
+ *  rind of it round the drawing. A drawing may touch about a third of the
+ *  border and still pass. */
+const GROUND_BORDER_SHARE = 0.65;
+
+/**
+ * Key the white ground out of an interior that came without alpha: the pixels
+ * 4-connected to the border within GROUND_TOLERANCE of the border's median
+ * colour. The legacy parts' rule (every near-white pixel) would take the teeth
+ * with it, and the teeth are what this part is for. A light ground that is
+ * not white (cream, grey), or a white one with heavy noise or a gradient along
+ * the border that leaves it owning under half of it, cannot be keyed cleanly
+ * and is refused: stretched into the opening it would show as a box. A border
+ * that is not light is the drawing itself reaching the edges ("filling the
+ * image"): only the white connected to the border is keyed, the corners an oval
+ * leaves.
+ */
+export function keyBorderWhite(rgba: Buffer, W: number, H: number): Buffer {
+  const border: number[][] = [[], [], []];
+  const edge = (p: number) => {
+    for (let c = 0; c < 3; c++) border[c].push(rgba[p * 4 + c]);
+  };
+  for (let x = 0; x < W; x++) {
+    edge(x);
+    edge((H - 1) * W + x);
+  }
+  for (let y = 1; y < H - 1; y++) {
+    edge(y * W);
+    edge(y * W + W - 1);
+  }
+  const ground = border.map((v) => v.sort((a, b) => a - b)[v.length >> 1]);
+  const light = ground.every((v) => v >= GROUND_LIGHT);
+  if (light && ground.some((v) => v < GROUND_MIN)) {
+    throw new AutoRigInputError(
+      `${INTERIOR_SRC} came back opaque on a non-white ground — regenerate it with a transparent background. Billed.`,
+    );
+  }
+  if (!light) ground.fill(255);
+
+  const out = Buffer.from(rgba);
+  const seen = new Uint8Array(W * H);
+  const stack = new Int32Array(W * H);
+  let depth = 0;
+  const seed = (p: number) => {
+    if (seen[p]) return;
+    for (let c = 0; c < 3; c++) {
+      if (Math.abs(rgba[p * 4 + c] - ground[c]) > GROUND_TOLERANCE) return;
+    }
+    seen[p] = 1;
+    stack[depth++] = p;
+  };
+  for (let x = 0; x < W; x++) {
+    seed(x);
+    seed((H - 1) * W + x);
+  }
+  for (let y = 0; y < H; y++) {
+    seed(y * W);
+    seed(y * W + W - 1);
+  }
+  if (light && depth < GROUND_BORDER_SHARE * border[0].length) {
+    throw new AutoRigInputError(
+      `${INTERIOR_SRC} came back opaque on a white ground too noisy or shaded to key cleanly — regenerate it with a transparent background. Billed.`,
+    );
+  }
+  while (depth > 0) {
+    const p = stack[--depth];
+    out[p * 4 + 3] = 0;
+    const x = p % W;
+    if (x > 0) seed(p - 1);
+    if (x < W - 1) seed(p + 1);
+    if (p >= W) seed(p - W);
+    if (p < W * H - W) seed(p + W);
   }
   return out;
 }
