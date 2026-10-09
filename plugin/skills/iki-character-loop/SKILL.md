@@ -353,7 +353,10 @@ changing any of them mid-loop or on a restart invalidates every prior score.
        ["mouth-surprised", { ParamMouthOpenY: 0.9 }],
        ["mouth-turn-p30-half", { ParamAngleX: 30, ParamMouthOpenY: 0.5 }],
      ];
+     // Standalone has no reset(), and the turn capture left Head Angle at +30.
      if (api) api.reset();
+     else for (const id of Object.keys(LABEL)) set(id, 0);
+     await nextFrame();
      const shots = {};
      for (const [pose, values] of poses) {
        for (const [id, value] of Object.entries(values)) set(id, value);
