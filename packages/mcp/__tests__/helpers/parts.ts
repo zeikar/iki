@@ -343,6 +343,121 @@ export async function writePartsSet(
   }
 }
 
+export const CAVITY: RGB = [90, 30, 40];
+export const TONGUE: RGB = [230, 120, 130];
+export const TEETH: RGB = [250, 248, 245];
+export const LIP_RIM: RGB = [245, 190, 160];
+export const KEY_GREEN: RGB = [0, 255, 0];
+
+/**
+ * A mouth_keyed.png, 120x60: a DARK outline ring round a 96x36 elliptical
+ * hole filled KEY_GREEN (the ring 6 px thick along its top, the upper line,
+ * and 3 px elsewhere), a DARK 8x3 hook stroke past each end of the ring, and a
+ * SKIN crescent 10 rows deep under the ring's lower half (the lower lip).
+ * `broken` cuts a 6 px slit through the ring and the lip at the bottom, so
+ * the green reaches the outside; `noGreen` leaves the hole transparent;
+ * `twoRegions` lays a TEETH bar across the hole's middle, parting the green
+ * in two; `spill` puts a 10x10 block of KEY_GREEN on the lip's skin (about
+ * 4 % of the hole).
+ */
+export async function writeKeyedMouth(
+  dir: string,
+  opts: {
+    broken?: boolean;
+    noGreen?: boolean;
+    twoRegions?: boolean;
+    spill?: boolean;
+  } = {},
+): Promise<void> {
+  const [cx, cy, rx, ry] = [60, 28, 48, 18];
+  const ring = (x: number, y: number, up: number) =>
+    ((x + 0.5 - cx) / (rx + 3)) ** 2 + ((y + 0.5 + up - cy) / (ry + 3)) ** 2 <=
+    1;
+  const hole = (x: number, y: number) =>
+    ((x + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - cy) / ry) ** 2 <= 1;
+  await writeRgbaPart(dir, "mouth_keyed.png", 120, 60, (set) => {
+    for (let y = 0; y < 60; y++) {
+      for (let x = 0; x < 120; x++) {
+        const lower =
+          y + 0.5 > cy &&
+          ((x + 0.5 - cx) / (rx + 3)) ** 2 +
+            ((y + 0.5 - cy) / (ry + 13)) ** 2 <=
+            1;
+        const line = ring(x, y, 0) || (y + 0.5 < cy && ring(x, y, 3));
+        if (hole(x, y)) {
+          if (!opts.noGreen) set(x, y, KEY_GREEN);
+        } else if (line) {
+          set(x, y, DARK);
+        } else if (lower) {
+          set(x, y, SKIN);
+        }
+        if (
+          opts.twoRegions &&
+          y >= cy - 3 &&
+          y < cy + 3 &&
+          (hole(x, y) || line)
+        )
+          set(x, y, TEETH);
+        if (opts.spill && x >= 55 && x < 65 && y >= 49 && y < 59)
+          set(x, y, KEY_GREEN);
+        const hook =
+          y >= cy - 1 &&
+          y <= cy + 1 &&
+          ((x >= 1 && x <= 8) || (x >= 111 && x <= 118));
+        if (hook) set(x, y, DARK);
+      }
+    }
+    if (opts.broken) {
+      for (let y = cy + 10; y < 60; y++)
+        for (let x = 57; x < 63; x++) set(x, y, DARK, 0);
+    }
+  });
+}
+
+/**
+ * A mouth_interior.png, 100x50: a CAVITY oval filling the image, a TEETH band
+ * 8 rows deep along its top, a TONGUE half-ellipse at its bottom and, with
+ * `rim` (the default), a LIP_RIM band 6 rows deep along the bottom edge that
+ * touches the border, the way a generator draws a lip under the cavity.
+ * `allRim` paints the whole oval LIP_RIM.
+ */
+export async function writeInterior(
+  dir: string,
+  opts: { rim?: boolean; allRim?: boolean } = {},
+): Promise<void> {
+  const inOval = (x: number, y: number) =>
+    ((x + 0.5 - 50) / 50) ** 2 + ((y + 0.5 - 25) / 25) ** 2 <= 1;
+  await writeRgbaPart(dir, "mouth_interior.png", 100, 50, (set) => {
+    for (let y = 0; y < 50; y++) {
+      for (let x = 0; x < 100; x++) {
+        if (!inOval(x, y)) continue;
+        let rgb = CAVITY;
+        if (y < 8) rgb = TEETH;
+        else if (
+          y >= 38 &&
+          ((x + 0.5 - 50) / 22) ** 2 + ((y + 0.5 - 38) / 10) ** 2 <= 1
+        )
+          rgb = TONGUE;
+        if (opts.allRim || ((opts.rim ?? true) && y >= 44)) rgb = LIP_RIM;
+        set(x, y, rgb);
+      }
+    }
+  });
+}
+
+/** The parts set with the lip set's two sources in place of the legacy mouth. */
+export async function writeLipParts(
+  dir: string,
+  opts: {
+    keyed?: Parameters<typeof writeKeyedMouth>[1];
+    interior?: Parameters<typeof writeInterior>[1];
+  } = {},
+): Promise<void> {
+  await writePartsSet(dir, { omit: ["mouth.png", "mouth_open.png"] });
+  await writeKeyedMouth(dir, opts.keyed);
+  await writeInterior(dir, opts.interior);
+}
+
 /**
  * A body.png drawn neck to feet, 200x600: a 30 px neck on rows 0..39, so its
  * top edge is mostly clear; a 160 px torso on rows 40..299 whose shoulders

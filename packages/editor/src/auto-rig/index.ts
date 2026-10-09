@@ -12,5 +12,14 @@ export {
 export { type RigStyle } from "./profile";
 export { armGeometry, type ArmGeometry } from "./arms";
 export { forearmPoseGeometry, type ForearmPoseGeometry } from "./forearm-pose";
+export {
+  columnRuns,
+  mouthFold,
+  mouthOpening,
+  LIP_ROLES,
+  type LipRole,
+  type Opening,
+  type OpeningColumn,
+} from "./mouth";
 export { parseLayerRoles, partIdsOfRole } from "./roles";
 export { generateIkiFromLayerSet } from "./generate";
