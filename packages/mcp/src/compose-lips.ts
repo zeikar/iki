@@ -779,11 +779,26 @@ export async function closedLips(
     const fold = mouthFold(role, opening);
     const out = Buffer.alloc(w * h * 4);
     for (let x = 0; x < w; x++) {
-      const shift = Math.round(fold(x, 0, 0));
-      for (let y = 0; y < h; y++) {
-        const to = y - shift;
-        if (to < 0 || to >= h) continue;
-        data.copy(out, (to * w + x) * 4, (y * w + x) * 4, (y * w + x) * 4 + 4);
+      // The fractional shift, resampled linearly between the two source rows
+      // the way the GPU samples the rig's mesh: rounding it per column would
+      // turn the smooth arc into a staircase the rig never draws. The blend is
+      // premultiplied so an edge neither darkens nor lightens.
+      const dy = fold(x, 0, 0);
+      const f = Math.floor(dy);
+      const t = dy - f;
+      const px = (row: number, c: number) =>
+        row < 0 || row >= h ? 0 : data[(row * w + x) * 4 + c];
+      for (let to = 0; to < h; to++) {
+        const a0 = px(to + f, 3);
+        const a1 = px(to + f + 1, 3);
+        const a = (1 - t) * a0 + t * a1;
+        if (a === 0) continue;
+        const o = (to * w + x) * 4;
+        for (let c = 0; c < 3; c++)
+          out[o + c] = Math.round(
+            ((1 - t) * a0 * px(to + f, c) + t * a1 * px(to + f + 1, c)) / a,
+          );
+        out[o + 3] = Math.round(a);
       }
     }
     return encode(out, w, h);

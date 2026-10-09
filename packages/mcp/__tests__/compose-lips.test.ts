@@ -598,6 +598,65 @@ describe("splitLipSet and closedLips", () => {
   });
 });
 
+describe("closedLips: a sub-pixel shift", () => {
+  it("moves a straight line smoothly, no one-row steps, alpha kept", async () => {
+    const W = 20;
+    const H = 40;
+    const row0 = 20;
+    const step = 0.2;
+    const buf = Buffer.alloc(W * H * 4);
+    for (let x = 0; x < W; x++)
+      for (const y of [row0, row0 + 1])
+        buf.set([200, 90, 80, 255], (y * W + x) * 4);
+    const png = await sharp(buf, { raw: { width: W, height: H, channels: 4 } })
+      .png()
+      .toBuffer();
+    // The upper lip's dy is seam - Tu: a column-dependent, non-integer rise.
+    const opening = {
+      x0: 0,
+      x1: W - 1,
+      centre: 10,
+      canvasW: W,
+      w: 2,
+      at: (col: number) => ({
+        T: 0,
+        Bb: 0,
+        Tu: -(8 + step * col),
+        lineTop: 0,
+        lineH: 2,
+        Bl: 0,
+        H: 0,
+        overlap: 0,
+        seam: 0,
+      }),
+    } as Opening;
+    const { upper } = await closedLips(png, png, opening);
+    const out = (
+      await sharp(upper)
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true })
+    ).data;
+    const centres: number[] = [];
+    for (let x = 0; x < W; x++) {
+      let sum = 0;
+      let moment = 0;
+      for (let y = 0; y < H; y++) {
+        const a = out[(y * W + x) * 4 + 3];
+        sum += a;
+        moment += a * (y + 0.5);
+        // Straight alpha: the colour stays the line's wherever it is drawn.
+        if (a > 0) expect(out[(y * W + x) * 4]).toBe(200);
+      }
+      expect(Math.abs(sum - 2 * 255)).toBeLessThanOrEqual(2);
+      centres.push(moment / sum);
+      expect(moment / sum).toBeCloseTo(row0 + 1 - (8 + step * x), 1);
+    }
+    for (let x = 1; x < W; x++)
+      expect(Math.abs(centres[x] - centres[x - 1] + step)).toBeLessThan(0.05);
+  });
+});
+
 describe("composeLayersFromParts: the lip set", () => {
   const dirs: string[] = [];
   afterAll(() => {
