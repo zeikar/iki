@@ -1047,6 +1047,58 @@ describe("composeLayersFromParts: the lip set", () => {
     );
   });
 
+  /** Rewrite a part as a fully opaque RGBA PNG on `ground`. */
+  const opaqueRgba = async (file: string, ground: string) => {
+    await sharp(file)
+      .flatten({ background: ground })
+      .ensureAlpha()
+      .png()
+      .toFile(`${file}.opaque`);
+    fs.renameSync(`${file}.opaque`, file);
+    const raw = await sharp(file).raw().toBuffer({ resolveWithObject: true });
+    expect(raw.info.channels).toBe(4);
+    for (let p = 3; p < raw.data.length; p += 4) expect(raw.data[p]).toBe(255);
+  };
+
+  it("keys an interior and a keyed mouth saved as opaque RGBA on white", async () => {
+    const clean = out();
+    await ok({ partsDir: await lipParts(), outDir: clean });
+    const white = (b: Buffer) => countNear(b, [255, 255, 255], 3);
+    const d = await lipParts();
+    await opaqueRgba(path.join(d, "mouth_interior.png"), "#ffffff");
+    await opaqueRgba(path.join(d, "mouth_keyed.png"), "#ffffff");
+    const dir = out();
+    await ok({ partsDir: d, outDir: dir });
+    for (const role of LIPS) {
+      const got = await decodePng(path.join(dir, `${role}.png`));
+      const ref = await decodePng(path.join(clean, `${role}.png`));
+      expect(white(got.rgba)).toBeLessThanOrEqual(white(ref.rgba) + 5);
+    }
+  });
+
+  it("refuses an interior saved as opaque RGBA on a non-white ground", async () => {
+    const d = await lipParts();
+    await opaqueRgba(path.join(d, "mouth_interior.png"), "#f0e4cd");
+    expect(await err({ partsDir: d, outDir: out() })).toMatch(
+      /opaque on a non-white ground/,
+    );
+  });
+
+  it("refuses a lip layer the canvas clips away before touching outDir", async () => {
+    const dir = out();
+    const stale = path.join(dir, "mouth.png");
+    fs.writeFileSync(stale, "stale");
+    const before = fs.readdirSync(dir).sort();
+    const message = await err({
+      partsDir: await lipParts(),
+      outDir: dir,
+      layout: { mouth_inner: { cy: 1100 } },
+    });
+    expect(message).toMatch(/layout\.mouth_inner/);
+    expect(fs.readFileSync(stale, "utf8")).toBe("stale");
+    expect(fs.readdirSync(dir).sort()).toEqual(before);
+  });
+
   it("composes an interior that fills the image or runs off its edges", async () => {
     const opaque = async (
       paintAt: (x: number, y: number) => RGB,

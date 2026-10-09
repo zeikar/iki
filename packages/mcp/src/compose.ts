@@ -1132,6 +1132,13 @@ async function prepEyeSplit(
   };
 }
 
+/** Whether any pixel is not fully opaque. An alpha channel alone proves
+ *  nothing: an image saved as RGBA can still be opaque on its white ground. */
+function hasTransparency(rgba: Buffer): boolean {
+  for (let p = 3; p < rgba.length; p += 4) if (rgba[p] < 255) return true;
+  return false;
+}
+
 /**
  * The lip set's two sources, keyed and prepared, or `undefined` for the legacy
  * mouth. Opt-in like the arms: both files present is the set, neither is the
@@ -1175,13 +1182,15 @@ async function prepLipSources(
 
   const k = await decodePng(path.join(partsDir, KEYED_SRC));
   const keyedRgba = keyGreen(
-    k.hasAlpha ? k.rgba : keyWhiteToAlpha(k.rgba),
+    hasTransparency(k.rgba) ? k.rgba : keyWhiteToAlpha(k.rgba),
     k.width,
     k.height,
   );
   const i = await decodePng(path.join(partsDir, INTERIOR_SRC));
   const prepared = await prepInterior(
-    i.hasAlpha ? i.rgba : keyBorderWhite(i.rgba, i.width, i.height),
+    hasTransparency(i.rgba)
+      ? i.rgba
+      : keyBorderWhite(i.rgba, i.width, i.height),
     i.width,
     i.height,
   );
@@ -1488,6 +1497,40 @@ export async function composeLayersFromParts(
       placed.push({ role, part, left, top });
     }
 
+    // Every layer is built, and the closed lip preview measured from them,
+    // before the first sweep or write: a lip layer the canvas clips away is
+    // refused with outDir as the last compose left it.
+    const built = new Map<LayerRole, Buffer>();
+    for (const { role, part, left, top } of placed) {
+      // role layer: this part alone on a full canvas at its position.
+      built.set(
+        role,
+        await blankCanvas(canvas)
+          .composite([{ input: part.buf, left, top }])
+          .png()
+          .toBuffer(),
+      );
+    }
+    // The preview shows the lip set shut by the field the rig's own
+    // measurement of the written layers gives, as it draws the rest pose.
+    const closed =
+      lipSplit === undefined
+        ? undefined
+        : await closedLips(
+            lipSplit.split.upper,
+            lipSplit.split.lower,
+            await restShiftOf(
+              {
+                mouth_inner: built.get("mouth_inner")!,
+                lip_lower: built.get("lip_lower")!,
+                lip_upper: built.get("lip_upper")!,
+              },
+              canvas.width,
+              canvas.height,
+            ),
+            lipSplit.left,
+          );
+
     // Drop the layer an earlier compose into the same dir wrote for each role
     // this run does not write — a skipped one, or an arm once arm.png is
     // gone: left behind it would contradict the result, since measureDir
@@ -1507,15 +1550,9 @@ export async function composeLayersFromParts(
       fs.rmSync(path.join(outDir, "preview-pose.png"), { force: true });
     }
     const layers: ComposedLayer[] = [];
-    const written: Record<string, Buffer> = {};
     for (const { role, part, left, top } of placed) {
-      // role layer: this part alone on a full canvas at its position.
-      const layer = await blankCanvas(canvas)
-        .composite([{ input: part.buf, left, top }])
-        .png()
-        .toBuffer();
       const outPath = path.join(outDir, `${role}.png`);
-      writeFileAtomic(outPath, layer);
+      writeFileAtomic(outPath, built.get(role)!);
       layers.push({
         role,
         path: outPath,
@@ -1524,32 +1561,7 @@ export async function composeLayersFromParts(
         left,
         top,
       });
-      if (
-        role === "mouth_inner" ||
-        role === "lip_lower" ||
-        role === "lip_upper"
-      )
-        written[role] = layer;
     }
-    // The preview shows the lip set shut by the field the rig's own
-    // measurement of the written layers gives, as it draws the rest pose.
-    const closed =
-      lipSplit === undefined
-        ? undefined
-        : await closedLips(
-            lipSplit.split.upper,
-            lipSplit.split.lower,
-            await restShiftOf(
-              {
-                mouth_inner: written.mouth_inner,
-                lip_lower: written.lip_lower,
-                lip_upper: written.lip_upper,
-              },
-              canvas.width,
-              canvas.height,
-            ),
-            lipSplit.left,
-          );
     // What a role contributes to a rest-pose preview: the lips shut, the
     // interior left out (shut, it has no height); null for nothing.
     const restInput = (role: LayerRole, buf: Buffer): Buffer | null => {

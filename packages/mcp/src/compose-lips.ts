@@ -827,8 +827,14 @@ export async function restShiftOf(
     { mouth_inner, lip_lower, lip_upper },
     width,
     height,
-  ))
-    byRole.set(role, layer!);
+  )) {
+    if (layer === null) {
+      throw new AutoRigInputError(
+        `layout.mouth_inner places the lip set so that ${role} falls off the canvas (nothing of it is left) — move it back on the canvas`,
+      );
+    }
+    byRole.set(role, layer);
+  }
   return mouthRestShift(byRole);
 }
 
