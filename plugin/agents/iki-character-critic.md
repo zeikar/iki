@@ -241,13 +241,25 @@ also looks at `mouth-renders`:
 - The closed line's weight is judged against the reference's mouth line. A
   hairline is a `regenerate` of `mouth_keyed.png` with a BOLDER upper lip line,
   with the measure's `lip_upper: the upper line is N px` number in the finding.
-- The closed line's curve is the keyed art's upper arc. A smile or a frown that
-  disagrees with the reference is a `regenerate` of `mouth_keyed.png` with the
-  upper line drawn in the closed smile's curve, never an `escalate`.
-- Forks or ticks at the closed mouth's corners (`mouth-open-0-*`, `rest`) are
-  drawn corner hooks: the line beside the opening holds still while the rest
-  flattens onto the seam. A `regenerate` of `mouth_keyed.png` with the upper
-  line ending in clean tapered points at the corners, never an `escalate`.
+- The closed line is the drawn upper line carried by one smooth travel: its
+  ends stay where they were drawn, its sag is the rig's share of the opening's
+  depth, its shape the keyed art's two arcs, and on opening the upper line goes
+  from the closed curve to its drawn arc while the lower lip drops. A smile or
+  frown that disagrees with the reference is a `regenerate` of
+  `mouth_keyed.png` with the opening drawn deeper (a smile) or shallower at the
+  centre, never an `escalate` for the share.
+- A fork or tick at a closed corner (`mouth-open-0-*`, `rest`) WITH a hook, tick
+  or fork drawn at that corner in `mouth_keyed.png` is drawn art: the line
+  beside the opening never folds, so a drawn hook stays on the closed mouth
+  exactly as drawn. A
+  `regenerate` of `mouth_keyed.png` with clean tapered ends. With NONE drawn
+  (the keyed art's line ends in clean points), a fork, step or spike at a
+  closed corner is a rig finding, an `escalate` on the closed corner's code:
+  `packages/editor/src/auto-rig/mouth.ts` (the fold's ends) or
+  `packages/mcp/src/compose-lips.ts` (the split beside the opening).
+- A second, lighter line under the closed line at `mouth-open-0-*` (the lower
+  lip drawn with its own outline) is a `regenerate` of `mouth_keyed.png` with
+  the lower lip as a shade, no outline.
 - A peach band at the opening's bottom at `mouth-open-1-*` is a `regenerate` of
   `mouth_interior.png`.
 - A mouth off its place or the wrong size is a `retune` of `layout.mouth_inner`

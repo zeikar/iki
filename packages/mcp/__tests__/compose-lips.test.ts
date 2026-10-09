@@ -8,6 +8,7 @@ import {
   columnRuns,
   createLayerSetMeasurer,
   mouthOpening,
+  mouthRestShift,
   type LayerInput,
   type Opening,
 } from "@ikijs/editor";
@@ -25,6 +26,7 @@ import {
   keyBorderWhite,
   keyGreen,
   prepInterior,
+  restShiftOf,
   splitLipSet,
 } from "../src/compose-lips";
 import { decodePng } from "../src/node-images";
@@ -449,12 +451,11 @@ describe("splitLipSet and closedLips", () => {
     const lowerRuns = columnRuns(byRole.get("lip_lower")!);
     for (let x = opening.x0; x <= opening.x1; x++) {
       const c = opening.at(x);
-      const grown = x < holeCols[0] || x > holeCols[1];
-      expect(c.Tu).toBeLessThanOrEqual(c.T);
+      // The two grown columns too: the wall under the line's end folds with
+      // the interior, so the line's bottom is the interior's top there.
+      expect(c.Tu).toBe(c.T);
       expect(c.T).toBeLessThanOrEqual(c.lineTop);
       expect(c.lineH).toBeGreaterThan(0);
-      if (grown) expect(c.Tu).toBeLessThan(c.T);
-      else expect(c.Tu).toBe(c.T);
       if (lowerRuns.has(x)) expect(c.Bl).toBeGreaterThan(c.Bb);
       else expect(c.Bl).toBe(c.Bb);
     }
@@ -517,6 +518,64 @@ describe("splitLipSet and closedLips", () => {
     expect(hooks).toBeGreaterThan(0);
   });
 
+  it("folds the side wall with the interior, not with the line", () => {
+    const { inner, upper } = buffers;
+    for (const x of [holeCols[0] - 1, holeCols[1] + 1]) {
+      const near = x < holeCols[0] ? holeCols[0] : holeCols[1];
+      let spans = 0;
+      for (let y = 0; y < H; y++) {
+        if (!enclosed[y * W + near]) continue;
+        spans++;
+        expect(upper[(y * W + x) * 4 + 3]).toBeLessThan(128);
+        const i = (y * W + x) * 4;
+        expect(inner[i + 3]).toBeGreaterThanOrEqual(128);
+        // The wall's ink over the fill: the frame's own dark line.
+        for (let c = 0; c < 3; c++)
+          expect(Math.abs(inner[i + c] - frame[i + c])).toBeLessThanOrEqual(30);
+      }
+      expect(spans).toBeGreaterThan(0);
+    }
+  });
+
+  it("keeps a side column's pixels in the line when no ink is above its wall", async () => {
+    // The ring's ink beside the hole starts on the hole's top row: nothing
+    // above it at that column.
+    const hand = await sharp(
+      paint(W, 40, (x, y) => {
+        if (x < 6 || x > 69 || y < 8 || y > 34) return undefined;
+        const hole = x >= 10 && x <= 65 && y >= 10 && y <= 26;
+        if (hole) return undefined;
+        // The skin under the opening.
+        if (y > 30)
+          return x >= 10 && x <= 65 ? ([240, 190, 170] as RGB) : undefined;
+        // Above the hole the line spans only the hole's columns; the side
+        // walls start on the hole's top row.
+        if (y < 10 && (x < 10 || x > 65)) return undefined;
+        return [20, 20, 30] as RGB;
+      }),
+      { raw: { width: W, height: 40, channels: 4 } },
+    )
+      .png()
+      .toBuffer();
+    const handFrame = await rawOf(hand);
+    const result = await splitLipSet(hand, W, 40, interior);
+    const upper = await rawOf(result.upper);
+    const inner = await rawOf(result.inner);
+    const x = result.opening.x0;
+    const c = result.opening.at(x);
+    expect(c.Tu).toBeLessThan(c.T);
+    // The wall column still holds its ink in lip_upper.
+    let kept = 0;
+    for (let y = 0; y < 40; y++) {
+      if (handFrame[(y * W + x) * 4 + 3] >= 128 && y >= 10 && y <= 26) {
+        expect(upper[(y * W + x) * 4 + 3]).toBeGreaterThanOrEqual(128);
+        kept++;
+      }
+    }
+    expect(kept).toBeGreaterThan(0);
+    expect(inner[(10 * W + x) * 4 + 3]).toBeGreaterThanOrEqual(128);
+  });
+
   it("refuses the frames the rig could not fold", async () => {
     await expect(
       splitLipSet(await composedFrame({ broken: true }), W, H, interior),
@@ -565,7 +624,22 @@ describe("splitLipSet and closedLips", () => {
   });
 
   it("closes the lips onto the seam, hooks unmoved", async () => {
-    const closed = await closedLips(split.upper, split.lower, split.opening);
+    // The mouth-sized split measured on its own frame: a unit test of the
+    // shifting, not of the canvas geometry.
+    const closed = await closedLips(
+      split.upper,
+      split.lower,
+      await restShiftOf(
+        {
+          mouth_inner: split.inner,
+          lip_lower: split.lower,
+          lip_upper: split.upper,
+        },
+        W,
+        H,
+      ),
+      0,
+    );
     const upper = await rawOf(closed.upper);
     const lower = await rawOf(closed.lower);
     const c = opening.centre;
@@ -611,26 +685,8 @@ describe("closedLips: a sub-pixel shift", () => {
     const png = await sharp(buf, { raw: { width: W, height: H, channels: 4 } })
       .png()
       .toBuffer();
-    // The upper lip's dy is seam - Tu: a column-dependent, non-integer rise.
-    const opening = {
-      x0: 0,
-      x1: W - 1,
-      centre: 10,
-      canvasW: W,
-      w: 2,
-      at: (col: number) => ({
-        T: 0,
-        Bb: 0,
-        Tu: -(8 + step * col),
-        lineTop: 0,
-        lineH: 2,
-        Bl: 0,
-        H: 0,
-        overlap: 0,
-        seam: 0,
-      }),
-    } as Opening;
-    const { upper } = await closedLips(png, png, opening);
+    // The upper lip's dy is a column-dependent, non-integer rise.
+    const { upper } = await closedLips(png, png, (_role, x) => 8 + step * x, 0);
     const out = (
       await sharp(upper)
         .ensureAlpha()
@@ -784,6 +840,22 @@ describe("composeLayersFromParts: the lip set", () => {
     const dark = (y: number) =>
       lumaOf(preview.rgba, (y * preview.width + opening.centre) * 4) < 60;
     expect([seamRow - 2, seamRow - 1, seamRow].some(dark)).toBe(true);
+    // The canvas geometry: the line's bottom is where the rig stores it for
+    // these very files, the centre and the opening's two end columns.
+    const { byRole } = await openingOf(dir);
+    const shift = mouthRestShift(byRole);
+    for (const col of [opening.x0, opening.centre, opening.x1]) {
+      const c = opening.at(col);
+      const near = Math.round(550 - c.Tu);
+      let last = -1;
+      for (let y = near - 10; y <= near + 10; y++) {
+        if (lumaOf(preview.rgba, (y * preview.width + col) * 4) < 60) last = y;
+      }
+      expect(last).toBeGreaterThan(-1);
+      expect(
+        Math.abs(last + 1 - Math.round(550 - (c.Tu + shift("lip_upper", col)))),
+      ).toBeLessThanOrEqual(1);
+    }
     // Inside the frame: the fixture's eye whites antialias into the ground
     // elsewhere on the canvas, near TEETH's colour.
     const frame = shown.layers.find((l) => l.role === "mouth_inner")!;

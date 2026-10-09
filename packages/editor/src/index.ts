@@ -85,6 +85,7 @@ export {
   generateIkiFromLayerSet,
   mouthFold,
   mouthOpening,
+  mouthRestShift,
   parseLayerRoles,
   partIdsOfRole,
   type ArmGeometry,

@@ -30,6 +30,7 @@ import {
   mouthKnots,
   mouthMesh,
   mouthOpening,
+  mouthRestShift,
 } from "../src/auto-rig/mouth";
 import { LayerGeometryError, type LayerInput } from "../src/auto-rig/types";
 import { AMPLITUDE } from "../src/auto-rig/profile";
@@ -91,11 +92,30 @@ describe("mouth.ts: the opening", () => {
       expect(c.overlap).toBe(3);
     }
     expect(op.w).toBe(3);
+    // The closing travel is pinned to the drawn line at the end columns and
+    // smooth between: the raw per-column travel has the rounding steps of the
+    // integer-row reads, which the fit removes.
+    const travel = (x: number) => op.at(x).seam - op.at(x).Tu;
+    const rawTravel = (x: number) => {
+      const r = op.at(x);
+      return r.T - UPPER_SHARE * r.H - r.Tu;
+    };
+    const curvature = (f: (x: number) => number) =>
+      Math.max(
+        ...COLS.slice(1, -1).map((x) =>
+          Math.abs(f(x - 1) - 2 * f(x) + f(x + 1)),
+        ),
+      );
+    expect(travel(470)).toBeCloseTo(0, 9);
+    expect(travel(529)).toBeCloseTo(0, 9);
+    expect(curvature(travel)).toBeLessThanOrEqual(0.05);
+    expect(curvature(rawTravel)).toBeGreaterThanOrEqual(0.25);
+    expect(curvature(rawTravel)).toBeGreaterThanOrEqual(5 * curvature(travel));
     const c = op.at(499);
-    expect(c.seam).toBeCloseTo(c.T - UPPER_SHARE * c.H, 9);
-    // Column 499: top row 592, interior 22 rows and a 2-row band, so
-    // T = -92, H = 24 and the seam is 7.2 below the top.
-    expect(c.seam).toBeCloseTo(-99.2, 9);
+    expect(Math.abs(c.seam - (c.T - UPPER_SHARE * c.H))).toBeLessThan(2);
+    // Lower in model y than both ends: the fixture's U is deeper than its ∩.
+    expect(c.seam).toBeLessThan(op.at(470).seam);
+    expect(c.seam).toBeLessThan(op.at(529).seam);
   });
 
   it("reads a gap column as its left neighbour, which wins a tie", () => {
@@ -104,8 +124,17 @@ describe("mouth.ts: the opening", () => {
     const op = mouthOpening(mapOf(layers));
     const whole = mouthOpening(lips());
     // Columns 479 and 481 differ (the interior is 16 and 17 rows high).
-    expect(op.at(480)).toEqual(whole.at(479));
-    expect(op.at(480)).not.toEqual(whole.at(481));
+    const { seam: _a, ...gap } = op.at(480);
+    const { seam: _b, ...left } = whole.at(479);
+    const { seam: _c, ...right } = whole.at(481);
+    expect(gap).toEqual(left);
+    expect(gap).not.toEqual(right);
+    // Its travel is the curve's own value at 480, not the neighbour's.
+    const travel = (o: typeof op, x: number) => o.at(x).seam - o.at(x).Tu;
+    expect(Math.abs(travel(op, 480) - travel(whole, 480))).toBeLessThanOrEqual(
+      0.05,
+    );
+    expect(Math.abs(travel(op, 480) - travel(op, 479))).toBeGreaterThan(0.1);
     expect([op.x0, op.x1]).toEqual([470, 529]);
   });
 
@@ -133,6 +162,22 @@ describe("mouth.ts: the opening", () => {
     expect(c.T).toBe(c.Tu + 1);
     expect([c.lineH, op.w, c.overlap]).toEqual([3, 3, 3]);
     expect(c.H).toBe(base.H + 1);
+  });
+
+  it("pins the travel to zero at the end columns whatever the wall under the line", () => {
+    const wall = mouthOpening(lips({ grownInner: true }));
+    expect([wall.x0, wall.x1]).toEqual([469, 530]);
+    for (const x of [469, 530]) {
+      const c = wall.at(x);
+      expect(c.Tu).toBeLessThan(c.T);
+      expect(c.seam - c.Tu).toBeCloseTo(0, 9);
+      // The interior's closed point sits under the still wall's ink.
+      expect(c.seam + c.overlap).toBeLessThanOrEqual(c.lineTop);
+    }
+    const under = mouthOpening(lips({ underLine: true }));
+    for (const x of [470, 529]) {
+      expect(under.at(x).seam - under.at(x).Tu).toBeCloseTo(0, 9);
+    }
   });
 
   it("refuses an interior with no opaque pixel", () => {
@@ -164,6 +209,24 @@ describe("mouth.ts: the fold", () => {
       }
     });
   }
+
+  it("holds the line still at a wall end column and folds the rest under it", () => {
+    const op = mouthOpening(lips({ grownInner: true }));
+    const upper = mouthFold("lip_upper", op);
+    const lower = mouthFold("lip_lower", op);
+    const inner = mouthFold("mouth_inner", op);
+    for (const x of [469, 530]) {
+      const c = op.at(x);
+      for (const v of [0, 0.3, 0.7, 1]) {
+        expect(upper(x, c.Tu, v)).toBeCloseTo(0, 9);
+      }
+      // The skin lands under the line (the landing contract, not stillness).
+      expect(c.Bl + lower(x, c.Bl, 0)).toBeCloseTo(c.seam + c.overlap, 9);
+      expect(c.T + inner(x, c.T, 0)).toBeCloseTo(c.seam + c.overlap, 9);
+      expect(c.Bb + inner(x, c.Bb, 0)).toBeCloseTo(c.seam + c.overlap, 9);
+      expect(c.T + inner(x, c.T, 0.05)).toBeLessThanOrEqual(c.lineTop);
+    }
+  });
 
   it("is the art as drawn at v 1", () => {
     const op = mouthOpening(lips());
@@ -281,6 +344,7 @@ describe("mouth.ts: knots and meshes", () => {
     expect(k[0]).toBe(464);
     expect(k[k.length - 1]).toBe(536);
     expect(k).toContain(470);
+    expect(k).toContain(529);
     expect(k).toContain(530);
     k.forEach((c, i) => {
       expect(Number.isInteger(c)).toBe(true);
@@ -305,7 +369,7 @@ describe("mouth.ts: knots and meshes", () => {
       { x0: -36, x1: 31, y0: 0, y1: 1 },
     ]) {
       const k = mouthKnots(union, op);
-      for (const x of [union.x0, union.x1, -30, 30]) expect(k).toContain(x);
+      for (const x of [union.x0, union.x1, -30, 29, 30]) expect(k).toContain(x);
       k.forEach((x, i) => {
         if (i > 0) expect(x - k[i - 1]).toBeLessThanOrEqual(MOUTH_KNOT_PX + 1);
       });
@@ -321,7 +385,85 @@ describe("mouth.ts: knots and meshes", () => {
     expect(grown.knots[0]).toBe(grown.union.x0);
     expect(grown.knots[grown.knots.length - 1]).toBe(grown.union.x1);
     expect(grown.knots).toContain(-30);
+    expect(grown.knots).toContain(29);
     expect(grown.knots).toContain(30);
+  });
+
+  it("samples the pinned ends through the warp", () => {
+    for (const o of [{}, { grownInner: true }] as LipOptions[]) {
+      const set = lips(o);
+      const r = buildMouthRig(set);
+      const { x0, x1 } = r.opening;
+      const pinned = [x0 - 500, x1 - 500, x1 + 1 - 500];
+      for (const role of ["lip_upper", "lip_lower"] as const) {
+        const box = boxOfLayer(set.get(role)!);
+        const { mesh, xs } = mouthMesh(box, r.knots);
+        const warp = mouthFoldWarp(role, mesh, xs, box, r.opening);
+        const dy = (j: number) => warp.keyforms[0].offsets[2 * j + 1] * bh(box);
+        const fold = mouthFold(role, r.opening);
+        const y = meshPoints(mesh, box)[0][1];
+        xs.forEach((x, j) => {
+          const col = x + 500;
+          if (role === "lip_upper") {
+            if (col <= x0 || col >= x1) expect(dy(j)).toBeCloseTo(0, 9);
+            else expect(dy(j)).toBeCloseTo(fold(col, y, 0), 2);
+          } else if (col < x0 || col > x1 + 1) {
+            expect(dy(j)).toBeCloseTo(0, 9);
+          } else {
+            // The knots on x1 and x1 + 1 both sample the last column.
+            const c = col === x1 + 1 ? x1 : col;
+            expect(dy(j)).toBeCloseTo(fold(c, y, 0), 2);
+          }
+        });
+        expect(xs).toEqual(
+          expect.arrayContaining(
+            pinned.filter((k) => k > box.x0 && k < box.x1),
+          ),
+        );
+      }
+    }
+  });
+
+  it("mouthRestShift is the warp's field at the pixel centres", () => {
+    for (const o of [{}, { grownInner: true }] as LipOptions[]) {
+      const set = lips(o);
+      const r = buildMouthRig(set);
+      const shift = mouthRestShift(set);
+      for (const role of ["lip_upper", "lip_lower"] as const) {
+        const box = boxOfLayer(set.get(role)!);
+        const { mesh, xs } = mouthMesh(box, r.knots);
+        const warp = mouthFoldWarp(role, mesh, xs, box, r.opening);
+        const dy = (j: number) => warp.keyforms[0].offsets[2 * j + 1] * bh(box);
+        for (let c = 450; c < 550; c++) {
+          const x = c + 0.5 - 500;
+          if (x < box.x0 || x > box.x1) {
+            expect(shift(role, c)).toBe(0);
+            continue;
+          }
+          let k = 1;
+          while (k < xs.length - 1 && xs[k] < x) k++;
+          const t = (x - xs[k - 1]) / (xs[k] - xs[k - 1]);
+          expect(shift(role, c)).toBeCloseTo(
+            dy(k - 1) + (dy(k) - dy(k - 1)) * t,
+            9,
+          );
+        }
+      }
+    }
+    // The lower lip's fold carries integer-row steps that no per-column rule
+    // reproduces: the mesh interpolates across them. The upper lip's smooth
+    // travel is within a fraction of a pixel of its per-column fold.
+    const plain = lips();
+    const shift = mouthRestShift(plain);
+    const opening = buildMouthRig(plain).opening;
+    const gapOf = (role: "lip_upper" | "lip_lower") => {
+      const fold = mouthFold(role, opening);
+      return Math.max(
+        ...COLS.map((c) => Math.abs(shift(role, c) - fold(c, 0, 0))),
+      );
+    };
+    expect(gapOf("lip_lower")).toBeGreaterThan(1);
+    expect(gapOf("lip_lower")).toBeGreaterThan(3 * gapOf("lip_upper"));
   });
 
   it("meshes each part on the knots inside its box", () => {
@@ -362,7 +504,7 @@ describe("mouth.ts: knots and meshes", () => {
       const dy = warp.keyforms[0].offsets[2 * i + 1] * bh(box);
       const fold = mouthFold(role, rig.opening);
       expect(dy).toBeCloseTo(fold(480, y, 0), 1);
-      expect(dy).not.toBeCloseTo(fold(479, y, 0), 1);
+      expect(Math.abs(dy - fold(479, y, 0))).toBeGreaterThan(0.1);
     }
   });
 
@@ -637,6 +779,7 @@ describe("the lip set on the bust: what the mouth shows composited", () => {
     { grown: true },
     { grown: true, thinLine: true },
     { grown: true, underLine: true },
+    { grown: true, grownInner: true },
   ] as LipOptions[]) {
     const label = JSON.stringify(o);
     const shows = compositor(o);

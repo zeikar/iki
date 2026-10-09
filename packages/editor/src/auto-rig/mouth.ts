@@ -16,29 +16,47 @@
  * them at rest) and the skin reaches the interior (`Bl >= Bb`; an overlap is
  * fine, a gap is not).
  *
- * The seam sits on the interior's own span: `S = T - UPPER_SHARE * H`, with
- * `H = T - Bb`. MouthOpen 0 folds shut onto it, 1 is the art as drawn (the
- * widening of `mouthWiden` apart). The line comes down until its bottom edge
- * is on the seam, the skin until its top is one overlap `w'` up under the
- * line (`w'` is the stroke `w`, the line's height at the opening's centre,
- * capped by the line's own ink at that column so tucked skin never shows
- * above it), and the interior's bottom rides the skin's top, so the band is
- * never covered. The interior's top closes onto the same edge, `S + w'`: the
- * whole column scales by `v` about it, so shut its height is zero (a
- * degenerate triangle draws nothing, at every column and between knots; an
- * inverted sliver would leak through texture filtering where the line is
- * thin), and its top sits `w'(1 - v)` above the line's bottom edge, under the
- * line's ink, so the slit between the line and the skin is always backed. The slit opens once `v * H > w'(1 - v)`; that
- * dead zone is accepted: lip-sync noise near 0 does not flicker through it.
+ * MouthOpen 0 folds shut onto a seam, 1 is the art as drawn (the widening of
+ * `mouthWiden` apart). The line comes down until its bottom edge is on the
+ * seam, the skin until its top is one overlap `w'` up under the line (`w'` is
+ * the stroke `w`, the line's height at the opening's centre, capped by the
+ * line's own ink at that column so tucked skin never shows above it), and the
+ * interior's bottom rides the skin's top, so the band is never covered. The
+ * interior's top closes onto the same edge, `S + w'`: the whole column scales
+ * by `v` about it, so shut its height is zero (a degenerate triangle draws
+ * nothing, at every column and between knots; an inverted sliver would leak
+ * through texture filtering where the line is thin), and its top sits
+ * `w'(1 - v)` above the line's bottom edge, under the line's ink, so the slit
+ * between the line and the skin is always backed. The slit opens once
+ * `v * H > w'(1 - v)`; that dead zone is accepted: lip-sync noise near 0 does
+ * not flicker through it.
+ *
+ * The seam is the line's drawn bottom edge `Tu` plus one smooth closing
+ * travel `D`, a cubic in the column index pinned to zero at the opening's two
+ * end columns, so the closed line's ends are the drawn line's own ends. It is
+ * fitted by least squares to the raw per-column travel `(T - UPPER_SHARE * H)
+ * - Tu`, how far the line's bottom is from the share's point in the
+ * interior's span. The travel is fitted, not the seam, because `Tu` is an
+ * integer-row read: a smooth seam minus that staircase is a sawtooth the mesh
+ * would carry into the rendered line, while a smooth travel carries the
+ * drawn stroke (whose antialiased edge is smooth) as one piece. The share sets
+ * the travel's depth (the sag), the art's two arcs its shape; the cubic keeps
+ * an asymmetric mouth's tilt and cannot wobble.
  *
  * A lip's columns outside the opening (the corner hooks) do not fold; only
  * the interior's edge columns read the nearest opening column.
  *
  * Knots: the three parts share column knots every `MOUTH_KNOT_PX` plus the
- * opening's two boundaries, each an integer canvas boundary. A part's mesh
- * rounds its local x, so one knot reconstructs to slightly different model x
- * per part; the fold therefore reads the knot itself, by vertex index, and
- * maps every knot through one rule (`columnOfKnot`).
+ * opening's boundaries `x0`, `x1` and `x1 + 1`, each an integer canvas
+ * boundary. The fit's x is the column index, which is the mesh's boundary
+ * position: a knot at boundary `b` samples column `b`, so the mesh renders the
+ * fit exactly at its knots and the pinned ends render as pinned (`x1` and
+ * `x1 + 1` both sample the last column; the second sits at its right edge).
+ * The preview shifts each column by the field at the column's centre
+ * (`mouthRestShift`). A part's mesh rounds its local x, so one knot
+ * reconstructs to slightly different model x per part; the fold therefore
+ * reads the knot itself, by vertex index, and maps every knot through one rule
+ * (`columnOfKnot`).
  *
  * The anchor (`mouthAnchor`) is where the head's frame and the turn read the
  * mouth's resting place (the chin lead, the chin estimate, the solve). A
@@ -68,8 +86,8 @@ import { LayerGeometryError, type LayerInput } from "./types";
 
 export { LIP_ROLES, type LipRole };
 
-/** The share of the interior's span the upper lip takes when shut; it also
- *  sets the closed line's curve. Provisional, to be picked by eye. */
+/** The share of the interior's span the upper lip takes when shut; it sets
+ *  the closed line's sag. Picked by eye on bob. */
 export const UPPER_SHARE = 0.3;
 /** Column (and row) pitch of the lip meshes, px. */
 export const MOUTH_KNOT_PX = 4;
@@ -116,7 +134,8 @@ export interface OpeningColumn {
   H: number;
   /** How far the skin tucks up under the line. */
   overlap: number;
-  /** Where the lips meet when shut. */
+  /** Where the lips meet when shut: the line's bottom edge after its smooth
+   *  closing travel. */
   seam: number;
 }
 
@@ -149,7 +168,9 @@ export function mouthOpening(byRole: Map<string, LayerInput>): Opening {
   const x0 = Math.min(...cols);
   const x1 = Math.max(...cols);
 
-  const read = (col: number): Omit<OpeningColumn, "overlap"> | undefined => {
+  const read = (
+    col: number,
+  ): Omit<OpeningColumn, "overlap" | "seam"> | undefined => {
     const runs = innerCols.get(col);
     if (runs === undefined) return undefined;
     // Several runs in one column (a tooth, a tongue gap) are one interior:
@@ -173,19 +194,52 @@ export function mouthOpening(byRole: Map<string, LayerInput>): Opening {
       lineH: lineTop - Tu,
       Bl: skin === undefined ? Bb : edgesOf(lower, skin).top,
       H: T - Bb,
-      seam: T - UPPER_SHARE * (T - Bb),
     };
   };
 
   // Every column of the opening, a gap reading the nearest column with a run.
-  const reads: Omit<OpeningColumn, "overlap">[] = [];
+  const reads: Omit<OpeningColumn, "overlap" | "seam">[] = [];
   for (let c = x0; c <= x1; c++) {
     // The left neighbour wins a tie.
-    let r: Omit<OpeningColumn, "overlap"> | undefined;
+    let r: Omit<OpeningColumn, "overlap" | "seam"> | undefined;
     for (let d = 0; (r = read(c - d) ?? read(c + d)) === undefined; d++);
     reads.push(r);
   }
-  const base = (col: number) => reads[Math.min(x1, Math.max(x0, col)) - x0];
+
+  // The travel's fit: D(x) = (x - x0)(x - x1)(p + q (x - m)), p and q from the
+  // 2x2 normal equations over the opening's columns. Under 4 columns the
+  // system is singular (at 3 only the middle column has a nonzero basis, and
+  // (x - m) is 0 there), so the travel is zero and the closed line is the
+  // drawn line.
+  const m = (x0 + x1) / 2;
+  let p = 0;
+  let q = 0;
+  if (reads.length >= 4) {
+    let s11 = 0;
+    let s12 = 0;
+    let s22 = 0;
+    let t1 = 0;
+    let t2 = 0;
+    reads.forEach((r, i) => {
+      const x = x0 + i;
+      const b1 = (x - x0) * (x - x1);
+      const b2 = b1 * (x - m);
+      const d = r.T - UPPER_SHARE * r.H - r.Tu;
+      s11 += b1 * b1;
+      s12 += b1 * b2;
+      s22 += b2 * b2;
+      t1 += b1 * d;
+      t2 += b2 * d;
+    });
+    const det = s11 * s22 - s12 * s12;
+    p = (t1 * s22 - t2 * s12) / det;
+    q = (s11 * t2 - s12 * t1) / det;
+  }
+  const columns: Omit<OpeningColumn, "overlap">[] = reads.map((r, i) => {
+    const x = x0 + i;
+    return { ...r, seam: r.Tu + (x - x0) * (x - x1) * (p + q * (x - m)) };
+  });
+  const base = (col: number) => columns[Math.min(x1, Math.max(x0, col)) - x0];
   const centre = Math.round((x0 + x1) / 2);
   const w = base(centre).lineH;
   return {
@@ -262,9 +316,44 @@ export function mouthFoldWarp(
   });
 }
 
+/** A lip's translate at MouthOpen 0 per canvas column as the mesh renders it,
+ *  for the composer's closed preview: the linear interpolation at the column's
+ *  centre between the STORED offsets of the part's two bracketing knots (the
+ *  numbers the `.iki` carries, rounded as `localWarp` rounds them), 0 outside
+ *  the part's box. `byRole` must be the layers as the rig measures them (the
+ *  canvas-sized ones): a box measured on a smaller frame clamps differently,
+ *  and the knot grid starts at the union's edge. */
+export function mouthRestShift(
+  byRole: Map<string, LayerInput>,
+): (role: "lip_upper" | "lip_lower", col: number) => number {
+  const rig = buildMouthRig(byRole);
+  const fields = new Map<string, { box: Box; xs: number[]; dy: number[] }>();
+  for (const role of ["lip_upper", "lip_lower"] as const) {
+    const box = boxOfLayer(byRole.get(role)!);
+    const { mesh, xs } = mouthMesh(box, rig.knots);
+    const warp = mouthFoldWarp(role, mesh, xs, box, rig.opening);
+    const offsets = warp.keyforms[0].offsets;
+    fields.set(role, {
+      box,
+      xs,
+      dy: xs.map((_, i) => offsets[2 * i + 1] * bh(box)),
+    });
+  }
+  const half = rig.opening.canvasW / 2;
+  return (role, col) => {
+    const { box, xs, dy } = fields.get(role)!;
+    const x = col + 0.5 - half;
+    if (x < box.x0 || x > box.x1) return 0;
+    let k = 1;
+    while (k < xs.length - 1 && xs[k] < x) k++;
+    const t = (x - xs[k - 1]) / (xs[k] - xs[k - 1]);
+    return dy[k - 1] + (dy[k] - dy[k - 1]) * t;
+  };
+}
+
 /** The knots (model x) shared by the three parts over their union: its edges,
- *  every `MOUTH_KNOT_PX` between, and the opening's first column and the
- *  boundary after its last. */
+ *  every `MOUTH_KNOT_PX` between, and the opening's first column, its last
+ *  column and the boundary after it. */
 export function mouthKnots(union: Box, opening: Opening): number[] {
   const half = opening.canvasW / 2;
   const step = MOUTH_KNOT_PX;
@@ -273,7 +362,11 @@ export function mouthKnots(union: Box, opening: Opening): number[] {
     xs.push(xs[xs.length - 1] + step);
   xs.push(union.x1);
   const fixed = new Set([union.x0, union.x1]);
-  for (const x of [opening.x0 - half, opening.x1 + 1 - half]) {
+  for (const x of [
+    opening.x0 - half,
+    opening.x1 - half,
+    opening.x1 + 1 - half,
+  ]) {
     // Fixed before the lookup: a boundary already on a grid knot must not be
     // replaced by the next one either.
     fixed.add(x);
@@ -281,7 +374,9 @@ export function mouthKnots(union: Box, opening: Opening): number[] {
     const near = xs.findIndex((v) => Math.abs(v - x) < 0.3 * step);
     // Unlike `hairFrontGrid`, which skips a bend within reach of an edge, the
     // opening's boundaries must be knots, at the cost of a ~1 px cell; an
-    // edge or an earlier boundary is never replaced.
+    // edge or an earlier boundary is never replaced. `x1` is one so that the
+    // last column's own index, where the travel is pinned, is a knot: the
+    // boundary after it samples the same column but sits at its right edge.
     if (near >= 0 && !fixed.has(xs[near])) xs[near] = x;
     else xs.push(x);
   }

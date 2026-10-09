@@ -231,6 +231,9 @@ and how round 1's first compose corrects the provisional `canvas.json`. Then:
   `lip_lower` / `lip_upper` take no entry of their own. A `regenerate` of
   `mouth_keyed.png` or `mouth_interior.png` redraws that file only; the other
   stays.
+- A lower lip drawn with its own outline in `mouth_keyed.png` shows as a second
+  line on the closed mouth: regenerate `mouth_keyed.png` alone with the lower
+  lip as a shade, no outline.
 - The mouth key's failure modes: a compose refusal names `mouth_keyed.png` for
   no green, green outside the opening, an outline that is not closed, an
   opening too small to fold, more than one opening, or no skin under the

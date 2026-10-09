@@ -29,6 +29,10 @@ export interface LipOptions {
   underLine?: boolean;
   /** Each layer's box one pixel past its paint, as the measurer grows it. */
   grown?: boolean;
+  /** The interior one column wider each side (469, 530), under the hooks'
+   *  runs: a hand split's wall column, where the line's bottom is below the
+   *  interior's top. */
+  grownInner?: boolean;
 }
 
 type Col = [col: number, r0: number, r1: number];
@@ -85,6 +89,10 @@ export function lipSet(opts: LipOptions = {}): LayerInput[] {
     topRow(x) - (opts.underLine ? 1 : 0),
     topRow(x) + heightAt(x) + 2,
   ]);
+  if (opts.grownInner) {
+    const a = topRow(470);
+    inner.push([469, a, a + 3], [530, a, a + 3]);
+  }
   const upper: Col[] = [
     ...xs.map((x): Col => [x, topRow(x) - w, topRow(x)]),
     ...hooks.map((x): Col => [x, 590, 596]),

@@ -16,6 +16,7 @@ export {
   columnRuns,
   mouthFold,
   mouthOpening,
+  mouthRestShift,
   LIP_ROLES,
   type LipRole,
   type Opening,

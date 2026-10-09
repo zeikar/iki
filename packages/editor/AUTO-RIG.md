@@ -510,13 +510,18 @@ curvature the plate would need to put the eyes that far in front of its edge.
   eyelid folds shut instead of crossfading (`mouth.ts`). Each part has one
   warp on MouthOpen that lands its own painted boundary per column, read off
   the layers' `rowRuns`: shut, the line comes down until its bottom edge is
-  on the seam, 0.3 of the interior's height below its top (which also sets the
-  closed line's curve), and the skin comes up under it by the overlap, the
-  smaller of the centre stroke and the line's own thickness there; the
-  interior's bottom rides the skin's top and its top closes onto the same
-  edge, so shut it has no area, and the lower outline folds with the
-  interior. The fold's keyform at 1 is zero (the fold alone leaves
-  the drawing as it is), while the whole stack at MouthOpen 1 is the drawing
+  on the seam, and the skin comes up under it by the overlap, the smaller of
+  the centre stroke and the line's own thickness there; the interior's bottom
+  rides the skin's top and its top closes onto the same edge, so shut it has
+  no area, and the lower outline folds with the interior. The line's closing
+  travel is one smooth cubic, pinned to zero at the opening's two end columns
+  and fitted per column to 0.3 of the interior's height below its top, so the
+  closed line's ends stay where they were drawn and the share sets the sag
+  (the art's two arcs set the shape). The opening's end columns are mesh
+  knots, so the mesh renders the pins. The composer folds the outline's side
+  wall beside the opening with the interior; a wall a hand split leaves
+  standing at an end column holds still. The fold's keyform at 1 is zero (the
+  fold alone leaves the drawing as it is), while the whole stack at MouthOpen 1 is the drawing
   widened 1.2× like `mouth_open`. The three share one MouthForm frame
   (their union's), so the corners stay joined. The mouth's anchor for the
   head's frame and the turn is the seam at the opening's centre. The path is

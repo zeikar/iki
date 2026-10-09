@@ -21,9 +21,18 @@
  * per-column contract (`Tu <= T <= lineTop`, `Bl >= Bb`) true by construction
  * rather than by luck of the art.
  *
+ * The two columns beside the hole are grown into under the outline's side
+ * wall. When the frame has ink above the first grown row the wall is the
+ * line's own end, and it folds with the interior (its grown rows join
+ * `mouth_inner`, not `lip_upper`), so the rig reads the line's bottom at the
+ * interior's top there too and the closed line's ends are the drawn ends. A
+ * column with no ink above its first grown row (an under-the-line end) keeps
+ * every pixel in `lip_upper`; the rig still accepts it, its wall held still.
+ *
  * The preview (`closedLips`) shows the set as the rig draws it at rest: the
- * lips shifted per column by the fold's own dy at MouthOpen 0, the interior
- * left out (shut, it has zero height).
+ * lips shifted per column by the lip meshes' own rest field (`mouthRestShift`,
+ * measured as the rig measures the final canvas layers), the interior left out
+ * (shut, it has zero height).
  */
 
 import sharp from "sharp";
@@ -31,10 +40,9 @@ import {
   ALPHA_OPAQUE,
   columnRuns,
   createLayerSetMeasurer,
-  mouthFold,
   mouthOpening,
+  mouthRestShift,
   type LayerInput,
-  type LipRole,
   type Opening,
 } from "@ikijs/editor";
 import { AutoRigInputError } from "./limits";
@@ -572,21 +580,33 @@ function enclosedHole(frame: Buffer, w: number, h: number) {
   return { label, main, box };
 }
 
+type LipRgba = { mouth_inner: Buffer; lip_lower: Buffer; lip_upper: Buffer };
+
+/** The three layers, raw RGBA on a `w` x `h` canvas, as the rig measures
+ *  them; null for a layer with no opaque pixel. */
+function measureLips(
+  layers: LipRgba,
+  w: number,
+  h: number,
+): Map<string, LayerInput | null> {
+  const measurer = createLayerSetMeasurer({ width: w, height: h });
+  return new Map(
+    Object.entries(layers).map(([role, rgba]) => [
+      role,
+      measurer.add({ role, fileName: `${role}.png`, rgba }),
+    ]),
+  );
+}
+
 /**
  * Read the three layers back through the rig's own `mouthOpening` and assert
  * the fold's contract on every column of the opening it reads. A violation is
  * an invariant of the split, not input, so it throws a plain Error naming the
  * column.
  */
-function assertFoldContract(
-  layers: { mouth_inner: Buffer; lip_lower: Buffer; lip_upper: Buffer },
-  w: number,
-  h: number,
-): Opening {
-  const measurer = createLayerSetMeasurer({ width: w, height: h });
+function assertFoldContract(layers: LipRgba, w: number, h: number): Opening {
   const byRole = new Map<string, LayerInput>();
-  for (const [role, rgba] of Object.entries(layers)) {
-    const layer = measurer.add({ role, fileName: `${role}.png`, rgba });
+  for (const [role, layer] of measureLips(layers, w, h)) {
     // The outline above the opening and the interior in it always exist; the
     // skin under it is the art's.
     if (layer === null && role === "lip_lower") {
@@ -619,13 +639,18 @@ function assertFoldContract(
  * opening column (a column of the enclosed hole) `top` / `bot` are the hole's
  * first row and last row + 1:
  *   lip_upper  every pixel above `top`, every pixel of a column outside the
- *              opening (the corner hooks), the hole's faint upper half;
+ *              opening (the corner hooks) except a side wall's grown rows, the
+ *              hole's faint upper half;
  *   mouth_inner the band (the ink from `bot` down while dark, at most
  *              BAND_CAP strokes) over the interior over a flat cavity fill, on
  *              the hole, the band and the first skin row `R`, grown once
- *              sideways under ink and never above its own column's `top`;
+ *              sideways under ink and never above its own column's `top`
+ *              (the grown rows of a side column with ink above them are
+ *              `lip_upper`'s no longer: the wall folds with the interior);
  *   lip_lower  every row from `R` down (row `R` is in both: a one-row overlap,
  *              not a gap).
+ * A side column (beside the hole) whose frame has no ink above its first grown
+ * row keeps those rows in `lip_upper` and out of `mouth_inner`'s fold.
  * The result is read back through the rig's own `mouthOpening` and the
  * contract asserted (`assertFoldContract`).
  */
@@ -698,6 +723,19 @@ export async function splitLipSet(
     }
   }
 
+  // The columns beside the hole whose grown rows are the outline's side wall:
+  // the frame is opaque on the row above the first one. Those rows fold with
+  // the interior; a column with no ink above them keeps its pixels in the
+  // line (an under-the-line end the rig still accepts, its wall held still).
+  const wall = new Uint8Array(w);
+  for (const x of [hb.x0 - 1, hb.x1 + 1]) {
+    if (x < 0 || x >= w) continue;
+    let first = 0;
+    while (first < h && !(grown[first * w + x] && !inM[first * w + x])) first++;
+    if (first > 0 && first < h && alpha((first - 1) * w + x) >= ALPHA_OPAQUE)
+      wall[x] = 1;
+  }
+
   // The interior fitted to the hole's box grown one pixel each side.
   const gx = hb.x0 - 1;
   const gy = hb.y0 - 1;
@@ -723,7 +761,11 @@ export async function splitLipSet(
     for (let x = 0; x < w; x++) {
       const p = y * w + x;
       const inOpening = top[x] >= 0;
-      if (!inOpening || y < top[x] || faintUpper(p, x, y)) copy(upper, p);
+      if (
+        (!inOpening || y < top[x] || faintUpper(p, x, y)) &&
+        !(wall[x] && grown[p])
+      )
+        copy(upper, p);
       if (inOpening && skinRow[x] >= 0 && y >= skinRow[x]) copy(lower, p);
 
       if (!grown[p]) continue;
@@ -736,8 +778,9 @@ export async function splitLipSet(
         for (let c = 0; c < 3; c++) out[c] += (fitted[i + c] - out[c]) * a;
       }
       // The frame's own ink goes over it on the hole's rows (but not the faint
-      // upper half, which is the line's) and on the band and the skin row.
-      if (inM[p] && !faintUpper(p, x, y)) {
+      // upper half, which is the line's), on the band and the skin row, and on
+      // a side wall's rows.
+      if ((inM[p] || wall[x]) && !faintUpper(p, x, y)) {
         const a = alpha(p) / 255;
         for (let c = 0; c < 3; c++) out[c] += (frame[p * 4 + c] - out[c]) * a;
       }
@@ -762,28 +805,58 @@ export async function splitLipSet(
 }
 
 /**
+ * The rig's rest shift of the lips for the three canvas-sized layers: the
+ * lip meshes' own field at MouthOpen 0 (`mouthRestShift`). Measured on the
+ * canvas, not on the mouth-sized frame: `detectAlphaBbox` grows a box a pixel
+ * each side and clamps it to the image, so a frame clamps where the canvas
+ * does not, and the knot grid, which starts at the union's edge, lands
+ * elsewhere. The measurement is the rig's own, of the same bytes.
+ */
+export async function restShiftOf(
+  layers: { mouth_inner: Buffer; lip_lower: Buffer; lip_upper: Buffer },
+  width: number,
+  height: number,
+): Promise<ReturnType<typeof mouthRestShift>> {
+  const [mouth_inner, lip_lower, lip_upper] = await Promise.all(
+    [layers.mouth_inner, layers.lip_lower, layers.lip_upper].map(
+      async (png) => (await rawOf(png)).data,
+    ),
+  );
+  const byRole = new Map<string, LayerInput>();
+  for (const [role, layer] of measureLips(
+    { mouth_inner, lip_lower, lip_upper },
+    width,
+    height,
+  ))
+    byRole.set(role, layer!);
+  return mouthRestShift(byRole);
+}
+
+/**
  * The lips as the rig draws them at rest (MouthOpen 0): each column shifted by
- * the fold's own dy there. The fold's dy for a lip depends on the column only,
- * so the shift is a per-column translate; +y is up in the fold, rows go down
- * the image, so rows move by -dy. The interior is left out: shut, it has no
- * height.
+ * the lip mesh's own field at the column's centre, the same knots and stored
+ * offsets the rig has, so the preview is what the mesh draws (a per-column or
+ * neighbour-averaged fold is a pixel or more off on the lower lip, whose fold
+ * carries integer-row reads). `left` is the frame's column on the canvas. The
+ * field is per column and +y is up, rows go down the image, so rows move by
+ * -dy. The interior is left out: shut, it has no height.
  */
 export async function closedLips(
   upper: Buffer,
   lower: Buffer,
-  opening: Opening,
+  shift: ReturnType<typeof mouthRestShift>,
+  left: number,
 ): Promise<{ upper: Buffer; lower: Buffer }> {
-  const shut = async (png: Buffer, role: LipRole) => {
+  const shut = async (png: Buffer, role: "lip_upper" | "lip_lower") => {
     const { data, info } = await rawOf(png);
     const { width: w, height: h } = info;
-    const fold = mouthFold(role, opening);
     const out = Buffer.alloc(w * h * 4);
     for (let x = 0; x < w; x++) {
       // The fractional shift, resampled linearly between the two source rows
       // the way the GPU samples the rig's mesh: rounding it per column would
       // turn the smooth arc into a staircase the rig never draws. The blend is
       // premultiplied so an edge neither darkens nor lightens.
-      const dy = fold(x, 0, 0);
+      const dy = shift(role, left + x);
       const f = Math.floor(dy);
       const t = dy - f;
       const px = (row: number, c: number) =>
