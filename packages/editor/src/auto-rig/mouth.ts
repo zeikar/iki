@@ -22,12 +22,14 @@
  * is on the seam, the skin until its top is one overlap `w'` up under the
  * line (`w'` is the stroke `w`, the line's height at the opening's centre,
  * capped by the line's own ink at that column so tucked skin never shows
- * above it), and the interior's top and bottom ride those same two edges, so
- * the band is never covered. Closed, the interior's height is zero at
- * `v* = w' / (H + w')` and below that a mirrored sliver at most `w'` tall,
- * inside the line's ink after its own translate; the engine draws inverted
- * triangles and `lip_upper` covers it. That dead zone is accepted: lip-sync
- * noise near 0 does not flicker through it.
+ * above it), and the interior's bottom rides the skin's top, so the band is
+ * never covered. The interior's top closes onto the same edge, `S + w'`: the
+ * whole column scales by `v` about it, so shut its height is zero (a
+ * degenerate triangle draws nothing, at every column and between knots; an
+ * inverted sliver would leak through texture filtering where the line is
+ * thin), and its top sits `w'(1 - v)` above the line's bottom edge, under the
+ * line's ink, so the slit between the line and the skin is always backed. The slit opens once `v * H > w'(1 - v)`; that
+ * dead zone is accepted: lip-sync noise near 0 does not flicker through it.
  *
  * A lip's columns outside the opening (the corner hooks) do not fold; only
  * the interior's edge columns read the nearest opening column.
@@ -201,9 +203,9 @@ export function mouthOpening(byRole: Map<string, LayerInput>): Opening {
 
 /**
  * dy of a model-y rest position at pixel column `col` for MouthOpen `v`
- * (0 shut, 1 as drawn). A lip outside the opening moves 0; `mouth_inner` maps
- * its top and bottom edges linearly in y and extends that affine to the
- * column's other rows.
+ * (0 shut, 1 as drawn). A lip outside the opening moves 0; `mouth_inner`
+ * scales its column by `v` about `S + w'`, which carries its top and bottom
+ * edges along the line and the skin and needs no read of its own height.
  */
 export function mouthFold(
   role: LipRole,
@@ -220,11 +222,8 @@ export function mouthFold(
         return (c.seam - c.Tu) * k;
       case "lip_lower":
         return (c.seam + c.overlap - c.Bl) * k;
-      case "mouth_inner": {
-        const top = (c.seam - c.T) * k;
-        const bottom = (c.seam + c.overlap - c.Bb) * k;
-        return top + ((y - c.T) / (c.Bb - c.T)) * (bottom - top);
-      }
+      case "mouth_inner":
+        return (c.seam + c.overlap - y) * k;
     }
   };
 }

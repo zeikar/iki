@@ -513,8 +513,9 @@ curvature the plate would need to put the eyes that far in front of its edge.
   on the seam, 0.3 of the interior's height below its top (which also sets the
   closed line's curve), and the skin comes up under it by the overlap, the
   smaller of the centre stroke and the line's own thickness there; the
-  interior's top and bottom ride those two edges, so the lower outline folds
-  with the interior. The fold's keyform at 1 is zero (the fold alone leaves
+  interior's bottom rides the skin's top and its top closes onto the same
+  edge, so shut it has no area, and the lower outline folds with the
+  interior. The fold's keyform at 1 is zero (the fold alone leaves
   the drawing as it is), while the whole stack at MouthOpen 1 is the drawing
   widened 1.2× like `mouth_open`. The three share one MouthForm frame
   (their union's), so the corners stay joined. The mouth's anchor for the
@@ -614,8 +615,9 @@ model with a pose forearm adds `Wave` (below the table).
 
 ## Known limits
 
-- The mouth fold shows no opening until the lips have parted about one stroke (MouthOpen ≈ w′/(H + w′)) (the
-  sliver under the line, which `lip_upper` covers). A mouth drawn as a dot, a
+- The mouth fold shows no opening until the lips have parted about one stroke
+  (MouthOpen ≈ w′/(H + w′)): the interior's top stays under the line's ink
+  until `v·H > w′(1 − v)`. A mouth drawn as a dot, a
   single line or a `:3` has no opening to fold and stays on the legacy path.
   The seam's share, 0.3, is a constant until a character needs a knob.
 - A face drawn without a neck whose chin tapers long and straight can read as

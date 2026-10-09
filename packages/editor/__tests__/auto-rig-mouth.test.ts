@@ -157,12 +157,10 @@ describe("mouth.ts: the fold", () => {
         expect(c.Bl + lower(x, c.Bl, 0)).toBeCloseTo(c.seam + c.overlap, 9);
         const top = c.T + inner(x, c.T, 0);
         const bottom = c.Bb + inner(x, c.Bb, 0);
-        expect(top).toBeCloseTo(c.seam, 9);
+        // Shut the interior has no height, on the skin's top edge.
+        expect(top).toBeCloseTo(c.seam + c.overlap, 9);
         expect(bottom).toBeCloseTo(c.seam + c.overlap, 9);
-        for (const y of [top, bottom]) {
-          expect(y).toBeGreaterThanOrEqual(c.seam - 1e-9);
-          expect(y).toBeLessThanOrEqual(c.seam + c.lineH + 1e-9);
-        }
+        expect(c.seam + c.overlap).toBeLessThanOrEqual(c.seam + c.lineH + 1e-9);
       }
     });
   }
@@ -192,25 +190,27 @@ describe("mouth.ts: the fold", () => {
         const bottom = c.Bb + inner(x, c.Bb, 0.5);
         const lineBottom = c.Tu + upper(x, c.Tu, 0.5);
         const skinTop = c.Bl + lower(x, c.Bl, 0.5);
-        expect(top - lineBottom).toBeCloseTo(o.underLine ? 0.5 : 0, 9);
+        // The top rides w'(1 - v) above the line's bottom, under its ink.
+        expect(top - lineBottom).toBeCloseTo(
+          0.5 * c.overlap + (o.underLine ? 0.5 : 0),
+          9,
+        );
         expect(skinTop - bottom).toBeCloseTo(o.skinOverlap ? 0.5 : 0, 9);
-        expect(top - bottom).toBeCloseTo((c.H - c.overlap) / 2, 9);
+        expect(top - bottom).toBeCloseTo(c.H / 2, 9);
       }
     });
   }
 
-  it("crosses zero height at v* = overlap / (H + overlap)", () => {
+  it("scales the interior's height by v, never inverted", () => {
     for (const o of [{}, { thinLine: true }] as LipOptions[]) {
       const op = mouthOpening(lips(o));
       const inner = mouthFold("mouth_inner", op);
       for (const x of COLS) {
         const c = op.at(x);
-        const vStar = c.overlap / (c.H + c.overlap);
-        const height = (v: number) =>
-          c.T + inner(x, c.T, v) - (c.Bb + inner(x, c.Bb, v));
-        expect(height(vStar)).toBeCloseTo(0, 9);
-        expect(height(vStar + 0.01)).toBeGreaterThan(0);
-        expect(height(vStar - 0.01)).toBeLessThan(0);
+        for (const v of [0, 0.01, 0.3, 1]) {
+          const height = c.T + inner(x, c.T, v) - (c.Bb + inner(x, c.Bb, v));
+          expect(height).toBeCloseTo(v * c.H, 9);
+        }
       }
     }
     const thin = mouthOpening(lips({ thinLine: true }));
@@ -465,7 +465,7 @@ describe("the lip set on the bust", () => {
     const r = rest("mouth_inner");
     expect(r[inner[0]][1]).toBeCloseTo(col.T, 6);
     expect(r[inner[inner.length - 1]][1]).toBeCloseTo(col.Bb, 6);
-    near(shut[inner[0]][1], col.seam);
+    near(shut[inner[0]][1], col.seam + col.overlap);
     near(shut[inner[inner.length - 1]][1], col.seam + col.overlap);
     const upper = landed("lip_upper", { [P.MouthOpen]: 0 });
     const lower = landed("lip_lower", { [P.MouthOpen]: 0 });
@@ -519,6 +519,140 @@ describe("the lip set on the bust", () => {
       Math.ceil((OPENING.x1 - OPENING.x0 + 1) / MOUTH_KNOT_PX),
     );
   });
+});
+
+describe("the lip set on the bust: what the mouth shows composited", () => {
+  const { layers, options } = character({ lips: true });
+  type Tri = { rest: [number, number][]; at: [number, number][] };
+
+  /** The interior's weight in the final colour at a model point: its alpha
+   *  after the skin and the line over it, each bilinearly filtered. */
+  function compositor(lipOpts: LipOptions) {
+    const byRole = lips(lipOpts);
+    const model = generateIkiFromLayerSet(
+      layers.map((l) => byRole.get(l.role) ?? l),
+      CANVAS,
+      options,
+    );
+    const trisOf = (role: string, v: number): Tri[] => {
+      const mesh = model.parts.find((p) => p.id === role)!.mesh!;
+      const rest = meshPoints(mesh, boxOfLayer(byRole.get(role)!));
+      const l = oracle.landVertices(model, role, { [P.MouthOpen]: v });
+      const at = rest.map((_, i): [number, number] => [l[2 * i], l[2 * i + 1]]);
+      return Array.from({ length: mesh.indices.length / 3 }, (_, t) => {
+        const ix = mesh.indices.slice(3 * t, 3 * t + 3);
+        return { rest: ix.map((i) => rest[i]), at: ix.map((i) => at[i]) };
+      });
+    };
+    /** Linear filtering of the crop's alpha, texel centres at +0.5. */
+    const alpha = (role: string, [x, y]: [number, number]): number => {
+      const l = byRole.get(role)!;
+      const px = x + 500 - l.bbox.x - 0.5;
+      const py = 500 - y - l.bbox.y - 0.5;
+      const [i, j] = [Math.floor(px), Math.floor(py)];
+      const texel = (ti: number, tj: number): number => {
+        const c = l.bbox.x + Math.min(l.bbox.w - 1, Math.max(0, ti));
+        const runs = l.rowRuns![Math.min(l.bbox.h - 1, Math.max(0, tj))];
+        for (let k = 0; k < runs.length; k += 2)
+          if (c >= runs[k] && c < runs[k + 1]) return 1;
+        return 0;
+      };
+      const [fx, fy] = [px - i, py - j];
+      return (
+        texel(i, j) * (1 - fx) * (1 - fy) +
+        texel(i + 1, j) * fx * (1 - fy) +
+        texel(i, j + 1) * (1 - fx) * fy +
+        texel(i + 1, j + 1) * fx * fy
+      );
+    };
+    const bary = (p: [number, number], a: [number, number][]) => {
+      const d =
+        (a[1][1] - a[2][1]) * (a[0][0] - a[2][0]) +
+        (a[2][0] - a[1][0]) * (a[0][1] - a[2][1]);
+      if (Math.abs(d) < 0.05) return undefined;
+      const w0 =
+        ((a[1][1] - a[2][1]) * (p[0] - a[2][0]) +
+          (a[2][0] - a[1][0]) * (p[1] - a[2][1])) /
+        d;
+      const w1 =
+        ((a[2][1] - a[0][1]) * (p[0] - a[2][0]) +
+          (a[0][0] - a[2][0]) * (p[1] - a[2][1])) /
+        d;
+      const w = [w0, w1, 1 - w0 - w1];
+      return w.every((x) => x >= -1e-9) ? w : undefined;
+    };
+    const drawn = (role: string, tris: Tri[], p: [number, number]) =>
+      Math.max(
+        0,
+        ...tris.map((t) => {
+          const w = bary(p, t.at);
+          if (w === undefined) return 0;
+          return alpha(role, [
+            w[0] * t.rest[0][0] + w[1] * t.rest[1][0] + w[2] * t.rest[2][0],
+            w[0] * t.rest[0][1] + w[1] * t.rest[1][1] + w[2] * t.rest[2][1],
+          ]);
+        }),
+      );
+    const opening = mouthOpening(byRole);
+    const upper = mouthFold("lip_upper", opening);
+    /** Every sample (0.25 px grid, off the knots' lines) whose interior weight exceeds `eps`, with
+     *  its column's landed line top. */
+    return (v: number, eps: number) => {
+      const [tIn, tLo, tUp] = [
+        trisOf("mouth_inner", v),
+        trisOf("lip_lower", v),
+        trisOf("lip_upper", v),
+      ];
+      const out: { at: [number, number]; weight: number; lineTop: number }[] =
+        [];
+      for (let x = -33.07; x <= 33; x += 0.25)
+        for (let y = -112.05; y <= -85; y += 0.25) {
+          const p: [number, number] = [x, y];
+          const a = drawn("mouth_inner", tIn, p);
+          if (a === 0) continue;
+          const weight =
+            a *
+            (1 - drawn("lip_lower", tLo, p)) *
+            (1 - drawn("lip_upper", tUp, p));
+          if (weight <= eps) continue;
+          const col = Math.min(
+            opening.x1,
+            Math.max(opening.x0, Math.floor(x + 500)),
+          );
+          const c = opening.at(col);
+          out.push({
+            at: p,
+            weight,
+            lineTop: c.lineTop + upper(col, c.lineTop, v),
+          });
+        }
+      return out;
+    };
+  }
+
+  // A drawn edge steps a row between columns and the knots interpolate it
+  // linearly: up to a row, and a texel of filtering, off the line's top.
+  const SLACK = 1.5;
+  for (const o of [
+    { grown: true },
+    { grown: true, thinLine: true },
+    { grown: true, underLine: true },
+  ] as LipOptions[]) {
+    const label = JSON.stringify(o);
+    const shows = compositor(o);
+
+    it(`shows no interior when shut ${label}`, () => {
+      expect(shows(0, 0.01)).toEqual([]);
+    });
+
+    it(`keeps the interior under the line's top at a small opening ${label}`, () => {
+      for (const v of [0.02, 0.05, 0.1]) {
+        for (const s of shows(v, 0.25)) {
+          expect(s.at[1]).toBeLessThanOrEqual(s.lineTop + SLACK);
+        }
+      }
+    });
+  }
 });
 
 describe("the anchor", () => {
