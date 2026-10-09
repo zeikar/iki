@@ -87,8 +87,10 @@ import { LayerGeometryError, type LayerInput } from "./types";
 export { LIP_ROLES, type LipRole };
 
 /** The share of the interior's span the upper lip takes when shut; it sets
- *  the closed line's sag. Picked by eye on bob. */
-export const UPPER_SHARE = 0.3;
+ *  the closed line's sag. Picked by eye on bob's regenerated keyed mouth
+ *  against the legacy closed drawing, 2026-10-09: at 0.4 the closed line's
+ *  sag reads like the legacy closed smile (0.3 is shallower, 0.5 deeper). */
+export const UPPER_SHARE = 0.4;
 /** Column (and row) pitch of the lip meshes, px. */
 export const MOUTH_KNOT_PX = 4;
 

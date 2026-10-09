@@ -515,7 +515,7 @@ curvature the plate would need to put the eyes that far in front of its edge.
   rides the skin's top and its top closes onto the same edge, so shut it has
   no area, and the lower outline folds with the interior. The line's closing
   travel is one smooth cubic, pinned to zero at the opening's two end columns
-  and fitted per column to 0.3 of the interior's height below its top, so the
+  and fitted per column to 0.4 of the interior's height below its top, so the
   closed line's ends stay where they were drawn and the share sets the sag
   (the art's two arcs set the shape). The opening's end columns are mesh
   knots, so the mesh renders the pins. The composer folds the outline's side
@@ -624,7 +624,7 @@ model with a pose forearm adds `Wave` (below the table).
   (MouthOpen ≈ w′/(H + w′)): the interior's top stays under the line's ink
   until `v·H > w′(1 − v)`. A mouth drawn as a dot, a
   single line or a `:3` has no opening to fold and stays on the legacy path.
-  The seam's share, 0.3, is a constant until a character needs a knob.
+  The seam's share, 0.4, is a constant until a character needs a knob.
 - A face drawn without a neck whose chin tapers long and straight can read as
   a plateau, and the rig then holds the chin's tip still as a neck island. Nothing
   bounds the turn by a neck drawn on the torso either: the chin may slide past it,
