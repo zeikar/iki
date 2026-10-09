@@ -88,6 +88,12 @@ artist agent applies your findings; the orchestrator arbitrates.
   0.5). For a full body, `renders` and `turn-pair` are the model's
   square at the canvas's top, its top 1100 rows at a bust's scale, so the face is judged and measured
   exactly as on a bust.
+- `mouth-renders` — the zoomed mouth crops (180 × 120 model px at ×4, 720 × 480),
+  15 of them: `mouth-open-{0,0.3,0.6,1}-form-{m1,0,p1}` (`ParamMouthOpenY` at
+  0, 0.3, 0.6 and 1 against `ParamMouthForm` at −1, 0 and 1), `mouth-laugh`
+  (Open 0.8, Form 1), `mouth-surprised` (Open 0.9) and `mouth-turn-p30-half`
+  (`ParamAngleX` 30, Open 0.5). `mouth-open-0-form-0` is the rest mouth as the
+  engine renders it.
 - `round` — which iteration this is.
 - `scores` — the previous rounds' `SCORES:` lines, so you can compare each axis
   against its best so far (none on round 1).
@@ -118,6 +124,11 @@ This encodes failure modes that each cost a real regeneration round to find by
 eye. Its warnings are FACTS — fold every one into your findings with the numbers
 attached. "The iris looks big" is worthless; "the iris is 33% of the sclera
 width, target 0.45–0.60" is a fix.
+
+When the report ends with a `lips:` line (`lips: opening W px wide, H px tall at
+its centre under a L px line — no slit below MouthOpen v`), it and every `lip_*`
+/ `mouth_inner` warning are facts too: quote the dead zone `v` and the line's
+rows, never a guess at them.
 
 Never let an impression stand where a measurement is available. The report's
 table carries a per-layer size, bbox centre, mass centre and margins for every
@@ -215,6 +226,42 @@ individually pretty.
 for: a straight seam appearing on turn, the head sliding off the shoulders, the
 iris spilling past the lids at extreme gaze, the eye vanishing entirely at
 blink, brows hidden under hair.
+
+On a lip set (`mouth_inner` / `lip_lower` / `lip_upper` among the layers), `rig`
+also looks at `mouth-renders`:
+
+- At `mouth-open-0.3-*` and `mouth-open-0.6-*` there is ONE mouth. Two drawings
+  over each other is ghosting, the fold failing: an `escalate` on
+  `packages/editor/src/auto-rig/mouth.ts`.
+- At `mouth-open-0-*` there is one closed line, with no light seam between it
+  and the skin and no second line. The interior is never outside the lips at any
+  pose, the corners (Form ±1), `mouth-laugh`, `mouth-surprised` and
+  `mouth-turn-p30-half` included: an `escalate` on
+  `packages/mcp/src/compose-lips.ts` (the mask) or `mouth.ts` (the fold).
+- The closed line's weight is judged against the reference's mouth line. A
+  hairline is a `regenerate` of `mouth_keyed.png` with a BOLDER upper lip line,
+  with the measure's `lip_upper: the upper line is N px` number in the finding.
+- The closed line's curve is the keyed art's upper arc. A smile or a frown that
+  disagrees with the reference is a `regenerate` of `mouth_keyed.png` with the
+  upper line drawn in the closed smile's curve, never an `escalate`.
+- Forks or ticks at the closed mouth's corners (`mouth-open-0-*`, `rest`) are
+  drawn corner hooks: the line beside the opening holds still while the rest
+  flattens onto the seam. A `regenerate` of `mouth_keyed.png` with the upper
+  line ending in clean tapered points at the corners, never an `escalate`.
+- A peach band at the opening's bottom at `mouth-open-1-*` is a `regenerate` of
+  `mouth_interior.png`.
+- A mouth off its place or the wrong size is a `retune` of `layout.mouth_inner`
+  (`cx`/`cy`/`w`, the frame of all three layers; `h` stretches) — the measure's
+  short-opening warning names the `w` when the mouth is smaller than the
+  reference's.
+- A mouth still shut at a MouthOpen value below the `no slit below MouthOpen v`
+  the `lips:` line reports is the fold's dead zone, by design (`v` is the line's
+  rows over the opening's height plus them: about 0.04 on a tall opening under
+  a hairline, a third on a short one under a bold line): no finding. One shut
+  above `v` is a `rig` finding.
+
+On a legacy `mouth` / `mouth_open` model the half-open ghosting is the
+crossfade's own: say so once, as no finding.
 
 On a full body, `rig` also looks at `body-renders` for: a gap or seam at a
 shoulder's cap at `ParamArmL` / `ParamArmR` 16 and 32; the elbow's cap at
@@ -356,13 +403,17 @@ Every finding carries a `type`, and the type decides who acts:
   A part drawn facing the other way (an eye whose lash stops short of its outer
   corner instead of its tear duct) is a retune too: target `mirror-parts.json`,
   naming the part file. On a full body with a pose forearm, `layout.forearm_pose_*`
-  is among the retune targets. **Free** — recomposing and re-rigging cost nothing, so
+  is among the retune targets, and on a lip set `layout.mouth_inner`. **Free** — recomposing and re-rigging cost nothing, so
   prefer this whenever it can work.
 - **`escalate`** — the fix lies outside the parts dir, `layout.json`,
   `mirror-parts.json`, `style.json` and `canvas.json`:
   `packages/editor/src/auto-rig/`, the engine, the format. The artist is not allowed to touch
   these. State the file, the suspected cause and the evidence; the orchestrator
   decides.
+
+A compose refusal naming `mouth_keyed.png` or `mouth_interior.png` (no green,
+green outside the opening, an outline not closed, more than one opening, only
+lips) is a `regenerate` of that file alone.
 
 Before writing a `regenerate`, ask whether a `retune` would do. Historically
 most defects that _looked_ like bad art were placement constants.

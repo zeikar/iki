@@ -109,6 +109,12 @@ and how round 1's first compose corrects the provisional `canvas.json`. Then:
    ```
 
    This attaches the reference to every job so the parts share one anchor.
+   Round 1 draws the mouth as the lip set, `mouth_keyed.png` and
+   `mouth_interior.png`, 2 variants each, picked by the notes beside their
+   prompts in the SKILL. Never leave `mouth.png` or `mouth_open.png` in the parts
+   dir beside them: the composer refuses the mix, so when switching a workdir to
+   the lip set, delete the pair. Draw the legacy pair only when the orchestrator
+   names a style that cannot fold.
    A full body fires three batches, since each takes one `--ref`: the face and
    hair parts with `--ref <reference>`, `body.png` and `arm.png` with
    `--ref <reference-full>`, and `forearm_pose.png` with
@@ -220,6 +226,26 @@ and how round 1's first compose corrects the provisional `canvas.json`. Then:
   pull them apart, so `compose_layers_from_parts` rejects it: set both. The
   lower lid (`lash_lower_*`) is cut from the same source and has no key: it
   follows the `eye_*` entry.
+- The lip set's three layers are cut from one frame and have one key: a `retune`
+  of `layout.mouth_inner` (`cx`/`cy`/`w`, `h` stretches) moves all three, and
+  `lip_lower` / `lip_upper` take no entry of their own. A `regenerate` of
+  `mouth_keyed.png` or `mouth_interior.png` redraws that file only; the other
+  stays.
+- The mouth key's failure modes: a compose refusal names `mouth_keyed.png` for
+  no green, green outside the opening, an outline that is not closed, an
+  opening too small to fold, more than one opening, or no skin under the
+  opening, and `mouth_interior.png` for an
+  image that is only lips, opaque on a non-white ground, or on a white ground
+  too noisy to key. Regenerate that file alone, asking again for a flat even
+  green (or a plain white ground) with nothing drawn inside it. A
+  `lip_upper: the upper line is N px` warning is a `regenerate` of
+  `mouth_keyed.png` with a bolder upper line, not a `layout` retune. A
+  `lip_*` / `mouth_inner` gap, no-line or no-interior warning is cured by
+  recomposing the pair (free) before any regeneration, as its text says; an
+  opening too short at the centre names a free `layout.mouth_inner.w` retune
+  when the mouth is smaller than the reference's.
+  `mouth_interior.png` is stretched to the opening, so its exact shape is not
+  worth a regeneration; its colours and teeth are.
 - On a full body, an arm-cap warning (`arm_R: its shoulder cap reaches …`) is
   a free `layout.arm_*` move: shift that arm's `cx` toward the body by the px
   it names (its `cy` onto the shoulder when the body has no paint on the
@@ -246,5 +272,6 @@ MODEL: <path to the rigged .iki, or "none" — see BLOCKED>
 TURN: <the result's turn.achieved, turn.clamped and turn.strandOverlap ("none" when absent), or "none" when no turn was solved>
 ESCALATED: <critic findings you did not act on, and any refusal you escalated, verbatim — on a full body, a final canvas height over 4096, with H — or "none">
 BLOCKED: <"none", or what stopped the round — for a usage limit, the reset time; for a refused rig, that no model came out>
+MOUTH: <cx>,<cy> — the composed mouth's centre in canvas px, from the compose result's `layers[]` entry for `mouth_inner` (`left + width/2`, `top + height/2`), or for `mouth` on a legacy set; the orchestrator pastes it into the capture snippet's `MOUTH`
 NOTES: <anything the orchestrator should know>
 ```

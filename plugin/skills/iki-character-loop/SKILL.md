@@ -60,7 +60,9 @@ That is why the caps below are not optional, and why the critic is asked to call
 ## Cost
 
 Every `regenerate` is a billed `codex exec` taking minutes. A full part set is
-11 parts × 2 variants = 22 jobs. A full body adds `reference-full.png` (one
+11 parts × 2 variants = 22 jobs; the mouth's two parts are `mouth_keyed.png` and
+`mouth_interior.png` (a style that cannot fold draws `mouth.png` and
+`mouth_open.png` instead). A full body adds `reference-full.png` (one
 job), `arm.png` (two), and, with a pose forearm, `reference-wave.png` (one) and
 `forearm_pose.png` (two).
 
@@ -209,6 +211,11 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `ParamAngleZ` 30 at once: the torso's neck follows only a little while the
    face slides, turns and rolls over it, and a neck drawn too wide or too low
    shows its flat top beside the jaw only when all three peak together.
+   Add the 15 mouth poses (the snippet below): `mouth-open-{0,0.3,0.6,1}-form-{m1,0,p1}`
+   (`ParamMouthOpenY` × `ParamMouthForm`; 0.3 and 0.6 are the half-open states
+   lip-sync lives in, Form ±1 the corners), `mouth-laugh`, `mouth-surprised` and
+   `mouth-turn-p30-half`, each a zoomed crop of the mouth: a 76 px mouth is
+   unreadable in the full shot. The critic reads them as `mouth-renders`.
    Rig breakage surfaces in the turn and blink poses, which a front-facing
    screenshot hides; the between-stop poses expose interpolation defects that
    the endpoint shots miss (the engine blends linearly between authored
@@ -282,6 +289,81 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `node decode-renders.cjs <the moved file> <workdir>/renders/` writes
    `<workdir>/renders/rest.png`, `turn-m30.png` and `turn-p30.png`, beside the
    `debug/` dir Step 0 made for the critic's measurement overlays.
+   **The mouth poses** (bust; a full body's snippet below includes them): one
+   more `browser_evaluate`, in either path. On a bust the canvas is the model's
+   square, so the crop is 180 × 120 model px centred on `MOUTH` (the artist's
+   `MOUTH:` line; these two numbers are bob's defaults), drawn ×4 onto 720 × 480.
+   Pass `filename`, move the file into `<workdir>` and decode it with
+   `node decode-renders.cjs <file> <workdir>/renders/`: the 15
+   `mouth-*.png` land beside `rest.png` and are the critic's `mouth-renders`.
+   ```js
+   async () => {
+     const api = window.__iki; // a checkout's dev API; absent standalone
+     const canvas = document.getElementById("iki");
+     const nextFrame = () =>
+       new Promise((r) =>
+         requestAnimationFrame(() => requestAnimationFrame(r)),
+       );
+     const LABEL = {
+       ParamAngleX: "Head Angle",
+       ParamMouthOpenY: "Mouth Open",
+       ParamMouthForm: "Mouth Form",
+     };
+     const set = (id, value) => {
+       if (api) return api.setParam(id, value);
+       const input = [...document.querySelectorAll(".control")]
+         .find((c) => c.querySelector("label span")?.textContent === LABEL[id])
+         .querySelector("input[type=range]");
+       input.value = String(value);
+       input.dispatchEvent(new Event("input", { bubbles: true }));
+     };
+     const MOUTH = { cx: 550, cy: 596 };
+     const mouth = () => {
+       const s = canvas.width / 1100;
+       const crop = document.createElement("canvas");
+       crop.width = 720;
+       crop.height = 480;
+       crop
+         .getContext("2d")
+         .drawImage(
+           canvas,
+           (MOUTH.cx - 90) * s,
+           (MOUTH.cy - 60) * s,
+           180 * s,
+           120 * s,
+           0,
+           0,
+           720,
+           480,
+         );
+       return crop.toDataURL("image/png");
+     };
+     const poses = [
+       ...[0, 0.3, 0.6, 1].flatMap((open) =>
+         [
+           ["m1", -1],
+           ["0", 0],
+           ["p1", 1],
+         ].map(([name, form]) => [
+           `mouth-open-${open}-form-${name}`,
+           { ParamMouthOpenY: open, ParamMouthForm: form },
+         ]),
+       ),
+       ["mouth-laugh", { ParamMouthOpenY: 0.8, ParamMouthForm: 1 }],
+       ["mouth-surprised", { ParamMouthOpenY: 0.9 }],
+       ["mouth-turn-p30-half", { ParamAngleX: 30, ParamMouthOpenY: 0.5 }],
+     ];
+     if (api) api.reset();
+     const shots = {};
+     for (const [pose, values] of poses) {
+       for (const [id, value] of Object.entries(values)) set(id, value);
+       await nextFrame();
+       shots[pose] = mouth();
+       for (const id of Object.keys(values)) set(id, 0);
+     }
+     return JSON.stringify(shots);
+   };
+   ```
    Rendering stays with you because the Playwright browser is a single shared
    resource; two agents driving it collide.
    **A full-body model** (its `canvas.json` sets a `canvasHeight`, H). The
@@ -334,6 +416,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
        ParamAngleZ: "Head Angle Z",
        ParamEyeLOpen: "Eye L",
        ParamEyeBallX: "Gaze X",
+       ParamMouthOpenY: "Mouth Open",
+       ParamMouthForm: "Mouth Form",
        ParamBodyAngleX: "Body Angle X",
        ParamBodyAngleY: "Body Angle Y",
        ParamBodyAngleZ: "Body Angle Z",
@@ -372,6 +456,34 @@ changing any of them mid-loop or on a restart invalidates every prior score.
          .drawImage(canvas, x0, 0, side, side, 0, 0, side, side);
        return crop.toDataURL("image/png");
      };
+     // The composed mouth's centre in canvas px: the artist's `MOUTH:` line.
+     // These two numbers are bob's defaults, not a rule.
+     const MOUTH = { cx: 550, cy: 596 };
+     const mouth = () => {
+       // 180 x 120 model px centred on the mouth, inside the model's square
+       // (two fifths of the canvas, three tenths in: bust()'s mapping, which
+       // also holds in the fallback view), drawn x4 onto a 720 x 480 canvas.
+       const side = (canvas.width * 2) / 5;
+       const x0 = (canvas.width * 3) / 10;
+       const s = side / 1100;
+       const crop = document.createElement("canvas");
+       crop.width = 720;
+       crop.height = 480;
+       crop
+         .getContext("2d")
+         .drawImage(
+           canvas,
+           x0 + (MOUTH.cx - 90) * s,
+           (MOUTH.cy - 60) * s,
+           180 * s,
+           120 * s,
+           0,
+           0,
+           720,
+           480,
+         );
+       return crop.toDataURL("image/png");
+     };
      const poses = [
        ["turn-m30", bust, { ParamAngleX: -30 }],
        ["turn-p30", bust, { ParamAngleX: 30 }],
@@ -384,6 +496,24 @@ changing any of them mid-loop or on a restart invalidates every prior score.
          "combined",
          bust,
          { ParamAngleX: 30, ParamAngleY: 30, ParamAngleZ: 30 },
+       ],
+       ...[0, 0.3, 0.6, 1].flatMap((open) =>
+         [
+           ["m1", -1],
+           ["0", 0],
+           ["p1", 1],
+         ].map(([name, form]) => [
+           `mouth-open-${open}-form-${name}`,
+           mouth,
+           { ParamMouthOpenY: open, ParamMouthForm: form },
+         ]),
+       ),
+       ["mouth-laugh", mouth, { ParamMouthOpenY: 0.8, ParamMouthForm: 1 }],
+       ["mouth-surprised", mouth, { ParamMouthOpenY: 0.9 }],
+       [
+         "mouth-turn-p30-half",
+         mouth,
+         { ParamAngleX: 30, ParamMouthOpenY: 0.5 },
        ],
        ["full-turn-p30", whole, { ParamAngleX: 30 }],
        ["full-body-x-m10", whole, { ParamBodyAngleX: -10 }],
@@ -443,6 +573,17 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    the arm span (−8..32) and the elbow span (−10..90) put every pose and 0 on
    a slider step, so each lands exactly and a reset returns to 0. They come
    last because a pose's values are set and cleared one after another.
+   The mouth poses are 15 more, each a zoomed crop of the mouth itself (a 76 px
+   mouth is unreadable in the bust crop): 180 × 120 model px centred on
+   `MOUTH`, drawn ×4 onto 720 × 480, in the model's square, with `bust()`'s
+   mapping. Replace the snippet's `MOUTH` with the artist's `MOUTH: <cx>,<cy>`
+   line before running it (its two numbers are bob's defaults). They are
+   `mouth-open-{0,0.3,0.6,1}-form-{m1,0,p1}` (`ParamMouthOpenY` × `ParamMouthForm`
+   at −1, 0 and 1; "Mouth Open", "Mouth Form"): 0.3 and 0.6 are the half-open
+   states lip-sync lives in, Form ±1 the corners; `mouth-laugh` (Open 0.8,
+   Form 1) and `mouth-surprised` (Open 0.9) are the expressions that pin
+   MouthOpen; `mouth-turn-p30-half` (`ParamAngleX` 30, Open 0.5) is the interior
+   under the head-turn warp. A legacy `mouth`/`mouth_open` model runs them too.
    A model with a pose forearm adds five more: `full-pose-l` and `full-pose-r`
    (the switch `ParamArmPoseL` / `ParamArmPoseR` at 1; "Arm Pose L", "Arm Pose
    R"), `full-pose-r-angle-m15` and `full-pose-r-angle-p15` (the switch at 1
@@ -454,10 +595,11 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    pose also returns the switch and the rock to 0. Pass `filename`, move the
    file and decode it into `<workdir>/renders/` with `decode-renders.cjs` as
    for the turn pair; it runs to about 80 MB. The bust crops are the critic's
-   `renders` and `turn-pair`, the `full-*.png` its `body-renders`.
+   `renders` and `turn-pair`, the `full-*.png` its `body-renders`, the `mouth-*.png` crops its `mouth-renders`.
 3. Dispatch **`iki:iki-character-critic`** with `reference`, `reference-30`, `layers`,
    `renders` (the render paths), `turn-pair` (`<workdir>/renders/rest.png`,
-   `turn-m30.png` and `turn-p30.png`), `round`, `scores` (the previous rounds' `SCORES:` lines),
+   `turn-m30.png` and `turn-p30.png`), `mouth-renders` (the 15 `mouth-*.png`
+   crops), `round`, `scores` (the previous rounds' `SCORES:` lines),
    and `turn-clamped` (this round's artist's own `TURN:` line, verbatim — its
    `turn.achieved`, `turn.clamped` and `turn.strandOverlap`, or "none" when no
    turn was solved) so the critic can check the render against the rig's own
