@@ -23,14 +23,17 @@ export interface LayerInput {
   /** Face only: half the opaque span of each crop row, canvas px (0 = none). */
   rowHalfWidths?: number[];
   /** `face` / `hair_front` / `hair_back` / `body` / `arm_L` / `arm_R` /
-   *  `forearm_pose_L` / `forearm_pose_R` only:
+   *  `forearm_pose_L` / `forearm_pose_R` /
+   *  `mouth_inner` / `lip_lower` / `lip_upper` only:
    *  per crop row, its opaque (alpha ≥ 128) runs as a flat list of canvas
    *  columns `[start0, end0, start1, end1, …]`, each end exclusive (`[]` for a
    *  row with none). The actual pixels, so a gap in the hair is a gap here:
    *  the turn and the nod read off it where back hair is painted behind the
    *  front hair, and the crown's turn reads the face's so it never bares skin.
    *  The body's place the hips (where it splits into legs), and an arm's place
-   *  its shoulder and elbow pivots, a pose forearm's its elbow-end pivot. */
+   *  its shoulder and elbow pivots, a pose forearm's its elbow-end pivot, and
+   *  a lip set's place the mouth's opening: the upper line's bottom, the
+   *  interior's span, the skin's top. */
   rowRuns?: number[][];
   /** Nose only: the tight box of its alpha ≥ 128 pixels, canvas px. */
   denseCore?: { x: number; y: number; w: number; h: number };
@@ -79,9 +82,11 @@ export class TurnTargetError extends Error {
 }
 
 /**
- * Art geometry the rig cannot build on — today a body whose hips leave no row
- * line under its pivots, or too little room for its motion (`body.ts`). A fact about the layers, not a bug, so a
- * host reports it as an input error.
+ * Art geometry the rig cannot build on — a body whose hips leave no row line
+ * under its pivots, or too little room for its motion (`body.ts`), an arm
+ * without room for its pivots, a lip set whose interior has no opaque pixel
+ * (`mouth.ts`). A fact about the layers, not a bug, so a host reports it as an
+ * input error.
  */
 export class LayerGeometryError extends Error {
   constructor(message: string) {

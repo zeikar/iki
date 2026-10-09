@@ -93,7 +93,7 @@ export function createIkiMcpServer(): McpServer {
     "auto_rig_from_layers",
     {
       description:
-        "Auto-rigs role-named PNG layers (face, eye_L/eye_R, mouth required; iris_L/R, brow_L/R, hair_front, body, arm_L/arm_R, forearm_pose_L/forearm_pose_R, etc. optional; an arm needs the body, and a pose forearm needs its arm) into a renderable .iki written to disk. Pass full-canvas PNG file paths; returns the output path + summary (the model is NOT inlined). Filenames map to roles unless `fileName` is given.",
+        "Auto-rigs role-named PNG layers (face, eye_L/eye_R and either mouth or the lip set (mouth_inner + lip_lower + lip_upper, a mouth that folds open instead of crossfading) required; iris_L/R, brow_L/R, hair_front, body, arm_L/arm_R, forearm_pose_L/forearm_pose_R, etc. optional; an arm needs the body, a pose forearm needs its arm, and a partial lip set or one mixed with mouth/mouth_open is refused) into a renderable .iki written to disk. Pass full-canvas PNG file paths; returns the output path + summary (the model is NOT inlined). Filenames map to roles unless `fileName` is given.",
       inputSchema: {
         layers: z
           .array(

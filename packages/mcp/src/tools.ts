@@ -619,7 +619,9 @@ export async function autoRigFromLayers(
     // request, not a bug: the turn solve, the one part of it that reads CALLER
     // input, throws TurnTargetError (a field that is not a number, a target
     // this layer set cannot reach); and art geometry the rig cannot build on
-    // (a body's hips with no room under its pivots) throws LayerGeometryError.
+    // (a body's hips with no room under its pivots, an arm too short for its
+    // pivots, a lip set whose mouth_inner has no opaque pixel) throws
+    // LayerGeometryError.
     let turn: TurnSolveReport | undefined;
     let model: IkiModel;
     try {

@@ -630,6 +630,56 @@ describe("autoRigFromLayers", () => {
     expect(result.error.length).toBeGreaterThan(0);
   });
 
+  /** The face and eyes, and the lip set as three stacked rects. */
+  async function writeLipLayers(dir: string): Promise<string[]> {
+    return [
+      ...(await writeRequiredLayers(dir)).slice(0, 3),
+      await writeLayerPng(dir, "lip_upper.png", { x: 40, y: 56, w: 20, h: 3 }),
+      await writeLayerPng(dir, "mouth_inner.png", {
+        x: 40,
+        y: 59,
+        w: 20,
+        h: 8,
+      }),
+      await writeLayerPng(dir, "lip_lower.png", { x: 40, y: 67, w: 20, h: 3 }),
+    ];
+  }
+
+  it("rigs a lip set in place of mouth", async () => {
+    const dir = tmpDir();
+    const paths = await writeLipLayers(dir);
+    const outPath = path.join(dir, "model.iki");
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: outPath,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const model = parseIkiModel(JSON.parse(fs.readFileSync(outPath, "utf8")));
+    const ids = model.parts.map((p) => p.id);
+    expect(ids).toEqual(
+      expect.arrayContaining(["mouth_inner", "lip_lower", "lip_upper"]),
+    );
+    expect(ids).not.toContain("mouth");
+  });
+
+  it("returns { ok:false } for a lip set mixed with mouth", async () => {
+    const dir = tmpDir();
+    const paths = [
+      ...(await writeLipLayers(dir)),
+      await writeLayerPng(dir, "mouth.png", { x: 42, y: 60, w: 16, h: 8 }),
+    ];
+
+    const result = await autoRigFromLayers({
+      layers: paths.map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/mixed|cannot be mixed/);
+  });
+
   it("returns { ok:false } for a body whose hips lie above the chin, naming the layer", async () => {
     const dir = tmpDir();
     const paths = await writeRequiredLayers(dir);

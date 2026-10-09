@@ -59,9 +59,12 @@ describe("the auto-rig's default expressions and motions", () => {
   it("declares an expression only where the face has what it shows", () => {
     // shy needs the blush, angry and sad the brows.
     expect(ids(hero)).toEqual(["smile", "laugh", "angry", "sad", "surprised"]);
-    // The required roles alone, without the measured options naming others.
+    // The required roles and the closed mouth alone, without the measured
+    // options naming others.
     const bare = generateIkiFromLayerSet(
-      character().layers.filter((l) => REQUIRED_ROLES.includes(l.role)),
+      character().layers.filter(
+        (l) => REQUIRED_ROLES.includes(l.role) || l.role === "mouth",
+      ),
       CANVAS,
     );
     expect(ids(bare)).toEqual(["smile", "laugh", "surprised"]);

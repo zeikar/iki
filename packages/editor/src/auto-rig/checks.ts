@@ -1,15 +1,17 @@
 /**
  * Input checks. A malformed layer is a host bug and throws a plain `Error`;
  * malformed turn options come from a caller and throw `TurnTargetError`, and
- * art the rig cannot build on (a body's hips, `body.ts`) throws
- * `LayerGeometryError`. `@ikijs/mcp` reports either as `{ ok: false }` rather
- * than a crash.
+ * art the rig cannot build on (a body's hips, `body.ts`; an arm's pivots; a
+ * mouth with no opening, `mouth.ts`) throws `LayerGeometryError`. `@ikijs/mcp`
+ * reports either as `{ ok: false }` rather than a crash.
  */
 
 import { boxOfLayer, cx, type Box } from "./layout";
 import {
   checkArmsHaveBody,
+  checkMouth,
   checkPosesHaveArms,
+  isLipRole,
   REQUIRED_ROLES,
   roleSpec,
 } from "./roles";
@@ -158,7 +160,15 @@ export function checkLayers(
   if (missing.length > 0) {
     throw new Error(`auto-rig: missing required role(s) ${missing.join(", ")}`);
   }
-  // `parseLayerRoles` refuses it too; a direct caller may not have run it.
+  // `parseLayerRoles` refuses these too; a direct caller may not have run it.
+  checkMouth(seen);
+  for (const l of layers) {
+    if (l.rowRuns === undefined && isLipRole(l.role)) {
+      throw new Error(
+        `auto-rig: layer "${l.fileName}": the lip set needs rowRuns (the fold reads the opening's rows off them; measure with createLayerSetMeasurer)`,
+      );
+    }
+  }
   checkArmsHaveBody(seen);
   checkPosesHaveArms(seen);
 }

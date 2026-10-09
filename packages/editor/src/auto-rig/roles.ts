@@ -27,6 +27,13 @@ export interface RoleSpec {
   parts?: readonly string[];
 }
 
+/** The lip set's roles, back to front (`mouth.ts`). */
+export const LIP_ROLES = ["mouth_inner", "lip_lower", "lip_upper"] as const;
+export type LipRole = (typeof LIP_ROLES)[number];
+
+export const isLipRole = (role: string): role is LipRole =>
+  (LIP_ROLES as readonly string[]).includes(role);
+
 /** Back to front. `@ikijs/mcp`'s composer draws in the same order. */
 export const ROLE_TABLE: readonly RoleSpec[] = [
   { role: "hair_back", family: "hair_back" },
@@ -37,8 +44,14 @@ export const ROLE_TABLE: readonly RoleSpec[] = [
   { role: "blush_L", family: "face" },
   { role: "blush_R", family: "face" },
   { role: "nose", family: "nose" },
-  { role: "mouth", family: "mouth", required: true },
+  { role: "mouth", family: "mouth" },
   { role: "mouth_open", family: "mouth" },
+  // The lip set, back to front: the interior, the lower lip's skin, the upper
+  // lip and its line over both. It folds open instead of crossfading
+  // (`mouth.ts`), so it stands in for `mouth`, never beside it.
+  { role: "mouth_inner", family: "mouth" },
+  { role: "lip_lower", family: "mouth" },
+  { role: "lip_upper", family: "mouth" },
   { role: "eye_L", family: "eye_L", required: true },
   { role: "eye_R", family: "eye_R", required: true },
   { role: "iris_L", family: "eye_L" },
@@ -122,6 +135,32 @@ export function checkArmsHaveBody(roles: Iterable<string>): void {
   }
 }
 
+/** The mouth is `mouth` (with an optional `mouth_open`) or the whole lip set
+ *  (`mouth.ts`): throws on neither, on part of the set, or on both. */
+export function checkMouth(roles: Iterable<string>): void {
+  const has = new Set(roles);
+  const present = LIP_ROLES.filter((r) => has.has(r));
+  if (present.length === 0) {
+    if (!has.has("mouth")) {
+      throw new Error(
+        `auto-rig: missing required role mouth (or the lip set ${LIP_ROLES.join(", ")})`,
+      );
+    }
+    return;
+  }
+  if (present.length < LIP_ROLES.length) {
+    throw new Error(
+      `auto-rig: the lip set is partial: missing ${LIP_ROLES.filter((r) => !has.has(r)).join(", ")}`,
+    );
+  }
+  const mixed = ["mouth", "mouth_open"].filter((r) => has.has(r));
+  if (mixed.length > 0) {
+    throw new Error(
+      `auto-rig: the lip set cannot be mixed with ${mixed.join(", ")} (the lip set replaces the mouth drawings; use one or the other)`,
+    );
+  }
+}
+
 /** A pose forearm hangs from its arm's elbow (`forearm-pose.ts`): throws on a
  *  pose forearm role among `roles` without its arm. */
 export function checkPosesHaveArms(roles: Iterable<string>): void {
@@ -137,8 +176,9 @@ export function checkPosesHaveArms(roles: Iterable<string>): void {
 
 /**
  * Map file names to roles. Throws on an unknown role, a role named twice, a
- * required role (`face`, `eye_L`, `eye_R`, `mouth`) missing, an arm without a
- * body, or a pose forearm without its arm.
+ * required role (`face`, `eye_L`, `eye_R`) missing, no mouth (`mouth`, or the
+ * lip set) or a partial or mixed one, an arm without a body, or a pose forearm
+ * without its arm.
  */
 export function parseLayerRoles(
   fileNames: string[],
@@ -167,6 +207,7 @@ export function parseLayerRoles(
       `auto-rig: missing required role${missing.length > 1 ? "s" : ""} ${missing.join(", ")}`,
     );
   }
+  checkMouth(seen.keys());
   checkArmsHaveBody(seen.keys());
   checkPosesHaveArms(seen.keys());
   return out;

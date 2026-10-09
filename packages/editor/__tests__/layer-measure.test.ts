@@ -107,7 +107,7 @@ describe("createLayerSetMeasurer", () => {
     expect(measurer.finish().layers).toEqual(inputs);
   });
 
-  it("measures the face's, each hair layer's, the body's and the arms' opaque runs per crop row, gaps and empty rows included", () => {
+  it("measures the face's, each hair layer's, the body's, the arms' and a lip layer's opaque runs per crop row, gaps and empty rows included", () => {
     const measurer = createLayerSetMeasurer({ width: CANVAS, height: CANVAS });
     const inputs = [
       ...strandLayers(),
@@ -129,6 +129,7 @@ describe("createLayerSetMeasurer", () => {
         { x: 54, y: 90, w: 6, h: 8 },
       ]),
       layer("arm_L", [{ x: 5, y: 60, w: 6, h: 20 }]),
+      layer("lip_upper", [{ x: 40, y: 56, w: 20, h: 3 }]),
     ].map((l) => measurer.add(l)!);
     const byRole = new Map(inputs.map((l) => [l.role, l]));
 
@@ -170,6 +171,12 @@ describe("createLayerSetMeasurer", () => {
       ...Array(20).fill([5, 11]),
       [],
     ]);
+    // A lip set's layer: one run per crop row, the margin rows included.
+    expect(byRole.get("lip_upper")!.rowRuns).toEqual([
+      [],
+      ...Array(3).fill([40, 60]),
+      [],
+    ]);
     for (const l of inputs) {
       if (
         ![
@@ -181,6 +188,7 @@ describe("createLayerSetMeasurer", () => {
           "arm_R",
           "forearm_pose_L",
           "forearm_pose_R",
+          "lip_upper",
         ].includes(l.role)
       ) {
         expect(l.rowRuns).toBeUndefined();

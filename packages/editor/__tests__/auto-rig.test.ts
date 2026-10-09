@@ -320,6 +320,9 @@ describe("parseLayerRoles", () => {
     expect(() => parseLayerRoles([...base, "banana.png"])).toThrow(/banana/);
     expect(() => parseLayerRoles([...base, "Face.png"])).toThrow(/twice/);
     expect(() => parseLayerRoles(base.slice(1))).toThrow(/face/);
+    expect(() => parseLayerRoles(base.slice(0, 3))).toThrow(
+      /missing required role mouth \(or the lip set/,
+    );
   });
 });
 

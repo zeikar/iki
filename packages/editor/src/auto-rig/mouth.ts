@@ -61,11 +61,10 @@ import {
   unionBoxes,
   type Box,
 } from "./layout";
+import { LIP_ROLES, type LipRole } from "./roles";
 import { LayerGeometryError, type LayerInput } from "./types";
 
-/** The lip set's roles, back to front. */
-export const LIP_ROLES = ["mouth_inner", "lip_lower", "lip_upper"] as const;
-export type LipRole = (typeof LIP_ROLES)[number];
+export { LIP_ROLES, type LipRole };
 
 /** The share of the interior's span the upper lip takes when shut; it also
  *  sets the closed line's curve. Provisional, to be picked by eye. */

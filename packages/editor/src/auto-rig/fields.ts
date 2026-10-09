@@ -53,7 +53,8 @@ export interface TurnModel {
   /** The far ear's width at full turn, about its outer edge. */
   earFarScale: number;
   /** Landmarks: each eye white's and brow's box, the nose's landmark and
-   *  bridge top, the mouth drawings' centre. */
+   *  bridge top, the mouth anchor (`mouth.ts`): the closed drawing's centre,
+   *  or the lip set's seam. */
   boxes: Partial<Record<"eye_L" | "eye_R" | "brow_L" | "brow_R", Box>>;
   noseAt?: { x: number; y: number };
   noseTopY?: number;

@@ -6,6 +6,7 @@
  */
 
 import { boxOfLayer, clamp, cx, cy, type Box } from "./layout";
+import { mouthAnchor } from "./mouth";
 import type { HeadEdges, LayerInput } from "./types";
 
 export interface Neck {
@@ -231,7 +232,7 @@ export function buildHeadFrame(
     return ya === undefined || yb === undefined ? undefined : (ya + yb) / 2;
   };
   const eyeY = pair("iris_L", "iris_R") ?? pair("eye_L", "eye_R")!;
-  const mouthY = centreY("mouth")!;
+  const mouthY = mouthAnchor(byRole).at.y;
 
   // Model y of crop row r's centre, and of its lower boundary.
   const rowY = (r: number) => canvasH / 2 - (faceLayer.bbox.y + r + 0.5);

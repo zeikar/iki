@@ -11,6 +11,7 @@ import type {
   IrisStrand,
   LayerInput,
 } from "../../src/auto-rig/types";
+import { lipSet } from "./lips";
 
 export const CANVAS = { width: 1000, height: 1000 };
 
@@ -50,6 +51,9 @@ function faceRows(h: number): number[] {
 }
 
 export interface CharacterOptions {
+  /** The mouth is the folding lip set (`lipSet`) instead of `mouth` and
+   *  `mouth_open`. */
+  lips?: boolean;
   nose?: boolean;
   hair?: boolean;
   /** Bangs as a fringe spanning the face instead of side strands. */
@@ -245,6 +249,7 @@ export function character(opts: CharacterOptions = {}): {
   options: GenerateOptions;
 } {
   const {
+    lips = false,
     nose = true,
     hair = true,
     fringe = false,
@@ -304,8 +309,12 @@ export function character(opts: CharacterOptions = {}): {
     layer("lash_L", { x: 541, y: 400, w: 130, h: 35 }),
     layer("brow_R", { x: 340, y: 350, w: 137, h: 23 }),
     layer("brow_L", { x: 524, y: 350, w: 137, h: 23 }),
-    layer("mouth", { x: 465, y: 590, w: 70, h: 21 }),
-    layer("mouth_open", { x: 465, y: 588, w: 70, h: 29 }),
+    ...(lips
+      ? lipSet()
+      : [
+          layer("mouth", { x: 465, y: 590, w: 70, h: 21 }),
+          layer("mouth_open", { x: 465, y: 588, w: 70, h: 29 }),
+        ]),
   ];
   if (nose) {
     layers.push(

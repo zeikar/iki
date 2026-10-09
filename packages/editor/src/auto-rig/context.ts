@@ -13,9 +13,9 @@ import {
   cx,
   cy,
   meshPoints,
-  unionBoxes,
   type Box,
 } from "./layout";
+import { mouthAnchor } from "./mouth";
 import { roleSpec, type Family } from "./roles";
 import { blendStops, keyformAt, land, type Lattice } from "./grid";
 import { familyField, type TurnModel } from "./fields";
@@ -61,7 +61,6 @@ export function solveContext(
   options: GenerateOptions,
   hasNose: boolean,
 ): SolveContext {
-  const box = (role: string) => boxOfLayer(byRole.get(role)!);
   // The cue rows: each iris's painted span on its centre row, as measured;
   // failing that its crop less the one-pixel alpha margin; failing irises,
   // the eye whites.
@@ -132,10 +131,7 @@ export function solveContext(
       : boxOfLayer(nose);
     noseAt = { x: cx(noseBox), y: cy(noseBox) };
   }
-  const mouthBox = byRole.has("mouth_open")
-    ? unionBoxes([box("mouth"), box("mouth_open")])
-    : box("mouth");
-  const m = box("mouth");
+  const mouth = mouthAnchor(byRole);
   return {
     frame,
     left,
@@ -147,8 +143,8 @@ export function solveContext(
     eyeBoxes: { left: eyes.left.box, right: eyes.right.box },
     noseAt,
     noseBox,
-    mouthAt: { x: cx(m), y: cy(m) },
-    mouthBox,
+    mouthAt: mouth.at,
+    mouthBox: mouth.box,
   };
 }
 

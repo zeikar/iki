@@ -1,4 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { StandardParameter as P, parseIkiModel } from "@ikijs/format";
+import {
+  generateIkiFromLayerSet,
+  parseLayerRoles,
+  partIdsOfRole,
+} from "@ikijs/editor";
+import { solveContext } from "../src/auto-rig/context";
+import { buildHeadFrame } from "../src/auto-rig/head";
 import {
   gridMesh,
   boxOfLayer,
@@ -25,7 +33,8 @@ import {
 } from "../src/auto-rig/mouth";
 import { LayerGeometryError, type LayerInput } from "../src/auto-rig/types";
 import { AMPLITUDE } from "../src/auto-rig/profile";
-import { character } from "./helpers/character";
+import { CANVAS, character } from "./helpers/character";
+import * as oracle from "./helpers/render-oracle";
 import {
   OPENING,
   heightAt,
@@ -371,5 +380,235 @@ describe("mouth.ts: knots and meshes", () => {
     expect(b.box).toEqual(unionBoxes([mouth, open]));
     legacy.delete("mouth_open");
     expect(mouthAnchor(legacy).box).toEqual(mouth);
+  });
+});
+
+describe("the lip set on the bust", () => {
+  const { layers, options } = character({ lips: true });
+  const model = generateIkiFromLayerSet(layers, CANVAS, options);
+  const byRole = mapOf(layers);
+  const rig = buildMouthRig(byRole);
+  const part = (id: string) => model.parts.find((p) => p.id === id)!;
+  const boxOf = (role: string) => boxOfLayer(byRole.get(role)!);
+  /** A part's rest vertices, model space. */
+  const rest = (role: string) => meshPoints(part(role).mesh!, boxOf(role));
+  const landed = (role: string, params: oracle.ParamValues) => {
+    const v = oracle.landVertices(model, role, params);
+    return rest(role).map((_, i): [number, number] => [v[2 * i], v[2 * i + 1]]);
+  };
+  /** The vertices of `role` on the knot column at model x 0 (canvas 500),
+   *  top to bottom, as indices. */
+  const column = (role: string) => {
+    const pts = rest(role);
+    return pts
+      .flatMap((p, i) => (Math.abs(p[0]) < 1e-6 ? [i] : []))
+      .sort((a, b) => pts[b][1] - pts[a][1]);
+  };
+  const col = rig.opening.at(rig.opening.centre);
+  const legacyModel = generateIkiFromLayerSet(
+    character().layers,
+    CANVAS,
+    character().options,
+  );
+  /** Within 1e-2 px. */
+  const near = (a: number, b: number) =>
+    expect(Math.abs(a - b)).toBeLessThan(1e-2);
+
+  it("replaces mouth and mouth_open with the three parts, back to front", () => {
+    const expected = legacyModel.parts.flatMap((p) =>
+      p.id === "mouth" ? [...LIP_ROLES] : p.id === "mouth_open" ? [] : [p.id],
+    );
+    expect(model.parts.map((p) => p.id)).toEqual(expected);
+    expect(() => parseIkiModel(model)).not.toThrow();
+  });
+
+  it("puts all three on mouthWarp, each its own role's part", () => {
+    for (const role of LIP_ROLES) {
+      expect(part(role).deformer).toBe("mouthWarp");
+      expect(partIdsOfRole(role)).toEqual([role]);
+    }
+  });
+
+  it("declares MouthOpen and MouthForm and keeps the mouth expressions", () => {
+    const ids = model.parameters.map((p) => p.id);
+    expect(ids).toContain(P.MouthOpen);
+    expect(ids).toContain(P.MouthForm);
+    const terms = (m: typeof model, id: string) =>
+      m.expressions!.find((e) => e.id === id)!.parameters;
+    for (const id of ["laugh", "surprised"]) {
+      expect(terms(model, id)).toEqual(terms(legacyModel, id));
+      expect(terms(model, id).map((t) => t.parameter)).toContain(P.MouthOpen);
+    }
+  });
+
+  it("leaves the fold at 1 zero, and the stack there the art widened", () => {
+    const c = rig.frame.c;
+    for (const role of LIP_ROLES) {
+      const fold = part(role).warps!.find(
+        (w) =>
+          w.parameter === P.MouthOpen &&
+          w.keyforms[0].offsets.some((o) => o !== 0),
+      )!;
+      expect(fold.keyforms[1].value).toBe(1);
+      expect(fold.keyforms[1].offsets.every((o) => o === 0)).toBe(true);
+      const at = landed(role, { [P.MouthOpen]: 1 });
+      rest(role).forEach(([x, y], i) => {
+        near(at[i][0], c + AMPLITUDE.mouthOpenWidth * (x - c));
+        near(at[i][1], y);
+      });
+    }
+  });
+
+  it("folds shut onto the seam on the opening's centre column", () => {
+    const inner = column("mouth_inner");
+    const shut = landed("mouth_inner", { [P.MouthOpen]: 0 });
+    const r = rest("mouth_inner");
+    expect(r[inner[0]][1]).toBeCloseTo(col.T, 6);
+    expect(r[inner[inner.length - 1]][1]).toBeCloseTo(col.Bb, 6);
+    near(shut[inner[0]][1], col.seam);
+    near(shut[inner[inner.length - 1]][1], col.seam + col.overlap);
+    const upper = landed("lip_upper", { [P.MouthOpen]: 0 });
+    const lower = landed("lip_lower", { [P.MouthOpen]: 0 });
+    expect(column("lip_upper").length).toBeGreaterThan(1);
+    expect(column("lip_lower").length).toBeGreaterThan(1);
+    for (const i of column("lip_upper")) {
+      near(upper[i][0], rest("lip_upper")[i][0]);
+      near(upper[i][1] - rest("lip_upper")[i][1], col.seam - col.Tu);
+    }
+    for (const i of column("lip_lower")) {
+      near(lower[i][0], rest("lip_lower")[i][0]);
+      near(
+        lower[i][1] - rest("lip_lower")[i][1],
+        col.seam + col.overlap - col.Bl,
+      );
+    }
+  });
+
+  it("keeps the skin's top on the interior's bottom half way open", () => {
+    const params = { [P.MouthOpen]: 0.5 };
+    const skin = landed("lip_lower", params);
+    const r = rest("lip_lower");
+    const idx = column("lip_lower");
+    const j = idx.findIndex((i, k) => k > 0 && r[i][1] <= col.Bl);
+    const [a, b] = [idx[j - 1], idx[j]];
+    const t = (r[a][1] - col.Bl) / (r[a][1] - r[b][1]);
+    const skinTop = skin[a][1] + t * (skin[b][1] - skin[a][1]);
+    const inner = landed("mouth_inner", params);
+    const bottom = column("mouth_inner").slice(-1)[0];
+    expect(Math.abs(skinTop - inner[bottom][1])).toBeLessThan(0.1);
+  });
+
+  it("moves the three parts alike under MouthForm", () => {
+    for (const form of [-1, 1]) {
+      const deltas = LIP_ROLES.flatMap((role) => {
+        const a = landed(role, { [P.MouthOpen]: 1, [P.MouthForm]: form });
+        const b = landed(role, { [P.MouthOpen]: 1 });
+        return column(role).map((i) => [a[i][0] - b[i][0], a[i][1] - b[i][1]]);
+      });
+      expect(Math.abs(deltas[0][1])).toBeGreaterThan(0.1);
+      for (const d of deltas) {
+        near(d[0], deltas[0][0]);
+        near(d[1], deltas[0][1]);
+      }
+    }
+  });
+
+  it("meshes the interior on a column every few pixels", () => {
+    const xs = new Set(rest("mouth_inner").map((p) => p[0]));
+    expect(xs.size).toBeGreaterThanOrEqual(
+      Math.ceil((OPENING.x1 - OPENING.x0 + 1) / MOUTH_KNOT_PX),
+    );
+  });
+});
+
+describe("the anchor", () => {
+  it("reads the legacy mouth's centre and box, the lip set's seam and union", () => {
+    const legacy = character();
+    const map = mapOf(legacy.layers);
+    const mouth = boxOfLayer(map.get("mouth")!);
+    const frame = buildHeadFrame(legacy.layers, legacy.options);
+    expect(frame.mouthY).toBe(cy(mouth));
+    // Rows 590..611, centre 600.5; model y = 500 − 600.5.
+    expect(frame.mouthY).toBe(-100.5);
+    const ctx = solveContext(frame, map, legacy.options, true);
+    expect(ctx.mouthBox).toEqual(
+      unionBoxes([mouth, boxOfLayer(map.get("mouth_open")!)]),
+    );
+
+    const lipped = character({ lips: true });
+    const lmap = mapOf(lipped.layers);
+    const lframe = buildHeadFrame(lipped.layers, lipped.options);
+    expect(lframe.mouthY).toBeCloseTo(
+      mouthOpening(lmap).at(mouthOpening(lmap).centre).seam,
+      9,
+    );
+    const lctx = solveContext(lframe, lmap, lipped.options, true);
+    expect(lctx.mouthBox).toEqual(
+      unionBoxes(LIP_ROLES.map((r) => boxOfLayer(lmap.get(r)!))),
+    );
+
+    // Without a measured jaw stroke the chin is an estimate off the mouth:
+    // the two sets differ in it only through `mouthY`. The formula is
+    // `head.ts`'s: mouthY − 0.55 · (eyeY − mouthY).
+    const chin = (layers: LayerInput[], mouthY: number) => {
+      const m = mapOf(layers);
+      const eyeY =
+        (cy(boxOfLayer(m.get("iris_L")!)) + cy(boxOfLayer(m.get("iris_R")!))) /
+        2;
+      return mouthY - 0.55 * (eyeY - mouthY);
+    };
+    expect(frame.chinY).toBeCloseTo(chin(legacy.layers, frame.mouthY), 9);
+    expect(lframe.chinY).toBeCloseTo(chin(lipped.layers, lframe.mouthY), 9);
+    expect(lframe.chinY).not.toBeCloseTo(frame.chinY, 1);
+  });
+});
+
+describe("refusals", () => {
+  const files = ["face.png", "eye_L.png", "eye_R.png"];
+  const lipFiles = ["mouth_inner.png", "lip_lower.png", "lip_upper.png"];
+  const without = (role: string) =>
+    character({ lips: true }).layers.filter((l) => l.role !== role);
+  const gen = (layers: LayerInput[]) =>
+    generateIkiFromLayerSet(layers, CANVAS, character().options);
+
+  it("refuses a partial lip set", () => {
+    expect(() => parseLayerRoles([...files, ...lipFiles.slice(0, 2)])).toThrow(
+      /lip_upper/,
+    );
+    expect(() => gen(without("lip_lower"))).toThrow(/lip_lower/);
+  });
+
+  it("refuses a lip set mixed with mouth or mouth_open", () => {
+    for (const role of ["mouth", "mouth_open"]) {
+      const extra = character().layers.find((l) => l.role === role)!;
+      expect(() =>
+        parseLayerRoles([...files, ...lipFiles, `${role}.png`]),
+      ).toThrow(new RegExp(`cannot be mixed with ${role}\\b`));
+      expect(() => gen([...character({ lips: true }).layers, extra])).toThrow(
+        new RegExp(`cannot be mixed with ${role}\\b`),
+      );
+    }
+  });
+
+  it("refuses no mouth at all", () => {
+    const re = /missing required role mouth \(or the lip set/;
+    expect(() => parseLayerRoles(files)).toThrow(re);
+    expect(() =>
+      gen(character().layers.filter((l) => !l.role.startsWith("mouth"))),
+    ).toThrow(re);
+  });
+
+  it("asks a lip layer for its rowRuns", () => {
+    const layers = [
+      ...character({ lips: true }).layers.filter(
+        (l) => !(LIP_ROLES as readonly string[]).includes(l.role),
+      ),
+      ...lipSet({ noRuns: true }),
+    ];
+    expect(() => gen(layers)).toThrow(/rowRuns/);
+  });
+
+  it("accepts the three lip roles", () => {
+    expect(parseLayerRoles([...files, ...lipFiles])).toHaveLength(6);
   });
 });

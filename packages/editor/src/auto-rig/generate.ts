@@ -15,7 +15,9 @@
  * and two ears that lag. Blink, gaze, brows, mouth, breath and
  * hair sway are part warps and bindings under those. The model also declares
  * the default expressions and the Nod, Shake and Tilt motions, and
- * with a pose forearm the Wave (`animations.ts`).
+ * with a pose forearm the Wave (`animations.ts`). The mouth has two paths,
+ * chosen by the layers: `mouth` alone stretches, with `mouth_open` it
+ * crossfades; the lip set folds open like the eyelid (`mouth.ts`).
  */
 
 import {
@@ -75,12 +77,20 @@ import {
   type Cells,
 } from "./layout";
 import {
+  isLipRole,
   roleOfPart,
   roleSpec,
   ROLE_TABLE,
   type Family,
   type RoleSpec,
 } from "./roles";
+import {
+  buildMouthRig,
+  isLipSet,
+  mouthFoldWarp,
+  mouthMesh,
+  type MouthRig,
+} from "./mouth";
 import { bake, lattice, X_STOPS, Y_STOPS, type Lattice } from "./grid";
 import {
   chinSlide,
@@ -267,6 +277,7 @@ export function generateIkiFromLayerSet(
     : undefined;
 
   // --- parts, with the warps and bindings that are not the turn's ---
+  const lips = isLipSet(byRole) ? buildMouthRig(byRole) : undefined;
   const parts: IkiPart[] = [];
   const reach = new Map<string, Reach>();
   let regionOf: Region[] = [];
@@ -301,6 +312,7 @@ export function generateIkiFromLayerSet(
       byRole,
       style,
       landmarks.hairFrontGrid,
+      lips,
     );
     if (built.region !== undefined) {
       regionOf = built.region;
@@ -432,6 +444,7 @@ function buildPart(
   byRole: Map<string, LayerInput>,
   style: ResolvedStyle,
   frontGrid: HairFrontGrid | undefined,
+  lips: MouthRig | undefined,
 ): { part: IkiPart; reach: Reach; region?: Region[]; headStart: number } {
   const box = (role: string) => boxOfLayer(byRole.get(role)!);
   const part: IkiPart = {
@@ -447,6 +460,7 @@ function buildPart(
   const bindings: IkiBinding[] = [];
   let extra: [number, number] = [0, 0];
   let mesh: IkiMesh | undefined;
+  let knotXs: number[] | undefined;
   let region: Region[] | undefined;
   let headStart = 0;
   if (spec.role === "face") {
@@ -457,6 +471,8 @@ function buildPart(
     headStart = fm.headStart;
   } else if (spec.role === "hair_front") {
     mesh = columnMesh(b, frontGrid!);
+  } else if (lips !== undefined && isLipRole(spec.role)) {
+    ({ mesh, xs: knotXs } = mouthMesh(b, lips.knots));
   } else if (spec.family !== "body") {
     const cells = MESH_CELLS[spec.role] ?? FEATURE_MESH_CELLS;
     // No coarser than a fraction of the head, whatever its size.
@@ -578,6 +594,16 @@ function buildPart(
         to: 1,
       });
       extra = [(AMPLITUDE.mouthOpenWidth - 1) * (bw(b) / 2), 0];
+      break;
+    case "mouth_inner":
+    case "lip_lower":
+    case "lip_upper":
+      // Every travel is a warp, so `extra` stays 0 and `motionReach` sees it.
+      warps.push(
+        mouthFoldWarp(spec.role, mesh!, knotXs!, b, lips!.opening),
+        mouthForm(mesh!, b, lips!.frame),
+        mouthWiden(mesh!, b, lips!.frame),
+      );
       break;
     case "blush_L":
     case "blush_R":

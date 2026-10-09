@@ -4,25 +4,26 @@
 rigged `.iki`. This note is the model behind it; the code comments say why
 each constant is what it is.
 
-| Module            | Job                                                                                           |
-| ----------------- | --------------------------------------------------------------------------------------------- |
-| `types.ts`        | the public shapes: `LayerInput`, `TurnTargets`, `TurnSolveReport`, …                          |
-| `profile.ts`      | the defaults (our own: the head's picked by eye, the body's provisional), style knobs         |
-| `roles.ts`        | the role table (draw order, family) and `parseLayerRoles`                                     |
-| `layout.ts`       | boxes, rounding, grid meshes                                                                  |
-| `head.ts`         | the head's frame read off the layers: axis, eye row, chin, head unit, neck, jaw cut           |
-| `face-mesh.ts`    | the face plate's mesh: a head island and, under the jaw, a neck island                        |
-| `body.ts`         | the body warp: the hips, a weight field planted under them, its six 1D grid warps             |
-| `arms.ts`         | the arms: shoulder and elbow off the runs; elbow cap, upper arm and forearm cut from one crop |
-| `forearm-pose.ts` | the pose forearm: a second, raised forearm swapped in at the elbow, rocked about it           |
-| `fields.ts`       | one displacement field per family, off the profile                                            |
-| `grid.ts`         | warp lattices, the AngleX × AngleY bake, and landing a point the engine's way                 |
-| `solve.ts`        | the profile in this head's pixels; fitting the cues; room, clamps, refusals; report           |
-| `context.ts`      | what the solve reads off the layers; the lander that reads a rig back as drawn                |
-| `checks.ts`       | input checks: a malformed layer throws, a malformed turn option `TurnTargetError`             |
-| `drivers.ts`      | everything but the turn: blink fold, gaze, brows, mouth, hair sway, roll hang                 |
-| `animations.ts`   | the default expressions and motions, each described; filtered to the declared parameters      |
-| `generate.ts`     | assembly: parts, meshes, deformers, parameters, physics, expressions, motions                 |
+| Module            | Job                                                                                                           |
+| ----------------- | ------------------------------------------------------------------------------------------------------------- |
+| `types.ts`        | the public shapes: `LayerInput`, `TurnTargets`, `TurnSolveReport`, …                                          |
+| `profile.ts`      | the defaults (our own: the head's picked by eye, the body's provisional), style knobs                         |
+| `roles.ts`        | the role table (draw order, family) and `parseLayerRoles`                                                     |
+| `layout.ts`       | boxes, rounding, grid meshes                                                                                  |
+| `head.ts`         | the head's frame read off the layers: axis, eye row, chin, head unit, neck, jaw cut                           |
+| `face-mesh.ts`    | the face plate's mesh: a head island and, under the jaw, a neck island                                        |
+| `body.ts`         | the body warp: the hips, a weight field planted under them, its six 1D grid warps                             |
+| `arms.ts`         | the arms: shoulder and elbow off the runs; elbow cap, upper arm and forearm cut from one crop                 |
+| `forearm-pose.ts` | the pose forearm: a second, raised forearm swapped in at the elbow, rocked about it                           |
+| `mouth.ts`        | the folding mouth: the opening read off the lip set's alpha, the seam, the fold, the shared frame, the anchor |
+| `fields.ts`       | one displacement field per family, off the profile                                                            |
+| `grid.ts`         | warp lattices, the AngleX × AngleY bake, and landing a point the engine's way                                 |
+| `solve.ts`        | the profile in this head's pixels; fitting the cues; room, clamps, refusals; report                           |
+| `context.ts`      | what the solve reads off the layers; the lander that reads a rig back as drawn                                |
+| `checks.ts`       | input checks: a malformed layer throws, a malformed turn option `TurnTargetError`                             |
+| `drivers.ts`      | everything but the turn: blink fold, gaze, brows, mouth, hair sway, roll hang                                 |
+| `animations.ts`   | the default expressions and motions, each described; filtered to the declared parameters                      |
+| `generate.ts`     | assembly: parts, meshes, deformers, parameters, physics, expressions, motions                                 |
 
 ## The model: the default rig
 
@@ -196,7 +197,7 @@ small warp grid, baked from its field at `AngleX, AngleY ∈ {−30, 0, 30}`:
 | `eyeWarp_L/R`             | `eye_*`, `iris_*`, `pupil_*`, `highlight_*`, `lash_lower_*`, `lash_*`                 |
 | `browWarp_L/R`            | `brow_*`                                                                              |
 | `noseWarp`                | `nose`                                                                                |
-| `mouthWarp`               | `mouth`, `mouth_open`                                                                 |
+| `mouthWarp`               | `mouth`, `mouth_open`, `mouth_inner`, `lip_lower`, `lip_upper`                        |
 | — (own keyforms)          | `face`, `blush_*`, `hair_front`, `hair_back`                                          |
 | — (`bodyWarp`)            | `body`: breath, BodyAngleX/Y/Z, the follow                                            |
 | — (`armDeformer_L/R`)     | `arm_*`: the upper arm, about the shoulder (`ParamArmL/R`)                            |
@@ -503,6 +504,24 @@ curvature the plate would need to put the eyes that far in front of its edge.
   by the time the open drawing is half grown) while the open drawing grows out
   of its top lip, both widening to 1.2×; without it, the closed mouth opens
   down to 0.8 of its width and widens to 1.2×.
+  The **lip set** — `mouth_inner` (the interior with the opening's lower
+  outline band), `lip_lower` (the lower lip's skin) and `lip_upper` (the upper
+  lip line and the corner hooks), back to front — folds open the way the
+  eyelid folds shut instead of crossfading (`mouth.ts`). Each part has one
+  warp on MouthOpen that lands its own painted boundary per column, read off
+  the layers' `rowRuns`: shut, the line comes down until its bottom edge is
+  on the seam, 0.3 of the interior's height below its top (which also sets the
+  closed line's curve), and the skin comes up under it by the overlap, the
+  smaller of the centre stroke and the line's own thickness there; the
+  interior's top and bottom ride those two edges, so the lower outline folds
+  with the interior. The fold's keyform at 1 is zero (the fold alone leaves
+  the drawing as it is), while the whole stack at MouthOpen 1 is the drawing
+  widened 1.2× like `mouth_open`. The three share one MouthForm frame
+  (their union's), so the corners stay joined. The mouth's anchor for the
+  head's frame and the turn is the seam at the opening's centre. The path is
+  chosen by the layers present: `mouth_open` crossfades, `mouth` alone
+  stretches, the lip set folds; a partial set, or one mixed with `mouth` or
+  `mouth_open`, is refused.
 - **Roll** — the head rolls 14° in the world at AngleZ ±30 about the chin:
   on a body, the body's follow rolls the chin's cell β (1.2°) about the hips
   and `headDeformer` rolls the rest, 12.8°; without one, `headDeformer` rolls
@@ -595,6 +614,10 @@ model with a pose forearm adds `Wave` (below the table).
 
 ## Known limits
 
+- The mouth fold shows no opening until the lips have parted about one stroke (MouthOpen ≈ w′/(H + w′)) (the
+  sliver under the line, which `lip_upper` covers). A mouth drawn as a dot, a
+  single line or a `:3` has no opening to fold and stays on the legacy path.
+  The seam's share, 0.3, is a constant until a character needs a knob.
 - A face drawn without a neck whose chin tapers long and straight can read as
   a plateau, and the rig then holds the chin's tip still as a neck island. Nothing
   bounds the turn by a neck drawn on the torso either: the chin may slide past it,
