@@ -16,20 +16,40 @@
  * them at rest) and the skin reaches the interior (`Bl >= Bb`; an overlap is
  * fine, a gap is not).
  *
- * MouthOpen 0 folds shut onto a seam, 1 is the art as drawn (the widening of
- * `mouthWiden` apart). The line comes down until its bottom edge is on the
- * seam, the skin until its top is one overlap `w'` up under the line (`w'` is
- * the stroke `w`, the line's height at the opening's centre, capped by the
- * line's own ink at that column so tucked skin never shows above it), and the
- * interior's bottom rides the skin's top, so the band is never covered. The
- * interior's top closes onto the same edge, `S + w'`: the whole column scales
- * by `v` about it, so shut its height is zero (a degenerate triangle draws
- * nothing, at every column and between knots; an inverted sliver would leak
- * through texture filtering where the line is thin), and its top sits
- * `w'(1 - v)` above the line's bottom edge, under the line's ink, so the slit
- * between the line and the skin is always backed. The slit opens once
- * `v * H > w'(1 - v)`; that dead zone is accepted: lip-sync noise near 0 does
- * not flicker through it.
+ * The line is thinned at every key: its column is squashed toward its bottom
+ * edge by `UPPER_THIN` (`Tu` in the opening, the line's own bottom past it),
+ * one scale per column so the mesh, linear between its rows, keeps that edge
+ * where it was drawn. The thin belongs to the stack above the line's bottom,
+ * not to the line alone: the contract lets the interior reach up inside the
+ * line's ink (`Tu <= T <= lineTop`), and a line thinned over it would uncover
+ * it under its old top, so the interior's rows above `Tu` come down by the
+ * same scale. The fold below acts on the thinned positions.
+ *
+ * MouthOpen 0 folds shut onto a seam, 1 is the art as drawn and thinned (the
+ * widening of `mouthWiden` apart). The line comes down until its bottom edge
+ * is on the seam, the skin until its top is one overlap `w'` up under the
+ * line, and the interior's bottom rides the skin's top, so the band is never
+ * covered. The interior's top closes onto the same edge, `S + w'`: the whole
+ * column scales by `v` about it, so shut its height is zero (a degenerate
+ * triangle draws nothing, at every column and between knots; an inverted
+ * sliver would leak through texture filtering where the line is thin), and
+ * its top sits `w'(1 - v)` above the line's bottom edge, under the line's ink,
+ * so the slit between the line and the skin is always backed. The slit opens
+ * once `v * H > w'(1 - v)`; that dead zone is accepted: lip-sync noise near 0
+ * does not flicker through it.
+ *
+ * Shut, the line is shaped the way an artist draws a closed mouth: from
+ * `END_TAPER_FROM` of the opening's half-width out, each column is squashed
+ * about its thinned centre row, down to `END_TAPER` of its height at the
+ * line's box edge, so the ends taper; the drawn flick past a corner is pulled
+ * toward it (`FLICK_PULL`) and squashed to `FLICK_SQUASH`. Every closed-key
+ * shape is linear in `1 - v`. `w'` therefore follows the shaped line, not the
+ * drawn one: it is measured up from the closed line's bottom edge (which the
+ * taper raises by half the height it takes off) by the stroke `w` (the line's
+ * height at the opening's centre), capped by the column's own ink and thinned
+ * and squashed with the line. The skin's top and the interior's closing point
+ * then stay inside the line's closed ink at every column, the tapered ends
+ * included, and tucked skin never shows above the line.
  *
  * The seam is the line's drawn bottom edge `Tu` plus one smooth closing
  * travel `D`, a cubic in the column index pinned to zero at the opening's two
@@ -43,8 +63,9 @@
  * the travel's depth (the sag), the art's two arcs its shape; the cubic keeps
  * an asymmetric mouth's tilt and cannot wobble.
  *
- * A lip's columns outside the opening (the corner hooks) do not fold; only
- * the interior's edge columns read the nearest opening column.
+ * The lower lip's columns outside the opening (the corner hooks) do not fold,
+ * the line's are only thinned and shaped (no travel), and the interior's edge
+ * columns read the nearest opening column.
  *
  * Knots: the three parts share column knots every `MOUTH_KNOT_PX` plus the
  * opening's boundaries `x0`, `x1` and `x1 + 1`, each an integer canvas
@@ -52,7 +73,7 @@
  * position: a knot at boundary `b` samples column `b`, so the mesh renders the
  * fit exactly at its knots and the pinned ends render as pinned (`x1` and
  * `x1 + 1` both sample the last column; the second sits at its right edge).
- * The preview shifts each column by the field at the column's centre
+ * The preview resamples each column through the lip meshes' own landed rows
  * (`mouthRestShift`). A part's mesh rounds its local x, so one knot
  * reconstructs to slightly different model x per part; the fold therefore
  * reads the knot itself, by vertex index, and maps every knot through one rule
@@ -91,6 +112,25 @@ export { LIP_ROLES, type LipRole };
  *  against the legacy closed drawing, 2026-10-09: at 0.4 the closed line's
  *  sag reads like the legacy closed smile (0.3 is shallower, 0.5 deeper). */
 export const UPPER_SHARE = 0.4;
+/** The share of its height the stack above the line's bottom edge keeps, at
+ *  every key. The spike's on bob (`iki-char/gate/lips4`): 0.7; 0.5 broke a
+ *  76 px mouth's line into dashes. */
+export const UPPER_THIN = 0.7;
+/** The closed line's height share, about its centre row, where the taper's
+ *  ramp ends: at `lip_upper`'s box edge, reached in the opening only where
+ *  no flick runs past the corner (a flick column takes `FLICK_SQUASH`; on
+ *  bob's lips-gen2 the opening's end columns get 0.62 and 0.64). The
+ *  spike's on bob: 0.35. */
+export const END_TAPER = 0.35;
+/** Where the closed line's taper starts, as a share of the opening's
+ *  half-width from its centre. The spike's on bob: 0.7. */
+export const END_TAPER_FROM = 0.7;
+/** The share of its length the drawn flick past a corner keeps at the closed
+ *  key: the rest it is pulled toward the corner. The spike's on bob: 0.5. */
+export const FLICK_PULL = 0.5;
+/** The drawn flick's height share at the closed key. The spike's on bob:
+ *  0.25. */
+export const FLICK_SQUASH = 0.25;
 /** Column (and row) pitch of the lip meshes, px. */
 export const MOUTH_KNOT_PX = 4;
 
@@ -134,7 +174,8 @@ export interface OpeningColumn {
   Bl: number;
   /** The interior's span. */
   H: number;
-  /** How far the skin tucks up under the line. */
+  /** How far the skin tucks up under the line shut: inside the thinned,
+   *  squashed line's ink. */
   overlap: number;
   /** Where the lips meet when shut: the line's bottom edge after its smooth
    *  closing travel. */
@@ -152,6 +193,13 @@ export interface Opening {
   w: number;
   /** A column's values; outside `x0..x1`, or in a gap, the nearest one's. */
   at(col: number): OpeningColumn;
+  /** The upper line at a column of `lip_upper`, model y: inside the opening
+   *  the run the contract reads (`Tu`, `lineTop`) and the closed taper's
+   *  squash; past it (the drawn flick) the column's own ink span and
+   *  `FLICK_SQUASH`; `undefined` where `lip_upper` has no run. */
+  line(
+    col: number,
+  ): { bottom: number; top: number; squash: number } | undefined;
 }
 
 export function mouthOpening(byRole: Map<string, LayerInput>): Opening {
@@ -241,9 +289,22 @@ export function mouthOpening(byRole: Map<string, LayerInput>): Opening {
     const x = x0 + i;
     return { ...r, seam: r.Tu + (x - x0) * (x - x1) * (p + q * (x - m)) };
   });
-  const base = (col: number) => columns[Math.min(x1, Math.max(x0, col)) - x0];
+  const clamp = (col: number) => Math.min(x1, Math.max(x0, col));
+  const base = (col: number) => columns[clamp(col) - x0];
   const centre = Math.round((x0 + x1) / 2);
   const w = base(centre).lineH;
+  // The closed taper: 1 out to its start, then linear in the distance from
+  // the centre down to END_TAPER at lip_upper's box-edge column on that side.
+  const from = END_TAPER_FROM * ((x1 - x0 + 1) / 2);
+  const squash = (col: number) => {
+    const d = Math.abs(col - centre);
+    const edge =
+      col < centre
+        ? centre - upper.bbox.x
+        : upper.bbox.x + upper.bbox.w - 1 - centre;
+    const t = d <= from ? 0 : d >= edge ? 1 : (d - from) / (edge - from);
+    return 1 - (1 - END_TAPER) * t;
+  };
   return {
     x0,
     x1,
@@ -252,53 +313,91 @@ export function mouthOpening(byRole: Map<string, LayerInput>): Opening {
     w,
     at(col) {
       const b = base(col);
-      return { ...b, overlap: Math.max(0, Math.min(w, b.lineH)) };
+      const s = squash(clamp(col));
+      // Up from the closed line's bottom, which the taper raises by half the
+      // height it takes off: the capped stroke, thinned and squashed with
+      // the line, so the skin's top stays inside the closed ink.
+      return {
+        ...b,
+        overlap:
+          UPPER_THIN * ((b.lineH * (1 - s)) / 2 + Math.min(w, b.lineH) * s),
+      };
+    },
+    line(col) {
+      if (col >= x0 && col <= x1) {
+        const b = base(col);
+        return { bottom: b.Tu, top: b.lineTop, squash: squash(col) };
+      }
+      const runs = upperCols.get(col);
+      if (runs === undefined) return undefined;
+      return {
+        bottom: edgesOf(upper, runs[runs.length - 1]).bottom,
+        top: edgesOf(upper, runs[0]).top,
+        squash: FLICK_SQUASH,
+      };
     },
   };
 }
 
 /**
- * dy of a model-y rest position at pixel column `col` for MouthOpen `v`
- * (0 shut, 1 as drawn). A lip outside the opening moves 0; `mouth_inner`
+ * `[dx, dy]` of a model-y rest position at pixel column `col` for MouthOpen
+ * `v` (0 shut, 1 as drawn), the thin first at every `v` and the fold on the
+ * thinned position. `lip_upper`'s column is squashed toward its line's bottom;
+ * shut, squashed by its `squash` about the thinned centre row and carried by
+ * the travel, or past the opening (the drawn flick, which now moves too)
+ * squashed and pulled toward the corner. `lip_lower` moves by its travel in
+ * the opening and 0 outside it. `mouth_inner`, its rows above `Tu` thinned,
  * scales its column by `v` about `S + w'`, which carries its top and bottom
  * edges along the line and the skin and needs no read of its own height.
  */
 export function mouthFold(
   role: LipRole,
   opening: Opening,
-): (col: number, y: number, v: number) => number {
+): (col: number, y: number, v: number) => [number, number] {
+  const { x0, x1 } = opening;
   return (col, y, v) => {
-    if (v === 1) return 0;
-    if (role !== "mouth_inner" && (col < opening.x0 || col > opening.x1))
-      return 0;
-    const c = opening.at(col);
     const k = 1 - v;
+    const inside = col >= x0 && col <= x1;
     switch (role) {
-      case "lip_upper":
-        return (c.seam - c.Tu) * k;
-      case "lip_lower":
-        return (c.seam + c.overlap - c.Bl) * k;
-      case "mouth_inner":
-        return (c.seam + c.overlap - y) * k;
+      case "lip_lower": {
+        if (!inside) return [0, 0];
+        const c = opening.at(col);
+        return [0, (c.seam + c.overlap - c.Bl) * k];
+      }
+      case "mouth_inner": {
+        const c = opening.at(col);
+        const thin = y > c.Tu ? c.Tu + UPPER_THIN * (y - c.Tu) : y;
+        const S = c.seam + c.overlap;
+        return [0, S + v * (thin - S) - y];
+      }
+      case "lip_upper": {
+        // A column with no ink (the box's margin past the line's end) takes
+        // the nearest inked one toward the opening, so the cells it shares
+        // with the ink move with it.
+        let c = col;
+        let line = opening.line(c);
+        while (line === undefined)
+          line = opening.line((c += col < x0 ? 1 : -1));
+        const thin = line.bottom + UPPER_THIN * (y - line.bottom);
+        const mid = line.bottom + (UPPER_THIN * (line.top - line.bottom)) / 2;
+        const travel = inside ? opening.at(col).seam - line.bottom : 0;
+        const shut = mid + line.squash * (thin - mid) + travel;
+        // A knot at canvas boundary `b` samples column `b`, so `col` is its x.
+        const pull = inside
+          ? 0
+          : (1 - FLICK_PULL) * ((col < x0 ? x0 : x1 + 1) - col);
+        return [pull * k, thin - y + (shut - thin) * k];
+      }
     }
   };
 }
 
-/** The pixel column a knot (model x) samples, or `undefined` for a lip's knot
- *  outside the opening; `mouth_inner` clamps to it instead. A knot at canvas
- *  boundary `c` samples column `c`, except the boundary after the last column,
+/** The pixel column a knot (model x) samples: a knot at canvas boundary `c`
+ *  samples column `c`, except the boundary after the opening's last column,
  *  which samples the last. */
-export function columnOfKnot(
-  knot: number,
-  opening: Opening,
-  role: LipRole,
-): number | undefined {
+export function columnOfKnot(knot: number, opening: Opening): number {
   const boundary = Math.round(knot + opening.canvasW / 2);
-  const col = boundary === opening.x1 + 1 ? opening.x1 : boundary;
-  if (col >= opening.x0 && col <= opening.x1) return col;
-  return role === "mouth_inner"
-    ? Math.min(opening.x1, Math.max(opening.x0, col))
-    : undefined;
+  return boundary === opening.x1 + 1 ? opening.x1 : boundary;
 }
 
 /** The MouthOpen fold as a warp on a part's mesh. `xs` are the model-x knots
@@ -312,24 +411,35 @@ export function mouthFoldWarp(
   opening: Opening,
 ): IkiWarp {
   const fold = mouthFold(role, opening);
-  return localWarp(P.MouthOpen, mesh, box, [0, 1], (p, v, i) => {
-    const col = columnOfKnot(xs[i % xs.length], opening, role);
-    return [0, col === undefined ? 0 : fold(col, p[1], v)];
-  });
+  return localWarp(P.MouthOpen, mesh, box, [0, 1], (p, v, i) =>
+    fold(columnOfKnot(xs[i % xs.length], opening), p[1], v),
+  );
 }
 
-/** A lip's translate at MouthOpen 0 per canvas column as the mesh renders it,
- *  for the composer's closed preview: the linear interpolation at the column's
- *  centre between the STORED offsets of the part's two bracketing knots (the
- *  numbers the `.iki` carries, rounded as `localWarp` rounds them), 0 outside
- *  the part's box. `byRole` must be the layers as the rig measures them (the
- *  canvas-sized ones): a box measured on a smaller frame clamps differently,
- *  and the knot grid starts at the union's edge. */
+/** A lip's dy at MouthOpen 0 at a canvas pixel `(col, row)` as the mesh
+ *  renders it, for the composer's closed preview: read at the pixel's centre
+ *  off the STORED offsets (the numbers the `.iki` carries, rounded as
+ *  `localWarp` rounds them) of the `columnMesh` triangle containing it — the
+ *  cell by knot and row, its triangle by the cell's top-left–bottom-right
+ *  diagonal, the three vertices weighted barycentrically. The thin and the
+ *  taper move a column's rows by different amounts and the renderer is
+ *  linear over a triangle, never bilinear over a cell, so no one row stands
+ *  for the column. `undefined` for a pixel centre outside the part's box (the
+ *  mesh's domain), which has no field. `byRole` must be the layers as the rig
+ *  measures them (the canvas-sized ones): a box measured on a smaller frame
+ *  clamps differently, and the knot grid starts at the union's edge. */
 export function mouthRestShift(
   byRole: Map<string, LayerInput>,
-): (role: "lip_upper" | "lip_lower", col: number) => number {
+): (
+  role: "lip_upper" | "lip_lower",
+  col: number,
+  row: number,
+) => number | undefined {
   const rig = buildMouthRig(byRole);
-  const fields = new Map<string, { box: Box; xs: number[]; dy: number[] }>();
+  const fields = new Map<
+    string,
+    { box: Box; xs: number[]; rows: number; dy: number[] }
+  >();
   for (const role of ["lip_upper", "lip_lower"] as const) {
     const box = boxOfLayer(byRole.get(role)!);
     const { mesh, xs } = mouthMesh(box, rig.knots);
@@ -338,18 +448,35 @@ export function mouthRestShift(
     fields.set(role, {
       box,
       xs,
-      dy: xs.map((_, i) => offsets[2 * i + 1] * bh(box)),
+      rows: offsets.length / 2 / xs.length - 1,
+      dy: offsets.filter((_, i) => i % 2 === 1).map((o) => o * bh(box)),
     });
   }
-  const half = rig.opening.canvasW / 2;
-  return (role, col) => {
-    const { box, xs, dy } = fields.get(role)!;
-    const x = col + 0.5 - half;
-    if (x < box.x0 || x > box.x1) return 0;
+  const { canvasW, canvasH } = byRole.get("lip_upper")!;
+  return (role, col, row) => {
+    const { box, xs, rows, dy } = fields.get(role)!;
+    const x = col + 0.5 - canvasW / 2;
+    const y = canvasH / 2 - (row + 0.5);
+    if (x < box.x0 || x > box.x1 || y < box.y0 || y > box.y1) return undefined;
     let k = 1;
     while (k < xs.length - 1 && xs[k] < x) k++;
-    const t = (x - xs[k - 1]) / (xs[k] - xs[k - 1]);
-    return dy[k - 1] + (dy[k] - dy[k - 1]) * t;
+    // The cell's fractions: fx along the knots, fy down the rows (row 0 is
+    // the box's top, as `mouthMesh` lays them).
+    const down = ((box.y1 - y) / bh(box)) * rows;
+    const r = Math.min(rows - 1, Math.floor(down));
+    const fx = (x - xs[k - 1]) / (xs[k] - xs[k - 1]);
+    const fy = down - r;
+    const at = (i: number, j: number) => dy[i * xs.length + j];
+    const tl = at(r, k - 1);
+    const br = at(r + 1, k);
+    // The diagonal runs TL→BR, so the lower-left triangle [BL, BR, TL] is
+    // the one with fx <= fy.
+    if (fx <= fy) {
+      const bl = at(r + 1, k - 1);
+      return tl + fy * (bl - tl) + fx * (br - bl);
+    }
+    const tr = at(r, k);
+    return tl + fx * (tr - tl) + fy * (br - tr);
   };
 }
 

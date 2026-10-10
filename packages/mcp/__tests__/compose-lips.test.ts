@@ -30,6 +30,7 @@ import {
   splitLipSet,
 } from "../src/compose-lips";
 import { decodePng } from "../src/node-images";
+import { FLICK_SQUASH, UPPER_THIN } from "../../editor/src/auto-rig/mouth";
 import { luma as lumaOf } from "../src/trim";
 import {
   CAVITY,
@@ -623,52 +624,82 @@ describe("splitLipSet and closedLips", () => {
     ).rejects.toThrow(/lip_lower/);
   });
 
-  it("closes the lips onto the seam, hooks unmoved", async () => {
+  it("closes the lips onto the seam, the line thinned and its hooks shaped", async () => {
     // The mouth-sized split measured on its own frame: a unit test of the
-    // shifting, not of the canvas geometry.
-    const closed = await closedLips(
-      split.upper,
-      split.lower,
-      await restShiftOf(
-        {
-          mouth_inner: split.inner,
-          lip_lower: split.lower,
-          lip_upper: split.upper,
-        },
-        W,
-        H,
-      ),
-      0,
+    // resampling, not of the canvas geometry.
+    const shift = await restShiftOf(
+      {
+        mouth_inner: split.inner,
+        lip_lower: split.lower,
+        lip_upper: split.upper,
+      },
+      W,
+      H,
     );
+    const closed = await closedLips(split.upper, split.lower, shift, 0, 0);
+    // The interior is left out: shut, it has no height.
+    expect(Object.keys(closed).sort()).toEqual(["lower", "upper"]);
     const upper = await rawOf(closed.upper);
     const lower = await rawOf(closed.lower);
+    const alphaAt = (b: Buffer, x: number) =>
+      Array.from({ length: H }, (_, y) => b[(y * W + x) * 4 + 3]);
+    const coverage = (b: Buffer, x: number) =>
+      alphaAt(b, x).reduce((s, a) => s + a, 0) / 255;
     const c = opening.centre;
     const at = opening.at(c);
     const seamRow = H / 2 - at.seam;
-    const lowestUpper = Math.max(
-      ...Array.from({ length: H }, (_, y) => y).filter(
-        (y) => upper[(y * W + c) * 4 + 3] >= 128,
+    const opaque = alphaAt(upper, c).flatMap((a, y) => (a >= 128 ? [y] : []));
+    // The bottom edge on the seam, the top the thinned stroke above it.
+    expect(
+      Math.abs(Math.max(...opaque) + 1 - Math.round(seamRow)),
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(
+        Math.min(...opaque) - Math.round(seamRow - UPPER_THIN * at.lineH),
       ),
+    ).toBeLessThanOrEqual(1);
+    // The line lands whole and thinned, no row of it lost or doubled where
+    // the part's box ends, with transparent padding above and below it. The
+    // box ends well above the frame's bottom, and shut the centre column's
+    // box rows land past that edge.
+    const box = byRole.get("lip_upper")!.bbox;
+    const last = box.y + box.h - 1;
+    expect(box.y + box.h).toBeLessThan(H - 5);
+    expect(last + 0.5 - shift("lip_upper", c, last)!).toBeGreaterThan(
+      box.y + box.h,
     );
-    expect(Math.abs(lowestUpper + 1 - Math.round(seamRow))).toBeLessThanOrEqual(
+    expect(coverage(upper, c) / coverage(buffers.upper, c)).toBeCloseTo(
+      UPPER_THIN,
       1,
     );
+    const drawn = alphaAt(upper, c).flatMap((a, y) => (a > 0 ? [y] : []));
+    expect(Math.min(...drawn)).toBeGreaterThan(0);
+    expect(Math.max(...drawn)).toBeLessThan(H - 1);
+    expect(Math.max(...drawn) - Math.min(...drawn)).toBeLessThan(at.lineH + 3);
+
     const firstLower = Math.min(
-      ...Array.from({ length: H }, (_, y) => y).filter(
-        (y) => lower[(y * W + c) * 4 + 3] >= 128,
-      ),
+      ...alphaAt(lower, c).flatMap((a, y) => (a >= 128 ? [y] : [])),
     );
     expect(
       Math.abs(firstLower - (Math.round(seamRow) - at.overlap)),
     ).toBeLessThanOrEqual(1);
-    // A hook column (outside the opening) is byte-for-byte where it was.
+
+    // A hook (outside the opening): its ink lands FLICK_SQUASH of its thinned
+    // height, by the rows the preview lands it with. On the pixels a hook
+    // that thin is a fraction of a row, sampled as the GPU samples it.
     const hook = Math.max(0, opening.x0 - 3);
-    for (let y = 0; y < H; y++)
-      expect(
-        upper.subarray((y * W + hook) * 4, (y * W + hook) * 4 + 4),
-      ).toEqual(
-        buffers.upper.subarray((y * W + hook) * 4, (y * W + hook) * 4 + 4),
-      );
+    const ink = alphaAt(buffers.upper, hook).flatMap((a, y) =>
+      a >= 128 ? [y] : [],
+    );
+    const [first, end] = [ink[0], ink[ink.length - 1]];
+    const landed = (y: number) => y + 0.5 - shift("lip_upper", hook, y)!;
+    expect((landed(end) - landed(first)) / (end - first)).toBeCloseTo(
+      FLICK_SQUASH * UPPER_THIN,
+      3,
+    );
+    expect(coverage(upper, hook)).toBeLessThan(
+      0.5 * coverage(buffers.upper, hook),
+    );
   });
 });
 
@@ -685,8 +716,12 @@ describe("closedLips: a sub-pixel shift", () => {
     const png = await sharp(buf, { raw: { width: W, height: H, channels: 4 } })
       .png()
       .toBuffer();
-    // The upper lip's dy is a column-dependent, non-integer rise.
-    const { upper } = await closedLips(png, png, (_role, x) => 8 + step * x, 0);
+    // The upper lip's dy is a column-dependent, non-integer rise, constant
+    // down each column; like `mouthRestShift` the field ends with the box,
+    // here the line's own two rows, so its edge rows must still blend out.
+    const field = (_role: string, x: number, row: number) =>
+      row >= row0 && row <= row0 + 1 ? 8 + step * x : undefined;
+    const { upper } = await closedLips(png, png, field, 0, 0);
     const out = (
       await sharp(upper)
         .ensureAlpha()
@@ -852,8 +887,10 @@ describe("composeLayersFromParts: the lip set", () => {
         if (lumaOf(preview.rgba, (y * preview.width + col) * 4) < 60) last = y;
       }
       expect(last).toBeGreaterThan(-1);
+      // The line's last row, centred half a pixel above its bottom edge.
+      const row = near - 1;
       expect(
-        Math.abs(last + 1 - Math.round(550 - (c.Tu + shift("lip_upper", col)))),
+        Math.abs(last - Math.round(row - shift("lip_upper", col, row)!)),
       ).toBeLessThanOrEqual(1);
     }
     // Inside the frame: the fixture's eye whites antialias into the ground

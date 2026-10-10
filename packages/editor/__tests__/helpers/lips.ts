@@ -33,6 +33,8 @@ export interface LipOptions {
    *  runs: a hand split's wall column, where the line's bottom is below the
    *  interior's top. */
   grownInner?: boolean;
+  /** The line and the skin end at the opening's end columns: no hooks. */
+  noHooks?: boolean;
 }
 
 type Col = [col: number, r0: number, r1: number];
@@ -81,9 +83,9 @@ export function lipSet(opts: LipOptions = {}): LayerInput[] {
     { length: OPENING.x1 - OPENING.x0 + 1 },
     (_, i) => OPENING.x0 + i,
   );
-  const hooks = HOOKS.flatMap(([a, b]) =>
-    Array.from({ length: b - a }, (_, i) => a + i),
-  );
+  const hooks = opts.noHooks
+    ? []
+    : HOOKS.flatMap(([a, b]) => Array.from({ length: b - a }, (_, i) => a + i));
   const inner: Col[] = xs.map((x) => [
     x,
     topRow(x) - (opts.underLine ? 1 : 0),

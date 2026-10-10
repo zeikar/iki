@@ -291,21 +291,11 @@ function landedAt(
   params: ParamValues,
 ): { x: number; y: number } {
   const part = partOf(model, partId);
-  return pointRead(
-    model,
-    part,
-    restX,
-    restY,
-  )(landVertices(model, partId, params));
+  return pointRead(part, restX, restY)(landVertices(model, partId, params));
 }
 
 /** The triangle read `landedAt` lands a rest point through. */
-function pointRead(
-  model: IkiModel,
-  part: IkiPart,
-  restX: number,
-  restY: number,
-): PointRead {
+function pointRead(part: IkiPart, restX: number, restY: number): PointRead {
   const t = part.transform;
   // The rest point is taken back into the mesh's local frame through the
   // part's rest placement, which the generator writes as a translate alone.
@@ -318,7 +308,7 @@ function pointRead(
       `render-oracle: landedXAt / landedYAt read a part placed by translate alone; "${part.id}" rests rotated or scaled`,
     );
   }
-  if (!isLattice(part)) return readOnTriangles(model, part, restX, restY);
+  if (!isLattice(part)) return readOnTriangles(part, restX, restY);
   const g = latticeOf(part);
   // Lattice fractions: u along the columns (0 at the left edge), v down the
   // rows (0 at the top).
@@ -359,18 +349,23 @@ function isLattice(part: IkiPart): boolean {
 
 /**
  * `pointRead` for a mesh that is not a lattice (the face plate's islands, the
- * front hair's bent columns): the point is read off the LAST-drawn triangle
- * containing it at rest — the one on top, which is what renders there — and,
- * off the mesh, off the triangle it is nearest to, its barycentric weights
- * clamped.
+ * front hair's bent columns, the lip set's knot columns): the point is read
+ * off the LAST-drawn triangle containing it at rest — the one on top, which
+ * is what renders there — and, off the mesh, off the triangle it is nearest
+ * to, its barycentric weights clamped. "At rest" is the mesh as cut, placed
+ * by the part's rest translate (`pointRead` asserts it is one): a landing at
+ * the default parameters would be a pose for a part whose warps do not vanish
+ * there (a lip at MouthOpen 0 is shut).
  */
 function readOnTriangles(
-  model: IkiModel,
   part: IkiPart,
   restX: number,
   restY: number,
 ): PointRead {
-  const rest = landVertices(model, part.id);
+  const { x, y } = part.transform;
+  const rest = part.mesh!.vertices.map((v, i) =>
+    i % 2 === 0 ? x + v * part.width : y + v * part.height,
+  );
   const idx = part.mesh!.indices;
   let best: { t: number; w: [number, number, number]; score: number } | null =
     null;
@@ -408,7 +403,7 @@ function readOnTriangles(
 }
 
 /** Each model's parts' point reads, by rest point: they hold at every pose
- *  of that model (off a lattice, a read rests on the model's rest landing). */
+ *  of that model (a read rests on the mesh as cut). */
 const pointReads = new WeakMap<
   IkiModel,
   WeakMap<IkiPart, Map<string, PointRead>>
@@ -436,7 +431,7 @@ export function landerFor(
     const key = `${restX} ${restY}`;
     let read = known.get(key);
     if (read === undefined) {
-      read = pointRead(model, part, restX, restY);
+      read = pointRead(part, restX, restY);
       known.set(key, read);
     }
     return read(landed);

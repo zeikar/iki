@@ -25,14 +25,16 @@
  * wall. When the frame has ink above the first grown row the wall is the
  * line's own end, and it folds with the interior (its grown rows join
  * `mouth_inner`, not `lip_upper`), so the rig reads the line's bottom at the
- * interior's top there too and the closed line's ends are the drawn ends. A
- * column with no ink above its first grown row (an under-the-line end) keeps
- * every pixel in `lip_upper`; the rig still accepts it, its wall held still.
+ * interior's top there too and the closed line's ends are the drawn ends,
+ * tapered. A column with no ink above its first grown row (an under-the-line
+ * end) keeps every pixel in `lip_upper`; the rig still accepts it, its wall
+ * past the opening thinned and, shut, shaped like a drawn flick.
  *
  * The preview (`closedLips`) shows the set as the rig draws it at rest: the
- * lips shifted per column by the lip meshes' own rest field (`mouthRestShift`,
- * measured as the rig measures the final canvas layers), the interior left out
- * (shut, it has zero height).
+ * lips resampled through the lip meshes' own landed rows (`mouthRestShift`,
+ * measured as the rig measures the final canvas layers), so the thinned line
+ * and its tapered ends are in it, the interior left out (shut, it has zero
+ * height).
  */
 
 import sharp from "sharp";
@@ -726,7 +728,8 @@ export async function splitLipSet(
   // The columns beside the hole whose grown rows are the outline's side wall:
   // the frame is opaque on the row above the first one. Those rows fold with
   // the interior; a column with no ink above them keeps its pixels in the
-  // line (an under-the-line end the rig still accepts, its wall held still).
+  // line (an under-the-line end the rig still accepts, its wall thinned and,
+  // shut, shaped like a drawn flick).
   const wall = new Uint8Array(w);
   for (const x of [hb.x0 - 1, hb.x1 + 1]) {
     if (x < 0 || x >= w) continue;
@@ -839,43 +842,71 @@ export async function restShiftOf(
 }
 
 /**
- * The lips as the rig draws them at rest (MouthOpen 0): each column shifted by
- * the lip mesh's own field at the column's centre, the same knots and stored
- * offsets the rig has, so the preview is what the mesh draws (a per-column or
- * neighbour-averaged fold is a pixel or more off on the lower lip, whose fold
- * carries integer-row reads). `left` is the frame's column on the canvas. The
- * field is per column and +y is up, rows go down the image, so rows move by
- * -dy. The interior is left out: shut, it has no height.
+ * The lips as the rig draws them at rest (MouthOpen 0), each column resampled
+ * through the lip mesh's own landed rows: a source row lands at its centre
+ * moved by the field there (`mouthRestShift`, the same knots, triangles and
+ * stored offsets the rig has, so the preview is what the mesh draws; a
+ * per-column fold is a pixel or more off on the lower lip, whose fold carries
+ * integer-row reads). Only the rows whose centres the field answers land:
+ * those inside the part's box, the layer's alpha box, so every row outside it
+ * is transparent and contributes nothing, but for the one beyond each end,
+ * landed a step past the edge row for the edge to blend into. The thin and
+ * the squashes are positive scales, so the landed rows keep their order; each
+ * destination row is blended linearly from the two consecutive landed rows
+ * bracketing its centre, the way the GPU samples the mesh (rounding per row
+ * would turn the smooth arc into a staircase the rig never draws),
+ * premultiplied so an edge neither darkens nor lightens, and is transparent
+ * when no pair brackets it. A constant field is a plain sub-pixel shift. The
+ * flick's sideways pull is not previewed: the field is a column's dy alone.
+ * `left` and `top` are the
+ * frame's column and row on the canvas; +y is up and rows go down the image,
+ * so a row lands at -dy. The interior is left out: shut, it has no height.
  */
 export async function closedLips(
   upper: Buffer,
   lower: Buffer,
   shift: ReturnType<typeof mouthRestShift>,
   left: number,
+  top: number,
 ): Promise<{ upper: Buffer; lower: Buffer }> {
   const shut = async (png: Buffer, role: "lip_upper" | "lip_lower") => {
     const { data, info } = await rawOf(png);
     const { width: w, height: h } = info;
     const out = Buffer.alloc(w * h * 4);
     for (let x = 0; x < w; x++) {
-      // The fractional shift, resampled linearly between the two source rows
-      // the way the GPU samples the rig's mesh: rounding it per column would
-      // turn the smooth arc into a staircase the rig never draws. The blend is
-      // premultiplied so an edge neither darkens nor lightens.
-      const dy = shift(role, left + x);
-      const f = Math.floor(dy);
-      const t = dy - f;
       const px = (row: number, c: number) =>
         row < 0 || row >= h ? 0 : data[(row * w + x) * 4 + c];
+      // [source row, its landed centre], in row order.
+      const landed: [number, number][] = [];
+      for (let row = 0; row < h; row++) {
+        const dy = shift(role, left + x, top + row);
+        if (dy !== undefined) landed.push([row, row + 0.5 - dy]);
+      }
+      // The rows just past the box (transparent), a landed step beyond its
+      // edge rows: the edge rows blend into nothing over their outer half,
+      // as a drawn edge does, rather than ending at their centres.
+      if (landed.length > 1) {
+        const [a, b] = landed;
+        const [y, z] = landed.slice(-2);
+        landed.unshift([a[0] - 1, 2 * a[1] - b[1]]);
+        landed.push([z[0] + 1, 2 * z[1] - y[1]]);
+      }
+      let i = 0;
       for (let to = 0; to < h; to++) {
-        const a0 = px(to + f, 3);
-        const a1 = px(to + f + 1, 3);
+        const centre = to + 0.5;
+        while (i + 1 < landed.length && landed[i + 1][1] < centre) i++;
+        if (i + 1 >= landed.length || landed[i][1] > centre) continue;
+        const [r0, y0] = landed[i];
+        const [r1, y1] = landed[i + 1];
+        const t = (centre - y0) / (y1 - y0);
+        const a0 = px(r0, 3);
+        const a1 = px(r1, 3);
         const a = (1 - t) * a0 + t * a1;
         if (a === 0) continue;
         const o = (to * w + x) * 4;
         for (let c = 0; c < 3; c++)
           out[o + c] = Math.round(
-            ((1 - t) * a0 * px(to + f, c) + t * a1 * px(to + f + 1, c)) / a,
+            ((1 - t) * a0 * px(r0, c) + t * a1 * px(r1, c)) / a,
           );
         out[o + 3] = Math.round(a);
       }

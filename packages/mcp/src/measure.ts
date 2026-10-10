@@ -107,7 +107,7 @@ export interface MeasureReport {
    * The lip set's opening as the rig reads it, set whenever the three lip
    * layers are present and readable. The fold's dead zone `deadZone` is the
    * `MouthOpen` below which the slit between the lips has not opened, and
-   * it varies with the drawing (0.04 on one opening, 0.33 on another), so a
+   * it varies with the drawing (0.03 on one opening, 0.26 on another), so a
    * half-open mouth that shows no slit is judged against it, not against a
    * fixed number.
    */

@@ -1529,6 +1529,7 @@ export async function composeLayersFromParts(
               canvas.height,
             ),
             lipSplit.left,
+            lipSplit.top,
           );
 
     // Drop the layer an earlier compose into the same dir wrote for each role

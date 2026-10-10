@@ -5,6 +5,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { formatMeasureReport, measureLayers } from "../src/measure";
 import { CAVITY, KEY_GREEN } from "./helpers/parts";
+import { UPPER_THIN } from "../../editor/src/auto-rig/mouth";
 
 /**
  * The lip set's layers painted by hand on a 200 canvas: the contract set is
@@ -209,11 +210,14 @@ describe("measure_layers: the lip set", () => {
     const r = await measureLayers({ layersDir: dir });
     if (!r.ok) throw new Error(r.error);
     expect(r.lips?.opening).toEqual({ width: 80, height: 25, line: 3 });
-    expect(Math.abs(r.lips!.deadZone - 3 / 28)).toBeLessThan(0.01);
+    // The overlap is the centre's stroke thinned: the closed line's top.
+    expect(
+      Math.abs(r.lips!.deadZone - (UPPER_THIN * 3) / (25 + UPPER_THIN * 3)),
+    ).toBeLessThan(0.01);
     const lines = formatMeasureReport(r).split("\n");
     const line = lines.find((l) => l.startsWith("lips:"))!;
     expect(line).toMatch(/^lips: opening 80 px wide/);
-    expect(line).toMatch(/no slit below MouthOpen 0\.11$/);
+    expect(line).toMatch(/no slit below MouthOpen 0\.08$/);
     expect(lines.indexOf(line)).toBeLessThan(lines.indexOf("# checks"));
 
     const legacy = tmpDir();
