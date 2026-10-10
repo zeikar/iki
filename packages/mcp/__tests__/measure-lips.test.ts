@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { formatMeasureReport, measureLayers } from "../src/measure";
-import { CAVITY, KEY_GREEN } from "./helpers/parts";
+import { CAVITY, KEY_GREEN, TEETH, TONGUE } from "./helpers/parts";
 import { UPPER_THIN } from "../../editor/src/auto-rig/mouth";
 
 /**
@@ -67,6 +67,13 @@ interface Variant {
   omit?: string;
   /** Write the lower lip on this canvas. */
   lowerCanvas?: number;
+  /** Add mouth_teeth (rows 93..95) and mouth_tongue (rows 108..114) inside
+   *  the interior. */
+  inside?: boolean;
+  /** mouth_teeth's rows and columns instead. */
+  teeth?: [number, number, number, number];
+  /** Write mouth_teeth on this canvas. */
+  teethCanvas?: number;
 }
 
 /** The contract set: line rows 90..92 over columns 60..139 with a 6x6 hook
@@ -108,6 +115,16 @@ async function writeSet(v: Variant = {}): Promise<string> {
       size,
     );
   }
+  if (v.inside || v.teeth || v.teethCanvas) {
+    const [tx0, tx1, ty0, ty1] = v.teeth ?? [62, 137, 93, 95];
+    await writeLayer(
+      dir,
+      "mouth_teeth.png",
+      block(tx0, tx1, ty0, ty1, TEETH),
+      v.teethCanvas ?? CANVAS,
+    );
+    await writeLayer(dir, "mouth_tongue.png", block(70, 129, 108, 114, TONGUE));
+  }
   return dir;
 }
 
@@ -120,6 +137,30 @@ async function warningsOf(dir: string): Promise<string[]> {
 describe("measure_layers: the lip set", () => {
   it("passes the contract set and raises no edge or flat-cut warning on it", async () => {
     expect(await warningsOf(await writeSet())).toEqual([]);
+    expect(await warningsOf(await writeSet({ inside: true }))).toEqual([]);
+  });
+
+  it("warns of an inside layer with no lip set, on another canvas, or leaving the cavity", async () => {
+    const alone = tmpDir();
+    await writeLayer(alone, "mouth_teeth.png", block(70, 130, 95, 97, TEETH));
+    await writeLayer(alone, "mouth.png", block(70, 130, 95, 110, SKIN));
+    // mouth.png's flat block raises its own edge warnings.
+    const w = (await warningsOf(alone)).filter((x) => /^mouth_t/.test(x));
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatch(/^mouth_teeth: .*auto_rig_from_layers refuses/);
+    expect(w[0]).toMatch(/mouth_keyed\.png \+ mouth_interior\.png/);
+
+    expect(
+      (await warningsOf(await writeSet({ teethCanvas: 300 }))).join("\n"),
+    ).toMatch(/^mouth_teeth: its canvas 300x300 differs/m);
+
+    // Two rows up into the line, past the interior's top (row 93).
+    const out = await warningsOf(await writeSet({ teeth: [62, 137, 91, 95] }));
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatch(
+      /^mouth_teeth: its box leaves mouth_inner's — the cavity clips it away/,
+    );
+    expect(out[0]).toMatch(/\(free\)/);
   });
 
   it("warns of a gap between the line and the interior, with its columns", async () => {

@@ -52,8 +52,8 @@ function faceRows(h: number): number[] {
 
 export interface CharacterOptions {
   /** The mouth is the folding lip set (`lipSet`) instead of `mouth` and
-   *  `mouth_open`. */
-  lips?: boolean;
+   *  `mouth_open`; `"inside"` adds its tongue and teeth. */
+  lips?: boolean | "inside";
   nose?: boolean;
   hair?: boolean;
   /** Bangs as a fringe spanning the face instead of side strands. */
@@ -310,7 +310,7 @@ export function character(opts: CharacterOptions = {}): {
     layer("brow_R", { x: 340, y: 350, w: 137, h: 23 }),
     layer("brow_L", { x: 524, y: 350, w: 137, h: 23 }),
     ...(lips
-      ? lipSet()
+      ? lipSet({ inside: lips === "inside" })
       : [
           layer("mouth", { x: 465, y: 590, w: 70, h: 21 }),
           layer("mouth_open", { x: 465, y: 588, w: 70, h: 29 }),

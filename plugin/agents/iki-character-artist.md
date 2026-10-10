@@ -230,7 +230,10 @@ and how round 1's first compose corrects the provisional `canvas.json`. Then:
   of `layout.mouth_inner` (`cx`/`cy`/`w`, `h` stretches) moves all three, and
   `lip_lower` / `lip_upper` take no entry of their own. A `regenerate` of
   `mouth_keyed.png` or `mouth_interior.png` redraws that file only; the other
-  stays.
+  stays. `mouth_teeth` / `mouth_tongue` are cut from `mouth_interior.png` by
+  lightness (luma 100 and over), on the same frame, and take no layout key
+  either; they are missing (listed in `skipped`) only when the interior has no
+  light paint.
 - A lower lip drawn with its own outline in `mouth_keyed.png` shows as a second
   line on the closed mouth: regenerate `mouth_keyed.png` alone with the lower
   lip as a shade, no outline.

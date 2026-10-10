@@ -2,7 +2,9 @@
  * The lip set: a mouth that folds open the way the eyelid folds shut. Three
  * parts, back to front: `mouth_inner` (the interior and the opening's lower
  * outline band), `lip_lower` (the lower lip's skin) and `lip_upper` (the upper
- * lip line and the corner hooks).
+ * lip line and the corner hooks). Between the interior and the skin it may
+ * carry two inside parts, `mouth_tongue` then `mouth_teeth`, cut from the
+ * interior and clipped to it: the rig reads nothing off them but their box.
  *
  * What the rig reads is the layers' own alpha edges, as exclusive run
  * boundaries in model y (+y up; a run of crop rows `[a, b)` is the span
@@ -67,7 +69,12 @@
  * the line's are only thinned and shaped (no travel), and the interior's edge
  * columns read the nearest opening column.
  *
- * Knots: the three parts share column knots every `MOUTH_KNOT_PX` plus the
+ * The inside parts move rigidly per column, after the stack's thin: the teeth
+ * by the line's travel, so they ride under its bottom edge (no taper: the
+ * closed interior clips them away), the tongue by the interior's bottom-edge
+ * travel, so it rides the opening's bottom.
+ *
+ * Knots: the parts share column knots every `MOUTH_KNOT_PX` plus the
  * opening's boundaries `x0`, `x1` and `x1 + 1`, each an integer canvas
  * boundary. The fit's x is the column index, which is the mesh's boundary
  * position: a knot at boundary `b` samples column `b`, so the mesh renders the
@@ -102,7 +109,7 @@ import {
   unionBoxes,
   type Box,
 } from "./layout";
-import { LIP_ROLES, type LipRole } from "./roles";
+import { LIP_ROLES, type LipInsideRole, type LipRole } from "./roles";
 import { LayerGeometryError, type LayerInput } from "./types";
 
 export { LIP_ROLES, type LipRole };
@@ -349,12 +356,16 @@ export function mouthOpening(byRole: Map<string, LayerInput>): Opening {
  * the opening and 0 outside it. `mouth_inner`, its rows above `Tu` thinned,
  * scales its column by `v` about `S + w'`, which carries its top and bottom
  * edges along the line and the skin and needs no read of its own height.
+ * `mouth_teeth`, its rows above `Tu` thinned, moves by the line's travel and
+ * `mouth_tongue` by the interior's bottom edge's, each one number per column.
  */
 export function mouthFold(
-  role: LipRole,
+  role: LipRole | LipInsideRole,
   opening: Opening,
 ): (col: number, y: number, v: number) => [number, number] {
   const { x0, x1 } = opening;
+  const stackThin = (c: OpeningColumn, y: number) =>
+    y > c.Tu ? c.Tu + UPPER_THIN * (y - c.Tu) : y;
   return (col, y, v) => {
     const k = 1 - v;
     const inside = col >= x0 && col <= x1;
@@ -366,9 +377,16 @@ export function mouthFold(
       }
       case "mouth_inner": {
         const c = opening.at(col);
-        const thin = y > c.Tu ? c.Tu + UPPER_THIN * (y - c.Tu) : y;
         const S = c.seam + c.overlap;
-        return [0, S + v * (thin - S) - y];
+        return [0, S + v * (stackThin(c, y) - S) - y];
+      }
+      case "mouth_teeth": {
+        const c = opening.at(col);
+        return [0, stackThin(c, y) - y + (c.seam - c.Tu) * k];
+      }
+      case "mouth_tongue": {
+        const c = opening.at(col);
+        return [0, (c.seam + c.overlap - c.Bb) * k];
       }
       case "lip_upper": {
         // A column with no ink (the box's margin past the line's end) takes
@@ -404,7 +422,7 @@ export function columnOfKnot(knot: number, opening: Opening): number {
  *  the mesh was cut on (`mouthMesh`); a vertex's knot is read by its index,
  *  never from its rounded position. */
 export function mouthFoldWarp(
-  role: LipRole,
+  role: LipRole | LipInsideRole,
   mesh: IkiMesh,
   xs: number[],
   box: Box,
@@ -480,7 +498,7 @@ export function mouthRestShift(
   };
 }
 
-/** The knots (model x) shared by the three parts over their union: its edges,
+/** The knots (model x) shared by the parts over the three's union: its edges,
  *  every `MOUTH_KNOT_PX` between, and the opening's first column, its last
  *  column and the boundary after it. */
 export function mouthKnots(union: Box, opening: Opening): number[] {
@@ -537,7 +555,8 @@ export function mouthMesh(
 
 export interface MouthRig {
   opening: Opening;
-  /** The Form and widen frame of the union, shared by the three parts. */
+  /** The Form and widen frame of the three's union, shared by every part
+   *  (the inside parts lie inside `mouth_inner`'s box). */
   frame: MouthFrame;
   knots: number[];
   union: Box;

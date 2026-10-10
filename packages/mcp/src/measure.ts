@@ -18,7 +18,7 @@ import { decodePng, detectAlphaBbox } from "./node-images";
 import { AutoRigInputError, MAX_LAYERS, resolveInputDir } from "./limits";
 import { ARM_ROLES, armWarnings } from "./measure-arms";
 import { POSE_ROLES, forearmPoseWarnings } from "./measure-forearm-pose";
-import { isLipRole, lipWarnings, type LipFacts } from "./measure-lips";
+import { isLipLayerRole, lipWarnings, type LipFacts } from "./measure-lips";
 import { SPECK_CORE_FRACTION, denseCoreOf, isSpeckCore } from "./measure-turn";
 
 // Iris width as a fraction of sclera width. Below the floor the eye reads as a
@@ -338,7 +338,7 @@ export async function measureDir(
   for (const [role, m] of Object.entries(layers)) {
     // A lip layer's straight edges are the split's cuts, not the art's; the
     // lip checks read what the rig does with them.
-    if (isLipRole(role)) continue;
+    if (isLipLayerRole(role)) continue;
     const edges: [string, number, number, number][] = [
       ["top", m.edgeTop, m.w, m.marginTop],
       ["left", m.edgeLeft, m.h, m.marginLeft],
@@ -385,7 +385,7 @@ export async function measureDir(
     // `body` bends as one drawing, so no pose opens a cut in it; its top is
     // deliberately cut flat where the jaw covers it, and stays under the jaw
     // because the head rides the body.
-    if (role === "body" || isLipRole(role)) continue;
+    if (role === "body" || isLipLayerRole(role)) continue;
     if (
       m.flatCutRun > FLAT_CUT_MAX_FRAC * m.w &&
       m.flatCutRun >= FLAT_CUT_MIN_PX

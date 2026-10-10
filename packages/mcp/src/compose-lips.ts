@@ -1,6 +1,7 @@
 /**
  * The pixel work that turns a green-keyed open mouth plus a drawn interior
- * into the lip set the rig folds (`mouth_inner`, `lip_lower`, `lip_upper`).
+ * into the lip set the rig folds (`mouth_inner`, `lip_lower`, `lip_upper`),
+ * with the interior's light paint as `mouth_tongue` and `mouth_teeth`.
  * Buffers in, buffers out: no file is read here, the composer hands over what
  * it decoded and gets PNGs back.
  *
@@ -20,6 +21,16 @@
  * never above its own column's hole top, which is what keeps the rig's
  * per-column contract (`Tu <= T <= lineTop`, `Bl >= Bb`) true by construction
  * rather than by luck of the art.
+ *
+ * The interior is split by lightness on the hole: a pixel at or over
+ * CAVITY_LUMA (a tooth, the tongue) goes to `mouth_teeth` above its column's
+ * hole middle and to `mouth_tongue` below it, and `mouth_inner` takes the
+ * cavity's fill there, so the cavity is a dark fill with its own shading that
+ * the rig clips the two to, the teeth riding the line and the tongue the
+ * opening's bottom. Its edge is soft: a frame pixel beside the hole whose ink
+ * is partial (alpha 128..254) was ink mixed with green, and the cavity takes
+ * its share of it, `255 - alpha`, under ALPHA_OPAQUE, so no read of the
+ * contract changes.
  *
  * The two columns beside the hole are grown into under the outline's side
  * wall. When the frame has ink above the first grown row the wall is the
@@ -82,8 +93,10 @@ const SECOND_HOLE_FRACTION = 0.05;
 const BAND_LUMA = 150;
 /** The band's cap, in strokes: more is not an outline. */
 const BAND_CAP = 3;
-/** Luma under which an interior's pixel is cavity rather than tooth or tongue. */
-const CAVITY_LUMA = 100;
+/** Luma under which an interior's pixel is cavity rather than tooth or tongue:
+ *  the cavity's fill is read under it, and the hole's pixels at or over it are
+ *  cut into `mouth_teeth` / `mouth_tongue`. */
+export const CAVITY_LUMA = 100;
 /** The lip rim's skin rule, the spike's: a pixel is skin at red, green and
  *  blue over these floors, which a peach lip clears and a cavity's dark red or
  *  a tongue's pink does not; but not a tooth, whose green and blue are over
@@ -650,7 +663,12 @@ function assertFoldContract(layers: LipRgba, w: number, h: number): Opening {
  *              (the grown rows of a side column with ink above them are
  *              `lip_upper`'s no longer: the wall folds with the interior);
  *   lip_lower  every row from `R` down (row `R` is in both: a one-row overlap,
- *              not a gap).
+ *              not a gap);
+ *   mouth_teeth / mouth_tongue  the hole's pixels whose colour in `mouth_inner`
+ *              is at or over CAVITY_LUMA, above / below the column's hole
+ *              middle, opaque; `mouth_inner` takes the cavity's fill there;
+ *   the rim    a frame pixel outside `mouth_inner` beside the hole with alpha
+ *              128..254: the cavity's fill at `255 - alpha` in `mouth_inner`.
  * A side column (beside the hole) whose frame has no ink above its first grown
  * row keeps those rows in `lip_upper` and out of `mouth_inner`'s fold.
  * The result is read back through the rig's own `mouthOpening` and the
@@ -661,7 +679,14 @@ export async function splitLipSet(
   w: number,
   h: number,
   interior: { png: Buffer; cavity: [number, number, number] },
-): Promise<{ inner: Buffer; lower: Buffer; upper: Buffer; opening: Opening }> {
+): Promise<{
+  inner: Buffer;
+  lower: Buffer;
+  upper: Buffer;
+  tongue: Buffer;
+  teeth: Buffer;
+  opening: Opening;
+}> {
   const { data: frame, info } = await rawOf(keyedPng);
   if (info.width !== w || info.height !== h) {
     throw new Error(
@@ -750,14 +775,25 @@ export async function splitLipSet(
     .raw()
     .toBuffer({ resolveWithObject: true });
 
+  const hole = (q: number) => label[q] === main;
+  // Above its column's hole middle: the line's half of the opening, for the
+  // faint pixels and for the light paint alike.
+  const upperHalf = (x: number, y: number) => 2 * y < top[x] + bot[x];
   // The hole's faint pixels in its upper half are the line's antialiasing, the
   // lower half's the band's.
   const faintUpper = (p: number, x: number, y: number) =>
-    y < bot[x] && label[p] === main && 2 * y < top[x] + bot[x];
+    y < bot[x] && hole(p) && upperHalf(x, y);
+  const besideHole = (p: number, x: number, y: number) =>
+    (x > 0 && hole(p - 1)) ||
+    (x < w - 1 && hole(p + 1)) ||
+    (y > 0 && hole(p - w)) ||
+    (y < h - 1 && hole(p + w));
 
   const upper = Buffer.alloc(n * 4);
   const lower = Buffer.alloc(n * 4);
   const inner = Buffer.alloc(n * 4);
+  const tongue = Buffer.alloc(n * 4);
+  const teeth = Buffer.alloc(n * 4);
   const copy = (to: Buffer, p: number) =>
     frame.copy(to, p * 4, p * 4, p * 4 + 4);
   for (let y = 0; y < h; y++) {
@@ -771,7 +807,16 @@ export async function splitLipSet(
         copy(upper, p);
       if (inOpening && skinRow[x] >= 0 && y >= skinRow[x]) copy(lower, p);
 
-      if (!grown[p]) continue;
+      if (!grown[p]) {
+        // The rim: the ink's partial alpha is its coverage, the rest the
+        // opening's, which the cavity fills.
+        const a = alpha(p);
+        if (a >= ALPHA_OPAQUE && a < 255 && besideHole(p, x, y)) {
+          inner.set(interior.cavity, p * 4);
+          inner[p * 4 + 3] = 255 - a;
+        }
+        continue;
+      }
       const out = [...interior.cavity];
       const ix = x - gx;
       const iy = y - gy;
@@ -791,6 +836,13 @@ export async function splitLipSet(
       inner[p * 4 + 1] = Math.round(out[1]);
       inner[p * 4 + 2] = Math.round(out[2]);
       inner[p * 4 + 3] = 255;
+      // The hole's light paint is a layer of its own, and the cavity is
+      // repainted its fill under it.
+      if (hole(p) && luma(inner, p * 4) >= CAVITY_LUMA) {
+        const to = upperHalf(x, y) ? teeth : tongue;
+        inner.copy(to, p * 4, p * 4, p * 4 + 4);
+        inner.set(interior.cavity, p * 4);
+      }
     }
   }
 
@@ -799,12 +851,17 @@ export async function splitLipSet(
     w,
     h,
   );
-  const [innerPng, lowerPng, upperPng] = await Promise.all([
-    encode(inner, w, h),
-    encode(lower, w, h),
-    encode(upper, w, h),
-  ]);
-  return { inner: innerPng, lower: lowerPng, upper: upperPng, opening };
+  const [innerPng, lowerPng, upperPng, tonguePng, teethPng] = await Promise.all(
+    [inner, lower, upper, tongue, teeth].map((b) => encode(b, w, h)),
+  );
+  return {
+    inner: innerPng,
+    lower: lowerPng,
+    upper: upperPng,
+    tongue: tonguePng,
+    teeth: teethPng,
+    opening,
+  };
 }
 
 /**

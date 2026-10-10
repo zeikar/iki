@@ -630,7 +630,8 @@ describe("autoRigFromLayers", () => {
     expect(result.error.length).toBeGreaterThan(0);
   });
 
-  /** The face and eyes, and the lip set as three stacked rects. */
+  /** The face and eyes, and the lip set as three stacked rects, with its
+   *  teeth and tongue inside the interior's. */
   async function writeLipLayers(dir: string): Promise<string[]> {
     return [
       ...(await writeRequiredLayers(dir)).slice(0, 3),
@@ -640,6 +641,18 @@ describe("autoRigFromLayers", () => {
         y: 59,
         w: 20,
         h: 8,
+      }),
+      await writeLayerPng(dir, "mouth_teeth.png", {
+        x: 42,
+        y: 59,
+        w: 16,
+        h: 2,
+      }),
+      await writeLayerPng(dir, "mouth_tongue.png", {
+        x: 44,
+        y: 63,
+        w: 12,
+        h: 3,
       }),
       await writeLayerPng(dir, "lip_lower.png", { x: 40, y: 67, w: 20, h: 3 }),
     ];
@@ -659,9 +672,19 @@ describe("autoRigFromLayers", () => {
     const model = parseIkiModel(JSON.parse(fs.readFileSync(outPath, "utf8")));
     const ids = model.parts.map((p) => p.id);
     expect(ids).toEqual(
-      expect.arrayContaining(["mouth_inner", "lip_lower", "lip_upper"]),
+      expect.arrayContaining([
+        "mouth_inner",
+        "mouth_tongue",
+        "mouth_teeth",
+        "lip_lower",
+        "lip_upper",
+      ]),
     );
     expect(ids).not.toContain("mouth");
+    for (const id of ["mouth_tongue", "mouth_teeth"])
+      expect(model.parts.find((p) => p.id === id)!.clip).toEqual({
+        masks: ["mouth_inner"],
+      });
   });
 
   it("returns { ok:false } for a lip set mixed with mouth", async () => {

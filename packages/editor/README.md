@@ -57,7 +57,7 @@ leaves the document untouched.
 ## Auto-rig
 
 `generateIkiFromLayerSet` turns role-named layers (`face`, `eye_L`, `eye_R`,
-and `mouth` — or the lip set `mouth_inner`, `lip_lower`, `lip_upper`, which folds open instead of crossfading — plus optional `iris_*`, `brow_*`, `lash_*`, `lash_lower_*`, `hair_front`, `hair_back`,
+and `mouth` — or the lip set `mouth_inner`, `lip_lower`, `lip_upper`, which folds open instead of crossfading, with optional `mouth_tongue` / `mouth_teeth` clipped to `mouth_inner` (only with the lip set) — plus optional `iris_*`, `brow_*`, `lash_*`, `lash_lower_*`, `hair_front`, `hair_back`,
 `body`, `arm_*`, …) into a rigged model that blinks, gazes, opens its mouth, turns its head over
 a body warp that breathes, follows the head a little and turns on
 `ParamBodyAngleX/Y/Z`, and emotes with its brows — including a

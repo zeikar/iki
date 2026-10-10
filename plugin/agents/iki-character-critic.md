@@ -233,14 +233,22 @@ also looks at `mouth-renders`:
 - At `mouth-open-0.3-*` and `mouth-open-0.6-*` there is ONE mouth. Two drawings
   over each other is ghosting, the fold failing: an `escalate` on
   `packages/editor/src/auto-rig/mouth.ts`.
+- At `mouth-open-0.3-*` and `mouth-open-0.6-*` the teeth band shows under the
+  line and the tongue at the opening's bottom, both inside the cavity. Either
+  outside the lips or the cavity is an `escalate` on
+  `packages/mcp/src/compose-lips.ts` (the split),
+  `packages/editor/src/auto-rig/generate.ts` (the clip) or `mouth.ts` (the
+  travels).
 - At `mouth-open-0-*` there is one closed line, with no light seam between it
   and the skin and no second line. The interior is never outside the lips at any
   pose, the corners (Form ±1), `mouth-laugh`, `mouth-surprised` and
   `mouth-turn-p30-half` included: an `escalate` on
   `packages/mcp/src/compose-lips.ts` (the mask) or `mouth.ts` (the fold).
-- The closed line's weight is judged against the reference's mouth line. A
-  hairline is a `regenerate` of `mouth_keyed.png` with a BOLDER upper lip line,
-  with the measure's `lip_upper: the upper line is N px` number in the finding.
+- The closed line is the drawn line thinned to `UPPER_THIN` (0.7) of its
+  height, its ends tapered; judge its weight on the render against the
+  reference's mouth line. A hairline is still a `regenerate` of
+  `mouth_keyed.png` with a bolder, medium upper lip line, with the measure's
+  `lip_upper: the upper line is N px` number in the finding.
 - The closed line is the drawn upper line carried by one smooth travel: its
   ends stay where they were drawn, its sag is the rig's share of the opening's
   depth, its shape the keyed art's two arcs, and on opening the upper line goes
@@ -248,29 +256,31 @@ also looks at `mouth-renders`:
   frown that disagrees with the reference is a `regenerate` of
   `mouth_keyed.png` with the opening drawn deeper (a smile) or shallower at the
   centre, never an `escalate` for the share.
-- A fork or tick at a closed corner (`mouth-open-0-*`, `rest`) WITH a hook, tick
-  or fork drawn at that corner in `mouth_keyed.png` is drawn art: the line
-  beside the opening never folds, so a drawn hook stays on the closed mouth
-  exactly as drawn. A
-  `regenerate` of `mouth_keyed.png` with clean tapered ends. With NONE drawn
-  (the keyed art's line ends in clean points), a fork, step or spike at a
-  closed corner is a rig finding, an `escalate` on the closed corner's code:
-  `packages/editor/src/auto-rig/mouth.ts` (the fold's ends) or
+- Shut, a flick drawn past a corner is pulled toward it and thinned, so a small
+  tick at a closed corner (`mouth-open-0-*`, `rest`) WITH a flick, hook, tick
+  or fork drawn there in `mouth_keyed.png` is drawn art: a `regenerate` of
+  `mouth_keyed.png` with nothing past the corners. With NONE drawn (the keyed
+  art's line ends at the corners), a fork, step, spike or tick at a closed
+  corner is a rig finding, an `escalate` on the closed corner's code:
+  `packages/editor/src/auto-rig/mouth.ts` (the closed key's end shaping) or
   `packages/mcp/src/compose-lips.ts` (the split beside the opening).
 - A second, lighter line under the closed line at `mouth-open-0-*` (the lower
   lip drawn with its own outline) is a `regenerate` of `mouth_keyed.png` with
   the lower lip as a shade, no outline.
 - A peach band at the opening's bottom at `mouth-open-1-*` is a `regenerate` of
   `mouth_interior.png`.
+- `skipped` listing `mouth_teeth` / `mouth_tongue` means the interior had no
+  light paint: a `regenerate` of `mouth_interior.png` with a wider teeth band
+  only if the open mouth reads toothless.
 - A mouth off its place or the wrong size is a `retune` of `layout.mouth_inner`
   (`cx`/`cy`/`w`, the frame of all three layers; `h` stretches) — the measure's
   short-opening warning names the `w` when the mouth is smaller than the
   reference's.
 - A mouth still shut at a MouthOpen value below the `no slit below MouthOpen v`
-  the `lips:` line reports is the fold's dead zone, by design (`v` is the line's
-  rows over the opening's height plus them: about 0.04 on a tall opening under
-  a hairline, a third on a short one under a bold line): no finding. One shut
-  above `v` is a `rig` finding.
+  the `lips:` line reports is the fold's dead zone, by design (`v` is about 0.7
+  of the line's rows, the thinned overlap, over the opening's height plus
+  them: about 0.03 on a tall opening under a hairline, a quarter on a short
+  one under a bold line): no finding. One shut above `v` is a `rig` finding.
 
 On a legacy `mouth` / `mouth_open` model the half-open ghosting is the
 crossfade's own: say so once, as no finding.

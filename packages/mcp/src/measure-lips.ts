@@ -8,19 +8,24 @@
  * construction; these checks are for a set it did not cut (hand-prepared
  * layers, a re-cut) and for the drawings the contract cannot save: a mouth too
  * small to fold, a line too thin to close on, green the key left, an interior
- * with holes. The lip layers' straight edges are the split's cuts, so the
- * generic edge and flat-cut checks skip them (`isLipRole`).
+ * with holes. The lip layers' straight edges are the split's cuts, and so are
+ * the inside layers' (`mouth_tongue`, `mouth_teeth`), so the generic edge and
+ * flat-cut checks skip them all (`isLipLayerRole`). Of an inside layer the rig reads
+ * only its box, so it is checked for the set it needs, its canvas and its box.
  */
 
 import path from "node:path";
 import {
   ALPHA_OPAQUE,
+  LIP_INSIDE_ROLES,
   LIP_ROLES,
   LayerGeometryError,
   columnRuns,
   createLayerSetMeasurer,
+  isLipInsideRole,
   mouthOpening,
   type LayerInput,
+  type LipInsideRole,
   type LipRole,
   type Opening,
 } from "@ikijs/editor";
@@ -28,8 +33,9 @@ import type { LayerStats } from "./measure";
 import { MIN_OPENING_WIDTH } from "./compose-lips";
 import { decodePng } from "./node-images";
 
-export const isLipRole = (role: string): role is LipRole =>
-  (LIP_ROLES as readonly string[]).includes(role);
+/** A lip set's layer: one of its three, or an inside layer. */
+export const isLipLayerRole = (role: string): role is LipRole | LipInsideRole =>
+  (LIP_ROLES as readonly string[]).includes(role) || isLipInsideRole(role);
 
 /** The opening's height at its centre, rows, under which it is too small to
  *  fold. Our own value, provisional. */
@@ -67,7 +73,17 @@ export async function lipWarnings(
 ): Promise<{ warnings: string[]; lips?: LipFacts }> {
   const warnings: string[] = [];
   const present = LIP_ROLES.filter((role) => layers[role] !== undefined);
-  if (present.length === 0) return { warnings };
+  const inside = LIP_INSIDE_ROLES.filter((role) => layers[role] !== undefined);
+  if (present.length === 0) {
+    if (inside.length > 0) {
+      warnings.push(
+        `${inside.join("/")}: a lip set's inside layer with no lip set — auto_rig_from_layers refuses ` +
+          `it (it is cut from the interior and clipped to it). Recompose from mouth_keyed.png + ` +
+          `mouth_interior.png, or remove it.`,
+      );
+    }
+    return { warnings };
+  }
 
   const legacy = ["mouth", "mouth_open"].filter(
     (role) => layers[role] !== undefined,
@@ -89,7 +105,7 @@ export async function lipWarnings(
   }
 
   const { mouth_inner: inner, lip_upper: upper } = layers;
-  for (const role of ["lip_lower", "lip_upper"] as const) {
+  for (const role of ["lip_lower", "lip_upper", ...inside]) {
     const stats = layers[role];
     if (stats.canvasW !== inner.canvasW || stats.canvasH !== inner.canvasH) {
       warnings.push(
@@ -98,6 +114,30 @@ export async function lipWarnings(
           `sizes; recompose them together.`,
       );
       return { warnings };
+    }
+  }
+  // Of an inside layer the rig reads only its box, and the cavity clips
+  // whatever leaves its own: the measured alpha > 8 box (`bboxCx ± w/2`), in
+  // pixel edges.
+  const box = (m: LayerStats) => ({
+    x0: m.bboxCx - m.w / 2,
+    x1: m.bboxCx + m.w / 2,
+    y0: m.bboxCy - m.h / 2,
+    y1: m.bboxCy + m.h / 2,
+  });
+  const cavity = box(inner);
+  for (const role of inside) {
+    const b = box(layers[role]);
+    if (
+      b.x0 < cavity.x0 ||
+      b.x1 > cavity.x1 ||
+      b.y0 < cavity.y0 ||
+      b.y1 > cavity.y1
+    ) {
+      warnings.push(
+        `${role}: its box leaves mouth_inner's — the cavity clips it away there. Recompose from ` +
+          `mouth_keyed.png + mouth_interior.png (free).`,
+      );
     }
   }
 

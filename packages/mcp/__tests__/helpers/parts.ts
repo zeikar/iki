@@ -419,11 +419,12 @@ export async function writeKeyedMouth(
  * 8 rows deep along its top, a TONGUE half-ellipse at its bottom and, with
  * `rim` (the default), a LIP_RIM band 6 rows deep along the bottom edge that
  * touches the border, the way a generator draws a lip under the cavity.
- * `allRim` paints the whole oval LIP_RIM.
+ * `allRim` paints the whole oval LIP_RIM; `dark` the whole oval CAVITY, no
+ * teeth, tongue or rim.
  */
 export async function writeInterior(
   dir: string,
-  opts: { rim?: boolean; allRim?: boolean } = {},
+  opts: { rim?: boolean; allRim?: boolean; dark?: true } = {},
 ): Promise<void> {
   const inOval = (x: number, y: number) =>
     ((x + 0.5 - 50) / 50) ** 2 + ((y + 0.5 - 25) / 25) ** 2 <= 1;
@@ -432,13 +433,15 @@ export async function writeInterior(
       for (let x = 0; x < 100; x++) {
         if (!inOval(x, y)) continue;
         let rgb = CAVITY;
-        if (y < 8) rgb = TEETH;
-        else if (
-          y >= 38 &&
-          ((x + 0.5 - 50) / 22) ** 2 + ((y + 0.5 - 38) / 10) ** 2 <= 1
-        )
-          rgb = TONGUE;
-        if (opts.allRim || ((opts.rim ?? true) && y >= 44)) rgb = LIP_RIM;
+        if (!opts.dark) {
+          if (y < 8) rgb = TEETH;
+          else if (
+            y >= 38 &&
+            ((x + 0.5 - 50) / 22) ** 2 + ((y + 0.5 - 38) / 10) ** 2 <= 1
+          )
+            rgb = TONGUE;
+          if (opts.allRim || ((opts.rim ?? true) && y >= 44)) rgb = LIP_RIM;
+        }
         set(x, y, rgb);
       }
     }

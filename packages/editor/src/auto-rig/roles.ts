@@ -34,6 +34,14 @@ export type LipRole = (typeof LIP_ROLES)[number];
 export const isLipRole = (role: string): role is LipRole =>
   (LIP_ROLES as readonly string[]).includes(role);
 
+/** The lip set's optional inside parts, back to front: cut from the interior
+ *  and clipped to `mouth_inner` (`mouth.ts`). */
+export const LIP_INSIDE_ROLES = ["mouth_tongue", "mouth_teeth"] as const;
+export type LipInsideRole = (typeof LIP_INSIDE_ROLES)[number];
+
+export const isLipInsideRole = (role: string): role is LipInsideRole =>
+  (LIP_INSIDE_ROLES as readonly string[]).includes(role);
+
 /** Back to front. `@ikijs/mcp`'s composer draws in the same order. */
 export const ROLE_TABLE: readonly RoleSpec[] = [
   { role: "hair_back", family: "hair_back" },
@@ -46,10 +54,13 @@ export const ROLE_TABLE: readonly RoleSpec[] = [
   { role: "nose", family: "nose" },
   { role: "mouth", family: "mouth" },
   { role: "mouth_open", family: "mouth" },
-  // The lip set, back to front: the interior, the lower lip's skin, the upper
-  // lip and its line over both. It folds open instead of crossfading
-  // (`mouth.ts`), so it stands in for `mouth`, never beside it.
+  // The lip set, back to front: the interior, the tongue and the teeth clipped
+  // to it, the lower lip's skin, the upper lip and its line over both. It
+  // folds open instead of crossfading (`mouth.ts`), so it stands in for
+  // `mouth`, never beside it.
   { role: "mouth_inner", family: "mouth" },
+  { role: "mouth_tongue", family: "mouth" },
+  { role: "mouth_teeth", family: "mouth" },
   { role: "lip_lower", family: "mouth" },
   { role: "lip_upper", family: "mouth" },
   { role: "eye_L", family: "eye_L", required: true },
@@ -136,10 +147,17 @@ export function checkArmsHaveBody(roles: Iterable<string>): void {
 }
 
 /** The mouth is `mouth` (with an optional `mouth_open`) or the whole lip set
- *  (`mouth.ts`): throws on neither, on part of the set, or on both. */
+ *  (`mouth.ts`): throws on neither, on part of the set, on both, or on an
+ *  inside part without the whole set. */
 export function checkMouth(roles: Iterable<string>): void {
   const has = new Set(roles);
   const present = LIP_ROLES.filter((r) => has.has(r));
+  const inside = LIP_INSIDE_ROLES.filter((r) => has.has(r));
+  if (inside.length > 0 && present.length === 0) {
+    throw new Error(
+      `auto-rig: ${inside[0]} needs the lip set ${LIP_ROLES.join(", ")} (it is cut from the interior and clipped to it)`,
+    );
+  }
   if (present.length === 0) {
     if (!has.has("mouth")) {
       throw new Error(
@@ -177,8 +195,8 @@ export function checkPosesHaveArms(roles: Iterable<string>): void {
 /**
  * Map file names to roles. Throws on an unknown role, a role named twice, a
  * required role (`face`, `eye_L`, `eye_R`) missing, no mouth (`mouth`, or the
- * lip set) or a partial or mixed one, an arm without a body, or a pose forearm
- * without its arm.
+ * lip set) or a partial or mixed one, a lip set's inside part without the set,
+ * an arm without a body, or a pose forearm without its arm.
  */
 export function parseLayerRoles(
   fileNames: string[],

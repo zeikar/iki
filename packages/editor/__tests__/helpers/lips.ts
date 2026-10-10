@@ -1,8 +1,9 @@
 /**
  * A synthetic lip set (`mouth_inner`, `lip_lower`, `lip_upper`) with the alpha
  * runs the measurer would record, on the character's 1000 canvas in its
- * mouth's place. Rows are canvas rows (y down); the model y of a row boundary
- * is `500 - row`.
+ * mouth's place, and optionally its inside parts (`mouth_tongue`,
+ * `mouth_teeth`), which the measurer records no runs for. Rows are canvas
+ * rows (y down); the model y of a row boundary is `500 - row`.
  */
 import type { LayerInput } from "../../src/auto-rig/types";
 
@@ -35,6 +36,10 @@ export interface LipOptions {
   grownInner?: boolean;
   /** The line and the skin end at the opening's end columns: no hooks. */
   noHooks?: boolean;
+  /** Add `mouth_tongue` (the three rows above the band, inside the opening's
+   *  columns) and `mouth_teeth` (two rows under the line, from the
+   *  interior's top), without `rowRuns`. */
+  inside?: boolean;
 }
 
 type Col = [col: number, r0: number, r1: number];
@@ -109,8 +114,32 @@ export function lipSet(opts: LipOptions = {}): LayerInput[] {
     ),
     ...hooks.map((x): Col => [x, 596, 602]),
   ];
+  // The band is the interior's last two rows.
+  const inside = opts.inside
+    ? [
+        layer(
+          "mouth_tongue",
+          xs.map(
+            (x): Col => [
+              x,
+              topRow(x) + heightAt(x) - 3,
+              topRow(x) + heightAt(x),
+            ],
+          ),
+          true,
+          g,
+        ),
+        layer(
+          "mouth_teeth",
+          inner.slice(0, xs.length).map(([x, r0]): Col => [x, r0, r0 + 2]),
+          true,
+          g,
+        ),
+      ]
+    : [];
   return [
     layer("mouth_inner", inner, opts.noRuns, g),
+    ...inside,
     layer("lip_lower", lower, opts.noRuns, g),
     layer("lip_upper", upper, opts.noRuns, g),
   ];

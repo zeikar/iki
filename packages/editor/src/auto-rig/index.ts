@@ -22,5 +22,11 @@ export {
   type Opening,
   type OpeningColumn,
 } from "./mouth";
-export { parseLayerRoles, partIdsOfRole } from "./roles";
+export {
+  LIP_INSIDE_ROLES,
+  isLipInsideRole,
+  parseLayerRoles,
+  partIdsOfRole,
+  type LipInsideRole,
+} from "./roles";
 export { generateIkiFromLayerSet } from "./generate";

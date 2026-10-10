@@ -474,6 +474,66 @@ describe("mouth.ts: the fold", () => {
     expect(margin.line(536)).toBeUndefined();
     expect(grownFold(536, top, 0)[1]).toBeCloseTo(grownFold(535, top, 0)[1], 9);
   });
+
+  it("rides the teeth on the line and the tongue on the interior's bottom, rigid per column", () => {
+    const op = mouthOpening(lips());
+    const [upper, inner, teeth, tongue] = (
+      ["lip_upper", "mouth_inner", "mouth_teeth", "mouth_tongue"] as const
+    ).map((r) => mouthFold(r, op));
+    for (const x of COLS) {
+      const c = op.at(x);
+      for (const v of [0, 0.3, 0.7, 1]) {
+        // The line's travel alone at its bottom edge: lip_upper's own move
+        // there wherever the closed key does not taper it.
+        expect(teeth(x, c.Tu, v)[1]).toBeCloseTo((c.seam - c.Tu) * (1 - v), 9);
+        if (op.line(x)!.squash === 1)
+          expect(teeth(x, c.Tu, v)[1]).toBeCloseTo(upper(x, c.Tu, v)[1], 9);
+        // Rigid below the line's bottom: one number down the column.
+        for (const y of [c.Tu - 1, c.Tu - 5, c.Bb])
+          expect(teeth(x, y, v)).toEqual(teeth(x, c.Tu, v));
+        // The interior's bottom edge's travel, at any row.
+        expect(tongue(x, c.Bb, v)[1]).toBeCloseTo(inner(x, c.Bb, v)[1], 9);
+        expect(tongue(x, c.Tu - 3, v)).toEqual(tongue(x, c.Bb, v));
+        expect(teeth(x, c.Tu, v)[0]).toBe(0);
+        expect(tongue(x, c.Bb, v)[0]).toBe(0);
+      }
+      // At 1 nothing moves at or below the line's bottom; above it the
+      // stack's thin, which the tongue never reaches.
+      for (const y of [c.Tu, c.Tu - 2, c.Bb]) {
+        expect(teeth(x, y, 1)[1]).toBeCloseTo(0, 9);
+        expect(tongue(x, y, 1)[1]).toBeCloseTo(0, 9);
+      }
+      expect(teeth(x, c.Tu + 2, 1)[1]).toBeCloseTo(-(1 - UPPER_THIN) * 2, 9);
+    }
+    // Off the opening, the nearest column.
+    for (const v of [0, 0.5, 1]) {
+      const [a, b] = [op.at(470), op.at(529)];
+      expect(teeth(466, a.Tu + 1, v)).toEqual(teeth(470, a.Tu + 1, v));
+      expect(teeth(533, b.Tu + 1, v)).toEqual(teeth(529, b.Tu + 1, v));
+      expect(tongue(466, a.Bb, v)).toEqual(tongue(470, a.Bb, v));
+      expect(tongue(533, b.Bb, v)).toEqual(tongue(529, b.Bb, v));
+    }
+    // The teeth from the interior's top, up inside the line's ink: their top
+    // lands where the interior's does at 1, and rides the line's bottom by
+    // that thinned height at every key.
+    const under = mouthOpening(lips({ underLine: true, inside: true }));
+    const [line, cavity, top] = (
+      ["lip_upper", "mouth_inner", "mouth_teeth"] as const
+    ).map((r) => mouthFold(r, under));
+    for (const x of COLS) {
+      const c = under.at(x);
+      expect(c.T).toBe(c.Tu + 1);
+      expect(c.T + top(x, c.T, 1)[1]).toBeCloseTo(
+        c.T + cavity(x, c.T, 1)[1],
+        9,
+      );
+      if (under.line(x)!.squash < 1) continue;
+      for (const v of [0, 0.5])
+        expect(
+          c.T + top(x, c.T, v)[1] - (c.Tu + line(x, c.Tu, v)[1]),
+        ).toBeCloseTo(UPPER_THIN * (c.T - c.Tu), 9);
+    }
+  });
 });
 
 describe("drivers.ts: the shared mouth frame", () => {
@@ -899,6 +959,107 @@ describe("the lip set on the bust", () => {
   });
 });
 
+describe("the lip set's inside parts on the bust", () => {
+  const { layers, options } = character({ lips: "inside" });
+  const model = generateIkiFromLayerSet(layers, CANVAS, options);
+  const byRole = mapOf(layers);
+  const rig = buildMouthRig(byRole);
+  const op = rig.opening;
+  const part = (id: string) => model.parts.find((p) => p.id === id)!;
+  const boxOf = (role: string) => boxOfLayer(byRole.get(role)!);
+  const INSIDE = ["mouth_tongue", "mouth_teeth"] as const;
+  /** A part's warp on `parameter` whose `value` keyform moves something, in
+   *  px per vertex. */
+  const keyform = (role: string, parameter: string, value: number) => {
+    const w = part(role).warps!.find(
+      (w) =>
+        w.parameter === parameter &&
+        w.keyforms.some((k) => k.offsets.some((o) => o !== 0)),
+    )!;
+    const box = boxOf(role);
+    const o = w.keyforms.find((k) => k.value === value)!.offsets;
+    return meshPoints(part(role).mesh!, box).map((_, i): [number, number] => [
+      o[2 * i] * bw(box),
+      o[2 * i + 1] * bh(box),
+    ]);
+  };
+
+  it("draws the tongue and the teeth between the interior and the skin, clipped to the interior", () => {
+    const ids = model.parts.map((p) => p.id);
+    const at = ids.indexOf("mouth_inner");
+    expect(ids.slice(at, at + 5)).toEqual([
+      "mouth_inner",
+      "mouth_tongue",
+      "mouth_teeth",
+      "lip_lower",
+      "lip_upper",
+    ]);
+    for (const role of INSIDE) {
+      expect(part(role).deformer).toBe("mouthWarp");
+      expect(part(role).clip).toEqual({ masks: ["mouth_inner"] });
+      expect(partIdsOfRole(role)).toEqual([role]);
+    }
+    expect(part("mouth_inner").clip).toBeUndefined();
+    expect(rig.union).toEqual(
+      unionBoxes(LIP_ROLES.map((r) => boxOfLayer(byRole.get(r)!))),
+    );
+    expect(() => parseIkiModel(model)).not.toThrow();
+  });
+
+  it("meshes them on the knots and moves them with the interior under MouthForm", () => {
+    const innerPts = meshPoints(
+      part("mouth_inner").mesh!,
+      boxOf("mouth_inner"),
+    );
+    for (const role of INSIDE) {
+      expect(part(role).mesh).toEqual(mouthMesh(boxOf(role), rig.knots).mesh);
+      const pts = meshPoints(part(role).mesh!, boxOf(role));
+      for (const form of [-1, 1]) {
+        const mine = keyform(role, P.MouthForm, form);
+        const theirs = keyform("mouth_inner", P.MouthForm, form);
+        let shared = 0;
+        pts.forEach(([x], i) => {
+          const j = innerPts.findIndex(([ix]) => Math.abs(ix - x) < 1e-3);
+          if (j < 0) return;
+          shared++;
+          expect(Math.abs(mine[i][0] - theirs[j][0])).toBeLessThan(1e-2);
+          expect(Math.abs(mine[i][1] - theirs[j][1])).toBeLessThan(1e-2);
+        });
+        expect(shared).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("leaves MouthOpen at 1 the thin alone and closes each column by one travel", () => {
+    for (const role of INSIDE) {
+      const { xs } = mouthMesh(boxOf(role), rig.knots);
+      const pts = meshPoints(part(role).mesh!, boxOf(role));
+      const one = keyform(role, P.MouthOpen, 1);
+      const zero = keyform(role, P.MouthOpen, 0);
+      const box = boxOf(role);
+      let moved = 0;
+      pts.forEach(([, y], i) => {
+        const c = op.at(columnOfKnot(xs[i % xs.length], op));
+        const thin = -(1 - UPPER_THIN) * Math.max(0, y - c.Tu);
+        expect(one[i][0]).toBe(0);
+        expect(Math.abs(one[i][1] - thin)).toBeLessThan(1e-2);
+        if (thin !== 0) {
+          moved++;
+          // Only the teeth's top row stands above a lower column's line.
+          expect(role).toBe("mouth_teeth");
+          expect(y).toBeCloseTo(box.y1, 6);
+        }
+        const travel =
+          role === "mouth_teeth" ? c.seam - c.Tu : c.seam + c.overlap - c.Bb;
+        expect(zero[i][0]).toBe(0);
+        expect(Math.abs(zero[i][1] - one[i][1] - travel)).toBeLessThan(1e-2);
+      });
+      if (role === "mouth_teeth") expect(moved).toBeGreaterThan(0);
+      else expect(moved).toBe(0);
+    }
+  });
+});
+
 describe("the lip set on the bust: what the mouth shows composited", () => {
   const { layers, options } = character({ lips: true });
   type Tri = { rest: [number, number][]; at: [number, number][] };
@@ -1121,7 +1282,42 @@ describe("refusals", () => {
     expect(() => gen(layers)).toThrow(/rowRuns/);
   });
 
-  it("accepts the three lip roles", () => {
+  it("refuses an inside part without the whole lip set", () => {
+    const re =
+      /mouth_teeth needs the lip set mouth_inner, lip_lower, lip_upper \(it is cut from the interior and clipped to it\)/;
+    const legacy = character().layers;
+    const teeth = character({ lips: "inside" }).layers.find(
+      (l) => l.role === "mouth_teeth",
+    )!;
+    // Beside mouth and mouth_open, and alone.
+    expect(() =>
+      parseLayerRoles([
+        ...files,
+        "mouth.png",
+        "mouth_open.png",
+        "mouth_teeth.png",
+      ]),
+    ).toThrow(re);
+    expect(() => gen([...legacy, teeth])).toThrow(re);
+    expect(() => parseLayerRoles([...files, "mouth_teeth.png"])).toThrow(re);
+    expect(() =>
+      gen([...legacy.filter((l) => !l.role.startsWith("mouth")), teeth]),
+    ).toThrow(re);
+    // A partial set with one is still partial.
+    expect(() =>
+      parseLayerRoles([...files, ...lipFiles.slice(0, 2), "mouth_tongue.png"]),
+    ).toThrow(/the lip set is partial: missing lip_upper/);
+  });
+
+  it("accepts the three lip roles, with or without the inside parts", () => {
     expect(parseLayerRoles([...files, ...lipFiles])).toHaveLength(6);
+    expect(
+      parseLayerRoles([
+        ...files,
+        ...lipFiles,
+        "mouth_tongue.png",
+        "mouth_teeth.png",
+      ]),
+    ).toHaveLength(8);
   });
 });

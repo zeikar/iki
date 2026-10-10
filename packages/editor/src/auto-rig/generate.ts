@@ -17,7 +17,8 @@
  * the default expressions and the Nod, Shake and Tilt motions, and
  * with a pose forearm the Wave (`animations.ts`). The mouth has two paths,
  * chosen by the layers: `mouth` alone stretches, with `mouth_open` it
- * crossfades; the lip set folds open like the eyelid (`mouth.ts`).
+ * crossfades; the lip set folds open like the eyelid (`mouth.ts`), its
+ * optional `mouth_tongue` and `mouth_teeth` clipped to its interior.
  */
 
 import {
@@ -77,6 +78,7 @@ import {
   type Cells,
 } from "./layout";
 import {
+  isLipInsideRole,
   isLipRole,
   roleOfPart,
   roleSpec,
@@ -471,7 +473,10 @@ function buildPart(
     headStart = fm.headStart;
   } else if (spec.role === "hair_front") {
     mesh = columnMesh(b, frontGrid!);
-  } else if (lips !== undefined && isLipRole(spec.role)) {
+  } else if (
+    lips !== undefined &&
+    (isLipRole(spec.role) || isLipInsideRole(spec.role))
+  ) {
     ({ mesh, xs: knotXs } = mouthMesh(b, lips.knots));
   } else if (spec.family !== "body") {
     const cells = MESH_CELLS[spec.role] ?? FEATURE_MESH_CELLS;
@@ -596,6 +601,8 @@ function buildPart(
       extra = [(AMPLITUDE.mouthOpenWidth - 1) * (bw(b) / 2), 0];
       break;
     case "mouth_inner":
+    case "mouth_tongue":
+    case "mouth_teeth":
     case "lip_lower":
     case "lip_upper":
       // Every travel is a warp, so `extra` stays 0 and `motionReach` sees it.
@@ -604,6 +611,7 @@ function buildPart(
         mouthForm(mesh!, b, lips!.frame),
         mouthWiden(mesh!, b, lips!.frame),
       );
+      if (isLipInsideRole(spec.role)) part.clip = { masks: ["mouth_inner"] };
       break;
     case "blush_L":
     case "blush_R":

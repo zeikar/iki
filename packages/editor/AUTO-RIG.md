@@ -197,7 +197,7 @@ small warp grid, baked from its field at `AngleX, AngleY ∈ {−30, 0, 30}`:
 | `eyeWarp_L/R`             | `eye_*`, `iris_*`, `pupil_*`, `highlight_*`, `lash_lower_*`, `lash_*`                 |
 | `browWarp_L/R`            | `brow_*`                                                                              |
 | `noseWarp`                | `nose`                                                                                |
-| `mouthWarp`               | `mouth`, `mouth_open`, `mouth_inner`, `lip_lower`, `lip_upper`                        |
+| `mouthWarp`               | `mouth`, `mouth_open`, `mouth_inner`, `mouth_tongue`, `mouth_teeth`, `lip_*`          |
 | — (own keyforms)          | `face`, `blush_*`, `hair_front`, `hair_back`                                          |
 | — (`bodyWarp`)            | `body`: breath, BodyAngleX/Y/Z, the follow                                            |
 | — (`armDeformer_L/R`)     | `arm_*`: the upper arm, about the shoulder (`ParamArmL/R`)                            |
@@ -534,12 +534,20 @@ curvature the plate would need to put the eyes that far in front of its edge.
   alone, and the whole stack at MouthOpen 1 is the drawing thinned and
   widened 1.2× like `mouth_open`. The composer's closed preview resamples
   each lip column through the meshes' own landed rows, so it shows the thin
-  and the taper (not a flick's sideways pull). The three share one MouthForm
-  frame (their union's), so the corners stay joined. The mouth's anchor for
-  the head's frame and the turn is the seam at the opening's centre. The path
-  is chosen by the layers present: `mouth_open` crossfades, `mouth` alone
-  stretches, the lip set folds; a partial set, or one mixed with `mouth` or
-  `mouth_open`, is refused.
+  and the taper (not a flick's sideways pull). The set may carry
+  `mouth_tongue` and `mouth_teeth` (the composer cuts them from the interior's
+  light paint), drawn between the interior and the skin, clipped to
+  `mouth_inner` and meshed on its knots; the rig reads nothing off them but
+  their box. Each moves rigidly per column: the teeth, their rows above the
+  line's bottom thinned with the stack, by the line's travel, so they ride
+  under it; the tongue by the interior's bottom edge's, so it rides the
+  opening's bottom. Shut, the interior has no area, and the clip hides both.
+  Every part shares one MouthForm frame (the three's union's), so the corners
+  stay joined. The mouth's anchor for the head's frame and the turn is the
+  seam at the opening's centre. The path is chosen by the layers present:
+  `mouth_open` crossfades, `mouth` alone stretches, the lip set folds; a
+  partial set, one mixed with `mouth` or `mouth_open`, or an inside part
+  without the set is refused.
 - **Roll** — the head rolls 14° in the world at AngleZ ±30 about the chin:
   on a body, the body's follow rolls the chin's cell β (1.2°) about the hips
   and `headDeformer` rolls the rest, 12.8°; without one, `headDeformer` rolls

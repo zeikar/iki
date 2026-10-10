@@ -380,7 +380,13 @@ describe("MCP server integration", () => {
       result.structuredContent as { layers: { role: string }[] }
     ).layers.map((l) => l.role);
     expect(roles).toEqual(
-      expect.arrayContaining(["mouth_inner", "lip_lower", "lip_upper"]),
+      expect.arrayContaining([
+        "mouth_inner",
+        "mouth_tongue",
+        "mouth_teeth",
+        "lip_lower",
+        "lip_upper",
+      ]),
     );
     expect(roles).not.toContain("mouth");
   });

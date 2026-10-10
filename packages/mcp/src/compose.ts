@@ -15,7 +15,8 @@
  * closed drawing and an open one that cross-fade. `mouth_keyed.png` (the open
  * mouth, its inside flat #00FF00) + `mouth_interior.png` is the lip set: the
  * composer keys and splits it into `mouth_inner` / `lip_lower` / `lip_upper` on
- * one frame (./compose-lips), which the rig folds open like an eyelid.
+ * one frame (./compose-lips), which the rig folds open like an eyelid, and the
+ * interior's light paint into `mouth_tongue` / `mouth_teeth` clipped to it.
  *
  * `sharp` must stay confined to @ikijs/mcp; part decoding goes through
  * ./node-images, this package's single image-decode boundary.
@@ -24,7 +25,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
-import { ALPHA_OPAQUE, detectAlphaBbox as scanAlphaBbox } from "@ikijs/editor";
+import {
+  ALPHA_OPAQUE,
+  isLipInsideRole,
+  detectAlphaBbox as scanAlphaBbox,
+} from "@ikijs/editor";
 import { cropToBuffer, decodePng } from "./node-images";
 import { TRIM_THRESHOLD, boxWithoutStraySpecks, luma } from "./trim";
 import { measureDir, type MeasureReport, type NoseSpeck } from "./measure";
@@ -254,10 +259,11 @@ const DEFAULT_LAYOUT = {
     optional: true,
   },
   // The lip set's ONE frame, mouth_open's place: the keyed mouth is split into
-  // mouth_inner / lip_lower / lip_upper and all three land here, so a retune
-  // moves them together. lip_lower and lip_upper have no key of their own
-  // (LIP_FRAME). OPTIONAL and opt-in: with mouth_keyed.png + mouth_interior.png
-  // it stands in for mouth and mouth_open.
+  // mouth_inner / lip_lower / lip_upper, the interior's light paint into
+  // mouth_tongue / mouth_teeth, and all of them land here, so a retune moves
+  // them together. The other four have no key of their own (LIP_FRAME).
+  // OPTIONAL and opt-in: with mouth_keyed.png + mouth_interior.png it stands
+  // in for mouth and mouth_open.
   mouth_inner: {
     src: KEYED_SRC,
     cx: 550,
@@ -303,8 +309,10 @@ const LOWER_LASH = { lash_lower_L: "eye_L", lash_lower_R: "eye_R" } as const;
 /** The eyewhite's lower lid, split in memory like the sclera and lash. */
 const LOWER_LASH_SRC = "eyewhite_lash_lower.png";
 
-/** The lip set's other two layers, and the role whose frame they are cut on. */
+/** The lip set's other layers, and the role whose frame they are cut on. */
 const LIP_FRAME = {
+  mouth_tongue: "mouth_inner",
+  mouth_teeth: "mouth_inner",
   lip_lower: "mouth_inner",
   lip_upper: "mouth_inner",
 } as const;
@@ -345,6 +353,8 @@ export const ORDER: LayerRole[] = [
   "mouth",
   "mouth_open",
   "mouth_inner",
+  "mouth_tongue",
+  "mouth_teeth",
   "lip_lower",
   "lip_upper",
   "eye_L",
@@ -1313,10 +1323,25 @@ export async function composeLayersFromParts(
         });
         continue;
       }
-      if (role === "lip_lower" || role === "lip_upper") {
+      if (
+        role === "mouth_tongue" ||
+        role === "mouth_teeth" ||
+        role === "lip_lower" ||
+        role === "lip_upper"
+      ) {
         if (lipSplit === undefined) continue;
         const { split, w, h, left, top } = lipSplit;
-        const buf = role === "lip_lower" ? split.lower : split.upper;
+        const buf = {
+          mouth_tongue: split.tongue,
+          mouth_teeth: split.teeth,
+          lip_lower: split.lower,
+          lip_upper: split.upper,
+        }[role];
+        // An interior with no light paint has no tongue or teeth to cut.
+        if (isLipInsideRole(role) && !(await hasCoverage(buf))) {
+          skipped.push(role);
+          continue;
+        }
         placed.push({ role, part: { buf, w, h }, left, top });
         continue;
       }
@@ -1564,9 +1589,10 @@ export async function composeLayersFromParts(
       });
     }
     // What a role contributes to a rest-pose preview: the lips shut, the
-    // interior left out (shut, it has no height); null for nothing.
+    // interior and what it clips left out (shut, it has no height); null for
+    // nothing.
     const restInput = (role: LayerRole, buf: Buffer): Buffer | null => {
-      if (role === "mouth_inner") return null;
+      if (role === "mouth_inner" || isLipInsideRole(role)) return null;
       if (closed === undefined) return buf;
       if (role === "lip_upper") return closed.upper;
       if (role === "lip_lower") return closed.lower;
