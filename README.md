@@ -212,7 +212,3 @@ JSON — it is small, see above.
 ## License
 
 MIT © Zeikar
-
----
-
-**Built with [HyperClaude](http://zeikar.dev/hyperclaude/)** — _Claude builds, Codex critiques._
