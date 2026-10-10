@@ -2,7 +2,7 @@
   "mcpServers": {
     "iki": {
       "command": "npx",
-      "args": ["-y", "@ikijs/mcp@^0.22.0"]
+      "args": ["-y", "@ikijs/mcp@^0.23.0"]
     }
   }
 }
