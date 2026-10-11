@@ -259,7 +259,7 @@ describe("arms.ts: meshes", () => {
   const arm = layerOf("arm_L");
   const b = boxOfLayer(arm);
   const g = armGeometry(arm, AXIS);
-  const [cap, upper, fore] = armParts("arm_L", arm, g, 7);
+  const [cap, fore, upper] = armParts("arm_L", arm, g, 7);
   // Vertices are written to 1e-5 of the box, so each lands within half that
   // of its width and of its height: under 1e-5 of the height (7e-3 px here)
   // from where it was meant.
@@ -278,7 +278,7 @@ describe("arms.ts: meshes", () => {
   /** The ray each ring vertex is on, the top ray twice. */
   const ringRay = (j: number) => (j <= CAP_SEGMENTS / 2 ? j : j - 1);
 
-  it("cuts the three parts from the crop's box, the cap behind the upper arm behind the forearm", () => {
+  it("cuts the three parts from the crop's box, the cap behind the forearm behind the upper arm", () => {
     for (const p of [cap, upper, fore]) {
       expect(p.color).toEqual([1, 1, 1, 1]);
       expect([p.width, p.height]).toEqual([bw(b), bh(b)]);
@@ -291,14 +291,14 @@ describe("arms.ts: meshes", () => {
       "forearmDeformer_L",
       7,
     ]);
-    expect([upper.id, upper.deformer, upper.order]).toEqual([
-      "arm_L",
-      "armDeformer_L",
-      8,
-    ]);
     expect([fore.id, fore.deformer, fore.order]).toEqual([
       "forearm_L",
       "forearmDeformer_L",
+      8,
+    ]);
+    expect([upper.id, upper.deformer, upper.order]).toEqual([
+      "arm_L",
+      "armDeformer_L",
       9,
     ]);
   });
@@ -565,11 +565,11 @@ describe("arms on the full body", () => {
       "hair_back",
       "body",
       "elbow_L",
-      "arm_L",
       "forearm_L",
+      "arm_L",
       "elbow_R",
-      "arm_R",
       "forearm_R",
+      "arm_R",
       "face",
     ]);
     model.parts.forEach((p, i) => expect(p.order).toBe(i));
@@ -654,14 +654,14 @@ describe("arms on the full body", () => {
       "hair_back",
       "body",
       "elbow_R",
-      "arm_R",
       "forearm_R",
+      "arm_R",
       "face",
     ]);
     expect(ids.filter((id) => /arm_|elbow_/.test(id))).toEqual([
       "elbow_R",
-      "arm_R",
       "forearm_R",
+      "arm_R",
     ]);
     expect(
       right.deformers!.map((d) => d.id).filter((id) => /armDeformer_/.test(id)),

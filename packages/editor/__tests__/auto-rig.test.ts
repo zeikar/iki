@@ -362,7 +362,7 @@ describe("generateIkiFromLayerSet: the model", () => {
       ),
     );
     expect(partIdsOfRole("face")).toEqual(["face"]);
-    expect(partIdsOfRole("arm_L")).toEqual(["elbow_L", "arm_L", "forearm_L"]);
+    expect(partIdsOfRole("arm_L")).toEqual(["elbow_L", "forearm_L", "arm_L"]);
     expect(() => partIdsOfRole("nope")).toThrow(/unknown role "nope"/);
   });
 

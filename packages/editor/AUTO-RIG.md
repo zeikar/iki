@@ -378,9 +378,9 @@ so each span is chosen to put 0, half the max, the max and the min on a step
 front of the body: drive that pose with a little shoulder raise. Each pair is
 declared only with its arm layer, after Body Angle X/Y/Z.
 
-**Draw order:** hair_back < body < elbow_L, arm_L, forearm_L, elbow_R, arm_R,
-forearm_R < face … < hair_front < forearm_pose_L, forearm_pose_R. The forearm
-draws over the upper arm, which draws over the cap.
+**Draw order:** hair_back < body < elbow_L, forearm_L, arm_L, elbow_R,
+forearm_R, arm_R < face … < hair_front < forearm_pose_L, forearm_pose_R. The
+upper arm draws over the forearm, which draws over the cap.
 
 **The pose forearm.** A `forearm_pose_L` / `forearm_pose_R` layer (it needs
 its arm: `auto-rig: forearm_pose_L needs an arm_L layer …`) is a second
@@ -719,6 +719,8 @@ model with a pose forearm adds `Wave` (below the table).
   than the inset shows a faint rim at rest.
 - No glue between an arm's two bands: each turns rigidly, and only the cap
   covers the joint; nothing bends the sleeve's outline round the elbow.
+- The bands overlap on the inside of a bend; the upper arm draws over the
+  forearm there, so the seam row shows as the crease.
 - The arms draw behind the face and the front hair, so a raised hand can go
   under a side lock; the pose forearm draws above both.
 - The swap is a crossfade, so midway both forearms show at half strength, and

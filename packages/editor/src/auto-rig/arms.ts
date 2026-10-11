@@ -28,9 +28,12 @@
  * wedge carries the painted line, fading out in the antialias column as the
  * painted edge does; the fan inside it is the crop's own pixels.
  *
- * Draw order: hair_back < body < elbow_L, arm_L, forearm_L, elbow_R, arm_R,
- * forearm_R < face … < hair_front. The forearm draws over the upper arm,
- * which draws over the cap.
+ * Draw order: hair_back < body < elbow_L, forearm_L, arm_L, elbow_R,
+ * forearm_R, arm_R < face … < hair_front. The upper arm draws over the
+ * forearm, which draws over the cap. On the inside of a bend the bands
+ * overlap, and the forearm's seam-row cut stays under the upper arm there, so
+ * the overlap shows the upper arm's bottom edge at the elbow row instead of
+ * the cut rotated up the sleeve.
  *
  * Signs: ParamArmX + raises the arm outward on either side, in degrees 1:1.
  * A rotation is CCW-positive, so an arm whose shoulder lies right of the
@@ -288,8 +291,8 @@ function meshOf(vertices: number[], indices: number[]): IkiMesh {
 }
 
 /**
- * The arm's three parts over its crop's box: the elbow cap, the upper arm and
- * the forearm, at `order`, `order + 1` and `order + 2`. The upper arm is the
+ * The arm's three parts over its crop's box: the elbow cap, the forearm and
+ * the upper arm, at `order`, `order + 1` and `order + 2`. The upper arm is the
  * band from the crop's top to the seam, on `armDeformer_X`; the forearm is
  * the band from the seam to the crop's bottom; the cap, on
  * `forearmDeformer_X`, is a fan from the elbow pivot over the arm's contour
@@ -418,14 +421,14 @@ export function armParts(
       },
       true,
     ),
-    part(role, ids.armDeformer, order + 1, meshOf(band(0.5, seam), quad)),
     part(
       ids.forearm,
       ids.forearmDeformer,
-      order + 2,
+      order + 1,
       meshOf(band(seam, -0.5), quad),
       true,
     ),
+    part(role, ids.armDeformer, order + 2, meshOf(band(0.5, seam), quad)),
   ];
 }
 
