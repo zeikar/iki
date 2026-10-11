@@ -1,5 +1,14 @@
 # @ikijs/mcp
 
+## 0.23.2
+
+### Patch Changes
+
+- 9edc525: The READMEs name the plugin as a Claude Code / Codex plugin, `@ikijs/mcp`'s README shows how to register the server in Codex, and its npm keywords add `codex`. No code changes.
+- Updated dependencies [9edc525]
+  - @ikijs/format@0.8.1
+  - @ikijs/editor@0.24.1
+
 ## 0.23.1
 
 ### Patch Changes
