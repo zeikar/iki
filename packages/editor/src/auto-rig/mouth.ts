@@ -59,16 +59,17 @@
  * fitted closing travel: a cubic in the column index, pinned to zero at the
  * end columns and fitted by least squares to the raw per-column travel
  * `(T - UPPER_SHARE * H) - Tu`, how far the line's bottom is from the share's
- * point in the interior's span. Where that sag would pass `CLOSED_SAG_MAX` of
- * the opening's width the fitted travel is held back (to none at most), so a
- * deep opening closes into a gentle smile. The seam is `Tu` plus the column's
- * travel: the parabola minus the line's bottom averaged over 3 columns each
- * side (the smoothed bottom), not minus `Tu` itself, so the end columns do
- * not travel. `Tu` is an integer-row read, and a curve minus that staircase
+ * point in the interior's span. That sag is capped at `CLOSED_SAG_MAX` of the
+ * opening's width, the drawn arc included, so a deep opening closes into a
+ * gentle smile and a line drawn deeper than the cap closes flatter than
+ * drawn. The seam is `Tu` plus the column's travel: the parabola minus the
+ * line's bottom averaged over 3 columns each side (the smoothed bottom), not
+ * minus `Tu` itself, so the end columns do not travel. `Tu` is an integer-row read, and a curve minus that staircase
  * is a sawtooth the mesh would carry into the rendered line; against the
  * smoothed bottom the stroke (whose antialiased edge is smooth) moves as one
- * piece, and its own kinks (a V at the centre) close away. Every closed shape
- * and the preview are read off the seam.
+ * piece, and a kink drawn in it (a V at the centre) keeps only its offset
+ * from that average. Every closed shape and the preview are read off the
+ * seam.
  *
  * The lower lip's columns outside the opening (the corner hooks) do not fold,
  * the line's are only thinned and shaped (no travel), and the interior's edge
@@ -124,9 +125,9 @@ export { LIP_ROLES, type LipRole };
  *  against the legacy closed drawing, 2026-10-09: at 0.4 the closed line's
  *  sag reads like the legacy closed smile (0.3 is shallower, 0.5 deeper). */
 export const UPPER_SHARE = 0.4;
-/** The most the closed line may sag at the opening's centre column, below
- *  its two ends' mean, as a share of the opening's width: the closing travel
- *  is held back so it never takes the drawn line's own arc past it.
+/** The most the closed line's parabola may sag at the opening's centre
+ *  column, below its two ends' mean, as a share of the opening's width, the
+ *  drawn arc included: a line drawn deeper closes flatter than drawn.
  *  Provisional. Measured on the uncapped fitted seam: bob's lips-gen2 0.113,
  *  its lips-gen 0.041, mint 0.178 (a 73 x 27 px opening that closed into a
  *  V). */
@@ -305,13 +306,11 @@ export function mouthOpening(byRole: Map<string, LayerInput>): Opening {
     const p = (t1 * s22 - t2 * s12) / det;
     const q = (s11 * t2 - s12 * t1) / det;
     // At the centre column, in model y (+y up, so a sag is the ends' mean
-    // minus the centre): the drawn arc plus the travel there. The cap holds
-    // back the travel, never the drawn arc; a travel that lifts the centre is
-    // left alone.
+    // minus the centre): the drawn arc plus the travel there, capped, so a
+    // line drawn deeper than the cap closes flatter than drawn.
     const D = (centre - x0) * (centre - x1) * (p + q * (centre - m));
     const arc = (reads[0].Tu + reads[n - 1].Tu) / 2 - reads[centre - x0].Tu;
-    const cap = CLOSED_SAG_MAX * n;
-    sag = D < 0 && arc - D > cap ? Math.max(arc, cap) : arc - D;
+    sag = Math.min(arc - D, CLOSED_SAG_MAX * n);
   }
   // 3 columns each side: the window the mint and bob renders were judged at,
   // 2026-10-11.

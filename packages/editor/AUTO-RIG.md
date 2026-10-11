@@ -528,10 +528,11 @@ curvature the plate would need to put the eyes that far in front of its edge.
   a closing travel fitted per column to 0.4 of the interior's height below
   its top (the share sets it), up to `CLOSED_SAG_MAX` (0.1) of the opening's
   width, the drawn line's own arc counted in, so a deeply drawn opening
-  closes into a gentle smile rather than a V. Each column travels from the
-  line's bottom smoothed over a few columns onto the parabola, so the stroke
-  moves as one piece and a kink drawn in the line (a V at the centre) closes
-  away.
+  closes into a gentle smile rather than a V and a line drawn deeper than
+  that closes flatter than drawn. Each column travels from the line's bottom
+  smoothed over a few columns onto the parabola, so the stroke moves as one
+  piece and a kink drawn in the line (a V at the centre) keeps only its
+  offset from that average.
   The opening's end columns are mesh knots, so the mesh renders the pins. The
   composer folds the outline's side wall beside the opening with the
   interior; a wall a hand split leaves standing at an end column gets no

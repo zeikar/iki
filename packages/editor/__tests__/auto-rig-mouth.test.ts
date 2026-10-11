@@ -276,6 +276,13 @@ describe("mouth.ts: the opening", () => {
     // would close it as it is; the seam keeps only the integer-row staircase.
     expect(offParabola(drawn)).toBeGreaterThan(2);
     expect(offParabola(seam)).toBeLessThan(1);
+    // Drawn 10 rows deep, past the cap: it closes flatter than drawn, the
+    // parabola at the cap and the V's offset from its average over it.
+    const sag = (ys: number[]) =>
+      (ys[0] + ys[ys.length - 1]) / 2 - ys[op.centre - op.x0];
+    expect(sag(drawn)).toBeCloseTo(10, 9);
+    expect(sag(seam)).toBeGreaterThan(CLOSED_SAG_MAX * COLS.length);
+    expect(sag(seam)).toBeLessThan(CLOSED_SAG_MAX * COLS.length + 2);
     // Its ends are still the drawn line's.
     expect(seam[0] - drawn[0]).toBeCloseTo(0, 9);
     expect(seam[seam.length - 1] - drawn[drawn.length - 1]).toBeCloseTo(0, 9);
@@ -296,6 +303,7 @@ describe("mouth.ts: the fold", () => {
     {},
     { underLine: true },
     { thinLine: true, grownInner: true },
+    { vLine: 12 },
   ] as LipOptions[]) {
     const label = JSON.stringify(o);
     it(`lands every part on the seam at v 0 ${label}`, () => {

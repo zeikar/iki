@@ -239,9 +239,12 @@ blink, brows hidden under hair.
 eye row, the render's measured (Step 1) against the reference's read, and the
 eye box's share of the face's width at that row, by eye on the same two images.
 A ratio normalised by the irises' spacing (gap, pair centre) says nothing about
-size: a pair drawn small and close keeps every such ratio. A share off by a
-tenth of the reference's share or more is a `retune` of `layout.eye_L` / `eye_R` `w` and `h`
-(`lash_L` / `lash_R` identical) and `iris_L` / `iris_R` `w` and `h`, scaled together.
+size: a pair drawn small and close keeps every such ratio. Judge the two
+shares apart; one off by a tenth of the reference's share or more is a
+`retune`. The eye box's is `layout.eye_L` / `eye_R` `w` and `h` (`lash_L` /
+`lash_R` identical), with `iris_L` / `iris_R` `w` and `h` scaled by the same
+factor; the iris's alone, with the box right, is `iris_L` / `iris_R` `w` and
+`h` only.
 Judge the spacing on its own, before the size: the gap between the two eye
 boxes over the face's width at the eye row, render against reference. Eyes
 spaced too wide read small however large they are drawn, so a gap off by a
@@ -281,9 +284,9 @@ also looks at `mouth-renders`:
   `lip_upper: the upper line is N px` number in the finding.
 - The closed line is a smooth parabola between the drawn line's ends: its sag
   is the rig's share of the opening's depth, at most `CLOSED_SAG_MAX` of the
-  opening's width (`packages/editor/src/auto-rig/mouth.ts`), so a deeply drawn
-  opening closes into a gentle smile, not a V, and a kink drawn in the line
-  (a V at its centre) closes away; on opening the upper line goes from the
+  opening's width (`packages/editor/src/auto-rig/mouth.ts`), the drawn arc
+  included, so a deeply drawn opening closes into a gentle smile, not a V,
+  and a kink drawn in the line (a V at its centre) mostly closes away; on opening the upper line goes from the
   closed curve to its drawn arc while the lower lip drops. A smile or frown
   that disagrees with the reference — judged on `mouth-open-0-form-0` and
   `rest` by the corners' lift, the closed line's sag over its width, against
