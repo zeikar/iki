@@ -53,21 +53,22 @@
  * then stay inside the line's closed ink at every column, the tapered ends
  * included, and tucked skin never shows above the line.
  *
- * The seam is the line's drawn bottom edge `Tu` plus one smooth closing
- * travel `D`, a cubic in the column index pinned to zero at the opening's two
- * end columns, so the closed line's ends are the drawn line's own ends. It is
- * fitted by least squares to the raw per-column travel `(T - UPPER_SHARE * H)
- * - Tu`, how far the line's bottom is from the share's point in the
- * interior's span. The travel is fitted, not the seam, because `Tu` is an
- * integer-row read: a smooth seam minus that staircase is a sawtooth the mesh
- * would carry into the rendered line, while a smooth travel carries the
- * drawn stroke (whose antialiased edge is smooth) as one piece. The share sets
- * the travel's depth (the sag), the art's two arcs its shape; the cubic keeps
- * an asymmetric mouth's tilt and cannot wobble. The travel is scaled down
- * where the closed line, the drawn arc counted in, would sag at the centre
- * column more than `CLOSED_SAG_MAX` of the opening's width below its ends'
- * mean, so a deep opening closes into a gentle smile, not a V; every closed
- * shape and the preview are read off the seam, so they keep the cap.
+ * Shut, the line is a smooth parabola across the opening. Its chord joins the
+ * line's smoothed bottom (below) at the two end columns; its depth below the
+ * chord, half way, is the sag at the centre column of the drawn arc plus a
+ * fitted closing travel: a cubic in the column index, pinned to zero at the
+ * end columns and fitted by least squares to the raw per-column travel
+ * `(T - UPPER_SHARE * H) - Tu`, how far the line's bottom is from the share's
+ * point in the interior's span. Where that sag would pass `CLOSED_SAG_MAX` of
+ * the opening's width the fitted travel is held back (to none at most), so a
+ * deep opening closes into a gentle smile. The seam is `Tu` plus the column's
+ * travel: the parabola minus the line's bottom averaged over 3 columns each
+ * side (the smoothed bottom), not minus `Tu` itself, so the end columns do
+ * not travel. `Tu` is an integer-row read, and a curve minus that staircase
+ * is a sawtooth the mesh would carry into the rendered line; against the
+ * smoothed bottom the stroke (whose antialiased edge is smooth) moves as one
+ * piece, and its own kinks (a V at the centre) close away. Every closed shape
+ * and the preview are read off the seam.
  *
  * The lower lip's columns outside the opening (the corner hooks) do not fold,
  * the line's are only thinned and shaped (no travel), and the interior's edge
@@ -80,9 +81,9 @@
  *
  * Knots: the parts share column knots every `MOUTH_KNOT_PX` plus the
  * opening's boundaries `x0`, `x1` and `x1 + 1`, each an integer canvas
- * boundary. The fit's x is the column index, which is the mesh's boundary
+ * boundary. The travel's x is the column index, which is the mesh's boundary
  * position: a knot at boundary `b` samples column `b`, so the mesh renders the
- * fit exactly at its knots and the pinned ends render as pinned (`x1` and
+ * travel exactly at its knots and the pinned ends render as pinned (`x1` and
  * `x1 + 1` both sample the last column; the second sits at its right edge).
  * The preview resamples each column through the lip meshes' own landed rows
  * (`mouthRestShift`). A part's mesh rounds its local x, so one knot
@@ -125,7 +126,7 @@ export { LIP_ROLES, type LipRole };
 export const UPPER_SHARE = 0.4;
 /** The most the closed line may sag at the opening's centre column, below
  *  its two ends' mean, as a share of the opening's width: the closing travel
- *  is scaled down so it never takes the drawn line's own arc past it.
+ *  is held back so it never takes the drawn line's own arc past it.
  *  Provisional. Measured on the uncapped fitted seam: bob's lips-gen2 0.113,
  *  its lips-gen 0.041, mint 0.178 (a 73 x 27 px opening that closed into a
  *  V). */
@@ -195,8 +196,8 @@ export interface OpeningColumn {
   /** How far the skin tucks up under the line shut: inside the thinned,
    *  squashed line's ink. */
   overlap: number;
-  /** Where the lips meet when shut: the line's bottom edge after its smooth
-   *  closing travel. */
+  /** Where the lips meet when shut: the line's bottom edge after its closing
+   *  travel. */
   seam: number;
 }
 
@@ -274,16 +275,16 @@ export function mouthOpening(byRole: Map<string, LayerInput>): Opening {
     reads.push(r);
   }
 
-  // The travel's fit: D(x) = (x - x0)(x - x1)(p + q (x - m)), p and q from the
-  // 2x2 normal equations over the opening's columns. Under 4 columns the
-  // system is singular (at 3 only the middle column has a nonzero basis, and
-  // (x - m) is 0 there), so the travel is zero and the closed line is the
-  // drawn line.
+  // The sag, off the travel's fit: D(x) = (x - x0)(x - x1)(p + q (x - m)), p
+  // and q from the 2x2 normal equations over the opening's columns. Under 4
+  // columns the system is singular (at 3 only the middle column has a nonzero
+  // basis, and (x - m) is 0 there), so the travel is zero and the closed line
+  // is the drawn line.
+  const n = reads.length;
   const m = (x0 + x1) / 2;
   const centre = Math.round(m);
-  let p = 0;
-  let q = 0;
-  if (reads.length >= 4) {
+  let sag = 0;
+  if (n >= 4) {
     let s11 = 0;
     let s12 = 0;
     let s22 = 0;
@@ -301,24 +302,29 @@ export function mouthOpening(byRole: Map<string, LayerInput>): Opening {
       t2 += b2 * d;
     });
     const det = s11 * s22 - s12 * s12;
-    p = (t1 * s22 - t2 * s12) / det;
-    q = (s11 * t2 - s12 * t1) / det;
-    // The cap, at the centre column, in model y (+y up, so a sag is the ends'
-    // mean minus the centre): the drawn arc plus the travel there. A travel
-    // that lifts the centre is left alone: the scale would grow it.
+    const p = (t1 * s22 - t2 * s12) / det;
+    const q = (s11 * t2 - s12 * t1) / det;
+    // At the centre column, in model y (+y up, so a sag is the ends' mean
+    // minus the centre): the drawn arc plus the travel there. The cap holds
+    // back the travel, never the drawn arc; a travel that lifts the centre is
+    // left alone.
     const D = (centre - x0) * (centre - x1) * (p + q * (centre - m));
-    const arc =
-      (reads[0].Tu + reads[reads.length - 1].Tu) / 2 - reads[centre - x0].Tu;
-    const cap = CLOSED_SAG_MAX * (x1 - x0 + 1);
-    if (D < 0 && arc - D > cap) {
-      const s = Math.max(0, (cap - arc) / -D);
-      p *= s;
-      q *= s;
-    }
+    const arc = (reads[0].Tu + reads[n - 1].Tu) / 2 - reads[centre - x0].Tu;
+    const cap = CLOSED_SAG_MAX * n;
+    sag = D < 0 && arc - D > cap ? Math.max(arc, cap) : arc - D;
   }
+  // 3 columns each side: the window the mint and bob renders were judged at,
+  // 2026-10-11.
+  const smooth = reads.map((_, i) => {
+    const near = reads.slice(Math.max(0, i - 3), i + 4);
+    return near.reduce((s, r) => s + r.Tu, 0) / near.length;
+  });
   const columns: Omit<OpeningColumn, "overlap">[] = reads.map((r, i) => {
-    const x = x0 + i;
-    return { ...r, seam: r.Tu + (x - x0) * (x - x1) * (p + q * (x - m)) };
+    if (n < 4) return { ...r, seam: r.Tu };
+    const t = i / (x1 - x0);
+    const parabola =
+      smooth[0] + (smooth[n - 1] - smooth[0]) * t - sag * 4 * t * (1 - t);
+    return { ...r, seam: r.Tu + parabola - smooth[i] };
   });
   const clamp = (col: number) => Math.min(x1, Math.max(x0, col));
   const base = (col: number) => columns[clamp(col) - x0];

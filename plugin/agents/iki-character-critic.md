@@ -241,7 +241,21 @@ eye box's share of the face's width at that row, by eye on the same two images.
 A ratio normalised by the irises' spacing (gap, pair centre) says nothing about
 size: a pair drawn small and close keeps every such ratio. A share off by a
 tenth of the reference's share or more is a `retune` of `layout.eye_L` / `eye_R` `w` and `h`
-(`lash_L` / `lash_R` identical) and `iris_L` / `iris_R` `w`, scaled together.
+(`lash_L` / `lash_R` identical) and `iris_L` / `iris_R` `w` and `h`, scaled together.
+Judge the spacing on its own, before the size: the gap between the two eye
+boxes over the face's width at the eye row, render against reference. Eyes
+spaced too wide read small however large they are drawn, so a gap off by a
+tenth of the reference's or more is a `retune` of the `cx` of `eye_L` /
+`eye_R`, `lash_L` / `lash_R` and `iris_L` / `iris_R`, all moved by the same
+step with the size unchanged, and the size is judged again after it. The
+iris's shape counts too: a round iris where the reference draws a taller oval
+is a `retune` of `iris_L` / `iris_R` `h` to the reference's height over width.
+`face` judges the nose against the reference's nose. One drawn in another
+style — a shaded bump where the reference draws only a highlight and a short
+tick, or the reverse — is a `regenerate` of `nose.png`, whose prompt follows
+the reference's nose; resizing a nose of the wrong style does not fix it. One
+of the right style at the wrong size or row is a `retune` of `layout.nose` `w`
+(the core's width) or `cy`.
 
 On a lip set (`mouth_inner` / `lip_lower` / `lip_upper` among the layers), `rig`
 also looks at `mouth-renders`:
@@ -265,18 +279,18 @@ also looks at `mouth-renders`:
   reference's mouth line. A hairline is still a `regenerate` of
   `mouth_keyed.png` with a bolder, medium upper lip line, with the measure's
   `lip_upper: the upper line is N px` number in the finding.
-- The closed line is the drawn upper line carried by one smooth travel: its
-  ends stay where they were drawn, its sag is the rig's share of the opening's
-  depth, at most `CLOSED_SAG_MAX` of the opening's width
-  (`packages/editor/src/auto-rig/mouth.ts`), so a deeply drawn opening closes
-  into a gentle smile, not a V, its shape the keyed art's two arcs, and on
-  opening the upper line goes from the closed curve to its drawn arc while the
-  lower lip drops. A smile or frown that disagrees with the reference — judged
-  on `mouth-open-0-form-0` and `rest` by the corners' lift, the closed line's
-  sag over its width, against the reference's closed mouth — is a `regenerate`
-  of `mouth_keyed.png` with the opening drawn deeper (a smile, up to the cap)
-  or shallower at the centre (a smile stronger than the reference's: the upper
-  line flatter too), never an `escalate` for the share.
+- The closed line is a smooth parabola between the drawn line's ends: its sag
+  is the rig's share of the opening's depth, at most `CLOSED_SAG_MAX` of the
+  opening's width (`packages/editor/src/auto-rig/mouth.ts`), so a deeply drawn
+  opening closes into a gentle smile, not a V, and a kink drawn in the line
+  (a V at its centre) closes away; on opening the upper line goes from the
+  closed curve to its drawn arc while the lower lip drops. A smile or frown
+  that disagrees with the reference — judged on `mouth-open-0-form-0` and
+  `rest` by the corners' lift, the closed line's sag over its width, against
+  the reference's closed mouth — is a `regenerate` of `mouth_keyed.png` with
+  the opening drawn deeper (a smile, up to the cap) or shallower at the centre
+  (a smile stronger than the reference's: the upper line flatter too), never
+  an `escalate` for the share.
 - Shut, a flick drawn past a corner is pulled toward it and thinned, so a small
   tick at a closed corner (`mouth-open-0-*`, `rest`) WITH a flick, hook, tick
   or fork drawn there in `mouth_keyed.png` is drawn art: a `regenerate` of
@@ -484,13 +498,14 @@ deltas from Step 1, the render (the mean of both directions) against the
 artist's report (`turn.achieved`) —
 `far` is `farEyeRatio`, `shift` is `|eyeShift|`, `silhouette` is
 `silhouetteRatio` — and reads `TURN: none` when no turn was solved; `EYES:` is
-Step 1's iris share against the reference's, read by eye:
+Step 1's iris share against the reference's, read by eye, then the eye boxes'
+gap over the face's width, both by eye:
 
 ```
 VERDICT: ship | iterate | stop
 SCORES: face=N eyes=N hair=N body=N palette=N line=N rig=N turn=N   (total NN/40)
 TURN: far <render> (report <report>, Δ<d>) shift <render> (report <report>, Δ<d>) silhouette <render> (report <report>, Δ<d>)
-EYES: iris/head render <measured> vs reference <by eye>
+EYES: iris/head render <measured> vs reference <by eye>; gap/face render <by eye> vs reference <by eye>
 
 MEASUREMENTS
 <the measure_layers check lines, the measure_turn_reference lines quoted

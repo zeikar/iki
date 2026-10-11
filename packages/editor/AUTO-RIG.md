@@ -523,13 +523,15 @@ curvature the plate would need to put the eyes that far in front of its edge.
   columns are squashed about their centre row, down to `END_TAPER` at the
   line's box edge, so the ends taper, and a flick drawn past a corner is
   pulled toward it, keeping `FLICK_PULL` of its length, and squashed to
-  `FLICK_SQUASH`. The line's closing travel is one smooth cubic, pinned to
-  zero at the opening's two end columns and fitted per column to 0.4 of the
-  interior's height below its top, so the closed line's ends stay where they
-  were drawn and the share sets the sag (the art's two arcs set the shape),
-  up to `CLOSED_SAG_MAX` (0.1) of the opening's width at its centre column,
-  the drawn line's own arc counted in: past it the travel is scaled down, so
-  a deeply drawn opening closes into a gentle smile rather than a V.
+  `FLICK_SQUASH`. Shut, the line is a smooth parabola from end to end: its
+  ends stay where they were drawn, and its depth is the sag at the centre of
+  a closing travel fitted per column to 0.4 of the interior's height below
+  its top (the share sets it), up to `CLOSED_SAG_MAX` (0.1) of the opening's
+  width, the drawn line's own arc counted in, so a deeply drawn opening
+  closes into a gentle smile rather than a V. Each column travels from the
+  line's bottom smoothed over a few columns onto the parabola, so the stroke
+  moves as one piece and a kink drawn in the line (a V at the centre) closes
+  away.
   The opening's end columns are mesh knots, so the mesh renders the pins. The
   composer folds the outline's side wall beside the opening with the
   interior; a wall a hand split leaves standing at an end column gets no

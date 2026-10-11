@@ -107,13 +107,11 @@ describe("mouth.ts: the opening", () => {
     expect(op.at(470).overlap).toBeLessThan(op.at(480).overlap);
     expect(op.at(529).overlap).toBeLessThan(op.at(520).overlap);
     // The closing travel is pinned to the drawn line at the end columns and
-    // smooth between: the raw per-column travel has the rounding steps of the
-    // integer-row reads, which the fit removes.
+    // smooth between: the line's bottom bends a whole row at each of its
+    // integer-row steps, which a curve minus it would carry as a sawtooth;
+    // the travel bends a seventh of that (the step averaged over 7 columns)
+    // plus the parabola's own bend.
     const travel = (x: number) => op.at(x).seam - op.at(x).Tu;
-    const rawTravel = (x: number) => {
-      const r = op.at(x);
-      return r.T - UPPER_SHARE * r.H - r.Tu;
-    };
     const curvature = (f: (x: number) => number) =>
       Math.max(
         ...COLS.slice(1, -1).map((x) =>
@@ -122,14 +120,15 @@ describe("mouth.ts: the opening", () => {
       );
     expect(travel(470)).toBeCloseTo(0, 9);
     expect(travel(529)).toBeCloseTo(0, 9);
-    expect(curvature(travel)).toBeLessThanOrEqual(0.05);
-    expect(curvature(rawTravel)).toBeGreaterThanOrEqual(0.25);
-    expect(curvature(rawTravel)).toBeGreaterThanOrEqual(5 * curvature(travel));
-    // Uncapped the fixture sags 0.146 of its width, so its centre closes at
-    // the cap below the ends' mean.
+    expect(curvature((x) => op.at(x).Tu)).toBe(1);
+    expect(curvature(travel)).toBeLessThanOrEqual(1 / 7 + 0.015);
+    // Uncapped the fixture sags 0.146 of its width, so its parabola's vertex,
+    // half way between the end columns, closes at the cap below the ends'
+    // mean; this even opening's centre column is half a column past it.
     const c = op.at(op.centre);
+    const t = (op.centre - op.x0) / (op.x1 - op.x0);
     expect((op.at(470).seam + op.at(529).seam) / 2 - c.seam).toBeCloseTo(
-      CLOSED_SAG_MAX * COLS.length,
+      CLOSED_SAG_MAX * COLS.length * 4 * t * (1 - t),
       9,
     );
     // Lower in model y than both ends: the fixture's U is deeper than its ∩.
@@ -236,7 +235,10 @@ describe("mouth.ts: the opening", () => {
     const sag = (op: ReturnType<typeof mouthOpening>) =>
       (op.at(op.x0).seam + op.at(op.x1).seam) / 2 - op.at(op.centre).seam;
     const deep = mouthOpening(lips({ depth: 2.5 }));
-    expect(sag(deep)).toBeCloseTo(CLOSED_SAG_MAX * W, 9);
+    // The cap is the parabola's depth at its vertex, half way between the end
+    // columns: half a column short of this even opening's centre column.
+    const t = (deep.centre - deep.x0) / (deep.x1 - deep.x0);
+    expect(sag(deep)).toBeCloseTo(CLOSED_SAG_MAX * W * 4 * t * (1 - t), 9);
     for (const x of [470, 529]) {
       expect(deep.at(x).seam - deep.at(x).Tu).toBeCloseTo(0, 9);
     }
@@ -245,6 +247,38 @@ describe("mouth.ts: the opening", () => {
     expect(sag(shallow)).toBeLessThan(CLOSED_SAG_MAX * W);
     const c = shallow.at(shallow.centre);
     expect(Math.abs(c.seam - (c.T - UPPER_SHARE * c.H))).toBeLessThan(1);
+  });
+
+  it("closes a line drawn with a V at the centre onto a smooth curve", () => {
+    // How far a curve over the opening's columns strays from its
+    // least-squares parabola, px. The columns are symmetric about u = 0, so
+    // the odd term fits apart.
+    const offParabola = (ys: number[]) => {
+      const us = COLS.map((x) => x - 499.5);
+      const sum = (f: (u: number, i: number) => number) =>
+        us.reduce((s, u, i) => s + f(u, i), 0);
+      const [s2, s4] = [sum((u) => u ** 2), sum((u) => u ** 4)];
+      const y0 = sum((_, i) => ys[i]);
+      const y2 = sum((u, i) => u ** 2 * ys[i]);
+      const det = us.length * s4 - s2 * s2;
+      const a = (y0 * s4 - y2 * s2) / det;
+      const b = sum((u, i) => u * ys[i]) / s2;
+      const c = (us.length * y2 - s2 * y0) / det;
+      return Math.max(
+        ...us.map((u, i) => Math.abs(a + b * u + c * u * u - ys[i])),
+      );
+    };
+    // The line's bottom drawn 12 rows lower at the centre than at the ends.
+    const op = mouthOpening(lips({ vLine: 12 }));
+    const drawn = COLS.map((x) => op.at(x).Tu);
+    const seam = COLS.map((x) => op.at(x).seam);
+    // The drawn V strays over 2 px, and a travel that is itself a parabola
+    // would close it as it is; the seam keeps only the integer-row staircase.
+    expect(offParabola(drawn)).toBeGreaterThan(2);
+    expect(offParabola(seam)).toBeLessThan(1);
+    // Its ends are still the drawn line's.
+    expect(seam[0] - drawn[0]).toBeCloseTo(0, 9);
+    expect(seam[seam.length - 1] - drawn[drawn.length - 1]).toBeCloseTo(0, 9);
   });
 
   it("refuses an interior with no opaque pixel", () => {

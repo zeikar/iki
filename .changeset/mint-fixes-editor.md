@@ -6,10 +6,10 @@
 
 The arm draws cap, forearm, upper arm: the upper arm draws over the forearm, so a bent elbow's inside overlap shows the elbow row's edge rather than the forearm's cut rotated up the sleeve.
 
-The closed line's sag — how far its centre dips below its two ends — is capped at 0.10 of the opening's width, so a deeply drawn opening closes into a gentle smile instead of a V.
+The closed line is a smooth parabola from end to end, its sag — how far its centre dips below its two ends — capped at 0.10 of the opening's width, so a deeply drawn opening closes into a gentle smile instead of a V, and a kink drawn in the line (a V at its centre) closes away.
 
 This is a pre-1.0 change to the rig:
 
 - Re-rigging a full body with this release draws the forearm behind the upper arm. Busts have no arms and are unchanged.
-- Re-rigging a lip set whose closed curve sagged past the cap closes it shallower, and its mouth anchor (the closed line's centre) moves with it, so the `mouthWarp` grid and the face's AngleX keys shift too: by up to about 5 px on a deep mouth (one that sagged 0.18 of its width), and by under 1 px on a mouth just past the cap (0.11: its closed centre 0.8 px shallower).
+- Re-rigging a lip set changes its closed line's shape as well as its depth: it closes onto the parabola, so a drawn kink no longer survives shut. One whose closed curve sagged past the cap closes shallower, and its mouth anchor (the closed line's centre) moves with it, so the `mouthWarp` grid and the face's AngleX keys shift too: by up to about 5 px on a deep mouth (one that sagged 0.18 of its width), and by about 1 px on a mouth just past the cap (0.11). The parabola's ends sit on the line's bottom averaged over a few columns, so a line whose bottom steps at the opening's end columns (a wall a hand split left standing) moves its centre too, even under the cap: about 4 px shallower on a line stepping 3 and 6 px down at its two end columns.
 - An existing `.iki` keeps its baked keyforms and renders as it did (no engine change). Every legacy `mouth` / `mouth_open` rig is byte-identical.
