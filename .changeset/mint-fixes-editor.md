@@ -6,7 +6,7 @@
 
 The arm draws cap, forearm, upper arm: the upper arm draws over the forearm, so a bent elbow's inside overlap shows the elbow row's edge rather than the forearm's cut rotated up the sleeve.
 
-The closed line is a smooth parabola from end to end, its sag — how far its centre dips below its two ends — capped at 0.10 of the opening's width, the drawn line's own arc included, so a deeply drawn opening closes into a gentle smile instead of a V. A kink drawn in the line (a V at its centre) keeps only its offset from the line averaged over a few columns: a line whose bottom dips 10 rows in a V across a 60-column opening closes 7.5 px deep, about 1.5 px past the cap.
+The closed line is a smooth parabola from end to end, its sag — how far its centre dips below its two ends — capped at 0.10 of the opening's width, the drawn line's own arc included, so a deeply drawn opening closes into a gentle smile instead of a V. A kink drawn in the line (a V at its centre) closes away but for its offset from the line averaged over a few columns, which the cap counts in: a line whose bottom dips 10 rows in a V across a 60-column opening closes 6 px deep, its cap.
 
 This is a pre-1.0 change to the rig:
 

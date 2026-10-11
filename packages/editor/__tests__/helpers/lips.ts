@@ -45,6 +45,9 @@ export interface LipOptions {
   /** The line's bottom drawn lower toward the centre in a V, this many rows
    *  at the centre and none at the ends, over the interior's top. */
   vLine?: number;
+  /** With `vLine`, the V moves the whole stroke at a constant width, and the
+   *  interior's top with it. */
+  vStroke?: boolean;
 }
 
 type Col = [col: number, r0: number, r1: number];
@@ -97,19 +100,25 @@ export function lipSet(opts: LipOptions = {}): LayerInput[] {
   const hooks = opts.noHooks
     ? []
     : HOOKS.flatMap(([a, b]) => Array.from({ length: b - a }, (_, i) => a + i));
+  const v = (x: number) =>
+    Math.round((opts.vLine ?? 0) * (1 - Math.abs(x - 499.5) / 30));
   const inner: Col[] = xs.map((x) => [
     x,
-    topRow(x) - (opts.underLine ? 1 : 0),
+    topRow(x) + (opts.vStroke ? v(x) : 0) - (opts.underLine ? 1 : 0),
     topRow(x) + hAt(x) + 2,
   ]);
   if (opts.grownInner) {
     const a = topRow(470);
     inner.push([469, a, a + 3], [530, a, a + 3]);
   }
-  const v = (x: number) =>
-    Math.round((opts.vLine ?? 0) * (1 - Math.abs(x - 499.5) / 30));
   const upper: Col[] = [
-    ...xs.map((x): Col => [x, topRow(x) - w, topRow(x) + v(x)]),
+    ...xs.map(
+      (x): Col => [
+        x,
+        topRow(x) - w + (opts.vStroke ? v(x) : 0),
+        topRow(x) + v(x),
+      ],
+    ),
     ...hooks.map((x): Col => [x, 590, 596]),
   ];
   const lower: Col[] = [

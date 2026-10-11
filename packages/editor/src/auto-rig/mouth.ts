@@ -68,8 +68,8 @@
  * is a sawtooth the mesh would carry into the rendered line; against the
  * smoothed bottom the stroke (whose antialiased edge is smooth) moves as one
  * piece, and a kink drawn in it (a V at the centre) keeps only its offset
- * from that average. Every closed shape and the preview are read off the
- * seam.
+ * from that average, which the cap counts in. Every closed shape and the
+ * preview are read off the seam.
  *
  * The lower lip's columns outside the opening (the corner hooks) do not fold,
  * the line's are only thinned and shaped (no travel), and the interior's edge
@@ -125,9 +125,9 @@ export { LIP_ROLES, type LipRole };
  *  against the legacy closed drawing, 2026-10-09: at 0.4 the closed line's
  *  sag reads like the legacy closed smile (0.3 is shallower, 0.5 deeper). */
 export const UPPER_SHARE = 0.4;
-/** The most the closed line's parabola may sag at the opening's centre
- *  column, below its two ends' mean, as a share of the opening's width, the
- *  drawn arc included: a line drawn deeper closes flatter than drawn.
+/** The most the closed line may sag below its two ends' mean, half way
+ *  between them, as a share of the opening's width, the drawn arc and a drawn
+ *  kink's offset included: a line drawn deeper closes flatter than drawn.
  *  Provisional. Measured on the uncapped fitted seam: bob's lips-gen2 0.113,
  *  its lips-gen 0.041, mint 0.178 (a 73 x 27 px opening that closed into a
  *  V). */
@@ -284,6 +284,12 @@ export function mouthOpening(byRole: Map<string, LayerInput>): Opening {
   const n = reads.length;
   const m = (x0 + x1) / 2;
   const centre = Math.round(m);
+  // 3 columns each side: the window the mint and bob renders were judged at,
+  // 2026-10-11.
+  const smooth = reads.map((_, i) => {
+    const near = reads.slice(Math.max(0, i - 3), i + 4);
+    return near.reduce((s, r) => s + r.Tu, 0) / near.length;
+  });
   let sag = 0;
   if (n >= 4) {
     let s11 = 0;
@@ -307,17 +313,19 @@ export function mouthOpening(byRole: Map<string, LayerInput>): Opening {
     const q = (s11 * t2 - s12 * t1) / det;
     // At the centre column, in model y (+y up, so a sag is the ends' mean
     // minus the centre): the drawn arc plus the travel there, capped, so a
-    // line drawn deeper than the cap closes flatter than drawn.
-    const D = (centre - x0) * (centre - x1) * (p + q * (centre - m));
-    const arc = (reads[0].Tu + reads[n - 1].Tu) / 2 - reads[centre - x0].Tu;
-    sag = Math.min(arc - D, CLOSED_SAG_MAX * n);
+    // line drawn deeper than the cap closes flatter than drawn. The seam
+    // keeps each column's offset from the smoothed bottom, so the centre's
+    // (the drawn arc past the smoothed one's) counts toward the cap too,
+    // against the parabola's depth there, `k` of its vertex's.
+    const c = centre - x0;
+    const D = c * (centre - x1) * (p + q * (centre - m));
+    const arc = (reads[0].Tu + reads[n - 1].Tu) / 2 - reads[c].Tu;
+    const t = c / (n - 1);
+    const k = 4 * t * (1 - t);
+    const offset =
+      arc - (smooth[0] + (smooth[n - 1] - smooth[0]) * t - smooth[c]);
+    sag = Math.min(arc - D, CLOSED_SAG_MAX * n - Math.max(0, offset) / k);
   }
-  // 3 columns each side: the window the mint and bob renders were judged at,
-  // 2026-10-11.
-  const smooth = reads.map((_, i) => {
-    const near = reads.slice(Math.max(0, i - 3), i + 4);
-    return near.reduce((s, r) => s + r.Tu, 0) / near.length;
-  });
   const columns: Omit<OpeningColumn, "overlap">[] = reads.map((r, i) => {
     if (n < 4) return { ...r, seam: r.Tu };
     const t = i / (x1 - x0);

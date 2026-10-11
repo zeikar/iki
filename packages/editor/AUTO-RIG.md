@@ -532,7 +532,7 @@ curvature the plate would need to put the eyes that far in front of its edge.
   that closes flatter than drawn. Each column travels from the line's bottom
   smoothed over a few columns onto the parabola, so the stroke moves as one
   piece and a kink drawn in the line (a V at the centre) keeps only its
-  offset from that average.
+  offset from that average, which the cap counts in.
   The opening's end columns are mesh knots, so the mesh renders the pins. The
   composer folds the outline's side wall beside the opening with the
   interior; a wall a hand split leaves standing at an end column gets no
