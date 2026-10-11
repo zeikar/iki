@@ -432,13 +432,16 @@ const LOSSLESS_PAGE_ROLE = "nose";
 
 /** Pack `crops` onto one atlas page and render it — palette-quantized to
  *  `quantizeColors` when that is set. A page over MAX_ATLAS_SIDE on either side
- *  is refused before rendering, naming its widest (or tallest) crop. */
+ *  is refused before rendering, naming its widest (or tallest) crop — after
+ *  every shelf attempt up to and including the max side overflowed. */
 async function renderAtlasPage(
   crops: AtlasCrop[],
   quantizeColors: number | undefined,
 ): Promise<{ crops: AtlasCrop[]; layout: AtlasLayout; dataUri: string }> {
   const layout = packAtlas(
     crops.map((c) => ({ id: c.id, width: c.width, height: c.height })),
+    undefined,
+    MAX_ATLAS_SIDE,
   );
   const over =
     layout.pageWidth > MAX_ATLAS_SIDE

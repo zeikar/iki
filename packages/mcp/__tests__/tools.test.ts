@@ -21,6 +21,7 @@ import {
   ATLAS_PADDING,
   UV_INSET_PX,
   detectAlphaBbox,
+  packAtlas,
   type IrisStrand,
 } from "@ikijs/editor";
 import { TURN } from "../../editor/src/auto-rig/profile";
@@ -1023,6 +1024,52 @@ describe("autoRigFromLayers", () => {
         'atlas page 200x4098 exceeds max side 4096 (its tallest crop: "hair_back" 82x4096)',
     });
     expect(fs.existsSync(tallOut)).toBe(false);
+  });
+
+  it("rigs a layer set whose first pack is over 4096 px tall but fits wider", async () => {
+    // Each crop is its rect grown 1 px a side (the required layers' as in the
+    // refusal test): the first pack stacks the body's 3004-tall shelf under the
+    // hair crops.
+    const dir = tmpDir();
+    const dims = { w: 1200, h: 4096 };
+    const crops = [
+      { id: "body", width: 302, height: 3002 },
+      { id: "eye_L", width: 14, height: 10 },
+      { id: "eye_R", width: 14, height: 10 },
+      { id: "face", width: 62, height: 62 },
+      { id: "mouth", width: 18, height: 10 },
+      { id: "hair_back", width: 602, height: 1102 },
+      { id: "hair_front", width: 602, height: 1102 },
+    ];
+    expect(packAtlas(crops).pageHeight).toBeGreaterThan(4096);
+    expect(
+      packAtlas(crops, ATLAS_PADDING, 4096).pageHeight,
+    ).toBeLessThanOrEqual(4096);
+    const result = await autoRigFromLayers({
+      layers: [
+        ...(await writeRequiredLayers(dir, dims)),
+        await writeLayerPng(
+          dir,
+          "body.png",
+          { x: 20, y: 500, w: 300, h: 3000 },
+          dims,
+        ),
+        await writeLayerPng(
+          dir,
+          "hair_back.png",
+          { x: 400, y: 100, w: 600, h: 1100 },
+          dims,
+        ),
+        await writeLayerPng(
+          dir,
+          "hair_front.png",
+          { x: 400, y: 1500, w: 600, h: 1100 },
+          dims,
+        ),
+      ].map((p) => ({ path: p })),
+      outputPath: path.join(dir, "model.iki"),
+    });
+    expect(result.ok).toBe(true);
   });
 
   it("rigs a layer set whose atlas page is exactly 4096 px wide", async () => {

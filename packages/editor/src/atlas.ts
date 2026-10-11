@@ -34,12 +34,19 @@ export interface AtlasLayout {
  * BOTTOM only. Page left/top edges need no gutter.
  *
  * pageWidth/pageHeight = tight bound (max x+width+padding, max y+height+padding).
+ * When `maxSide` is given and the first layout is taller than it but not wider,
+ * the pack is retried at 64 px wider steps, then at `maxSide` itself, and the
+ * first layout that fits the height wins; when none does the first is returned
+ * for the caller to refuse. The attempts are those widths, not a proof that no
+ * packing exists.
+ *
  * Empty sources → { pageWidth: 0, pageHeight: 0, placements: [], padding }.
  * Throws a plain Error naming the offending source id on a non-finite or <= 0 dimension.
  */
 export function packAtlas(
   sources: AtlasSource[],
   padding = ATLAS_PADDING,
+  maxSide?: number,
 ): AtlasLayout {
   for (const src of sources) {
     if (!isFinite(src.width) || src.width <= 0) {
@@ -68,51 +75,66 @@ export function packAtlas(
     (sum, s) => sum + (s.width + padding) * (s.height + padding),
     0,
   );
-  const targetWidth = Math.max(
+  const firstWidth = Math.max(
     Math.ceil(Math.sqrt(totalArea)),
     // Ensure at least the widest single source fits.
     Math.max(...sorted.map((s) => s.width + padding)),
   );
 
-  const placements: AtlasPlacement[] = [];
-  let shelfX = 0;
-  let shelfY = 0;
-  let shelfHeight = 0; // tallest padded item in the current row
+  const shelve = (targetWidth: number) => {
+    const placements: AtlasPlacement[] = [];
+    let shelfX = 0;
+    let shelfY = 0;
+    let shelfHeight = 0; // tallest padded item in the current row
 
-  for (const src of sorted) {
-    const paddedW = src.width + padding;
-    const paddedH = src.height + padding;
+    for (const src of sorted) {
+      const paddedW = src.width + padding;
+      const paddedH = src.height + padding;
 
-    // Wrap to next row when the item doesn't fit on the current shelf.
-    if (shelfX > 0 && shelfX + paddedW > targetWidth) {
-      shelfY += shelfHeight;
-      shelfX = 0;
-      shelfHeight = 0;
+      // Wrap to next row when the item doesn't fit on the current shelf.
+      if (shelfX > 0 && shelfX + paddedW > targetWidth) {
+        shelfY += shelfHeight;
+        shelfX = 0;
+        shelfHeight = 0;
+      }
+
+      placements.push({
+        id: src.id,
+        x: shelfX,
+        y: shelfY,
+        width: src.width,
+        height: src.height,
+      });
+
+      shelfX += paddedW;
+      if (paddedH > shelfHeight) shelfHeight = paddedH;
     }
 
-    placements.push({
-      id: src.id,
-      x: shelfX,
-      y: shelfY,
-      width: src.width,
-      height: src.height,
-    });
+    // Tight page bounds: max right/bottom padded edge across all placements.
+    let pageWidth = 0;
+    let pageHeight = 0;
+    for (const p of placements) {
+      const right = p.x + p.width + padding;
+      const bottom = p.y + p.height + padding;
+      if (right > pageWidth) pageWidth = right;
+      if (bottom > pageHeight) pageHeight = bottom;
+    }
+    return { pageWidth, pageHeight, placements };
+  };
 
-    shelfX += paddedW;
-    if (paddedH > shelfHeight) shelfHeight = paddedH;
+  const first = shelve(firstWidth);
+  if (
+    maxSide === undefined ||
+    first.pageHeight <= maxSide ||
+    first.pageWidth > maxSide
+  ) {
+    return { ...first, padding };
   }
-
-  // Tight page bounds: max right/bottom padded edge across all placements.
-  let pageWidth = 0;
-  let pageHeight = 0;
-  for (const p of placements) {
-    const right = p.x + p.width + padding;
-    const bottom = p.y + p.height + padding;
-    if (right > pageWidth) pageWidth = right;
-    if (bottom > pageHeight) pageHeight = bottom;
+  for (let w = firstWidth + 64; ; w += 64) {
+    const layout = shelve(Math.min(w, maxSide));
+    if (layout.pageHeight <= maxSide) return { ...layout, padding };
+    if (w >= maxSide) return { ...first, padding };
   }
-
-  return { pageWidth, pageHeight, placements, padding };
 }
 
 /**

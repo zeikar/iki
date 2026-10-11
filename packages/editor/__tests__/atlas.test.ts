@@ -259,3 +259,52 @@ describe("uvRectFor parseIkiModel round-trip", () => {
     expect(() => parseIkiModel(model)).not.toThrow();
   });
 });
+
+// ── packAtlas – retry wider under a max side ───────────────────────────────────
+
+describe("packAtlas maxSide retry", () => {
+  const overlaps = (a: AtlasPlacement, b: AtlasPlacement, pad: number) =>
+    a.x < b.x + b.width + pad &&
+    b.x < a.x + a.width + pad &&
+    a.y < b.y + b.height + pad &&
+    b.y < a.y + a.height + pad;
+
+  it("packs wider when the first width is too tall", () => {
+    const sources = [
+      { id: "a", width: 500, height: 1100 },
+      { id: "b", width: 500, height: 1100 },
+      { id: "c", width: 500, height: 1100 },
+      { id: "d", width: 100, height: 3000 },
+    ];
+    // The premise: today's width stacks past 4096.
+    expect(packAtlas(sources).pageHeight).toBeGreaterThan(4096);
+
+    const layout = packAtlas(sources, ATLAS_PADDING, 4096);
+    expect(layout.pageHeight).toBeLessThanOrEqual(4096);
+    expect(layout.pageWidth).toBeLessThanOrEqual(4096);
+    for (const [i, a] of layout.placements.entries()) {
+      for (const b of layout.placements.slice(i + 1)) {
+        expect(overlaps(a, b, ATLAS_PADDING)).toBe(false);
+      }
+    }
+  });
+
+  it("reaches the max side itself as the last attempt", () => {
+    const sources = [
+      { id: "a", width: 1022, height: 3000 },
+      { id: "b", width: 1022, height: 1100 },
+      { id: "c", width: 1022, height: 1100 },
+      { id: "d", width: 1022, height: 1100 },
+    ];
+    expect(packAtlas(sources).pageHeight).toBeGreaterThan(4096);
+
+    const layout = packAtlas(sources, ATLAS_PADDING, 4096);
+    expect(layout.pageWidth).toBe(4096);
+    expect(layout.pageHeight).toBe(3002);
+  });
+
+  it("returns the first layout when no width fits", () => {
+    const sources = [{ id: "a", width: 100, height: 4200 }];
+    expect(packAtlas(sources, ATLAS_PADDING, 4096)).toEqual(packAtlas(sources));
+  });
+});
