@@ -1,6 +1,6 @@
 ---
 name: iki-character-loop
-description: Drive a generator/critic loop that refines a rigged Iki character (`.iki`) until it matches a reference illustration. Draws a reference with the iki-create-image skill, then alternates the iki-character-artist agent (draws, composes, tunes, rigs) with the iki-character-critic agent (scores a rubric, emits typed findings) until the critic says ship or a cap is hit. Use when a generated character is renderable but not good-looking enough, or when the user asks to iterate a character toward a target look.
+description: Drive a generator/critic loop that refines a rigged Iki character (`.iki`) until it matches a reference illustration. Draws a reference with the iki-create-image skill, then alternates the iki-character-artist agent (draws, composes, tunes, rigs) with the iki-character-critic agent (scores a rubric, emits typed findings) until the critic says ship and the user has nothing to add, or a cap is hit. Use when a generated character is renderable but not good-looking enough, or when the user asks to iterate a character toward a target look.
 ---
 
 # Iki Character Loop (generator ↔ critic)
@@ -611,7 +611,18 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    contents of `<workdir>/figure.json`) and `body-renders` (the whole-canvas `full-*.png` poses) and, with a pose forearm,
    `reference-wave`; its `renders` and
    `turn-pair` are the bust crops.
-4. Route: `regenerate` and `retune` go back to the artist — a `retune` names a
+4. Ask the user, every round whatever the verdict, as soon as the critic
+   returns, before its verdict is acted on and before Step 2: list the
+   absolute paths of `<workdir>/renders/rest.png`, `turn-p30.png` and
+   `mouth-open-0-form-0.png` (a full body also `full-rest.png`) for the user
+   to open — sent as files too where the host offers a tool for it — with the
+   critic's `SCORES:` and `VERDICT:` lines, and ask for a one-line reaction
+   ("fine" if none). A reaction that names a change becomes a finding of the
+   type it implies — a `retune` naming the layout key, or a `regenerate` of
+   the part — marked as the user's. The user's eye overrides a ratio that
+   passes and a `ship` or `stop` verdict: the loop runs another round, within
+   Step 2's caps. "fine" adds nothing.
+5. Route: `regenerate` and `retune` go back to the artist — a `retune` names a
    `layout.json` key, a `mirror-parts.json` entry or a `style.json` knob, or on
    a full body `canvas.json`'s `canvasHeight`.
    Handle `escalate` yourself — decide whether the package change is
@@ -649,12 +660,16 @@ changing any of them mid-loop or on a restart invalidates every prior score.
 
 Stop on the first of:
 
-- critic returns `ship`
-- critic returns `stop`
+- critic returns `ship` or `stop` and the user's reaction (Step 1, item 4)
+  named nothing to act on
 - **3 rounds that spent generation** (the billed cap)
 - two consecutive rounds in which **no axis reached a new maximum** — keep a
   high-water mark per axis, because an unweighted total nets a real `rig` 3→4
   against a `palette` 4→3 drift and reads as no progress
+
+A round run on the user's finding counts like any other: toward the billed cap
+when it spends generation, and a new maximum on any axis resets the
+no-new-maximum streak.
 
 Then report to the user: the final render, the per-axis score trajectory across
 rounds, what remains unfixed, and every escalation with your recommendation.
