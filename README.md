@@ -4,6 +4,7 @@
 [![@ikijs/format on npm](https://img.shields.io/npm/v/@ikijs/format?label=%40ikijs%2Fformat&color=cb3837&logo=npm)](https://www.npmjs.com/package/@ikijs/format)
 [![@ikijs/mcp on npm](https://img.shields.io/npm/v/@ikijs/mcp?label=%40ikijs%2Fmcp&color=cb3837&logo=npm)](https://www.npmjs.com/package/@ikijs/mcp)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757?logo=anthropic&logoColor=white)](./plugin)
+[![Codex plugin](https://img.shields.io/badge/Codex-plugin-412991?logo=openai&logoColor=white)](./plugin#codex)
 [![Live demo](https://img.shields.io/badge/demo-zeikar.dev%2Fiki-E9A23B)](https://zeikar.dev/iki/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Built with HyperClaude](https://img.shields.io/badge/Built%20with-HyperClaude-D97757?logo=anthropic&logoColor=white)](http://zeikar.dev/hyperclaude/)
@@ -21,7 +22,7 @@
 **Iki** is a free, MIT-licensed 2D puppet animation engine for the web — an
 alternative to Live2D and [Inochi2D](https://inochi2d.com/) whose characters an
 AI agent can make. Ask for one, and the bundled
-[Claude Code plugin](./plugin) has an image model draw its parts, then rigs them
+[Claude Code / Codex plugin](./plugin) has an image model draw its parts, then rigs them
 into a character that blinks, looks around, talks, turns and nods, with hair
 that sways. What you get is an open `.iki` file — plain JSON you own — that the
 WebGL runtime plays in any browser, and that a host (such as
@@ -43,16 +44,16 @@ Install the plugin in [Claude Code](https://github.com/anthropics/claude-code):
 /plugin install iki@iki
 ```
 
-Or, in a checkout of this repo, install it in Codex:
+Or in [Codex](https://github.com/openai/codex):
 
 ```bash
-codex plugin marketplace add .
+codex plugin marketplace add zeikar/iki
 codex plugin add iki@iki
 ```
 
 Start a new Codex session to load it. The same skills and MCP server work in
-both hosts; see the [plugin installation guide](./plugin#codex) for GitHub
-installation and prerequisites.
+both hosts; see the [plugin installation guide](./plugin#codex) for a local
+checkout and prerequisites.
 
 Then ask for a character — _"make me an iki character: short copper bob, green
 eyes, school uniform"_. The plugin:

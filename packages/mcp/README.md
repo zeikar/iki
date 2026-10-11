@@ -1,6 +1,6 @@
 # @ikijs/mcp
 
-> Part of [Iki](https://github.com/zeikar/iki), the open Live2D alternative that AI can build — free and MIT-licensed, with an open `.iki` format and a [Claude Code plugin](https://github.com/zeikar/iki/tree/main/plugin) that draws and rigs characters.
+> Part of [Iki](https://github.com/zeikar/iki), the open Live2D alternative that AI can build — free and MIT-licensed, with an open `.iki` format and a [Claude Code / Codex plugin](https://github.com/zeikar/iki/tree/main/plugin) that draws and rigs characters.
 
 A stdio [MCP](https://modelcontextprotocol.io/) server that exposes `.iki` model tools to AI agents (Claude, LLMs, and any MCP-compatible client): read/validate a model, and auto-rig one from role-named PNG layers.
 
@@ -89,7 +89,7 @@ npm install -g @ikijs/mcp
 iki-mcp
 ```
 
-## Claude Desktop / Claude Code config
+## Claude Desktop / Claude Code / Codex config
 
 Add to your MCP server config:
 
@@ -97,7 +97,11 @@ Add to your MCP server config:
 { "mcpServers": { "iki": { "command": "npx", "args": ["-y", "@ikijs/mcp"] } } }
 ```
 
-For Claude Desktop this goes in `claude_desktop_config.json`; for Claude Code it goes in `.claude/mcp.json` (or the equivalent per-project config).
+For Claude Desktop this goes in `claude_desktop_config.json`; for Claude Code it goes in `.claude/mcp.json` (or the equivalent per-project config). For Codex, register it from the shell:
+
+```bash
+codex mcp add iki -- npx -y @ikijs/mcp
+```
 
 ## Scope note
 

@@ -46,12 +46,8 @@ separate setup.
 
 ### Codex
 
-In this checkout, `.agents/plugins/marketplace.json` exposes the plugin and
-`.codex/config.toml` enables `iki@iki` for the trusted project. Install the
-local plugin from the repository root:
-
 ```bash
-codex plugin marketplace add .
+codex plugin marketplace add zeikar/iki
 codex plugin add iki@iki
 ```
 
@@ -59,10 +55,12 @@ Restart Codex or start a new session to load the three skills and the bundled
 `iki` MCP server. Ask for a character or invoke `$iki:iki-character` or
 `$iki:iki-character-loop`.
 
-To install from GitHub after these files are published:
+In a checkout of this repo, `.agents/plugins/marketplace.json` exposes the
+plugin and `.codex/config.toml` enables `iki@iki` for the trusted project;
+install the local plugin from the repository root instead:
 
 ```bash
-codex plugin marketplace add zeikar/iki
+codex plugin marketplace add .
 codex plugin add iki@iki
 ```
 

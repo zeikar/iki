@@ -572,10 +572,10 @@
           <h1>The open Live2D alternative that AI can build.</h1>
           <p class="deck">
             Iki is a free, MIT-licensed 2D puppet engine for the web. Ask its
-            Claude Code plugin for a character: an image model draws the parts,
-            and the auto-rigger makes them blink, talk, turn and nod. The model
-            is <strong>plain JSON</strong> — an open <code>.iki</code> file you
-            own, played in WebGL.
+            Claude Code or Codex plugin for a character: an image model draws
+            the parts, and the auto-rigger makes them blink, talk, turn and nod.
+            The model is <strong>plain JSON</strong> — an open
+            <code>.iki</code> file you own, played in WebGL.
           </p>
           <div class="actions">
             <a class="btn btn-primary" href="#make">Make a character</a>
@@ -674,14 +674,19 @@
         <h2>Ask for a character</h2>
         <p class="lede">
           Install the plugin in
-          <a href="https://github.com/anthropics/claude-code">Claude Code</a>,
-          then ask in plain words. It needs an image generator — see the
+          <a href="https://github.com/anthropics/claude-code">Claude Code</a>
+          or <a href="https://github.com/openai/codex">Codex</a>, then ask in
+          plain words. It needs an image generator — see the
           <a href="https://github.com/zeikar/iki/tree/main/plugin#prerequisites"
             >prerequisites</a
           >.
         </p>
         <pre class="install"><code>/plugin marketplace add zeikar/iki
 /plugin install iki@iki
+
+# or, in Codex
+codex plugin marketplace add zeikar/iki
+codex plugin add iki@iki
 
 &gt; make me an iki character: short copper bob, green eyes, school uniform</code></pre>
         <dl class="facts">
@@ -725,8 +730,8 @@
             <dd>
               Rigs a character from role-named PNG layers — blink, gaze, mouth,
               head turn, brows and hair physics, wired automatically. It runs as
-              an MCP server and a Claude Code plugin, so an AI agent can go from
-              a prompt to a rigged model without a human in the loop.
+              an MCP server and a Claude Code / Codex plugin, so an AI agent can
+              go from a prompt to a rigged model without a human in the loop.
             </dd>
           </div>
           <div>
@@ -817,8 +822,8 @@
                 >
               </td>
               <td>
-                Claude Code plugin — the character-generation skills, their
-                agents, and the MCP server, in one install
+                Claude Code / Codex plugin — the character-generation skills,
+                their agents, and the MCP server, in one install
               </td>
             </tr>
           </tbody>

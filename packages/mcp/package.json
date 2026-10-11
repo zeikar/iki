@@ -20,7 +20,8 @@
     "generative-ai",
     "auto-rigging",
     "live2d-alternative",
-    "claude-code"
+    "claude-code",
+    "codex"
   ],
   "main": "dist/index.js",
   "module": "dist/index.mjs",

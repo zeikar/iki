@@ -2,7 +2,7 @@
   "name": "iki",
   "version": "0.0.0",
   "private": true,
-  "description": "Iki — the open Live2D alternative that AI can build: a free, MIT-licensed 2D puppet engine for the web, with an AI auto-rigger and a bundled Claude Code plugin.",
+  "description": "Iki — the open Live2D alternative that AI can build: a free, MIT-licensed 2D puppet engine for the web, with an AI auto-rigger and a bundled Claude Code / Codex plugin.",
   "keywords": [
     "live2d",
     "inochi2d",

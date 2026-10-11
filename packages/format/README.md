@@ -1,6 +1,6 @@
 # @ikijs/format
 
-> Part of [Iki](https://github.com/zeikar/iki), the open Live2D alternative that AI can build — free and MIT-licensed, with an open `.iki` format and a [Claude Code plugin](https://github.com/zeikar/iki/tree/main/plugin) that draws and rigs characters.
+> Part of [Iki](https://github.com/zeikar/iki), the open Live2D alternative that AI can build — free and MIT-licensed, with an open `.iki` format and a [Claude Code / Codex plugin](https://github.com/zeikar/iki/tree/main/plugin) that draws and rigs characters.
 
 The `.iki` model format — schema, TypeScript types, loader, and validator.
 
