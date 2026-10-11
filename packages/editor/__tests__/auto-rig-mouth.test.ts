@@ -19,6 +19,7 @@ import {
 } from "../src/auto-rig/layout";
 import { mouthForm, mouthFrameOf, mouthWiden } from "../src/auto-rig/drivers";
 import {
+  CLOSED_SAG_MAX,
   END_TAPER,
   END_TAPER_FROM,
   FLICK_PULL,
@@ -124,8 +125,13 @@ describe("mouth.ts: the opening", () => {
     expect(curvature(travel)).toBeLessThanOrEqual(0.05);
     expect(curvature(rawTravel)).toBeGreaterThanOrEqual(0.25);
     expect(curvature(rawTravel)).toBeGreaterThanOrEqual(5 * curvature(travel));
-    const c = op.at(499);
-    expect(Math.abs(c.seam - (c.T - UPPER_SHARE * c.H))).toBeLessThan(2);
+    // Uncapped the fixture sags 0.146 of its width, so its centre closes at
+    // the cap below the ends' mean.
+    const c = op.at(op.centre);
+    expect((op.at(470).seam + op.at(529).seam) / 2 - c.seam).toBeCloseTo(
+      CLOSED_SAG_MAX * COLS.length,
+      9,
+    );
     // Lower in model y than both ends: the fixture's U is deeper than its ∩.
     expect(c.seam).toBeLessThan(op.at(470).seam);
     expect(c.seam).toBeLessThan(op.at(529).seam);
@@ -222,6 +228,23 @@ describe("mouth.ts: the opening", () => {
     for (const x of [470, 529]) {
       expect(under.at(x).seam - under.at(x).Tu).toBeCloseTo(0, 9);
     }
+  });
+
+  it("caps the closed line's sag at a share of the opening's width", () => {
+    const W = OPENING.x1 - OPENING.x0 + 1;
+    // How far the closed line's centre sits below its ends' mean.
+    const sag = (op: ReturnType<typeof mouthOpening>) =>
+      (op.at(op.x0).seam + op.at(op.x1).seam) / 2 - op.at(op.centre).seam;
+    const deep = mouthOpening(lips({ depth: 2.5 }));
+    expect(sag(deep)).toBeCloseTo(CLOSED_SAG_MAX * W, 9);
+    for (const x of [470, 529]) {
+      expect(deep.at(x).seam - deep.at(x).Tu).toBeCloseTo(0, 9);
+    }
+    // Under the cap the share sets the sag.
+    const shallow = mouthOpening(lips({ depth: 0.4 }));
+    expect(sag(shallow)).toBeLessThan(CLOSED_SAG_MAX * W);
+    const c = shallow.at(shallow.centre);
+    expect(Math.abs(c.seam - (c.T - UPPER_SHARE * c.H))).toBeLessThan(1);
   });
 
   it("refuses an interior with no opaque pixel", () => {

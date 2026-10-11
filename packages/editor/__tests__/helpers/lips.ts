@@ -12,8 +12,8 @@ const t = (x: number) => (x - 499.5) / 30;
 /** The opening's top row at canvas column `x`: a gentle smile-shaped curve. */
 export const topRow = (x: number): number => 592 + Math.round(2 * t(x) ** 2);
 /** The interior's height at `x`, excluding the band under it. */
-export const heightAt = (x: number): number =>
-  Math.round(22 * Math.sqrt(1 - t(x) ** 2));
+export const heightAt = (x: number, depth = 1): number =>
+  Math.round(22 * depth * Math.sqrt(1 - t(x) ** 2));
 const HOOKS = [
   [464, 470],
   [530, 536],
@@ -40,6 +40,8 @@ export interface LipOptions {
    *  columns) and `mouth_teeth` (two rows under the line, from the
    *  interior's top), without `rowRuns`. */
   inside?: boolean;
+  /** The interior's height scaled by this (default 1). */
+  depth?: number;
 }
 
 type Col = [col: number, r0: number, r1: number];
@@ -84,6 +86,7 @@ function layer(
 export function lipSet(opts: LipOptions = {}): LayerInput[] {
   const w = opts.thinLine ? 1 : 3;
   const g = opts.grown ? 1 : 0;
+  const hAt = (x: number) => heightAt(x, opts.depth);
   const xs = Array.from(
     { length: OPENING.x1 - OPENING.x0 + 1 },
     (_, i) => OPENING.x0 + i,
@@ -94,7 +97,7 @@ export function lipSet(opts: LipOptions = {}): LayerInput[] {
   const inner: Col[] = xs.map((x) => [
     x,
     topRow(x) - (opts.underLine ? 1 : 0),
-    topRow(x) + heightAt(x) + 2,
+    topRow(x) + hAt(x) + 2,
   ]);
   if (opts.grownInner) {
     const a = topRow(470);
@@ -108,8 +111,8 @@ export function lipSet(opts: LipOptions = {}): LayerInput[] {
     ...xs.map(
       (x): Col => [
         x,
-        topRow(x) + heightAt(x) + (opts.skinOverlap ? 1 : 2),
-        topRow(x) + heightAt(x) + 8,
+        topRow(x) + hAt(x) + (opts.skinOverlap ? 1 : 2),
+        topRow(x) + hAt(x) + 8,
       ],
     ),
     ...hooks.map((x): Col => [x, 596, 602]),
@@ -119,13 +122,7 @@ export function lipSet(opts: LipOptions = {}): LayerInput[] {
     ? [
         layer(
           "mouth_tongue",
-          xs.map(
-            (x): Col => [
-              x,
-              topRow(x) + heightAt(x) - 3,
-              topRow(x) + heightAt(x),
-            ],
-          ),
+          xs.map((x): Col => [x, topRow(x) + hAt(x) - 3, topRow(x) + hAt(x)]),
           true,
           g,
         ),

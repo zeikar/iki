@@ -63,7 +63,11 @@
  * would carry into the rendered line, while a smooth travel carries the
  * drawn stroke (whose antialiased edge is smooth) as one piece. The share sets
  * the travel's depth (the sag), the art's two arcs its shape; the cubic keeps
- * an asymmetric mouth's tilt and cannot wobble.
+ * an asymmetric mouth's tilt and cannot wobble. The travel is scaled down
+ * where the closed line, the drawn arc counted in, would sag at the centre
+ * column more than `CLOSED_SAG_MAX` of the opening's width below its ends'
+ * mean, so a deep opening closes into a gentle smile, not a V; every closed
+ * shape and the preview are read off the seam, so they keep the cap.
  *
  * The lower lip's columns outside the opening (the corner hooks) do not fold,
  * the line's are only thinned and shaped (no travel), and the interior's edge
@@ -119,6 +123,13 @@ export { LIP_ROLES, type LipRole };
  *  against the legacy closed drawing, 2026-10-09: at 0.4 the closed line's
  *  sag reads like the legacy closed smile (0.3 is shallower, 0.5 deeper). */
 export const UPPER_SHARE = 0.4;
+/** The most the closed line may sag at the opening's centre column, below
+ *  its two ends' mean, as a share of the opening's width: the closing travel
+ *  is scaled down so it never takes the drawn line's own arc past it.
+ *  Provisional. Measured on the uncapped fitted seam: bob's lips-gen2 0.113,
+ *  its lips-gen 0.041, mint 0.178 (a 73 x 27 px opening that closed into a
+ *  V). */
+export const CLOSED_SAG_MAX = 0.1;
 /** The share of its height the stack above the line's bottom edge keeps, at
  *  every key. The spike's on bob (`iki-char/gate/lips4`): 0.7; 0.5 broke a
  *  76 px mouth's line into dashes. */
@@ -269,6 +280,7 @@ export function mouthOpening(byRole: Map<string, LayerInput>): Opening {
   // (x - m) is 0 there), so the travel is zero and the closed line is the
   // drawn line.
   const m = (x0 + x1) / 2;
+  const centre = Math.round(m);
   let p = 0;
   let q = 0;
   if (reads.length >= 4) {
@@ -291,6 +303,18 @@ export function mouthOpening(byRole: Map<string, LayerInput>): Opening {
     const det = s11 * s22 - s12 * s12;
     p = (t1 * s22 - t2 * s12) / det;
     q = (s11 * t2 - s12 * t1) / det;
+    // The cap, at the centre column, in model y (+y up, so a sag is the ends'
+    // mean minus the centre): the drawn arc plus the travel there. A travel
+    // that lifts the centre is left alone: the scale would grow it.
+    const D = (centre - x0) * (centre - x1) * (p + q * (centre - m));
+    const arc =
+      (reads[0].Tu + reads[reads.length - 1].Tu) / 2 - reads[centre - x0].Tu;
+    const cap = CLOSED_SAG_MAX * (x1 - x0 + 1);
+    if (D < 0 && arc - D > cap) {
+      const s = Math.max(0, (cap - arc) / -D);
+      p *= s;
+      q *= s;
+    }
   }
   const columns: Omit<OpeningColumn, "overlap">[] = reads.map((r, i) => {
     const x = x0 + i;
@@ -298,7 +322,6 @@ export function mouthOpening(byRole: Map<string, LayerInput>): Opening {
   });
   const clamp = (col: number) => Math.min(x1, Math.max(x0, col));
   const base = (col: number) => columns[clamp(col) - x0];
-  const centre = Math.round((x0 + x1) / 2);
   const w = base(centre).lineH;
   // The closed taper: 1 out to its start, then linear in the distance from
   // the centre down to END_TAPER at lip_upper's box-edge column on that side.

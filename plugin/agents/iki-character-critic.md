@@ -251,11 +251,13 @@ also looks at `mouth-renders`:
   `lip_upper: the upper line is N px` number in the finding.
 - The closed line is the drawn upper line carried by one smooth travel: its
   ends stay where they were drawn, its sag is the rig's share of the opening's
-  depth, its shape the keyed art's two arcs, and on opening the upper line goes
-  from the closed curve to its drawn arc while the lower lip drops. A smile or
-  frown that disagrees with the reference is a `regenerate` of
-  `mouth_keyed.png` with the opening drawn deeper (a smile) or shallower at the
-  centre, never an `escalate` for the share.
+  depth, at most `CLOSED_SAG_MAX` of the opening's width
+  (`packages/editor/src/auto-rig/mouth.ts`), so a deeply drawn opening closes
+  into a gentle smile, not a V, its shape the keyed art's two arcs, and on
+  opening the upper line goes from the closed curve to its drawn arc while the
+  lower lip drops. A smile or frown that disagrees with the reference is a
+  `regenerate` of `mouth_keyed.png` with the opening drawn deeper (a smile, up
+  to the cap) or shallower at the centre, never an `escalate` for the share.
 - Shut, a flick drawn past a corner is pulled toward it and thinned, so a small
   tick at a closed corner (`mouth-open-0-*`, `rest`) WITH a flick, hook, tick
   or fork drawn there in `mouth_keyed.png` is drawn art: a `regenerate` of
