@@ -35,19 +35,23 @@ export interface AtlasLayout {
  *
  * pageWidth/pageHeight = tight bound (max x+width+padding, max y+height+padding).
  * When `maxSide` is given and the first layout is taller than it but not wider,
- * the pack is retried at 64 px wider steps, then at `maxSide` itself, and the
- * first layout that fits the height wins; when none does the first is returned
- * for the caller to refuse. The attempts are those widths, not a proof that no
- * packing exists.
+ * the pack is retried at every width from the widest padded source up to `maxSide`, and the first
+ * layout that fits the height wins (shelf height is not monotonic in width);
+ * when none does the first is returned for the caller to refuse. The attempts
+ * are every width for this shelf order, not a proof that no packing exists.
  *
  * Empty sources → { pageWidth: 0, pageHeight: 0, placements: [], padding }.
- * Throws a plain Error naming the offending source id on a non-finite or <= 0 dimension.
+ * Throws a plain Error naming the offending source id on a non-finite or <= 0 dimension,
+ * and on a supplied `maxSide` that is non-finite or <= 0.
  */
 export function packAtlas(
   sources: AtlasSource[],
   padding = ATLAS_PADDING,
   maxSide?: number,
 ): AtlasLayout {
+  if (maxSide !== undefined && !(isFinite(maxSide) && maxSide > 0)) {
+    throw new Error(`packAtlas: invalid maxSide ${maxSide}`);
+  }
   for (const src of sources) {
     if (!isFinite(src.width) || src.width <= 0) {
       throw new Error(
@@ -75,11 +79,9 @@ export function packAtlas(
     (sum, s) => sum + (s.width + padding) * (s.height + padding),
     0,
   );
-  const firstWidth = Math.max(
-    Math.ceil(Math.sqrt(totalArea)),
-    // Ensure at least the widest single source fits.
-    Math.max(...sorted.map((s) => s.width + padding)),
-  );
+  // The widest single source must fit.
+  const widest = Math.max(...sorted.map((s) => s.width + padding));
+  const firstWidth = Math.max(Math.ceil(Math.sqrt(totalArea)), widest);
 
   const shelve = (targetWidth: number) => {
     const placements: AtlasPlacement[] = [];
@@ -130,11 +132,11 @@ export function packAtlas(
   ) {
     return { ...first, padding };
   }
-  for (let w = firstWidth + 64; ; w += 64) {
-    const layout = shelve(Math.min(w, maxSide));
+  for (let w = widest; w <= maxSide; w++) {
+    const layout = shelve(w);
     if (layout.pageHeight <= maxSide) return { ...layout, padding };
-    if (w >= maxSide) return { ...first, padding };
   }
+  return { ...first, padding };
 }
 
 /**

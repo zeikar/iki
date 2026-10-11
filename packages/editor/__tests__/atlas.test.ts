@@ -303,6 +303,35 @@ describe("packAtlas maxSide retry", () => {
     expect(layout.pageHeight).toBe(3002);
   });
 
+  it("tries every width, not only coarse steps", () => {
+    const sources = [
+      { id: "a", width: 1600, height: 700 },
+      { id: "b", width: 1300, height: 2990 },
+      { id: "c", width: 1580, height: 1300 },
+    ];
+    const layout = packAtlas(sources, 2, 4096);
+    expect(layout.pageHeight).toBeLessThanOrEqual(4096);
+    expect(layout.pageWidth).toBeLessThanOrEqual(4096);
+  });
+
+  it("also tries widths narrower than the first", () => {
+    const sources = [
+      { id: "a", width: 1600, height: 700 },
+      { id: "b", width: 1300, height: 2990 },
+      { id: "c", width: 1580, height: 2200 },
+    ];
+    expect(packAtlas(sources).pageHeight).toBeGreaterThan(4096);
+    const layout = packAtlas(sources, 2, 4096);
+    expect(layout.pageHeight).toBeLessThanOrEqual(4096);
+  });
+
+  it("rejects a non-finite or non-positive maxSide", () => {
+    const sources = [{ id: "a", width: 10, height: 10 }];
+    for (const bad of [NaN, Infinity, 0, -5]) {
+      expect(() => packAtlas(sources, 2, bad)).toThrow(/maxSide/);
+    }
+  });
+
   it("returns the first layout when no width fits", () => {
     const sources = [{ id: "a", width: 100, height: 4200 }];
     expect(packAtlas(sources, ATLAS_PADDING, 4096)).toEqual(packAtlas(sources));

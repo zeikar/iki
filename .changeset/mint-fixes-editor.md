@@ -2,7 +2,7 @@
 "@ikijs/editor": minor
 ---
 
-`packAtlas(sources, padding?, maxSide?)` takes an optional `maxSide`: when the first shelf layout is taller than it (and not wider), the pack retries wider in 64 px steps and then at `maxSide` itself, and returns the first layout that fits, so a tall full body whose crops fit the area packs instead of being refused. Without `maxSide`, and for every set that packed before, the layout is identical.
+`packAtlas(sources, padding?, maxSide?)` takes an optional `maxSide`: when the first shelf layout is taller than it (and not wider), the pack retries at every width from the widest padded crop up to `maxSide` and returns the first layout that fits, so a tall full body that fits at some width up to `maxSide`, in the packer's shelf order, packs instead of being refused. An invalid `maxSide` (non-finite or not positive) throws. Without `maxSide`, and for every set that packed before, the layout is identical.
 
 The arm draws cap, forearm, upper arm: the upper arm draws over the forearm, so a bent elbow's inside overlap shows the elbow row's edge rather than the forearm's cut rotated up the sleeve.
 
