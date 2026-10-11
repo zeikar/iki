@@ -43,6 +43,17 @@ Install the plugin in [Claude Code](https://github.com/anthropics/claude-code):
 /plugin install iki@iki
 ```
 
+Or, in a checkout of this repo, install it in Codex:
+
+```bash
+codex plugin marketplace add .
+codex plugin add iki@iki
+```
+
+Start a new Codex session to load it. The same skills and MCP server work in
+both hosts; see the [plugin installation guide](./plugin#codex) for GitHub
+installation and prerequisites.
+
 Then ask for a character — _"make me an iki character: short copper bob, green
 eyes, school uniform"_. The plugin:
 
@@ -71,7 +82,7 @@ No install — both demos run in the browser:
 ## Why
 
 - **Characters an AI agent can build.** Part images in, a rigged model that
-  blinks, talks, turns and nods out — through the Claude Code plugin or any MCP
+  blinks, talks, turns and nods out — through the Claude Code / Codex plugin or any MCP
   client. That is the part Iki is really exploring.
 - **Free for commercial use.** MIT: no publication license, no revenue tiers —
   ship whatever you build with it.
@@ -91,14 +102,14 @@ is the established open-source project in this space. Iki is not trying to
 replace either. It exists because three things it wanted never lined up in one
 place: a permissive license, a plain-text format, and a rig an agent can build.
 
-|                          | Live2D Cubism                                                                                                                                            | Inochi2D                     | Iki                                                                                                                                                                             |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| License                  | Proprietary SDK license; a publication license is required to distribute, with exemptions for individuals and small businesses ([terms][live2d-license]) | BSD-2-Clause                 | **MIT** — free for commercial use                                                                                                                                               |
-| Editor                   | Cubism Editor (paid PRO tier, free tier)                                                                                                                 | Inochi Creator (open source) | Headless editor core + example app (early)                                                                                                                                      |
-| Model format             | `.moc3`, compiled and proprietary                                                                                                                        | Open                         | Plain JSON with a documented schema and a validator                                                                                                                             |
-| Runtime                  | Native SDKs, including a Web SDK                                                                                                                         | Native (D)                   | TypeScript + WebGL2, `npm install`                                                                                                                                              |
-| An AI agent can build it | —                                                                                                                                                        | —                            | Yes: a Claude Code plugin that draws and rigs a character, over an MCP server (`compose_layers_from_parts`, `measure_layers`, `auto_rig_from_layers`, `measure_turn_reference`) |
-| Maturity                 | Industry standard                                                                                                                                        | Established                  | Early (0.x, schema still settling)                                                                                                                                              |
+|                          | Live2D Cubism                                                                                                                                            | Inochi2D                     | Iki                                                                                                                                                                                     |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| License                  | Proprietary SDK license; a publication license is required to distribute, with exemptions for individuals and small businesses ([terms][live2d-license]) | BSD-2-Clause                 | **MIT** — free for commercial use                                                                                                                                                       |
+| Editor                   | Cubism Editor (paid PRO tier, free tier)                                                                                                                 | Inochi Creator (open source) | Headless editor core + example app (early)                                                                                                                                              |
+| Model format             | `.moc3`, compiled and proprietary                                                                                                                        | Open                         | Plain JSON with a documented schema and a validator                                                                                                                                     |
+| Runtime                  | Native SDKs, including a Web SDK                                                                                                                         | Native (D)                   | TypeScript + WebGL2, `npm install`                                                                                                                                                      |
+| An AI agent can build it | —                                                                                                                                                        | —                            | Yes: a Claude Code / Codex plugin that draws and rigs a character, over an MCP server (`compose_layers_from_parts`, `measure_layers`, `auto_rig_from_layers`, `measure_turn_reference`) |
+| Maturity                 | Industry standard                                                                                                                                        | Established                  | Early (0.x, schema still settling)                                                                                                                                                      |
 
 [live2d-license]: https://www.live2d.com/en/sdk/license/
 
@@ -115,7 +126,7 @@ web format you can script against, that is what this is.
 | [`@ikijs/mcp`](./packages/mcp)                                                              | stdio MCP server exposing `.iki` read/validate plus `compose_layers_from_parts`, `measure_layers`, `auto_rig_from_layers` and `measure_turn_reference` to AI agents |
 | [`examples/playground`](./examples/playground) ([live](https://zeikar.dev/iki/playground/)) | Slider-driven demo of the generated hero character and a hand-authored model                                                                                        |
 | [`examples/editor`](./examples/editor) ([live](https://zeikar.dev/iki/editor/))             | Private React+Zustand app — load/import art, numeric part + deformer + physics editing, pivot gizmo, live IkiPlayer preview, validated .iki export                  |
-| [`plugin/`](./plugin)                                                                       | Claude Code plugin — the character-generation skills, their two agents, and the MCP server, wired up in one install                                                 |
+| [`plugin/`](./plugin)                                                                       | Claude Code / Codex plugin — shared character-generation skills, two agent roles, and the MCP server, wired up in one install                                       |
 
 ## Install
 
@@ -199,7 +210,7 @@ a model you save today.
 enough to play a model. The editor packages are for building authoring tools.
 
 **How do I make a model?** Ask for one with the
-[Claude Code plugin](#make-a-character-with-ai), which draws the parts and rigs
+[Claude Code / Codex plugin](#make-a-character-with-ai), which draws the parts and rigs
 them. With art of your own, feed role-named PNG layers to the auto-rigger in
 [`@ikijs/editor`](./packages/editor) / [`@ikijs/mcp`](./packages/mcp), which
 wires up blink, gaze, lip-sync, head-turn and brows for you. Or hand-write the

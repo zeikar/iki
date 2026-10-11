@@ -13,7 +13,9 @@ do when Codex is not there.
 
 ## The scripts
 
-They sit beside this file, in `${CLAUDE_SKILL_DIR}`:
+They sit beside this `SKILL.md`. Resolve their absolute paths from the loaded
+skill's directory; Claude Code also exposes that directory as
+`${CLAUDE_SKILL_DIR}`. Codex does not need that environment variable.
 
 | Command                                                            | Draws                                                                                                                                                                                                |
 | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -31,7 +33,7 @@ and let the completion notice say when a batch is done; do not sleep-poll.
 
 ## Before the first job
 
-Run `${CLAUDE_SKILL_DIR}/gen-images.sh --check`. It stops on the three things
+Run `gen-images.sh --check` using that absolute script path. It stops on the three things
 that mean Codex cannot draw on this machine at all:
 
 - `codex CLI not found in PATH`

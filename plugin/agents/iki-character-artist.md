@@ -94,17 +94,21 @@ You own the character assets. You do not own the packages.
 
 ## The pipeline
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/iki-character/SKILL.md` first — it carries
+`<plugin-root>` is the absolute plugin directory: Claude Code provides it as
+`${CLAUDE_PLUGIN_ROOT}`; in Codex the orchestrator passes it with the inputs.
+Resolve the paths below before running commands.
+
+Read `<plugin-root>/skills/iki-character/SKILL.md` first — it carries
 the role table,
 the prompt patterns and the hard-won pitfalls. For a full body, also read
-`${CLAUDE_PLUGIN_ROOT}/skills/iki-character/full-body.md`: its `body.png`,
+`<plugin-root>/skills/iki-character/full-body.md`: its `body.png`,
 `arm.png` and `forearm_pose.png` prompts, how the body and the arms are placed,
 and how round 1's first compose corrects the provisional `canvas.json`. Then:
 
 1. **Generate parts** (only when you have `regenerate` findings, or on round 1):
 
    ```bash
-   ${CLAUDE_PLUGIN_ROOT}/skills/iki-create-image/gen-images.sh --ref <reference> <workdir>/parts \
+   <plugin-root>/skills/iki-create-image/gen-images.sh --ref <reference> <workdir>/parts \
      "<prompt>::<role>.png" ...
    ```
 
@@ -131,7 +135,7 @@ and how round 1's first compose corrects the provisional `canvas.json`. Then:
    If the script stops before its first job because Codex cannot draw here
    (`codex CLI not found`, `not logged in`,
    `image_generation feature is off`), do not retry: write the hand-off from
-   `${CLAUDE_PLUGIN_ROOT}/skills/iki-create-image/SKILL.md` ("Without Codex")
+   `<plugin-root>/skills/iki-create-image/SKILL.md` ("Without Codex")
    for the parts this round needs, and return with `BLOCKED` naming that file.
    Ask for each under the output name you would have passed the script,
    variants included (`<role>_a.png` / `<role>_b.png`). Resumed once the user
@@ -154,7 +158,7 @@ and how round 1's first compose corrects the provisional `canvas.json`. Then:
    you need them without recomposing.
 
 4. **Rig** — call `auto_rig_from_layers` on the bundled MCP server
-   (`mcp__plugin_iki_iki__*`), or pipe the same `tools/call` to
+   (`mcp__plugin_iki_iki__*` in Claude Code), or pipe the same `tools/call` to
    `node <repo>/packages/mcp/dist/cli.js` run from the same cwd when you need
    the working-tree build (either way the tool confines output to its cwd). Pass
    the `layers[].path` values the compose result returned; an `outputPath` of

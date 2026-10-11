@@ -1,4 +1,4 @@
-# Iki — Claude Code plugin
+# Iki — Claude Code and Codex plugin
 
 Make a rigged, animated 2D character by asking for one.
 
@@ -34,6 +34,8 @@ catch the defects which cost real regeneration rounds to find by eye.
 
 ## Install
 
+### Claude Code
+
 ```
 /plugin marketplace add zeikar/iki
 /plugin install iki@iki
@@ -41,6 +43,37 @@ catch the defects which cost real regeneration rounds to find by eye.
 
 Then just ask for a character. The MCP server comes with the plugin — no
 separate setup.
+
+### Codex
+
+In this checkout, `.agents/plugins/marketplace.json` exposes the plugin and
+`.codex/config.toml` enables `iki@iki` for the trusted project. Install the
+local plugin from the repository root:
+
+```bash
+codex plugin marketplace add .
+codex plugin add iki@iki
+```
+
+Restart Codex or start a new session to load the three skills and the bundled
+`iki` MCP server. Ask for a character or invoke `$iki:iki-character` or
+`$iki:iki-character-loop`.
+
+To install from GitHub after these files are published:
+
+```bash
+codex plugin marketplace add zeikar/iki
+codex plugin add iki@iki
+```
+
+Both hosts share `skills/` and `.mcp.json`. Claude Code registers the two
+agent files directly; the loop skill tells Codex to pass those same role
+instructions to standard subagents, or run the roles sequentially when
+subagents are unavailable. Browser rendering needs browser automation in
+either host; it is not bundled with the plugin.
+
+The Codex manifest and repo marketplace follow the
+[official OpenAI plugin packaging guide](https://developers.openai.com/plugins/build/plugins).
 
 ## Prerequisites
 
@@ -58,5 +91,8 @@ separate setup.
 document that server's tool schema and role table, so the pin moves with them —
 when a tool schema or the role set changes, the skill text and the pin change
 together.
+
+Keep the versions in `.claude-plugin/plugin.json` and
+`.codex-plugin/plugin.json` in sync when updating the shared plugin.
 
 MIT © [Zeikar](https://github.com/zeikar)

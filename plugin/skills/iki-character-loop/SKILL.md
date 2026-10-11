@@ -22,6 +22,27 @@ references (iki-create-image, once)
 them, drive the browser render, arbitrate escalations, and enforce the caps.
 Neither agent talks to the other directly.
 
+## Host dispatch
+
+- **Claude Code:** dispatch the bundled agents as `iki:iki-character-artist`
+  and `iki:iki-character-critic`.
+- **Codex:** the Markdown files in `agents/` are role instructions, not
+  registered agent types. Resolve the plugin root two directories above this
+  skill's directory. Spawn a standard subagent for each role and tell it to
+  read the body of [the artist](../../agents/iki-character-artist.md) or
+  [the critic](../../agents/iki-character-critic.md), passing the absolute
+  plugin root and the round's inputs. Their YAML `tools`, `model` and `color`
+  fields are Claude metadata; use Codex's available tools and inherited model.
+  Resume the same subagent for later work. If subagents are unavailable,
+  perform the artist and critic steps sequentially with the same ownership
+  rules, rubric and caps.
+
+MCP tool prefixes vary by host: resolve the bundled `iki` server's tools by
+their tool names. The render recipes below use Playwright MCP names; use the
+host's available browser automation to capture the same poses and save the
+same PNG/JSON artifacts. In a checkout, the repo-local `iki-visual-test`
+instructions are at `.claude/skills/iki-visual-test/SKILL.md` for either host.
+
 ## Why a reference at all
 
 Parts are generated independently, so nothing ties them together but a style
@@ -151,12 +172,11 @@ changing any of them mid-loop or on a restart invalidates every prior score.
 
 ### Step 1 — round
 
-1. Dispatch **`iki:iki-character-artist`** with `reference` (the front view
+1. Dispatch **the artist** (see Host dispatch) with `reference` (the front view
    only — `gen-images.sh --ref` attaches it to every job), `workdir`, `round`,
    `style` (the contents of `<workdir>/style.json`, which its rig step passes
    to `auto_rig_from_layers` when it is not empty), and the critic's findings
-   (none on round 1). Both agents ship inside this plugin, so the dispatch name carries
-   its namespace; a bare `iki-character-artist` does not resolve. A full body
+   (none on round 1). A full body
    also passes `reference-full` (`<workdir>/reference-full.png`, which its
    `body.png` and `arm.png` jobs attach instead), `reference-wave`
    (`<workdir>/reference-wave.png`, which its `forearm_pose.png` jobs attach), and `canvas` (the contents of
@@ -599,7 +619,7 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    file and decode it into `<workdir>/renders/` with `decode-renders.cjs` as
    for the turn pair; it runs to about 80 MB. The bust crops are the critic's
    `renders` and `turn-pair`, the `full-*.png` its `body-renders`, the `mouth-*.png` crops its `mouth-renders`.
-3. Dispatch **`iki:iki-character-critic`** with `reference`, `reference-30`, `layers`,
+3. Dispatch **the critic** (see Host dispatch) with `reference`, `reference-30`, `layers`,
    `renders` (the render paths), `turn-pair` (`<workdir>/renders/rest.png`,
    `turn-m30.png` and `turn-p30.png`), `mouth-renders` (the 15 `mouth-*.png`
    crops), `round`, `scores` (the previous rounds' `SCORES:` lines),

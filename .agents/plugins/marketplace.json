@@ -1,0 +1,20 @@
+{
+  "name": "iki",
+  "interface": {
+    "displayName": "Iki"
+  },
+  "plugins": [
+    {
+      "name": "iki",
+      "source": {
+        "source": "local",
+        "path": "./plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Design"
+    }
+  ]
+}

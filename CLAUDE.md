@@ -16,11 +16,11 @@ Read [README.md](./README.md) first for what Iki is, the package map, and the ro
 - **Before 1.0**, v1 is unstable: the schema may change (including tightening or removing fields) without a version bump. The packages are published from 0.1.0 on, so such a change DOES reach users — a 0.x release can reject a model an earlier one accepted. Call it out in the changeset even though no bump is required.
 - **From 1.0 on**, any breaking change to the `.iki` schema must bump `IKI_FORMAT_VERSION`.
 
-## Claude Code plugin
+## Claude Code and Codex plugin
 
-- `plugin/` is the Claude Code plugin — the character-generation skills, their two agents, and `.mcp.json` — published from the root `.claude-plugin/marketplace.json` and declared for this repo in `.claude/settings.json`. `.claude/` keeps only what is meaningless outside a checkout (`iki-visual-test`).
+- `plugin/` is shared by Claude Code and Codex — the character-generation skills, their two agent role files, and `.mcp.json`. Claude Code uses `plugin/.claude-plugin/plugin.json`, the root `.claude-plugin/marketplace.json`, and `.claude/settings.json`. Codex uses `plugin/.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, and `.codex/config.toml`. Keep shared skills and MCP configuration in `plugin/`; do not duplicate them per host. `.claude/` keeps only what is meaningless outside a checkout (`iki-visual-test`, also readable from Codex).
 - Those skills document the auto-rig contract: the role table, the `compose_layers_from_parts`, `measure_layers` and `auto_rig_from_layers` schemas, the parameter ids, and the `@ikijs/mcp` range pinned in `.mcp.json`. Change one of those in `packages/` and update `plugin/` in the SAME commit — that co-location is why the plugin lives here instead of its own repo.
-- Bump `plugin/.claude-plugin/plugin.json` `version` by hand. The plugin is not an npm package, so it takes no changeset.
+- Bump both plugin manifests' `version` together by hand. Keep their identity metadata aligned. The plugin is not an npm package, so it takes no changeset.
 
 ## Validation
 
