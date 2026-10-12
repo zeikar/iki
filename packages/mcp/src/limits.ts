@@ -124,10 +124,11 @@ export function resolveInputDir(dirPath: string): string {
  * a lexical startsWith check can be bypassed by a symlinked dir under cwd).
  * Shared by {@link resolveOutputPath} and {@link resolveOutputDir} — both are
  * write-side boundaries where an unrestricted target is an
- * arbitrary-file-overwrite surface. `label` and `original` shape the thrown
+ * arbitrary-file-overwrite surface — and by `render_poses` for its model file,
+ * whose first bytes a parse error would otherwise echo back. `label` and `original` shape the thrown
  * message (path-qualified with the caller's original, unresolved string).
  */
-function confineToWorkingDirectory(
+export function confineToWorkingDirectory(
   root: string,
   dir: string,
   label: string,

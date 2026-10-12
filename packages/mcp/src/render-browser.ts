@@ -270,6 +270,20 @@ async function openPage(cdp: CdpClient, timeoutMs: number): Promise<Evaluate> {
   };
 }
 
+/** Cleanup must not replace the result of a render that already finished. */
+function removeProfile(profile: string): void {
+  try {
+    fs.rmSync(profile, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
+  } catch (error) {
+    console.error(`could not remove browser profile ${profile}:`, error);
+  }
+}
+
 /**
  * Start `executable` headless and connect to it. `timeoutMs` bounds startup
  * and every DevTools call `openPage` makes; each evaluate has its own.
@@ -323,6 +337,14 @@ export async function launchBrowser(
   const settle = (ms: number) =>
     within(closed, ms, "browser close").catch(() => {});
 
+  // The server can die mid-render (SIGTERM, host gone); 'exit' handlers run
+  // synchronously, so the browser and its profile do not outlive it.
+  const onProcessExit = () => {
+    child.kill("SIGKILL");
+    removeProfile(profile);
+  };
+  process.once("exit", onProcessExit);
+
   let shutdownPromise: Promise<void> | undefined;
   const shutdown = () =>
     (shutdownPromise ??= (async () => {
@@ -334,7 +356,8 @@ export async function launchBrowser(
           await settle(CLOSE_GRACE_MS);
         }
       }
-      fs.rmSync(profile, { recursive: true, force: true });
+      process.removeListener("exit", onProcessExit);
+      removeProfile(profile);
     })());
 
   let cdp: CdpClient;

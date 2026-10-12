@@ -335,7 +335,9 @@ export function createIkiMcpServer(): McpServer {
       inputSchema: {
         modelPath: z
           .string()
-          .describe("Rigged .iki file path (resolved against cwd)."),
+          .describe(
+            "Rigged .iki file path (resolved against cwd; must sit under the working directory).",
+          ),
         outDir: z
           .string()
           .describe(

@@ -220,6 +220,20 @@ describe("renderPoses refusals", () => {
     expect(!r.ok && r.error).toMatch(/^output dir escapes the working/);
   });
 
+  it("refuses a model outside the working directory", async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "iki-render-model-"));
+    try {
+      const file = path.join(outside, "secret.iki");
+      fs.writeFileSync(file, "AKIA1234SECRETKEY=x");
+      const r = await renderPoses({ modelPath: file, outDir: "." });
+      expect(!r.ok && r.error).toBe(
+        `model path escapes the working directory: ${file}`,
+      );
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   it("refuses a missing model", async () => {
     const r = await renderPoses({
       modelPath: "no-such-model.iki",

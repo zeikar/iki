@@ -14,6 +14,7 @@ import {
 } from "@ikijs/format";
 import {
   AutoRigInputError,
+  confineToWorkingDirectory,
   resolveInputPath,
   resolveOutputDir,
   writeFileAtomic,
@@ -237,7 +238,12 @@ export async function renderPoses(
   input: RenderPosesInput,
 ): Promise<RenderPosesResult> {
   try {
-    const modelFile = resolveInputPath(input.modelPath, "model");
+    const modelFile = confineToWorkingDirectory(
+      process.cwd(),
+      resolveInputPath(input.modelPath, "model"),
+      "model path",
+      input.modelPath,
+    );
     const outDir = resolveOutputDir(input.outDir);
     const model = loadIkiModel(readFileSync(modelFile, "utf8"));
     const plan = planRenders(model);
