@@ -36,4 +36,9 @@ export {
   type IrisBlob,
   type IrisColor,
 } from "./measure-turn";
+export {
+  renderPoses,
+  type RenderPosesInput,
+  type RenderPosesResult,
+} from "./render-poses";
 export { createIkiMcpServer } from "./server";

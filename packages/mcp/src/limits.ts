@@ -70,6 +70,7 @@ function rejectEmptyOrUrl(inputPath: string, noun: string, kind: string): void {
  * Resolve a caller-supplied input file path against the MCP process cwd and
  * confirm it points at a readable file. Throws AutoRigInputError (path-qualified)
  * for empty/URL-looking strings, a missing file, or a directory.
+ * `what` names the input in those messages ("layer" -> "layer file not found").
  *
  * READS ARE DELIBERATELY NOT CONFINED to the working directory, unlike
  * {@link resolveOutputPath}. The asymmetry is intentional, not an oversight: a
@@ -84,18 +85,18 @@ function rejectEmptyOrUrl(inputPath: string, noun: string, kind: string): void {
  *
  * Param is named `inputPath` (not `path`) to avoid shadowing the node:path import.
  */
-export function resolveInputPath(inputPath: string): string {
-  rejectEmptyOrUrl(inputPath, "layer path", "file path");
+export function resolveInputPath(inputPath: string, what = "layer"): string {
+  rejectEmptyOrUrl(inputPath, `${what} path`, "file path");
   const resolved = path.resolve(process.cwd(), inputPath);
   let stat: fs.Stats;
   try {
     stat = fs.statSync(resolved);
   } catch {
-    throw new AutoRigInputError(`layer file not found: ${resolved}`);
+    throw new AutoRigInputError(`${what} file not found: ${resolved}`);
   }
   if (stat.isDirectory()) {
     throw new AutoRigInputError(
-      `layer path is a directory, not a file: ${resolved}`,
+      `${what} path is a directory, not a file: ${resolved}`,
     );
   }
   return resolved;

@@ -6,7 +6,7 @@ description: |
   <example>
   Context: The artist has produced a rigged .iki and the orchestrator has rendered it.
   user: (dispatched by iki-character-loop, round 2)
-  assistant: "I'll dispatch the critic with both references, the render screenshots and the layers dir."
+  assistant: "I'll dispatch the critic with both references, the renders and the layers dir."
   <commentary>
   The critic is the discriminator half of the loop: it judges, scores and prescribes, but the artist owns every edit.
   </commentary>
@@ -66,18 +66,17 @@ artist agent applies your findings; the orchestrator arbitrates.
   measurements of `reference-full` (`s`, `chin`, `soles`, `bodyWidth`,
   `shoulderSpan`, in its pixels).
 - `layers` — the composed role-layer dir (`face.png`, `eye_L.png`, …, `preview.png`).
-- `renders` — screenshots of the rigged model in the engine: rest, head-turn,
+- `renders` — renders of the rigged model in the engine: rest, head-turn,
   blink, gaze, the between-stop poses (`ParamAngleX`/`ParamAngleY` at 15°,
   `ParamEyeLOpen` at 0.5) where interpolation defects show, and one combined
   pose (`ParamAngleX`, `ParamAngleY` and `ParamAngleZ` all at 30).
 - `turn-pair` — the rig's own rest, `ParamAngleX` −30 and `ParamAngleX` +30
   renders (`rest.png`, `turn-m30.png`, `turn-p30.png` in `<workdir>/renders/`,
-  beside an empty `debug/` dir), captured via `canvas.toDataURL` rather than
-  screenshotted (the measurement needs the render's own transparency): what
+  beside an empty `debug/` dir), transparent (which the measurement needs): what
   you feed `measure_turn_reference`.
 - `body-renders` — a full body only: whole-canvas renders of a canvas 2.5 × the
   model's width, the figure centred with room each side for a raised arm in
-  any pose, so a hand never clips at the canvas; captured like the turn pair: `full-rest`, `full-turn-p30` (`ParamAngleX` 30, the body
+  any pose, so a hand never clips at the canvas; rendered the same way: `full-rest`, `full-turn-p30` (`ParamAngleX` 30, the body
   following the head a little), `ParamArmL` / `ParamArmR` at 16 and 32
   (`full-arm-{l,r}-16`, `-32`), `ParamElbowL` / `ParamElbowR` at −10, 45 and
   90 (`full-elbow-{l,r}-m10`, `-45`, `-90`), and `ParamBodyAngleX` / `Y` / `Z` at

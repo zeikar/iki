@@ -164,7 +164,7 @@ and how round 1's first compose corrects the provisional `canvas.json`. Then:
    the `layers[].path` values the compose result returned; an `outputPath` of
    `<workdir>/iki-character.iki`, since the default drops the model in the
    server's cwd, outside the ignored workdir; and `"quantizeColors": 256` so
-   the model the orchestrator loads in the playground is the compact one (a
+   the model the orchestrator renders is the compact one (a
    lossless model is ~2.5× larger: 3.18MB against 1.28MB on the hero).
 
    Pass `style` as well when it is not empty — the knobs verbatim — and never
@@ -282,6 +282,5 @@ MODEL: <path to the rigged .iki, or "none" — see BLOCKED>
 TURN: <the result's turn.achieved, turn.clamped and turn.strandOverlap ("none" when absent), or "none" when no turn was solved>
 ESCALATED: <critic findings you did not act on, and any refusal you escalated, verbatim — on a full body, a final canvas height over 4096, with H — or "none">
 BLOCKED: <"none", or what stopped the round — for a usage limit, the reset time; for a refused rig, that no model came out>
-MOUTH: <cx>,<cy> — the composed mouth's centre in canvas px, from the compose result's `layers[]` entry for `mouth_inner` (`left + width/2`, `top + height/2`), or for `mouth` on a legacy set; the orchestrator pastes it into the capture snippet's `MOUTH`
 NOTES: <anything the orchestrator should know>
 ```

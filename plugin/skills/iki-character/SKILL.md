@@ -247,13 +247,14 @@ printf '%s\n' \
 
 ### Step 4 — Render-verify
 
-Load the `.iki` and confirm it renders + animates. Both paths use the Model
-picker's "Load a .iki file…" entry to load it and drive the same parameters —
+Load the `.iki` and confirm it renders + animates. On a host without browser automation, the
+`render_poses` tool's PNGs (with an empty `failedTextures`) satisfy that check;
+the paragraphs below are the interactive one. Its standalone and checkout
+paths both use the Model picker's "Load a .iki file…" entry to load it and drive the same parameters —
 only the load order and how you address them (id vs. panel label) differ.
 
 The playground frames a full-body model whole by itself, in a view 2.5 × its
-width. To see it at the bust's scale, size the canvas as the
-**iki-character-loop** skill's Step 1 does: before loading, set its CSS size to
+width. To see it at the bust's scale, before loading, set the canvas's CSS size to
 1400 px wide and ceil(560·H/1100) px tall, H being its `canvasHeight`
 (`browser_evaluate`).
 

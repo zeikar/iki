@@ -18,14 +18,14 @@ blush), each with a description a host picks by.
 
 ## What's in it
 
-| Component                          | What it does                                                                                                                                                                               |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **`iki-character`** (skill)        | One pass: generate role-separated part PNGs → compose to canvas layers → auto-rig to a renderable `.iki`                                                                                   |
-| **`iki-character-loop`** (skill)   | Generator/critic loop that refines a character against a reference until it is worth shipping                                                                                              |
-| **`iki-create-image`** (skill)     | Draws the reference and the parts through the Codex CLI's image tool, or hands you the prompts when Codex is not set up; the other two skills call it                                      |
-| **`iki-character-artist`** (agent) | Draws, composes, tunes `layout.json`, re-rigs — the loop's generator half                                                                                                                  |
-| **`iki-character-critic`** (agent) | Scores a rubric and emits typed findings — the loop's discriminator half                                                                                                                   |
-| **`iki` MCP server**               | [`@ikijs/mcp`](https://www.npmjs.com/package/@ikijs/mcp) over `npx`: read/validate `.iki`, `compose_layers_from_parts`, `measure_layers`, `auto_rig_from_layers`, `measure_turn_reference` |
+| Component                          | What it does                                                                                                                                                                                               |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`iki-character`** (skill)        | One pass: generate role-separated part PNGs → compose to canvas layers → auto-rig to a renderable `.iki`                                                                                                   |
+| **`iki-character-loop`** (skill)   | Generator/critic loop that refines a character against a reference until it is worth shipping                                                                                                              |
+| **`iki-create-image`** (skill)     | Draws the reference and the parts through the Codex CLI's image tool, or hands you the prompts when Codex is not set up; the other two skills call it                                                      |
+| **`iki-character-artist`** (agent) | Draws, composes, tunes `layout.json`, re-rigs — the loop's generator half                                                                                                                                  |
+| **`iki-character-critic`** (agent) | Scores a rubric and emits typed findings — the loop's discriminator half                                                                                                                                   |
+| **`iki` MCP server**               | [`@ikijs/mcp`](https://www.npmjs.com/package/@ikijs/mcp) over `npx`: read/validate `.iki`, `compose_layers_from_parts`, `measure_layers`, `auto_rig_from_layers`, `measure_turn_reference`, `render_poses` |
 
 The skills carry the hard-won part: the prompt patterns that get _clean
 role-separated_ art out of an image model (an eyeless face base, an iris-free
@@ -67,8 +67,7 @@ codex plugin add iki@iki
 Both hosts share `skills/` and `.mcp.json`. Claude Code registers the two
 agent files directly; the loop skill tells Codex to pass those same role
 instructions to standard subagents, or run the roles sequentially when
-subagents are unavailable. Browser rendering needs browser automation in
-either host; it is not bundled with the plugin.
+subagents are unavailable. The loop's renders need no browser automation in either host.
 
 The Codex manifest and repo marketplace follow the
 [official OpenAI plugin packaging guide](https://developers.openai.com/plugins/build/plugins).
@@ -82,6 +81,8 @@ The Codex manifest and repo marketplace follow the
   Generation is billed and takes minutes. Without Codex, the skill writes out
   the prompts for you to run in any image tool that takes a reference image and
   returns transparent PNGs, then carries on from your files.
+- **A Chromium-family browser** (Chrome, Edge or Chromium) and Node 22+ for the loop's
+  renders; set `CHROME_PATH` for a non-standard install.
 
 ## Versioning
 

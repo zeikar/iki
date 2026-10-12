@@ -6,15 +6,16 @@ A stdio [MCP](https://modelcontextprotocol.io/) server that exposes `.iki` model
 
 ## Tools
 
-| Tool                        | Description                                                                                            |
-| --------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `validate_iki`              | Validate a raw `.iki` model — accepts an object or a JSON string — fail-fast, one error at a time.     |
-| `describe_iki`              | Return a summary of a valid model's canvas, parameters, parts, deformers, expressions, and motions.    |
-| `list_standard_parameters`  | List the recommended standard parameter ids (e.g. `ParamAngleX`, `ParamMouthOpenY`) with descriptions. |
-| `auto_rig_from_layers`      | Auto-rig role-named PNG layers into a renderable `.iki` written to disk; returns the output path.      |
-| `compose_layers_from_parts` | Compose generated part PNGs into canvas-aligned, role-named layers, with the geometry report inline.   |
-| `measure_layers`            | Re-run that same geometry report over an already-composed layers directory.                            |
-| `measure_turn_reference`    | Measure how far a head turns between a front and a turned image at the same scale, as three ratios.    |
+| Tool                        | Description                                                                                                |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `validate_iki`              | Validate a raw `.iki` model — accepts an object or a JSON string — fail-fast, one error at a time.         |
+| `describe_iki`              | Return a summary of a valid model's canvas, parameters, parts, deformers, expressions, and motions.        |
+| `list_standard_parameters`  | List the recommended standard parameter ids (e.g. `ParamAngleX`, `ParamMouthOpenY`) with descriptions.     |
+| `auto_rig_from_layers`      | Auto-rig role-named PNG layers into a renderable `.iki` written to disk; returns the output path.          |
+| `compose_layers_from_parts` | Compose generated part PNGs into canvas-aligned, role-named layers, with the geometry report inline.       |
+| `measure_layers`            | Re-run that same geometry report over an already-composed layers directory.                                |
+| `measure_turn_reference`    | Measure how far a head turns between a front and a turned image at the same scale, as three ratios.        |
+| `render_poses`              | Render a rigged `.iki` into the character loop's pose PNGs through the installed Chrome, Edge or Chromium. |
 
 The `model` input for `validate_iki` and `describe_iki` accepts either a plain JSON object or a JSON string — the server normalises both.
 
@@ -74,6 +75,15 @@ The head span is the silhouette at the eye row, over a ±10-row band — fixed r
 
 The two rules do not agree on the same picture — a near-black outline is silhouette under `alpha` and background under `keyed` — so compare renders with renders and references with references.
 
+### `render_poses`
+
+Renders a rigged `.iki` into the pose PNGs the character loop reviews, with the real engine, so the render step is one tool call. The engine runs in the Chrome, Edge or Chromium already installed on the machine, headless and driven over DevTools by the server itself: no Playwright and no browser download. Set `CHROME_PATH` to an executable to pick a browser; without it the usual install locations are searched, and with none found the tool returns `INVALID: …` saying so, and a `CHROME_PATH` that is not an executable file is refused the same way. A browser that is found but fails to start is a tool error. It needs Node 22 or newer.
+
+- **`modelPath`** — the rigged `.iki` (resolved against the working directory).
+- **`outDir`** — an existing directory under the working directory. One `<pose>.png` per pose is written into it, replacing a same-named file in place.
+- **What is written** — the model decides the set. A bust gets 560 × 560 shots: `rest`, `turn-m30`, `turn-p30`, `turn-15`, `nod-15`, `blink`, `blink-half`, `gaze`, `combined`. A model with a `mouth` or `mouth_inner` adds 720 × 480 mouth crops (`mouth-open-*-form-*`, `mouth-laugh`, `mouth-surprised`, `mouth-turn-p30-half`). A full body (canvas taller than wide) shoots the same squares from the model's top (the head), centred horizontally, and adds whole-canvas `full-*` shots (body, arm and elbow poses) at 1400 px wide; one with a pose forearm (`ParamArmPoseR`) adds the `full-pose-*` shots.
+- **Result** — the text is the written paths, one per line. `failedTextures` lists the atlas pages the engine could not load; their parts are missing from the renders. `structuredContent` is `{ ok: true, outDir, canvas, fullBody, mouth?, failedTextures, poses: [{ name, path }] }`. A missing model, an `outDir` that is missing or outside the working directory, or a file that is not a valid model returns `{ ok: false, error }` with `INVALID: …` text.
+
 ## Usage
 
 Run directly with npx (no install needed):
@@ -105,7 +115,7 @@ codex mcp add iki -- npx -y @ikijs/mcp
 
 ## Scope note
 
-Current tools cover read/validate, auto-rigging a model from PNG layers (`auto_rig_from_layers`), composing/measuring the role layers a generated character needs (`compose_layers_from_parts`, `measure_layers`), and measuring a rendered head turn against a reference one (`measure_turn_reference`). PSD input and granular model-mutation primitives (add part, bind parameter, export) are deferred to future slices.
+Current tools cover read/validate, auto-rigging a model from PNG layers (`auto_rig_from_layers`), composing/measuring the role layers a generated character needs (`compose_layers_from_parts`, `measure_layers`), measuring a rendered head turn against a reference one (`measure_turn_reference`), and rendering a rigged model's poses (`render_poses`). PSD input and granular model-mutation primitives (add part, bind parameter, export) are deferred to future slices.
 
 ## License
 

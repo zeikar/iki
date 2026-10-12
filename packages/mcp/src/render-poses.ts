@@ -4,7 +4,21 @@
  * render recipe, minus the page that ran it.
  */
 
-import { StandardParameter, type IkiModel } from "@ikijs/format";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import {
+  IkiFormatError,
+  StandardParameter,
+  loadIkiModel,
+  type IkiModel,
+} from "@ikijs/format";
+import {
+  AutoRigInputError,
+  resolveInputPath,
+  resolveOutputDir,
+  writeFileAtomic,
+} from "./limits";
+import { NO_BROWSER_MESSAGE, findBrowser, withBrowser } from "./render-browser";
 
 export interface RenderCrop {
   sx: number;
@@ -173,4 +187,104 @@ export function planRenders(model: IkiModel): RenderPlan {
   }
 
   return { canvas, view, fullBody, mouth, poses };
+}
+
+export interface RenderPosesInput {
+  /** The rigged `.iki` to render (resolved against cwd). */
+  modelPath: string;
+  /** Existing directory under cwd the pose PNGs are written into. */
+  outDir: string;
+}
+
+export type RenderPosesResult =
+  | {
+      ok: true;
+      outDir: string;
+      canvas: RenderPlan["canvas"];
+      fullBody: boolean;
+      mouth?: RenderPlan["mouth"];
+      /** Texture indices the engine could not load; the renders lack them. */
+      failedTextures: number[];
+      poses: { name: string; path: string }[];
+    }
+  | { ok: false; error: string };
+
+const PNG_PREFIX = "data:image/png;base64,";
+const PAGE_SCRIPT_MS = 10_000;
+const LOAD_MS = 60_000;
+const CAPTURE_MS = 15_000;
+
+function readPageScript(): string {
+  // Resolves from both src/ (vitest) and dist/: each sits one level under the package.
+  const url = new URL("../dist/render-page.global.js", import.meta.url);
+  try {
+    return readFileSync(url, "utf8");
+  } catch (cause) {
+    // A broken build or install, not caller input: it surfaces as a tool error.
+    throw new Error(
+      "could not read the render page script; run `pnpm build` in packages/mcp",
+      { cause },
+    );
+  }
+}
+
+/**
+ * Render the model's pose set into `outDir`. Only caller-input failures
+ * (`AutoRigInputError`, `IkiFormatError`, and no installed browser) come back as
+ * `{ ok: false, error }`; a browser or page failure throws.
+ */
+export async function renderPoses(
+  input: RenderPosesInput,
+): Promise<RenderPosesResult> {
+  try {
+    const modelFile = resolveInputPath(input.modelPath, "model");
+    const outDir = resolveOutputDir(input.outDir);
+    const model = loadIkiModel(readFileSync(modelFile, "utf8"));
+    const plan = planRenders(model);
+    const browser = findBrowser();
+    if (!browser) return { ok: false, error: NO_BROWSER_MESSAGE };
+    const pageScript = readPageScript();
+
+    const { failedTextures, poses } = await withBrowser(
+      browser,
+      async (evaluate) => {
+        await evaluate(pageScript, PAGE_SCRIPT_MS);
+        const loaded = (await evaluate(
+          `window.__ikiRender.load(${JSON.stringify(model)}, ${JSON.stringify({ canvas: plan.canvas, view: plan.view })})`,
+          LOAD_MS,
+        )) as { failedTextures: number[] };
+        const written: { name: string; path: string }[] = [];
+        for (const pose of plan.poses) {
+          const url = await evaluate(
+            `window.__ikiRender.capture(${JSON.stringify(pose.values)}, ${JSON.stringify(pose.crop)})`,
+            CAPTURE_MS,
+          );
+          if (typeof url !== "string" || !url.startsWith(PNG_PREFIX)) {
+            throw new Error(`pose ${pose.name}: the page returned no PNG`);
+          }
+          const file = path.join(outDir, `${pose.name}.png`);
+          writeFileAtomic(
+            file,
+            Buffer.from(url.slice(PNG_PREFIX.length), "base64"),
+          );
+          written.push({ name: pose.name, path: file });
+        }
+        return { failedTextures: loaded.failedTextures, poses: written };
+      },
+    );
+    return {
+      ok: true,
+      outDir,
+      canvas: plan.canvas,
+      fullBody: plan.fullBody,
+      mouth: plan.mouth,
+      failedTextures,
+      poses,
+    };
+  } catch (error) {
+    if (error instanceof AutoRigInputError || error instanceof IkiFormatError) {
+      return { ok: false, error: error.message };
+    }
+    throw error;
+  }
 }

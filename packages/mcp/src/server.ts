@@ -9,6 +9,7 @@ import {
 import { composeLayersFromParts } from "./compose";
 import { measureLayers, formatMeasureReport } from "./measure";
 import { measureTurnReference, formatTurnReport } from "./measure-turn";
+import { renderPoses } from "./render-poses";
 
 /** Injected by tsup (and vitest) from this package's package.json version. */
 declare const __MCP_VERSION__: string;
@@ -315,6 +316,40 @@ export function createIkiMcpServer(): McpServer {
           content: [{ type: "text", text }],
           structuredContent: { ...r },
         };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: "text", text: `Unexpected error: ${error}` }],
+          structuredContent: { ok: false, error },
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "render_poses",
+    {
+      description:
+        "Renders a rigged .iki into the character loop's pose PNGs with the real engine, through the installed Chrome, Edge or Chromium run headless (set CHROME_PATH to pick one). The model decides the set: a bust gets 560x560 shots (rest, turns, nod, blinks, gaze, combined); a mouth adds 720x480 mouth crops; a full body (taller than wide) adds the full-canvas body, arm and elbow poses on a 1400-wide canvas, and a model with a pose forearm adds the full-pose-* shots. Writes <pose>.png files into outDir, overwriting same-named files in place; returns the written paths one per line. Fails with INVALID when no browser is found or an input is refused; a browser that cannot start is a tool error.",
+      inputSchema: {
+        modelPath: z
+          .string()
+          .describe("Rigged .iki file path (resolved against cwd)."),
+        outDir: z
+          .string()
+          .describe(
+            "Existing directory to write the pose PNGs into (resolved against cwd; must already exist; confined to the working directory).",
+          ),
+      },
+    },
+    async (args) => {
+      try {
+        const r = await renderPoses(args);
+        const text = r.ok
+          ? r.poses.map((p) => p.path).join("\n")
+          : `INVALID: ${r.error}`;
+        return { content: [{ type: "text", text }], structuredContent: r };
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         return {

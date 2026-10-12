@@ -19,7 +19,7 @@ references (iki-create-image, once)
 ```
 
 **You are the orchestrator.** You spawn both agents, carry artifacts between
-them, drive the browser render, arbitrate escalations, and enforce the caps.
+them, render each round, arbitrate escalations, and enforce the caps.
 Neither agent talks to the other directly.
 
 ## Host dispatch
@@ -38,10 +38,7 @@ Neither agent talks to the other directly.
   rules, rubric and caps.
 
 MCP tool prefixes vary by host: resolve the bundled `iki` server's tools by
-their tool names. The render recipes below use Playwright MCP names; use the
-host's available browser automation to capture the same poses and save the
-same PNG/JSON artifacts. In a checkout, the repo-local `iki-visual-test`
-instructions are at `.claude/skills/iki-visual-test/SKILL.md` for either host.
+their tool names. The render step needs no browser automation in either host.
 
 ## Why a reference at all
 
@@ -199,428 +196,35 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    a refused rig leaves nothing to render. Skip the render and the critic (there
    is nothing to score), keep its escalation, and go to Step 2.
 
-2. **Render it yourself.** Load the artist's `.iki` through the Model picker's
-   "Load a .iki file…" entry — the same on both paths; only the load order and
-   how you address parameters (id vs. panel label) differ. A full-body model
-   loads the same way but is sized and captured by its own recipe, **A
-   full-body model** at the end of this step.
-   **Standalone (default):** open https://zeikar.dev/iki/playground/
-   (Playwright MCP) and **uncheck Idle before loading anything** — `load()`
-   resets every parameter to its default, and idle only restarts if the
-   checkbox is still checked at load time, so unchecking first is what makes
-   the rest screenshot genuine. Unchecking Idle _after_ loading is too late:
-   idle has already written a live pose by then, and this build has no
-   `reset()` to undo it. With Idle off, open the Model select, choose the
-   trigger entry, and pick the model's **absolute** path (`browser_file_upload`
-   requires one — e.g. the absolute path to `<workdir>/iki-character.iki`).
-   The panel's sliders carry no `id`/`data-*`, only each parameter's label
-   (`ParamAngleX` = "Head Angle", `ParamAngleY` = "Head Angle Y",
-   `ParamEyeLOpen` = "Eye L", `ParamEyeBallX` = "Gaze X"), so find the
-   `.control` block whose label matches, set that block's `input[type=range]`
-   value, and dispatch an `input` event (`browser_evaluate`).
-   **Inside an `iki` checkout:** `pnpm playground`, load the same file through
-   the same picker, then drive `window.__iki.setParam` / `reset` / `nextFrame`
-   by id per the **iki-visual-test** skill (repo-local, not part of this
-   plugin).
-   Either way, screenshot at least: rest, head-turn (`ParamAngleX` near its
-   limit), blink (`ParamEyeLOpen` ≈ 0), gaze (`ParamEyeBallX` near its limit),
-   and the poses **midway between the rig's keyform stops** on each moving axis
-   — the turn and nod stops sit at 0 and ±30, so that is `ParamAngleX` at 15,
-   `ParamAngleY` at 15, and (its stops being 0 and 1) `ParamEyeLOpen` at 0.5.
-   Add one combined pose, `ParamAngleX` 30 with `ParamAngleY` 30 and
-   `ParamAngleZ` 30 at once: the torso's neck follows only a little while the
-   face slides, turns and rolls over it, and a neck drawn too wide or too low
-   shows its flat top beside the jaw only when all three peak together.
-   Add the 15 mouth poses (the snippet below): `mouth-open-{0,0.3,0.6,1}-form-{m1,0,p1}`
-   (`ParamMouthOpenY` × `ParamMouthForm`; 0.3 and 0.6 are the half-open states
-   lip-sync lives in, Form ±1 the corners), `mouth-laugh`, `mouth-surprised` and
-   `mouth-turn-p30-half`, each a zoomed crop of the mouth: a 76 px mouth is
-   unreadable in the full shot. The critic reads them as `mouth-renders`.
-   Rig breakage surfaces in the turn and blink poses, which a front-facing
-   screenshot hides; the between-stop poses expose interpolation defects that
-   the endpoint shots miss (the engine blends linearly between authored
-   keyforms), so both sets need looking at.
-   **The rest shot must be untouched**: standalone, that means Idle was
-   already off before the model loaded and no slider has been touched since;
-   in a checkout, `reset()` and screenshot, nothing set afterwards. Every
-   proportion the critic measures is measured against it, so a flattering
-   hero pose saved as `rest.png` silently invalidates the whole round — that
-   has already happened once, and two rounds of "it looks like the reference"
-   were judged against a head turned nine degrees.
-   Besides the screenshots, also capture the poses `measure_turn_reference`
-   needs: `canvas.toDataURL("image/png")` at `ParamAngleX` 0 (the untouched
-   rest pose), at −30 and at +30 (the rig's own limit, both ways, because its
-   `turn.achieved` is the mean of the two directions), via `browser_evaluate`
-   — not a screenshot, because a screenshot carries the page under the canvas
-   and the measurement needs the render's own transparency to tell foreground
-   from background.
-   **Standalone:** the prior screenshots already moved sliders, so load the
-   `.iki` file through the picker once more (same flow as above, Idle already
-   off) to get back to the untouched rest pose, then drive `ParamAngleX`
-   through the same "Head Angle" `.control` block used above — set its
-   `input[type=range]` value and dispatch an `input` event — waiting two
-   animation frames before each capture so the engine has actually rendered
-   the pose:
-   ```js
-   async () => {
-     const canvas = document.getElementById("iki");
-     const nextFrame = () =>
-       new Promise((r) =>
-         requestAnimationFrame(() => requestAnimationFrame(r)),
-       );
-     await nextFrame();
-     const rest = canvas.toDataURL("image/png");
-     const input = [...document.querySelectorAll(".control")]
-       .find((c) => c.querySelector("label span")?.textContent === "Head Angle")
-       .querySelector("input[type=range]");
-     input.value = "-30";
-     input.dispatchEvent(new Event("input", { bubbles: true }));
-     await nextFrame();
-     const turnM30 = canvas.toDataURL("image/png");
-     input.value = "30";
-     input.dispatchEvent(new Event("input", { bubbles: true }));
-     await nextFrame();
-     const turnP30 = canvas.toDataURL("image/png");
-     return JSON.stringify({ rest, "turn-m30": turnM30, "turn-p30": turnP30 });
-   };
-   ```
-   **Inside an `iki` checkout:** the model is already loaded, and
-   `window.__iki` gives the same three by id, no reload needed:
-   ```js
-   async () => {
-     const api = window.__iki;
-     const canvas = document.getElementById("iki");
-     api.reset();
-     await api.nextFrame();
-     const rest = canvas.toDataURL("image/png");
-     api.setParam("ParamAngleX", -30);
-     await api.nextFrame();
-     const turnM30 = canvas.toDataURL("image/png");
-     api.setParam("ParamAngleX", 30);
-     await api.nextFrame();
-     const turnP30 = canvas.toDataURL("image/png");
-     return JSON.stringify({ rest, "turn-m30": turnM30, "turn-p30": turnP30 });
-   };
-   ```
-   Pass `filename` to `browser_evaluate` so the JSON lands in a file instead
-   of inline in the response — it lands in the CURRENT WORKING DIRECTORY (the
-   repo root, for a checkout), not `.playwright-mcp/`, so move it into
-   `<workdir>` before decoding. Then
-   `node decode-renders.cjs <the moved file> <workdir>/renders/` writes
-   `<workdir>/renders/rest.png`, `turn-m30.png` and `turn-p30.png`, beside the
-   `debug/` dir Step 0 made for the critic's measurement overlays.
-   **The mouth poses** (bust; a full body's snippet below includes them): one
-   more `browser_evaluate`, in either path. On a bust the canvas is the model's
-   square, so the crop is 180 × 120 model px centred on `MOUTH` (the artist's
-   `MOUTH:` line; these two numbers are bob's defaults), drawn ×4 onto 720 × 480.
-   Pass `filename`, move the file into `<workdir>` and decode it with
-   `node decode-renders.cjs <file> <workdir>/renders/`: the 15
-   `mouth-*.png` land beside `rest.png` and are the critic's `mouth-renders`.
-   ```js
-   async () => {
-     const api = window.__iki; // a checkout's dev API; absent standalone
-     const canvas = document.getElementById("iki");
-     const nextFrame = () =>
-       new Promise((r) =>
-         requestAnimationFrame(() => requestAnimationFrame(r)),
-       );
-     const LABEL = {
-       ParamAngleX: "Head Angle",
-       ParamMouthOpenY: "Mouth Open",
-       ParamMouthForm: "Mouth Form",
-     };
-     const set = (id, value) => {
-       if (api) return api.setParam(id, value);
-       const input = [...document.querySelectorAll(".control")]
-         .find((c) => c.querySelector("label span")?.textContent === LABEL[id])
-         .querySelector("input[type=range]");
-       input.value = String(value);
-       input.dispatchEvent(new Event("input", { bubbles: true }));
-     };
-     const MOUTH = { cx: 550, cy: 596 };
-     const mouth = () => {
-       const s = canvas.width / 1100;
-       const crop = document.createElement("canvas");
-       crop.width = 720;
-       crop.height = 480;
-       crop
-         .getContext("2d")
-         .drawImage(
-           canvas,
-           (MOUTH.cx - 90) * s,
-           (MOUTH.cy - 60) * s,
-           180 * s,
-           120 * s,
-           0,
-           0,
-           720,
-           480,
-         );
-       return crop.toDataURL("image/png");
-     };
-     const poses = [
-       ...[0, 0.3, 0.6, 1].flatMap((open) =>
-         [
-           ["m1", -1],
-           ["0", 0],
-           ["p1", 1],
-         ].map(([name, form]) => [
-           `mouth-open-${open}-form-${name}`,
-           { ParamMouthOpenY: open, ParamMouthForm: form },
-         ]),
-       ),
-       ["mouth-laugh", { ParamMouthOpenY: 0.8, ParamMouthForm: 1 }],
-       ["mouth-surprised", { ParamMouthOpenY: 0.9 }],
-       ["mouth-turn-p30-half", { ParamAngleX: 30, ParamMouthOpenY: 0.5 }],
-     ];
-     // Standalone has no reset(), and the turn capture left Head Angle at +30.
-     if (api) api.reset();
-     else for (const id of Object.keys(LABEL)) set(id, 0);
-     await nextFrame();
-     const shots = {};
-     for (const [pose, values] of poses) {
-       for (const [id, value] of Object.entries(values)) set(id, value);
-       await nextFrame();
-       shots[pose] = mouth();
-       for (const id of Object.keys(values)) set(id, 0);
-     }
-     return JSON.stringify(shots);
-   };
-   ```
-   Rendering stays with you because the Playwright browser is a single shared
-   resource; two agents driving it collide.
-   **A full-body model** (its `canvas.json` sets a `canvasHeight`, H). The
-   playground frames a taller-than-wide model in a view 2.5 × its width, with
-   room each side for the arms' reach in any combined pose, so a raised arm
-   shows whole. Size the canvas to that view at a bust's scale before loading
-   it — standalone once Idle is unchecked, in a checkout once `pnpm playground`
-   is up — 1400 px wide and ceil(560·H/1100) px tall, with `browser_evaluate`:
-   ```js
-   () => {
-     const H = 3694; // canvas.json's canvasHeight
-     const canvas = document.getElementById("iki");
-     canvas.style.width = "1400px";
-     canvas.style.height = `${Math.ceil((560 * H) / 1100)}px`;
-   };
-   ```
-   The engine fits the view to the canvas's client size every frame, by the
-   width at exactly 560/1100: the head keeps a bust's scale, the model's box
-   sits in the canvas's middle two fifths, and its top 1100 rows are the
-   square at the canvas's top starting three tenths of its width in, as a bust's
-   square canvas holds them. Then load the `.iki` as above and check the build
-   with `browser_evaluate`:
-   `() => document.getElementById("iki").classList.contains("full-body")`. True
-   means the playground frames the view (a checkout always does). False means
-   the deployed playground predates it: the engine then fits the model's box by
-   the canvas's height, still centred and 0.05 % larger than a bust's, so the
-   arms still show whole and the same crops hold the face within a pixel;
-   proceed and say so in the round's report. With no slider touched, capture
-   every pose in ONE `browser_evaluate`: its first capture is the untouched
-   rest. Take no screenshots, as the page cannot show a canvas this tall at
-   once, and the capture JSON runs to about 80 MB for a figure street's size. Each pose
-   is a PNG data URL, taken two frames after it is set: the whole canvas for a
-   body pose, and for a bust pose the model's square, drawn onto a 2D canvas
-   of that size — the pixels a bust's render would hold, so the face
-   is judged and measured exactly as on a bust. The snippet runs on both
-   paths: it drives `window.__iki` by id in a checkout, and the panel's sliders
-   by label standalone, where `window.__iki` does not exist. Every pose is
-   reset to the defaults before the next.
-   ```js
-   async () => {
-     const api = window.__iki; // a checkout's dev API; absent standalone
-     const canvas = document.getElementById("iki");
-     const nextFrame = () =>
-       new Promise((r) =>
-         requestAnimationFrame(() => requestAnimationFrame(r)),
-       );
-     const LABEL = {
-       ParamAngleX: "Head Angle",
-       ParamAngleY: "Head Angle Y",
-       ParamAngleZ: "Head Angle Z",
-       ParamEyeLOpen: "Eye L",
-       ParamEyeBallX: "Gaze X",
-       ParamMouthOpenY: "Mouth Open",
-       ParamMouthForm: "Mouth Form",
-       ParamBodyAngleX: "Body Angle X",
-       ParamBodyAngleY: "Body Angle Y",
-       ParamBodyAngleZ: "Body Angle Z",
-       ParamArmL: "Arm L",
-       ParamArmR: "Arm R",
-       ParamElbowL: "Elbow L",
-       ParamElbowR: "Elbow R",
-       ParamArmPoseL: "Arm Pose L",
-       ParamArmPoseR: "Arm Pose R",
-       ParamArmPoseAngleL: "Arm Pose Angle L",
-       ParamArmPoseAngleR: "Arm Pose Angle R",
-     };
-     // A model without a pose forearm has no such parameter or slider.
-     const hasPose = api
-       ? api.getParams().some((p) => p.id === "ParamArmPoseR")
-       : [...document.querySelectorAll(".control label span")].some(
-           (s) => s.textContent === LABEL.ParamArmPoseR,
-         );
-     const set = (id, value) => {
-       if (api) return api.setParam(id, value);
-       const input = [...document.querySelectorAll(".control")]
-         .find((c) => c.querySelector("label span")?.textContent === LABEL[id])
-         .querySelector("input[type=range]");
-       input.value = String(value);
-       input.dispatchEvent(new Event("input", { bubbles: true }));
-     };
-     const whole = () => canvas.toDataURL("image/png");
-     const bust = () => {
-       // The model's square: two fifths of the canvas, three tenths in.
-       const side = (canvas.width * 2) / 5;
-       const x0 = (canvas.width * 3) / 10;
-       const crop = document.createElement("canvas");
-       crop.width = crop.height = side;
-       crop
-         .getContext("2d")
-         .drawImage(canvas, x0, 0, side, side, 0, 0, side, side);
-       return crop.toDataURL("image/png");
-     };
-     // The composed mouth's centre in canvas px: the artist's `MOUTH:` line.
-     // These two numbers are bob's defaults, not a rule.
-     const MOUTH = { cx: 550, cy: 596 };
-     const mouth = () => {
-       // 180 x 120 model px centred on the mouth, inside the model's square
-       // (two fifths of the canvas, three tenths in: bust()'s mapping, which
-       // also holds in the fallback view), drawn x4 onto a 720 x 480 canvas.
-       const side = (canvas.width * 2) / 5;
-       const x0 = (canvas.width * 3) / 10;
-       const s = side / 1100;
-       const crop = document.createElement("canvas");
-       crop.width = 720;
-       crop.height = 480;
-       crop
-         .getContext("2d")
-         .drawImage(
-           canvas,
-           x0 + (MOUTH.cx - 90) * s,
-           (MOUTH.cy - 60) * s,
-           180 * s,
-           120 * s,
-           0,
-           0,
-           720,
-           480,
-         );
-       return crop.toDataURL("image/png");
-     };
-     const poses = [
-       ["turn-m30", bust, { ParamAngleX: -30 }],
-       ["turn-p30", bust, { ParamAngleX: 30 }],
-       ["turn-15", bust, { ParamAngleX: 15 }],
-       ["nod-15", bust, { ParamAngleY: 15 }],
-       ["blink", bust, { ParamEyeLOpen: 0 }],
-       ["blink-half", bust, { ParamEyeLOpen: 0.5 }],
-       ["gaze", bust, { ParamEyeBallX: 1 }],
-       [
-         "combined",
-         bust,
-         { ParamAngleX: 30, ParamAngleY: 30, ParamAngleZ: 30 },
-       ],
-       ...[0, 0.3, 0.6, 1].flatMap((open) =>
-         [
-           ["m1", -1],
-           ["0", 0],
-           ["p1", 1],
-         ].map(([name, form]) => [
-           `mouth-open-${open}-form-${name}`,
-           mouth,
-           { ParamMouthOpenY: open, ParamMouthForm: form },
-         ]),
-       ),
-       ["mouth-laugh", mouth, { ParamMouthOpenY: 0.8, ParamMouthForm: 1 }],
-       ["mouth-surprised", mouth, { ParamMouthOpenY: 0.9 }],
-       [
-         "mouth-turn-p30-half",
-         mouth,
-         { ParamAngleX: 30, ParamMouthOpenY: 0.5 },
-       ],
-       ["full-turn-p30", whole, { ParamAngleX: 30 }],
-       ["full-body-x-m10", whole, { ParamBodyAngleX: -10 }],
-       ["full-body-x-p10", whole, { ParamBodyAngleX: 10 }],
-       ["full-body-y-m10", whole, { ParamBodyAngleY: -10 }],
-       ["full-body-y-p10", whole, { ParamBodyAngleY: 10 }],
-       ["full-body-z-m10", whole, { ParamBodyAngleZ: -10 }],
-       ["full-body-z-p10", whole, { ParamBodyAngleZ: 10 }],
-       ["full-arm-l-16", whole, { ParamArmL: 16 }],
-       ["full-arm-l-32", whole, { ParamArmL: 32 }],
-       ["full-arm-r-16", whole, { ParamArmR: 16 }],
-       ["full-arm-r-32", whole, { ParamArmR: 32 }],
-       ["full-elbow-l-m10", whole, { ParamElbowL: -10 }],
-       ["full-elbow-l-45", whole, { ParamElbowL: 45 }],
-       ["full-elbow-l-90", whole, { ParamElbowL: 90 }],
-       ["full-elbow-r-m10", whole, { ParamElbowR: -10 }],
-       ["full-elbow-r-45", whole, { ParamElbowR: 45 }],
-       ["full-elbow-r-90", whole, { ParamElbowR: 90 }],
-       ["full-pose-l", whole, { ParamArmPoseL: 1 }],
-       ["full-pose-r", whole, { ParamArmPoseR: 1 }],
-       [
-         "full-pose-r-angle-m15",
-         whole,
-         { ParamArmPoseR: 1, ParamArmPoseAngleR: -15 },
-       ],
-       [
-         "full-pose-r-angle-p15",
-         whole,
-         { ParamArmPoseR: 1, ParamArmPoseAngleR: 15 },
-       ],
-       ["full-pose-r-half", whole, { ParamArmPoseR: 0.5 }],
-     ];
-     if (api) api.reset();
-     await nextFrame();
-     const shots = { rest: bust(), "full-rest": whole() };
-     for (const [pose, capture, values] of poses) {
-       if (pose.startsWith("full-pose") && !hasPose) continue;
-       for (const [id, value] of Object.entries(values)) set(id, value);
-       await nextFrame();
-       shots[pose] = capture();
-       for (const id of Object.keys(values))
-         set(id, id === "ParamEyeLOpen" ? 1 : 0);
-     }
-     return JSON.stringify(shots);
-   };
-   ```
-   The bust poses are this step's own, as the model's square: `rest`; the turn pair
-   `measure_turn_reference` reads (`rest`, `turn-m30`, `turn-p30`, the last
-   also the head-turn); `blink`, `gaze`, the between-stop `turn-15`, `nod-15`
-   and `blink-half`, and `combined`. The body poses are the whole canvas, 2.5 × the
-   model's width with the figure in the middle: `full-rest`; `full-turn-p30` (`ParamAngleX` 30: the body follows the head a
-   little); `ParamBodyAngleX`, `ParamBodyAngleY` and `ParamBodyAngleZ` at ±10
-   ("Body Angle X", "Body Angle Y", "Body Angle Z"); `ParamArmL` and
-   `ParamArmR` at 16 and 32 ("Arm L", "Arm R"; `full-arm-{l,r}-16`,
-   `full-arm-{l,r}-32`); and `ParamElbowL` and `ParamElbowR` at −10, 45 and 90
-   ("Elbow L", "Elbow R"; `full-elbow-{l,r}-m10`, `-45`, `-90`). Standalone,
-   the arm span (−8..32) and the elbow span (−10..90) put every pose and 0 on
-   a slider step, so each lands exactly and a reset returns to 0. They come
-   last because a pose's values are set and cleared one after another.
-   The mouth poses are 15 more, each a zoomed crop of the mouth itself (a 76 px
-   mouth is unreadable in the bust crop): 180 × 120 model px centred on
-   `MOUTH`, drawn ×4 onto 720 × 480, in the model's square, with `bust()`'s
-   mapping. Replace the snippet's `MOUTH` with the artist's `MOUTH: <cx>,<cy>`
-   line before running it (its two numbers are bob's defaults). They are
-   `mouth-open-{0,0.3,0.6,1}-form-{m1,0,p1}` (`ParamMouthOpenY` × `ParamMouthForm`
-   at −1, 0 and 1; "Mouth Open", "Mouth Form"): 0.3 and 0.6 are the half-open
-   states lip-sync lives in, Form ±1 the corners; `mouth-laugh` (Open 0.8,
-   Form 1) and `mouth-surprised` (Open 0.9) are the expressions that pin
-   MouthOpen; `mouth-turn-p30-half` (`ParamAngleX` 30, Open 0.5) is the interior
-   under the head-turn warp. A legacy `mouth`/`mouth_open` model runs them too.
-   A model with a pose forearm adds five more: `full-pose-l` and `full-pose-r`
-   (the switch `ParamArmPoseL` / `ParamArmPoseR` at 1; "Arm Pose L", "Arm Pose
-   R"), `full-pose-r-angle-m15` and `full-pose-r-angle-p15` (the switch at 1
-   and `ParamArmPoseAngleR` at −15 and 15; "Arm Pose Angle R"; a pose with two
-   values sets both), and `full-pose-r-half` (the switch at 0.5, the crossfade's
-   midpoint). The snippet skips them on a model without the pose forearm: in a
-   checkout it looks for `ParamArmPoseR` in `window.__iki.getParams()`, and
-   standalone for an "Arm Pose R" slider in the panel. The reset after each
-   pose also returns the switch and the rock to 0. Pass `filename`, move the
-   file and decode it into `<workdir>/renders/` with `decode-renders.cjs` as
-   for the turn pair; it runs to about 80 MB. The bust crops are the critic's
-   `renders` and `turn-pair`, the `full-*.png` its `body-renders`, the `mouth-*.png` crops its `mouth-renders`.
+2. **Render it** with the `iki` server's `render_poses` tool:
+   `render_poses { modelPath: <workdir>/iki-character.iki, outDir: <workdir>/renders }`
+   (`outDir` must already exist and sit under the server's cwd; Step 0 makes
+   it). It needs `@ikijs/mcp` 0.24.0+, Node 22+ and an installed Chrome, Edge
+   or Chromium (`CHROME_PATH` for a non-standard install). A server without
+   `render_poses` predates 0.24.0: update the plugin, whose `.mcp.json` pin
+   moves when it adopts a release. On an `INVALID:` refusal (no browser, a bad
+   `CHROME_PATH`, Node < 22) give the user its message and render again once
+   it is fixed: the round waits, it is not over.
+   The model decides the set: a full body when the canvas is taller than wide,
+   the mouth crops centred on the rigged mouth part, the `full-pose-*` poses
+   when `ParamArmPoseR` is declared. The result lists the written paths. A
+   non-empty `failedTextures` means atlas pages did not load and their parts
+   are missing: render once more; if pages still fail, escalate, because the
+   critic does not score renders with parts missing.
+   The rest shot is untouched by construction, which matters because every
+   proportion the critic measures is measured against it.
+   The poses: `rest`, `turn-m30`, `turn-p30`, `turn-15`, `nod-15`, `blink`,
+   `blink-half`, `gaze`, `combined`; the 15 `mouth-*` crops
+   (`mouth-open-{0,0.3,0.6,1}-form-{m1,0,p1}`, `mouth-laugh`,
+   `mouth-surprised`, `mouth-turn-p30-half`); on a full body `full-rest`,
+   `full-turn-p30`, `full-body-{x,y,z}-{m10,p10}`, `full-arm-{l,r}-{16,32}`,
+   `full-elbow-{l,r}-{m10,45,90}`, and with a pose forearm `full-pose-l`,
+   `full-pose-r`, `full-pose-r-angle-m15`, `full-pose-r-angle-p15`,
+   `full-pose-r-half`.
 3. Dispatch **the critic** (see Host dispatch) with `reference`, `reference-30`, `layers`,
-   `renders` (the render paths), `turn-pair` (`<workdir>/renders/rest.png`,
+   `renders` (the returned paths other than `mouth-*` and `full-*`; each input
+   below is a subset of the returned paths, so a stale file from an earlier
+   round is never picked up), `turn-pair` (`<workdir>/renders/rest.png`,
    `turn-m30.png` and `turn-p30.png`), `mouth-renders` (the 15 `mouth-*.png`
    crops), `round`, `scores` (the previous rounds' `SCORES:` lines),
    and `turn-clamped` (this round's artist's own `TURN:` line, verbatim — its
@@ -652,10 +256,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    deciding: call `auto_rig_from_layers` yourself on the same layers (every
    `<workdir>/layers/*.png` but the previews, `preview.png` and `preview-pose.png`) with the same `style`, no
    `quantizeColors`, and `outputPath: <workdir>/iki-character-lossless.iki`;
-   load that file and capture the same three poses as in step 2, decoding them
-   into `<workdir>/renders/lossless/` (a full body: on the canvas still sized
-   as in step 2, the same bust crops, its snippet's `poses` cut to `turn-m30`
-   and `turn-p30`); then measure them as the critic's Step 1
+   call `render_poses` on that file into `<workdir>/renders/lossless/` (`mkdir -p` first);
+   then measure them as the critic's Step 1
    does — rest against each turn, with the `iris` window its finding names and
    `debugDir: <workdir>/renders/lossless`, the overlays checked, the two
    directions averaged — against that rig's own `turn.achieved` (the artist's

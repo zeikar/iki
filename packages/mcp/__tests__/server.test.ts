@@ -1,5 +1,6 @@
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -319,13 +320,26 @@ describe("MCP server integration", () => {
     }
   });
 
-  it("registers compose_layers_from_parts, measure_layers and measure_turn_reference among the server's tools", async () => {
+  it("registers compose_layers_from_parts, measure_layers, measure_turn_reference and render_poses among the server's tools", async () => {
     pair = await createPair();
     const { tools } = await pair.client.listTools();
     const names = tools.map((t) => t.name);
     expect(names).toContain("compose_layers_from_parts");
     expect(names).toContain("measure_layers");
     expect(names).toContain("measure_turn_reference");
+    expect(names).toContain("render_poses");
+  });
+
+  it("render_poses refuses an outDir outside the working directory", async () => {
+    pair = await createPair();
+    const result = await pair.client.callTool({
+      name: "render_poses",
+      arguments: { modelPath: "package.json", outDir: os.tmpdir() },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({ ok: false });
+    const [text] = result.content as { type: string; text: string }[];
+    expect(text.text).toMatch(/^INVALID: output dir escapes the working/);
   });
 
   it("compose_layers_from_parts composes the parts fixture and returns layers + measure", async () => {

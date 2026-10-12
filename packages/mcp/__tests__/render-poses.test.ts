@@ -1,6 +1,14 @@
-import { describe, expect, it } from "vitest";
-import type { IkiModel } from "@ikijs/format";
-import { planRenders } from "../src/render-poses";
+import { afterAll, describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import sharp from "sharp";
+import { parseIkiModel, type IkiModel } from "@ikijs/format";
+import { composeLayersFromParts } from "../src/compose";
+import { findBrowser } from "../src/render-browser";
+import { planRenders, renderPoses } from "../src/render-poses";
+import { autoRigFromLayers } from "../src/tools";
+import { writeFullBodyParts } from "./helpers/parts";
 
 const part = (id: string, x: number, y: number) => ({
   id,
@@ -186,4 +194,104 @@ describe("planRenders", () => {
       ...MOUTH,
     ]);
   });
+});
+
+// Temp dirs live UNDER cwd (node_modules is gitignored) so they satisfy the
+// output-dir confinement to the working directory.
+const createdDirs: string[] = [];
+function tmpDir(): string {
+  const d = fs.mkdtempSync(
+    path.join(process.cwd(), "node_modules", ".iki-mcp-render-"),
+  );
+  createdDirs.push(d);
+  return d;
+}
+afterAll(() => {
+  for (const d of createdDirs) fs.rmSync(d, { recursive: true, force: true });
+});
+
+describe("renderPoses refusals", () => {
+  it("refuses an outDir outside the working directory", async () => {
+    const r = await renderPoses({
+      modelPath: "package.json",
+      outDir: os.tmpdir(),
+    });
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toMatch(/^output dir escapes the working/);
+  });
+
+  it("refuses a missing model", async () => {
+    const r = await renderPoses({
+      modelPath: "no-such-model.iki",
+      outDir: ".",
+    });
+    expect(!r.ok && r.error).toMatch(/^model file not found: /);
+  });
+
+  it("refuses a JSON file that is not a model", async () => {
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, "not.iki"), "{}");
+    const r = await renderPoses({
+      modelPath: path.join(dir, "not.iki"),
+      outDir: dir,
+    });
+    expect(!r.ok && r.error).toBe("version must be a finite number");
+  });
+});
+
+// Renders with the BUILT page bundle (dist): run `pnpm build` after an engine edit.
+describe.skipIf(findBrowser() === undefined)("renderPoses in a browser", () => {
+  const TALL = 3650;
+
+  it("renders a rigged full body into its planned pose PNGs", async () => {
+    const parts = fs.mkdtempSync(path.join(os.tmpdir(), "iki-render-parts-"));
+    createdDirs.push(parts);
+    await writeFullBodyParts(parts);
+    const work = tmpDir();
+    const composed = await composeLayersFromParts({
+      partsDir: parts,
+      outDir: work,
+      canvasHeight: TALL,
+    });
+    if (!composed.ok) throw new Error(composed.error);
+    const modelPath = path.join(work, "full.iki");
+    const rigged = await autoRigFromLayers({
+      layers: composed.layers.map((l) => ({ path: l.path })),
+      outputPath: modelPath,
+    });
+    if (!rigged.ok) throw new Error(rigged.error);
+    const model = parseIkiModel(JSON.parse(fs.readFileSync(modelPath, "utf8")));
+    const plan = planRenders(model);
+    const out = tmpDir();
+
+    const r = await renderPoses({ modelPath, outDir: out });
+    if (!r.ok) throw new Error(r.error);
+
+    expect(r.poses.map((p) => p.name)).toEqual(plan.poses.map((p) => p.name));
+    expect(r.poses.some((p) => p.name.startsWith("full-pose-"))).toBe(false);
+    const wholeHeight = Math.ceil((560 * TALL) / 1100);
+    for (const p of r.poses) {
+      const meta = await sharp(p.path).metadata();
+      const want = p.name.startsWith("mouth-")
+        ? [720, 480]
+        : p.name.startsWith("full-")
+          ? [1400, wholeHeight]
+          : [560, 560];
+      expect([meta.width, meta.height], p.name).toEqual(want);
+    }
+    const { channels } = await sharp(path.join(out, "rest.png")).stats();
+    expect(channels[3].max).toBeGreaterThan(0);
+
+    expect(r.failedTextures).toEqual([]);
+    // The engine ignores an unknown parameter id, so a pose that never took
+    // would still write a picture: each of these must differ from its rest.
+    const png = (name: string) =>
+      fs.readFileSync(path.join(out, `${name}.png`));
+    for (const [rest, pose] of [
+      ["rest", "turn-p30"],
+      ["full-rest", "full-arm-l-32"],
+    ]) {
+      expect(png(pose).equals(png(rest)), `${pose} vs ${rest}`).toBe(false);
+    }
+  }, 120_000);
 });
