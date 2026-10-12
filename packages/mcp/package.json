@@ -41,7 +41,7 @@
     "!dist/metafile-*.json"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "pnpm clean && tsup",
     "dev": "tsup --watch",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit"
@@ -54,6 +54,7 @@
     "zod": "^3.25"
   },
   "devDependencies": {
+    "@ikijs/engine": "workspace:^",
     "tsup": "^8.5.0",
     "typescript": "^5.9.2"
   },
