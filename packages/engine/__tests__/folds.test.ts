@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import { loadIkiModel } from "@ikijs/format";
 import type {
   IkiDeformer,
   IkiGridKeyform,
@@ -843,5 +845,51 @@ describe("foldPoses", () => {
     expect(poses).toHaveLength(1 + 7 * 2);
     expect(crosses(poses)).toEqual([]);
     expect(poses.some((p) => "Fixed" in p.values)).toBe(false);
+  });
+});
+
+// --- the shipped hero ---------------------------------------------------------
+
+describe("checkFolds — examples/playground/public/hero.iki", () => {
+  const hero = loadIkiModel(
+    fs.readFileSync(
+      new URL("../../../examples/playground/public/hero.iki", import.meta.url),
+      "utf8",
+    ),
+  );
+  const report = checkFolds(hero);
+
+  it("checks every foldPoses pose and gives every warp deformer and mesh part a target", () => {
+    expect(report.poses).toBe(foldPoses(hero).length);
+    const ids = new Set(report.targets.map((t) => t.target.id));
+    for (const d of hero.deformers ?? []) {
+      if (d.kind === "warp") expect(ids).toContain(d.id);
+    }
+    for (const p of hero.parts) {
+      if (p.mesh) expect(ids).toContain(p.id);
+    }
+  });
+
+  it("folds only where the eyes close", () => {
+    // Without a predicate the closures read as offenders; the predicate that
+    // classes them as by design lives in @ikijs/mcp.
+    expect(report.offenders.map((t) => t.target.id).sort()).toEqual([
+      "eye_L",
+      "eye_R",
+      "lash_lower_L",
+      "lash_lower_R",
+    ]);
+    for (const t of report.offenders) {
+      expect(t.kind).not.toBe("ok");
+      expect(t.worst!.pose.values.ParamEyeLOpen).toBe(0);
+      expect(t.worst!.pose.values.ParamEyeROpen).toBe(0);
+      expect(Math.abs(t.worst!.ratio)).toBeLessThan(1e-3);
+    }
+  });
+
+  it("keeps the mouth clear of the collapse threshold", () => {
+    const mouth = report.targets.find((t) => t.target.id === "mouth_open")!;
+    expect(mouth.kind).toBe("ok");
+    expect(mouth.worst!.ratio).toBeGreaterThan(0.1);
   });
 });
