@@ -12,6 +12,8 @@ import {
   loadIkiModel,
   type IkiModel,
 } from "@ikijs/format";
+import type { FoldReport } from "@ikijs/engine";
+import { checkModelFolds } from "./fold-report";
 import {
   AutoRigInputError,
   confineToWorkingDirectory,
@@ -98,6 +100,19 @@ export function planRenders(model: IkiModel): RenderPlan {
     values,
   });
 
+  // The engine ignores an undeclared id, so this only keeps `stress` from
+  // naming settings the rig lacks: every loop rig declares its other ids (the
+  // composer requires brows), but the body angles only with a `body` layer.
+  const bodyAngles = Object.fromEntries(
+    [
+      StandardParameter.BodyAngleX,
+      StandardParameter.BodyAngleY,
+      StandardParameter.BodyAngleZ,
+    ]
+      .filter((id) => model.parameters.some((p) => p.id === id))
+      .map((id) => [id, -10]),
+  );
+
   const poses: RenderPose[] = [
     square("rest"),
     square("turn-m30", { ParamAngleX: -30 }),
@@ -108,6 +123,21 @@ export function planRenders(model: IkiModel): RenderPlan {
     square("blink-half", { ParamEyeLOpen: 0.5 }),
     square("gaze", { ParamEyeBallX: 1 }),
     square("combined", { ParamAngleX: 30, ParamAngleY: 30, ParamAngleZ: 30 }),
+    // Every head angle at its other extreme with the face moving too, where
+    // moves that each look fine alone stack up into a fold.
+    square("stress", {
+      ParamAngleX: -30,
+      ParamAngleY: -30,
+      ParamAngleZ: -30,
+      ParamMouthOpenY: 1,
+      ParamEyeLOpen: 0.5,
+      ParamEyeROpen: 0.5,
+      ParamBrowLY: -1,
+      ParamBrowRY: 1,
+      ParamBrowLAngle: 1,
+      ParamBrowRAngle: -1,
+      ...bodyAngles,
+    }),
   ];
 
   if (mouth) {
@@ -207,6 +237,12 @@ export type RenderPosesResult =
       /** Texture indices the engine could not load; the renders lack them. */
       failedTextures: number[];
       poses: { name: string; path: string }[];
+      /** The model's own canvas, which `folds`' rest points are placed on in
+       *  the text (`canvas` is the render's). */
+      modelCanvas: IkiModel["canvas"];
+      /** The model's folds, as `auto_rig_from_layers` reports them.
+       *  Report-only: a fold never fails the render. */
+      folds: FoldReport;
     }
   | { ok: false; error: string };
 
@@ -250,6 +286,7 @@ export async function renderPoses(
     const browser = findBrowser();
     if (!browser) return { ok: false, error: NO_BROWSER_MESSAGE };
     const pageScript = readPageScript();
+    const folds = checkModelFolds(model);
 
     const { failedTextures, poses } = await withBrowser(
       browser,
@@ -286,6 +323,8 @@ export async function renderPoses(
       mouth: plan.mouth,
       failedTextures,
       poses,
+      modelCanvas: model.canvas,
+      folds,
     };
   } catch (error) {
     if (error instanceof AutoRigInputError || error instanceof IkiFormatError) {

@@ -31,5 +31,5 @@ Read [README.md](./README.md) first for what Iki is, the package map, and the ro
 
 - Publishable packages (`@ikijs/*`, excluding the private examples `@ikijs/playground` and `@ikijs/editor-app`) use Changesets. Add one with `pnpm changeset` when a package changes in a way that should reach npm.
 - Use `minor` for public API or `.iki` format-contract changes, `patch` for fixes and non-breaking updates.
-- `@ikijs/engine` is only a devDependency of `@ikijs/mcp` (bundled into the `render_poses` page script at build time), so Changesets never releases mcp for an engine change; one that should reach `render_poses` needs an `@ikijs/mcp` patch changeset of its own.
+- `@ikijs/engine` is only a devDependency of `@ikijs/mcp` (bundled at build time into the `render_poses` page script and into the Node build, for the fold report `auto_rig_from_layers` and `render_poses` return), so Changesets never releases mcp for an engine change; one that should reach the render page or the fold report needs an `@ikijs/mcp` patch changeset of its own.
 - Do not add a changeset for example-only or docs-only changes.

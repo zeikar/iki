@@ -208,21 +208,30 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `render_poses { modelPath: <workdir>/iki-character.iki, outDir: <workdir>/renders }`
    (`outDir` must already exist and sit under the server's cwd; Step 0 makes
    it). It needs `@ikijs/mcp` 0.24.0+, Node 22+ and an installed Chrome, Edge
-   or Chromium (`CHROME_PATH` for a non-standard install). A server without
-   `render_poses` predates 0.24.0: update the plugin, whose `.mcp.json` pin
-   moves when it adopts a release. On an `INVALID:` refusal (no browser, a bad
-   `CHROME_PATH`, Node < 22) give the user its message and render again once
-   it is fixed: the round waits, it is not over.
+   or Chromium (`CHROME_PATH` for a non-standard install); `stress` and the
+   fold report need 0.25.0+. A server without `render_poses` predates 0.24.0,
+   and a result with no `stress.png` and no line starting `FOLD` predates
+   0.25.0: update the plugin, whose `.mcp.json` pin moves when it adopts a
+   release. A server before 0.25.0 still renders every other pose, so the
+   round goes on, with `folds` passed as `unavailable`. On an `INVALID:`
+   refusal (no browser, a bad `CHROME_PATH`, Node < 22) give the user its
+   message and render again once it is fixed: the round waits, it is not over.
    The model decides the set: a full body when the canvas is taller than wide,
    the mouth crops centred on the rigged mouth part, the `full-pose-*` poses
-   when `ParamArmPoseR` is declared. The result lists the written paths. A
-   non-empty `failedTextures` means atlas pages did not load and their parts
-   are missing: render once more; if pages still fail, escalate, because the
-   critic does not score renders with parts missing.
+   when `ParamArmPoseR` is declared. The result lists the written paths, then
+   ends with the model's fold report: a `FOLD` line per warp grid or mesh part
+   that flips or collapses at some pose, or `FOLDS: none over N poses`, and a
+   `FOLDS expected:` line for the closures the rig draws on purpose (an eye or
+   the mouth shut). A fold never stops the round: it is the critic's input
+   (Step 3). A non-empty `failedTextures` means atlas pages did not load and
+   their parts are missing: render once more; if pages still fail, escalate,
+   because the critic does not score renders with parts missing.
    The rest shot is untouched by construction, which matters because every
    proportion the critic measures is measured against it.
    The poses: `rest`, `turn-m30`, `turn-p30`, `turn-15`, `nod-15`, `blink`,
-   `blink-half`, `gaze`, `combined`; the 15 `mouth-*` crops
+   `blink-half`, `gaze`, `combined`, `stress` (every head angle at −30, the
+   mouth open, both eyes at 0.5, the brows at opposite extremes and each
+   declared body angle at −10); the 15 `mouth-*` crops
    (`mouth-open-{0,0.3,0.6,1}-form-{m1,0,p1}`, `mouth-laugh`,
    `mouth-surprised`, `mouth-turn-p30-half`); on a full body `full-rest`,
    `full-turn-p30`, `full-body-{x,y,z}-{m10,p10}`, `full-arm-{l,r}-{16,32}`,
@@ -238,7 +247,10 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    and `turn-clamped` (this round's artist's own `TURN:` line, verbatim — its
    `turn.achieved`, `turn.clamped` and `turn.strandOverlap`, or "none" when no
    turn was solved) so the critic can check the render against the rig's own
-   report and tell a clamp this art forced from a new turn defect. It returns
+   report and tell a clamp this art forced from a new turn defect, and `folds`
+   (Step 2's fold report, verbatim and complete: every `FOLD` line or the one
+   `FOLDS: none …` line, and the `FOLDS expected:` line when there is one; or
+   `unavailable` from a server before 0.25.0). It returns
    scores and typed findings. A full body also passes `reference-full`, `figure` (the
    contents of `<workdir>/figure.json`) and `body-renders` (the whole-canvas `full-*.png` poses) and, with a pose forearm,
    `reference-wave`; its `renders` and

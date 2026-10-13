@@ -68,8 +68,13 @@ artist agent applies your findings; the orchestrator arbitrates.
 - `layers` — the composed role-layer dir (`face.png`, `eye_L.png`, …, `preview.png`).
 - `renders` — renders of the rigged model in the engine: rest, head-turn,
   blink, gaze, the between-stop poses (`ParamAngleX`/`ParamAngleY` at 15°,
-  `ParamEyeLOpen` at 0.5) where interpolation defects show, and one combined
-  pose (`ParamAngleX`, `ParamAngleY` and `ParamAngleZ` all at 30).
+  `ParamEyeLOpen` at 0.5) where interpolation defects show, one combined
+  pose (`ParamAngleX`, `ParamAngleY` and `ParamAngleZ` all at 30), and
+  `stress`: the three angles all at −30 with `ParamMouthOpenY` at 1, both eyes
+  at 0.5, the brows at opposite extremes (`ParamBrowLY` −1, `ParamBrowRY` 1,
+  `ParamBrowLAngle` 1, `ParamBrowRAngle` −1) and each body angle the model
+  declares at −10 — moves that each look fine alone, stacked. A server before
+  0.25.0 renders no `stress`.
 - `turn-pair` — the rig's own rest, `ParamAngleX` −30 and `ParamAngleX` +30
   renders (`rest.png`, `turn-m30.png`, `turn-p30.png` in `<workdir>/renders/`,
   beside an empty `debug/` dir), transparent (which the measurement needs): what
@@ -105,6 +110,24 @@ artist agent applies your findings; the orchestrator arbitrates.
   where the far eye met the face plate's edge, the chin the neck's, or the far
   iris the bangs' side strand, and a `noseShift` / `mouthShift` past its own
   room.
+- `folds` — the fold report `render_poses` printed, verbatim and complete: the
+  engine's check of every warp grid cell and mesh-part triangle over its own
+  pose set (rest, each parameter at its min and at its max, the angle corners
+  crossed with the eyes, the mouth, the arms and the elbows), not only the
+  rendered shots. A `FOLD` line names a deformer and a cell, or a part and a
+  triangle, whose area at some pose over its area at rest — the ratio — is a
+  flip (at or under 0: turned inside out, drawn mirrored) or a collapse (under
+  0.1: pinched toward a line or a point). It gives the ratio, the pose in
+  brackets as its parameter settings (`rest` for none; a host reproduces it by
+  setting those parameters on the player, and it need not be one of the
+  renders), and where the cell or triangle rests, in model space and in model
+  px from the top-left — the layer PNGs' own pixels, not a render's.
+  `FOLDS: none over N poses` means nothing folds. The `FOLDS expected:` line
+  names, by part id, ratio and the parameter that shuts it, the closures the
+  rig draws on purpose: `eye_L` and `lash_lower_L` shut by `ParamEyeLOpen`,
+  `eye_R` and `lash_lower_R` by `ParamEyeROpen`, and `mouth_inner`,
+  `mouth_tongue`, `mouth_teeth`, `lip_lower` and `lip_upper` with
+  `ParamMouthOpenY` at 0. `unavailable` means the server predates the report.
 
 Read every reference, `preview.png` and every render before writing anything.
 
@@ -232,7 +255,10 @@ individually pretty.
 `rig` is the axis that catches what regeneration cannot fix. Look specifically
 for: a straight seam appearing on turn, the head sliding off the shoulders, the
 iris spilling past the lids at extreme gaze, the eye vanishing entirely at
-blink, brows hidden under hair.
+blink, brows hidden under hair. On `stress`, look for a part turned inside
+out, a seam, or a region pinched to a line. Every `FOLD` line in `folds` is a
+`rig` finding (Step 3); the `FOLDS expected:` line is none. When `folds` is
+`unavailable`, judge `rig` from the renders alone and name no fold finding.
 
 `eyes` judges the eyes' ABSOLUTE size: the iris's share of the head span at the
 eye row, the render's measured (Step 1) against the reference's read, and the
@@ -475,6 +501,11 @@ Every finding carries a `type`, and the type decides who acts:
 A compose refusal naming `mouth_keyed.png` or `mouth_interior.png` (no green,
 green outside the opening, an outline not closed, more than one opening, only
 lips) is a `regenerate` of that file alone.
+
+A `FOLD` line is an `escalate` on `packages/editor/src/auto-rig/` that quotes
+the line verbatim — the deformer or part, its cell or triangle, the ratio and
+the pose — unless a `measure_layers` warning this round already names that
+part: then it routes as that warning does.
 
 Before writing a `regenerate`, ask whether a `retune` would do. Historically
 most defects that _looked_ like bad art were placement constants.

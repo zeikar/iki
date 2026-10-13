@@ -176,7 +176,9 @@ and how round 1's first compose corrects the provisional `canvas.json`. Then:
    leaves the far eye, and a `noseShift` / `mouthShift` past its own), and
    how much of a far iris the bangs still cover (`turn.strandOverlap`); quote
    all three in your report. A clamp is not a refusal — the rig still built,
-   so keep it.
+   so keep it. Nor is the result's `folds` (the `FOLD` lines after the path):
+   it is a report, never a refusal, so keep the model; the orchestrator reads
+   the folds off `render_poses`.
 
    A rig refused as `INVALID: … style.<knob> …` means that knob is out of its
    range. Restore its last accepted value in `style.json` (delete the key if

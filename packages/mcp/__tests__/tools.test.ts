@@ -525,6 +525,9 @@ describe("autoRigFromLayers", () => {
     expect(result.canvas).toEqual({ width: CANVAS, height: CANVAS });
     expect(result.partCount).toBeGreaterThan(0);
     expect(result.atlasBytes).toBeGreaterThan(0);
+    expect(result.folds.poses).toBeGreaterThan(0);
+    expect(result.folds.targets.length).toBeGreaterThan(0);
+    expect(Array.isArray(result.folds.offenders)).toBe(true);
 
     // The written file re-validates and carries a base64 PNG data-URI texture.
     const written = JSON.parse(fs.readFileSync(outPath, "utf8"));
@@ -686,6 +689,20 @@ describe("autoRigFromLayers", () => {
       expect(model.parts.find((p) => p.id === id)!.clip).toEqual({
         masks: ["mouth_inner"],
       });
+
+    // The mouth rests shut, so every lip part's shut poses are set apart as
+    // expected, and nothing is left to report.
+    expect(result.folds.offenders).toEqual([]);
+    for (const id of [
+      "mouth_inner",
+      "mouth_tongue",
+      "mouth_teeth",
+      "lip_lower",
+      "lip_upper",
+    ]) {
+      const target = result.folds.targets.find((t) => t.target.id === id);
+      expect(target?.expected, id).toBeDefined();
+    }
   });
 
   it("returns { ok:false } for a lip set mixed with mouth", async () => {

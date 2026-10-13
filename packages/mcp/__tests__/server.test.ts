@@ -214,7 +214,11 @@ describe("MCP server integration", () => {
     const texts = (result.content as { type: string; text: string }[]).filter(
       (c) => c.type === "text",
     );
-    expect(texts[0].text).toBe(outPath);
+    // The path, then the fold report.
+    const [first, ...folds] = texts[0].text.split("\n");
+    expect(first).toBe(outPath);
+    expect(folds.length).toBeGreaterThan(0);
+    for (const line of folds) expect(line).toMatch(/^FOLDS?[ :]/);
     expect(fs.existsSync(outPath)).toBe(true);
   });
 

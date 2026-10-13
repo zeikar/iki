@@ -48,6 +48,21 @@ const SQUARE: Row[] = [
   ["blink-half", { ParamEyeLOpen: 0.5 }],
   ["gaze", { ParamEyeBallX: 1 }],
   ["combined", { ParamAngleX: 30, ParamAngleY: 30, ParamAngleZ: 30 }],
+  [
+    "stress",
+    {
+      ParamAngleX: -30,
+      ParamAngleY: -30,
+      ParamAngleZ: -30,
+      ParamMouthOpenY: 1,
+      ParamEyeLOpen: 0.5,
+      ParamEyeROpen: 0.5,
+      ParamBrowLY: -1,
+      ParamBrowRY: 1,
+      ParamBrowLAngle: 1,
+      ParamBrowRAngle: -1,
+    },
+  ],
 ];
 const MOUTH: Row[] = [
   ...[0, 0.3, 0.6, 1].flatMap((open): Row[] => [
@@ -176,6 +191,34 @@ describe("planRenders", () => {
     expect(table(m)).toEqual(SQUARE);
   });
 
+  it("leans each body angle the model declares to -10 in stress, and no other", () => {
+    const stress = (ids: string[]) =>
+      planRenders(model(1100, 1100, ids)).poses.find(
+        (p) => p.name === "stress",
+      )!.values;
+    const head = SQUARE.find(([name]) => name === "stress")![1];
+
+    expect(stress([])).toEqual(head);
+    expect(stress(["ParamBodyAngleX"])).toEqual({
+      ...head,
+      ParamBodyAngleX: -10,
+    });
+    expect(
+      stress(["ParamBodyAngleX", "ParamBodyAngleY", "ParamBodyAngleZ"]),
+    ).toEqual({
+      ...head,
+      ParamBodyAngleX: -10,
+      ParamBodyAngleY: -10,
+      ParamBodyAngleZ: -10,
+    });
+    // `combined` never takes them.
+    expect(
+      planRenders(model(1100, 1100, ["ParamBodyAngleX"])).poses.find(
+        (p) => p.name === "combined",
+      )!.values,
+    ).toEqual({ ParamAngleX: 30, ParamAngleY: 30, ParamAngleZ: 30 });
+  });
+
   it("adds the pose forearm poses last only with ParamArmPoseR", () => {
     const parts = [part("mouth", 0, 0)];
     expect(table(model(1100, 3692, [], parts))).toEqual([
@@ -297,6 +340,8 @@ describe.skipIf(findBrowser() === undefined)("renderPoses in a browser", () => {
     expect(channels[3].max).toBeGreaterThan(0);
 
     expect(r.failedTextures).toEqual([]);
+    expect(r.modelCanvas).toEqual({ width: 1100, height: TALL });
+    expect(r.folds.poses).toBeGreaterThan(0);
     // The engine ignores an unknown parameter id, so a pose that never took
     // would still write a picture: each of these must differ from its rest.
     const png = (name: string) =>

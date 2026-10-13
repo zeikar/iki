@@ -7,6 +7,7 @@ import {
   autoRigFromLayers,
 } from "./tools";
 import { composeLayersFromParts } from "./compose";
+import { formatFoldReport } from "./fold-report";
 import { measureLayers, formatMeasureReport } from "./measure";
 import { measureTurnReference, formatTurnReport } from "./measure-turn";
 import { renderPoses } from "./render-poses";
@@ -94,7 +95,7 @@ export function createIkiMcpServer(): McpServer {
     "auto_rig_from_layers",
     {
       description:
-        "Auto-rigs role-named PNG layers (face, eye_L/eye_R and either mouth or the lip set (mouth_inner + lip_lower + lip_upper, a mouth that folds open instead of crossfading) required; iris_L/R, brow_L/R, hair_front, body, arm_L/arm_R, forearm_pose_L/forearm_pose_R, mouth_tongue/mouth_teeth (only with the lip set: drawn under its lips and clipped to mouth_inner), etc. optional; an arm needs the body, a pose forearm needs its arm, and a partial lip set, one mixed with mouth/mouth_open, or mouth_tongue/mouth_teeth without it is refused) into a renderable .iki written to disk. Pass full-canvas PNG file paths; returns the output path + summary (the model is NOT inlined). Filenames map to roles unless `fileName` is given.",
+        "Auto-rigs role-named PNG layers (face, eye_L/eye_R and either mouth or the lip set (mouth_inner + lip_lower + lip_upper, a mouth that folds open instead of crossfading) required; iris_L/R, brow_L/R, hair_front, body, arm_L/arm_R, forearm_pose_L/forearm_pose_R, mouth_tongue/mouth_teeth (only with the lip set: drawn under its lips and clipped to mouth_inner), etc. optional; an arm needs the body, a pose forearm needs its arm, and a partial lip set, one mixed with mouth/mouth_open, or mouth_tongue/mouth_teeth without it is refused) into a renderable .iki written to disk. Pass full-canvas PNG file paths; returns the output path + summary (the model is NOT inlined). Filenames map to roles unless `fileName` is given. The result's `folds` is the written rig's fold report, printed after the path the way render_poses prints it, and report-only: a fold never refuses the rig.",
       inputSchema: {
         layers: z
           .array(
@@ -158,7 +159,9 @@ export function createIkiMcpServer(): McpServer {
     async (args) => {
       try {
         const r = await autoRigFromLayers(args);
-        const text = r.ok ? r.path : `INVALID: ${r.error}`;
+        const text = r.ok
+          ? [r.path, ...formatFoldReport(r.folds, r.canvas)].join("\n")
+          : `INVALID: ${r.error}`;
         return { content: [{ type: "text", text }], structuredContent: r };
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
@@ -331,7 +334,7 @@ export function createIkiMcpServer(): McpServer {
     "render_poses",
     {
       description:
-        "Renders a rigged .iki into the character loop's pose PNGs with the real engine, through the installed Chrome, Edge or Chromium run headless (set CHROME_PATH to pick one). The model decides the set: a bust gets 560x560 shots (rest, turns, nod, blinks, gaze, combined); a mouth adds 720x480 mouth crops; a full body (taller than wide) adds the full-canvas body, arm and elbow poses on a 1400-wide canvas, and a model with a pose forearm adds the full-pose-* shots. Writes <pose>.png files into outDir, overwriting same-named files in place; returns the written paths one per line. Fails with INVALID when no browser is found or an input is refused; a browser that cannot start is a tool error.",
+        "Renders a rigged .iki into the character loop's pose PNGs with the real engine, through the installed Chrome, Edge or Chromium run headless (set CHROME_PATH to pick one). The model decides the set: a bust gets 560x560 shots (rest, turns, nod, blinks, gaze, combined — ParamAngleX/Y/Z all at 30 — and stress: ParamAngleX/Y/Z all at -30, ParamMouthOpenY 1, both eyes at 0.5, the brows at opposite extremes (ParamBrowLY -1, ParamBrowRY 1, ParamBrowLAngle 1, ParamBrowRAngle -1) and each body angle the model declares at -10); a mouth adds 720x480 mouth crops; a full body (taller than wide) adds the full-canvas body, arm and elbow poses on a 1400-wide canvas, and a model with a pose forearm adds the full-pose-* shots. Writes <pose>.png files into outDir, overwriting same-named files in place; returns the written paths one per line, then the model's fold report (the result's `folds`), checked by the engine over its own pose set: a `FOLD` line per warp deformer or mesh part that flips (ratio <= 0) or collapses (under 0.1) at some pose — its cell or triangle, the ratio of its area there to at rest, the pose as its parameter settings (`rest` for none) and where it rests, in model space and in model px from the top-left (the layer PNGs' own pixels, not a render's) — or `FOLDS: none over N poses`, then a `FOLDS expected:` line naming the closures the rig draws on purpose (an eye or the mouth shut), each by part id, ratio and the parameter that shuts it. Report-only: a fold never fails the render. Fails with INVALID when no browser is found or an input is refused; a browser that cannot start is a tool error.",
       inputSchema: {
         modelPath: z
           .string()
@@ -349,7 +352,10 @@ export function createIkiMcpServer(): McpServer {
       try {
         const r = await renderPoses(args);
         const text = r.ok
-          ? r.poses.map((p) => p.path).join("\n")
+          ? [
+              ...r.poses.map((p) => p.path),
+              ...formatFoldReport(r.folds, r.modelCanvas),
+            ].join("\n")
           : `INVALID: ${r.error}`;
         return { content: [{ type: "text", text }], structuredContent: r };
       } catch (err) {

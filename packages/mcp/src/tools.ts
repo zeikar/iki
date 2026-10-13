@@ -25,6 +25,8 @@ import {
   type TurnTargets,
   type TurnSolveReport,
 } from "@ikijs/editor";
+import type { FoldReport } from "@ikijs/engine";
+import { checkModelFolds } from "./fold-report";
 import {
   decodePng,
   cropToBuffer,
@@ -399,6 +401,10 @@ export type AutoRigResult =
        *  (`strandOverlap`). Absent for a layer set with no nose, which solves
        *  no turn at all. */
       turn?: TurnSolveReport;
+      /** The written model's folds over the engine's pose set, its eyes and
+       *  mouth shutting on purpose set apart as `expected`. Report-only: a
+       *  fold never refuses the rig. */
+      folds: FoldReport;
     }
   | { ok: false; error: string };
 
@@ -719,6 +725,10 @@ export async function autoRigFromLayers(
     // symlink at outPath cannot redirect the write outside the working tree.
     writeFileAtomic(outPath, JSON.stringify(finalModel));
 
+    // Report-only, and after the write so a throw here — an engine bug,
+    // surfacing as a tool error, never an input refusal — keeps the rig.
+    const folds = checkModelFolds(finalModel);
+
     return {
       ok: true,
       path: outPath,
@@ -731,6 +741,7 @@ export async function autoRigFromLayers(
       ...(strandEdges === undefined ? {} : { strandEdges }),
       ...(noseCore === undefined ? {} : { noseCore }),
       ...(turn === undefined ? {} : { turn }),
+      folds,
     };
   } catch (err) {
     if (err instanceof AutoRigInputError)
