@@ -56,26 +56,33 @@ composer's source or its result.
 Score each item 0–5 (5 = nothing a viewer would change). The key a fix names is
 after the arrow.
 
-1. `spacing` — the gap between the inner corners of the two visible eyewhites,
-   by eye, against one visible eye's width (about 0.8–1.2 eye widths reads
-   fine; wider reads small and vacant) and the face's width at the eye row. →
-   `eye_L.cx` / `eye_R.cx`, with `lash_L` / `lash_R` and `iris_L` / `iris_R`
-   `cx` moved by the same step.
+1. `spacing` — on `rest`, the gap between the two eyewhites' inner corners
+   against one eyewhite's own width (inner to outer corner, not the lash wing).
+   Measure it rather than guess: the eyewhites are the near-white pixels on the
+   eye row (Bash with an image tool such as Python's Pillow, if one is there;
+   else by eye). About 0.9–1.3 eyewhites apart reads fine; past about 1.4 reads
+   wide-set, small and vacant — and so does a pair spanning the face, outer
+   corners on the face outline or lash wings over the ears. → `eye_L.cx` /
+   `eye_R.cx`, with `lash_L` / `lash_R` and `iris_L` / `iris_R` `cx` moved by
+   the same step.
 2. `size` — eye and iris size against the face. → `eye_*` / `lash_*` `w` and `h`
    together, `iris_*` scaled by the same factor; the iris alone, `iris_*` `w` /
    `h`.
 3. `iris` — a round iris usually reads better as a taller oval, unless the
    drawing's own style is clearly round. → `iris_L` / `iris_R` `h` (e.g.
    `×1.15`).
-4. `rhythm` — the brow, eye, nose and mouth rows; the mouth's row as its
-   distance under the nose over nose-to-chin. → `brow_*.cy`, `nose.cy`,
-   `mouth_inner.cy` (`mouth.cy` on a legacy mouth).
-5. `mouth` — the closed curve on `mouth-open-0-form-0` and `rest`: a gentle
-   smile, no V, corners not over-upturned. → a `refer` naming what reads off
-   (the kink, the corners' lift, the sag over the width). The closed line is the
-   drawn arc as the rig closes it, and a render cannot show which of the two is
-   at fault, so the orchestrator types it. A mouth too high or low is item 4's
-   `mouth_inner.cy`.
+4. `rhythm` — the brow, eye, nose and mouth rows. The closed mouth sits about
+   0.35–0.5 of the way from the nose tip to the chin; nearer the nose reads
+   cramped and high. → `brow_*.cy`, `nose.cy`, `mouth_inner.cy` (`mouth.cy` on
+   a legacy mouth).
+5. `mouth` — the closed curve, judged on `mouth-open-0-form-0` (×4), not on
+   `rest`, where any curve reads soft: a gentle smile, no V, corners not
+   over-upturned. Measure the sag (the centre's drop below the corners) over the
+   width: about 0.10 or less reads gentle; past about 0.12, or straight sides
+   meeting at a point, is a V even if `rest` looks fine. → a `refer` naming what
+   reads off (the kink, the corners' lift, the sag over the width). The closed
+   line is the drawn arc as the rig closes it, and a render cannot show which of
+   the two is at fault, so the orchestrator types it.
 6. `nose` — a small, light nose on an anime face, unless the drawing's own style
    is clearly heavier on purpose. → `nose.w` (the width of the box the composer
    sized). A nose drawn in a heavier style than the face is rarely a
