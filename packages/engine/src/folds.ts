@@ -1,14 +1,26 @@
 import {
   type IkiDeformer,
+  type IkiMesh,
   type IkiModel,
   type IkiParameter,
+  type IkiPart,
   type IkiWarpDeformer,
   StandardParameter as P,
 } from "@ikijs/format";
-import type { Affine } from "./affine";
-import { resolveDeformers } from "./deform";
+import { type Affine, multiply, rotate, scale, translate } from "./affine";
+import {
+  type ResolvedDeformers,
+  type ResolvedTransform,
+  evaluateTransform,
+  resolveDeformers,
+} from "./deform";
 import { ParameterStore } from "./parameter-store";
-import { deformWarpGrid } from "./warp-grid";
+import { applyWarps } from "./warp";
+import {
+  applyWarpToChild,
+  deformWarpGrid,
+  transformGridPoints,
+} from "./warp-grid";
 
 /** A parameter setting to check the rig at; every other parameter rests at its default. */
 export interface FoldPose {
@@ -58,7 +70,7 @@ export interface FoldReport {
   /** How many poses were checked. */
   poses: number;
   thresholds: { flip: 0; collapse: 0.1 };
-  /** One per warp deformer, in model order. */
+  /** One per warp deformer, then one per mesh part, each in model order. */
   targets: FoldTarget[];
   /** The targets that are not `ok`, worst first. */
   offenders: FoldTarget[];
@@ -140,7 +152,8 @@ function poseName(values: Record<string, number>): string {
 
 /**
  * The model's deformers with every binding and keyform removed: the rig no
- * parameter moves. Its matrix worlds place a rest location in model space.
+ * parameter moves. Its matrix worlds place a rest location, and a part's
+ * baseline, in model space.
  */
 function staticDeformers(model: IkiModel): IkiDeformer[] {
   return (model.deformers ?? []).map((d) =>
@@ -189,16 +202,37 @@ function doubledArea(
   return ax * by - ay * bx;
 }
 
+/** Doubled signed area of each of a mesh's triangles, at its triangle index. */
+function triangleAreas(
+  points: ArrayLike<number>,
+  indices: number[],
+): Float64Array {
+  const out = new Float64Array(indices.length / 3);
+  for (let t = 0; t < out.length; t++) {
+    const i = t * 3;
+    out[t] = doubledArea(points, indices[i], indices[i + 1], indices[i + 2]);
+  }
+  return out;
+}
+
+/** A part's placement as `player.ts` drawPart builds it: translate · rotate · scale(size). */
+function placement(part: IkiPart, t: ResolvedTransform): Affine {
+  return multiply(
+    multiply(translate(t.x, t.y), rotate(t.rotation)),
+    scale(part.width * t.scaleX, part.height * t.scaleY),
+  );
+}
+
 /** A target's least ratio so far over one class of poses. */
 interface Least {
   ratio: number;
-  /** Cell index, `row * cols + col`. */
-  cell: number;
+  /** Its index into the target's areas: `cell * 4 + corner`, or the triangle. */
+  at: number;
   pose: FoldPose;
 }
 
-interface GridSweep {
-  deformer: IkiWarpDeformer;
+/** What a target keeps across the poses. */
+interface Sweep {
   target: FoldTarget["target"];
   restAreas: Float64Array;
   /** Rest areas below this have no ratio. */
@@ -207,12 +241,129 @@ interface GridSweep {
   expected?: Least;
 }
 
+interface GridSweep extends Sweep {
+  deformer: IkiWarpDeformer;
+}
+
+interface PartSweep extends Sweep {
+  part: IkiPart;
+  indices: number[];
+  /** The warp deformer it hangs from, which lands it instead of a matrix. */
+  warpDeformer?: IkiWarpDeformer;
+  /** The mesh as the renderer holds it: part-local, float32. */
+  vertices: Float32Array;
+  /** Per-pose scratch: the mesh after its keyforms, then where it lands. */
+  local: Float32Array;
+  landed: Float32Array;
+  /** The baseline's points: the mesh on the static chain, model space. */
+  restPoints: Float64Array;
+}
+
 /**
- * Checks every warp deformer's grid cells for folds over `options.poses`
- * (`foldPoses(model)` by default) and reports, per deformer, the least ratio
- * of a cell's corner triangle to its rest area: `<= 0` a flip, `< 0.1` a
- * collapse. Cells are measured on the deformer's LOCAL grid, so a parent
- * matrix's scale, which multiplies every area alike, never reads as a fold.
+ * Merges one pose's `areas` into `sweep`: each ratio to its rest area goes to
+ * the class `expected` puts the pose in, which keeps its least.
+ */
+function keepLeast(
+  sweep: Sweep,
+  areas: Float64Array,
+  pose: FoldPose,
+  expected: (target: FoldTarget["target"]) => boolean,
+): void {
+  const slot = expected(sweep.target) ? "expected" : "worst";
+  for (let i = 0; i < areas.length; i++) {
+    const rest = sweep.restAreas[i];
+    if (Math.abs(rest) < sweep.tiny) continue;
+    const ratio = areas[i] / rest;
+    if (ratio < (sweep[slot]?.ratio ?? Infinity)) {
+      sweep[slot] = { ratio, at: i, pose };
+    }
+  }
+}
+
+/**
+ * A mesh part's sweep, its baseline set once: the authored mesh through the
+ * part's base transform and the static world it hangs from — its matrix
+ * deformer's, or its warp's PARENT's (identity at a root). The grid never
+ * enters it, so a vertex the grid pins to its edge is measured, not
+ * cancelled.
+ */
+function partSweep(
+  part: IkiPart,
+  mesh: IkiMesh,
+  deformers: IkiDeformer[],
+  worlds: Map<string, Affine>,
+  store: ParameterStore,
+): PartSweep {
+  // Found as drawPart finds it: a part hung from a warp is that warp's child.
+  const warpDeformer = deformers.find(
+    (d): d is IkiWarpDeformer => d.kind === "warp" && d.id === part.deformer,
+  );
+  const frame = warpDeformer ? warpDeformer.parent : part.deformer;
+  const placed = placement(
+    part,
+    evaluateTransform(part.transform, undefined, store),
+  );
+  // Float64: a triangle authored degenerate stays exactly so, under `tiny`.
+  const restPoints = transformGridPoints(
+    mesh.vertices,
+    frame === undefined ? placed : multiply(worlds.get(frame)!, placed),
+    new Float64Array(mesh.vertices.length),
+  );
+  return {
+    target: { kind: "part", id: part.id },
+    restAreas: triangleAreas(restPoints, mesh.indices),
+    tiny: 1e-9 * part.width * part.height,
+    part,
+    indices: mesh.indices,
+    warpDeformer,
+    vertices: Float32Array.from(mesh.vertices),
+    local: new Float32Array(mesh.vertices.length),
+    landed: new Float32Array(mesh.vertices.length),
+    restPoints,
+  };
+}
+
+/**
+ * Where `sweep`'s part lands at a pose, model space, by drawPart's three
+ * branches: a warp child bound to its RAW rest grid and sampled on the
+ * resolved one, a matrix child through its deformer's world, a free part by
+ * its placement alone.
+ */
+function landPart(
+  sweep: PartSweep,
+  store: ParameterStore,
+  { worlds, grids }: ResolvedDeformers,
+): Float32Array {
+  const { part, warpDeformer, local, landed } = sweep;
+  applyWarps(sweep.vertices, part.warps, store, local);
+  const placed = placement(
+    part,
+    evaluateTransform(part.transform, part.bindings, store),
+  );
+  if (warpDeformer) {
+    const grid = grids.get(warpDeformer.id)!;
+    applyWarpToChild(local, placed, warpDeformer.grid, grid, landed);
+  } else if (part.deformer !== undefined) {
+    const world = worlds.get(part.deformer)!;
+    transformGridPoints(local, multiply(world, placed), landed);
+  } else {
+    transformGridPoints(local, placed, landed);
+  }
+  return landed;
+}
+
+/**
+ * Checks every warp deformer's grid cells and every mesh part's triangles for
+ * folds over `options.poses` (`foldPoses(model)` by default) and reports, per
+ * target, the least ratio of a triangle's doubled signed area at a pose to
+ * the same at rest: `<= 0` a flip, `< 0.1` a collapse. Cells are measured on
+ * the deformer's LOCAL grid, so a parent matrix's scale, which multiplies
+ * every area alike, never reads as a fold. A part's triangles land as
+ * drawPart lands them — its keyforms, its live transform, then its warp's
+ * resolved grid or its matrix deformer's world — against its authored mesh on
+ * the static matrix chain: a static scale or reflection cancels, a bound one
+ * counts, and a vertex its warp grid pins to the edge shows already at
+ * `rest` (a triangle wholly past the edge flattens, one across it thins).
  * Report-only: nothing is refused.
  */
 export function checkFolds(
@@ -220,19 +371,18 @@ export function checkFolds(
   options: FoldOptions = {},
 ): FoldReport {
   const poses = options.poses ?? foldPoses(model);
-  const { worlds } = resolveDeformers(
-    staticDeformers(model),
-    new ParameterStore(model.parameters),
-  );
+  const deformers = model.deformers ?? [];
+  const restStore = new ParameterStore(model.parameters);
+  const { worlds } = resolveDeformers(staticDeformers(model), restStore);
 
-  const sweeps: GridSweep[] = [];
-  for (const d of model.deformers ?? []) {
+  const gridSweeps: GridSweep[] = [];
+  for (const d of deformers) {
     if (d.kind !== "warp") continue;
     const { cols, rows, points } = d.grid;
     // Row 0's x and column 0's y bound the lattice (the validator's own read).
     const width = points[cols * 2] - points[0];
     const height = points[1] - points[rows * (cols + 1) * 2 + 1];
-    sweeps.push({
+    gridSweeps.push({
       deformer: d,
       target: { kind: "deformer", id: d.id },
       restAreas: cornerAreas(points, cols, rows),
@@ -240,43 +390,47 @@ export function checkFolds(
       tiny: 1e-9 * width * height,
     });
   }
+  const partSweeps = model.parts.flatMap((part) =>
+    part.mesh ? [partSweep(part, part.mesh, deformers, worlds, restStore)] : [],
+  );
 
   for (const pose of poses) {
     const store = new ParameterStore(model.parameters);
     for (const [id, v] of Object.entries(pose.values)) store.set(id, v);
     const value = (id: string) => store.get(id);
-    for (const sweep of sweeps) {
+    const expected = (target: FoldTarget["target"]) =>
+      options.expected?.(target, pose, value) === true;
+    for (const sweep of gridSweeps) {
       const { cols, rows } = sweep.deformer.grid;
       const areas = cornerAreas(
         deformWarpGrid(sweep.deformer, store),
         cols,
         rows,
       );
-      const slot =
-        options.expected?.(sweep.target, pose, value) === true
-          ? "expected"
-          : "worst";
-      for (let i = 0; i < areas.length; i++) {
-        const rest = sweep.restAreas[i];
-        if (Math.abs(rest) < sweep.tiny) continue;
-        const ratio = areas[i] / rest;
-        if (ratio < (sweep[slot]?.ratio ?? Infinity)) {
-          sweep[slot] = { ratio, cell: Math.floor(i / 4), pose };
-        }
-      }
+      keepLeast(sweep, areas, pose, expected);
+    }
+    const resolved = resolveDeformers(deformers, store);
+    for (const sweep of partSweeps) {
+      const areas = triangleAreas(
+        landPart(sweep, store, resolved),
+        sweep.indices,
+      );
+      keepLeast(sweep, areas, pose, expected);
     }
   }
 
-  const targets = sweeps.map((sweep): FoldTarget => {
-    const parent =
-      sweep.deformer.parent === undefined
-        ? undefined
-        : worlds.get(sweep.deformer.parent);
-    const worst = sweep.worst && cellHit(sweep.deformer, sweep.worst, parent);
-    const expected =
-      sweep.expected && cellHit(sweep.deformer, sweep.expected, parent);
-    return { target: sweep.target, kind: classify(worst), worst, expected };
-  });
+  const targets = [
+    ...gridSweeps.map((sweep) => {
+      const { parent } = sweep.deformer;
+      const world = parent === undefined ? undefined : worlds.get(parent);
+      return foldTarget(sweep, (least) =>
+        cellHit(sweep.deformer, least, world),
+      );
+    }),
+    ...partSweeps.map((sweep) =>
+      foldTarget(sweep, (least) => triangleHit(sweep, least)),
+    ),
+  ];
   const offenders = targets
     .filter((t) => t.kind !== "ok")
     .sort((a, b) => a.worst!.ratio - b.worst!.ratio);
@@ -288,6 +442,13 @@ export function checkFolds(
   };
 }
 
+/** A sweep's two minima, each located by `hit`, and the kind they make. */
+function foldTarget(sweep: Sweep, hit: (least: Least) => FoldHit): FoldTarget {
+  const worst = sweep.worst && hit(sweep.worst);
+  const expected = sweep.expected && hit(sweep.expected);
+  return { target: sweep.target, kind: classify(worst), worst, expected };
+}
+
 /** `least` located: its cell and that cell's rest centre through `parent`. */
 function cellHit(
   d: IkiWarpDeformer,
@@ -295,8 +456,9 @@ function cellHit(
   parent: Affine | undefined,
 ): FoldHit {
   const { cols, points } = d.grid;
-  const col = least.cell % cols;
-  const row = Math.floor(least.cell / cols);
+  const cell = Math.floor(least.at / 4);
+  const col = cell % cols;
+  const row = Math.floor(cell / cols);
   const stride = cols + 1;
   let x = 0;
   let y = 0;
@@ -316,6 +478,24 @@ function cellHit(
       }
     : { x, y };
   return { ratio: least.ratio, where: { col, row }, pose: least.pose, rest };
+}
+
+/** `least` located: its triangle and that triangle's centroid on the static chain. */
+function triangleHit(sweep: PartSweep, least: Least): FoldHit {
+  const { indices, restPoints } = sweep;
+  let x = 0;
+  let y = 0;
+  for (let k = 0; k < 3; k++) {
+    const i = indices[least.at * 3 + k];
+    x += restPoints[i * 2] / 3;
+    y += restPoints[i * 2 + 1] / 3;
+  }
+  return {
+    ratio: least.ratio,
+    where: { triangle: least.at },
+    pose: least.pose,
+    rest: { x, y },
+  };
 }
 
 function classify(worst: FoldHit | undefined): FoldTarget["kind"] {

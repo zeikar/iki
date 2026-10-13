@@ -42,15 +42,24 @@ export function deformWarpGrid(
 }
 
 /**
- * `affine` applied to every [x, y] of a flat grid, into a NEW array — the
- * input (a warp's local grid, which a matrix child's rigid frame still
- * reads) is left as is.
+ * `affine` applied to every [x, y] of a flat point list, into `out` — a NEW
+ * array unless one is given — so the input (a warp's local grid, which a
+ * matrix child's rigid frame still reads) is left as is.
  */
 export function transformGridPoints(
-  points: Float32Array,
+  points: ArrayLike<number>,
   affine: Affine,
-): Float32Array {
-  const out = new Float32Array(points.length);
+): Float32Array;
+export function transformGridPoints<T extends Float32Array | Float64Array>(
+  points: ArrayLike<number>,
+  affine: Affine,
+  out: T,
+): T;
+export function transformGridPoints(
+  points: ArrayLike<number>,
+  affine: Affine,
+  out: Float32Array | Float64Array = new Float32Array(points.length),
+): Float32Array | Float64Array {
   for (let i = 0; i < points.length; i += 2) {
     const x = points[i];
     const y = points[i + 1];

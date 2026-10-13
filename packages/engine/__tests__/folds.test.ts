@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import type {
   IkiDeformer,
   IkiGridKeyform,
+  IkiMatrixDeformer,
   IkiModel,
   IkiParameter,
+  IkiPart,
   IkiWarpGrid,
 } from "@ikijs/format";
 import {
@@ -69,16 +71,42 @@ const MOUTH: IkiParameter = {
 function model(
   parameters: IkiParameter[],
   deformers: IkiDeformer[] = [],
+  parts: IkiPart[] = [],
 ): IkiModel {
   return {
     version: 1,
     name: "t",
     canvas: { width: 100, height: 100 },
     parameters,
-    parts: [],
+    parts,
     deformers,
   };
 }
+
+/**
+ * A 1×1 mesh part at the origin unless `more` moves it, so its part-local
+ * `vertices` are offsets from its model position.
+ */
+function meshPart(
+  id: string,
+  vertices: number[],
+  indices: number[],
+  more: Partial<IkiPart> = {},
+): IkiPart {
+  return {
+    id,
+    color: [1, 1, 1, 1],
+    width: 1,
+    height: 1,
+    transform: { x: 0, y: 0 },
+    order: 0,
+    mesh: { vertices, uvs: vertices.map(() => 0), indices },
+    ...more,
+  };
+}
+
+/** One counter-clockwise right triangle: corner (-0.5, -0.5), legs of 1. */
+const TRIANGLE = [-0.5, -0.5, 0.5, -0.5, -0.5, 0.5];
 
 /** One warp deformer "w" on the rest grid with one 1D warp on ParamAngleX. */
 function angleXWarp(keyforms: IkiGridKeyform[]): IkiModel {
@@ -419,6 +447,332 @@ describe("checkFolds — warp grid cells", () => {
 
     expect(report.poses).toBe(1);
     expect(report.targets[0].kind).toBe("ok");
+  });
+});
+
+// --- checkFolds over part meshes ---------------------------------------------
+
+describe("checkFolds — part mesh triangles", () => {
+  /** One ParamAngleX warp on a three-vertex mesh: rest at 0, `offsets` at 30. */
+  function angleXMeshWarp(offsets: number[]): IkiPart["warps"] {
+    return [
+      {
+        parameter: "ParamAngleX",
+        keyforms: [
+          { value: 0, offsets: [0, 0, 0, 0, 0, 0] },
+          { value: 30, offsets },
+        ],
+      },
+    ];
+  }
+
+  const quad: IkiPart = {
+    id: "quad",
+    color: [1, 1, 1, 1],
+    width: 1,
+    height: 1,
+    transform: { x: 0, y: 0 },
+    order: 0,
+  };
+
+  it("(a) a keyform mirroring a vertex across its opposite edge is a flip at that extreme; a quad is no target", () => {
+    const m = model(
+      [ANGLE_X],
+      [],
+      [
+        quad,
+        // At 30 the top vertex lands mirrored below the bottom edge y = -0.5.
+        meshPart("p", TRIANGLE, [0, 1, 2], {
+          warps: angleXMeshWarp([0, 0, 0, 0, 0, -2]),
+        }),
+      ],
+    );
+    const report = checkFolds(m);
+
+    expect(report.targets).toHaveLength(1);
+    const [target] = report.targets;
+    expect(target.target).toEqual({ kind: "part", id: "p" });
+    expect(target.kind).toBe("flip");
+    expect(target.worst!.ratio).toBeCloseTo(-1, 6);
+    expect(target.worst!.where).toEqual({ triangle: 0 });
+    expect(target.worst!.pose.name).toBe("ParamAngleX=30");
+    expect(target.worst!.rest.x).toBeCloseTo(-1 / 6, 9);
+    expect(target.worst!.rest.y).toBeCloseTo(-1 / 6, 9);
+    expect(report.offenders).toEqual([target]);
+  });
+
+  it("(b) a warp child's own keyform squashing its triangle to 5 % is a collapse at triangle 0", () => {
+    const m = model(
+      [ANGLE_X],
+      [{ kind: "warp", id: "w", grid: makeRestGrid() }],
+      [
+        meshPart("p", TRIANGLE, [0, 1, 2], {
+          deformer: "w",
+          warps: angleXMeshWarp([0, 0, 0, 0, 0, -0.95]),
+        }),
+      ],
+    );
+    const report = checkFolds(m);
+
+    // Parts follow the deformers.
+    expect(report.targets.map((t) => t.target)).toEqual([
+      { kind: "deformer", id: "w" },
+      { kind: "part", id: "p" },
+    ]);
+    const target = report.targets[1];
+    expect(target.kind).toBe("collapse");
+    expect(target.worst!.ratio).toBeCloseTo(0.05, 6);
+    expect(target.worst!.where).toEqual({ triangle: 0 });
+    expect(target.worst!.pose.name).toBe("ParamAngleX=30");
+    expect(report.offenders).toEqual([target]);
+  });
+
+  it("a warp child folds with its grid: the warp's own keyform flips the triangle it carries", () => {
+    // At 30 the centre point lands at (-1.5, 0), past its left neighbour
+    // (-1, 0), dragging cell (0, 0)'s bottom-right corner, which the triangle
+    // (-0.9, 0.1), (-0.1, 0.1), (-0.1, 0.9) hugs, over its other two.
+    const m = model(
+      [ANGLE_X],
+      [
+        {
+          kind: "warp",
+          id: "w",
+          grid: makeRestGrid(),
+          warps: [
+            {
+              parameter: "ParamAngleX",
+              keyforms: [
+                { value: 0, offsets: ZEROS },
+                { value: 30, offsets: move(CENTER, -1.5, 0) },
+              ],
+            },
+          ],
+        },
+      ],
+      [
+        meshPart("p", [-0.4, -0.4, 0.4, -0.4, 0.4, 0.4], [0, 1, 2], {
+          deformer: "w",
+          transform: { x: -0.5, y: 0.5 },
+        }),
+      ],
+    );
+    const target = checkFolds(m).targets[1];
+
+    expect(target.target).toEqual({ kind: "part", id: "p" });
+    expect(target.kind).toBe("flip");
+    // Doubled area 0.64 at rest, -0.224 once bilinear-sampled at 30.
+    expect(target.worst!.ratio).toBeCloseTo(-0.35, 5);
+    expect(target.worst!.where).toEqual({ triangle: 0 });
+    expect(target.worst!.pose.name).toBe("ParamAngleX=30");
+  });
+
+  describe("under a matrix deformer", () => {
+    /** The triangle hung from matrix deformer "head", pivoted off the origin. */
+    function underHead(
+      head: Pick<IkiMatrixDeformer, "transform" | "bindings">,
+    ): IkiModel {
+      return model(
+        [ANGLE_X],
+        [{ id: "head", pivot: { x: 0.25, y: 0.5 }, ...head }],
+        [meshPart("p", TRIANGLE, [0, 1, 2], { deformer: "head" })],
+      );
+    }
+
+    it("(c) a static scale is in both baselines: ok, ratio 1, rest scaled by it", () => {
+      const report = checkFolds(
+        underHead({ transform: { x: 0, y: 0, scaleX: 0.05 } }),
+      );
+
+      expect(report.targets).toHaveLength(1);
+      const [target] = report.targets;
+      expect(target.kind).toBe("ok");
+      expect(target.worst!.ratio).toBeCloseTo(1, 6);
+      expect(target.worst!.rest.x).toBeCloseTo(
+        0.25 + 0.05 * (-1 / 6 - 0.25),
+        9,
+      );
+      expect(target.worst!.rest.y).toBeCloseTo(-1 / 6, 9);
+    });
+
+    it("(d) a static reflection is in both baselines: ok, ratio 1", () => {
+      const [target] = checkFolds(
+        underHead({ transform: { x: 0, y: 0, scaleX: -1 } }),
+      ).targets;
+
+      expect(target.kind).toBe("ok");
+      expect(target.worst!.ratio).toBeCloseTo(1, 6);
+    });
+
+    it("(e) a bound scale counts: from 0 to -0.5 adds onto 1, ratio 0.5 at the max", () => {
+      const [target] = checkFolds(
+        underHead({
+          bindings: [
+            {
+              parameter: "ParamAngleX",
+              channel: "scaleX",
+              from: 0,
+              to: -0.5,
+            },
+          ],
+        }),
+      ).targets;
+
+      expect(target.kind).toBe("ok");
+      expect(target.worst!.ratio).toBeCloseTo(0.5, 6);
+      expect(target.worst!.pose.name).toBe("ParamAngleX=30");
+    });
+  });
+
+  it("a part's own bound scale counts too: scaleY down to 0.05 is a collapse", () => {
+    const m = model(
+      [ANGLE_X],
+      [],
+      [
+        meshPart("p", TRIANGLE, [0, 1, 2], {
+          bindings: [
+            {
+              parameter: "ParamAngleX",
+              channel: "scaleY",
+              from: 0,
+              to: -0.95,
+            },
+          ],
+        }),
+      ],
+    );
+    const [target] = checkFolds(m).targets;
+
+    expect(target.kind).toBe("collapse");
+    expect(target.worst!.ratio).toBeCloseTo(0.05, 6);
+    expect(target.worst!.pose.name).toBe("ParamAngleX=30");
+  });
+
+  it("(f) a triangle degenerate at rest is not reported, whatever its pose", () => {
+    // Triangle 0 runs (-0.5, -0.5), (0, -0.5), (0.5, -0.5): a line, which the
+    // keyform opens clockwise at 30. Triangle 1 is TRIANGLE, left alone.
+    const m = model(
+      [ANGLE_X],
+      [],
+      [
+        meshPart("p", [...TRIANGLE, 0, -0.5], [0, 3, 1, 0, 1, 2], {
+          warps: [
+            {
+              parameter: "ParamAngleX",
+              keyforms: [
+                { value: 0, offsets: new Array<number>(8).fill(0) },
+                { value: 30, offsets: [0, 0, 0, 0, 0, 0, 0, 0.5] },
+              ],
+            },
+          ],
+        }),
+      ],
+    );
+    const report = checkFolds(m);
+    const [target] = report.targets;
+
+    expect(target.kind).toBe("ok");
+    expect(target.worst!.where).toEqual({ triangle: 1 });
+    expect(target.worst!.ratio).toBeCloseTo(1, 6);
+    expect(report.offenders).toEqual([]);
+  });
+
+  describe("(g) a warp child inside a clean, undeformed grid", () => {
+    it("is ok with ratio 1 at rest", () => {
+      const report = checkFolds(
+        model(
+          [],
+          [{ kind: "warp", id: "w", grid: makeRestGrid() }],
+          [meshPart("p", TRIANGLE, [0, 1, 2], { deformer: "w" })],
+        ),
+      );
+      const target = report.targets[1];
+
+      expect(target.target).toEqual({ kind: "part", id: "p" });
+      expect(target.kind).toBe("ok");
+      expect(target.worst!.ratio).toBeCloseTo(1, 6);
+      expect(target.worst!.pose.name).toBe("rest");
+    });
+
+    it("stays ratio 1 under a scaled parent: the warp's parent world is in the baseline", () => {
+      const report = checkFolds(
+        model(
+          [],
+          [
+            {
+              id: "head",
+              pivot: { x: 0, y: 0 },
+              transform: { x: 0, y: 0, scaleX: 0.5 },
+            },
+            { kind: "warp", id: "w", parent: "head", grid: makeRestGrid() },
+          ],
+          [meshPart("p", TRIANGLE, [0, 1, 2], { deformer: "w" })],
+        ),
+      );
+      const target = report.targets[1];
+
+      expect(target.kind).toBe("ok");
+      expect(target.worst!.ratio).toBeCloseTo(1, 6);
+      expect(target.worst!.rest.x).toBeCloseTo(-1 / 12, 9);
+      expect(target.worst!.rest.y).toBeCloseTo(-1 / 6, 9);
+    });
+  });
+
+  it("(h) a vertex pinned to the rest grid's edge folds already at rest: flat beyond it, thinner across it", () => {
+    const m = model(
+      [],
+      [{ kind: "warp", id: "w", grid: makeRestGrid() }],
+      [
+        // (1.25, 0), (1.75, 0), (1.25, 0.25): wholly right of the edge x = 1.
+        meshPart("beyond", [-0.25, 0, 0.25, 0, -0.25, 0.25], [0, 1, 2], {
+          deformer: "w",
+          transform: { x: 1.5, y: 0 },
+        }),
+        // (0.5, 0), (1.5, 0), (0.5, 0.5): only (1.5, 0) lies past the edge.
+        meshPart("straddles", [-0.5, 0, 0.5, 0, -0.5, 0.5], [0, 1, 2], {
+          deformer: "w",
+          transform: { x: 1, y: 0 },
+        }),
+      ],
+    );
+    const report = checkFolds(m);
+    const [, beyond, straddles] = report.targets;
+
+    expect(beyond.target).toEqual({ kind: "part", id: "beyond" });
+    expect(beyond.kind).toBe("flip");
+    expect(beyond.worst!.ratio).toBeCloseTo(0, 9);
+    expect(beyond.worst!.pose.name).toBe("rest");
+    // The baseline is not pinned: its centroid stays past the edge.
+    expect(beyond.worst!.rest.x).toBeCloseTo(4.25 / 3, 9);
+
+    expect(straddles.target).toEqual({ kind: "part", id: "straddles" });
+    expect(straddles.worst!.ratio).toBeLessThan(1);
+    expect(straddles.worst!.ratio).toBeCloseTo(0.5, 6);
+    expect(straddles.kind).toBe("ok");
+    expect(report.offenders).toEqual([beyond]);
+  });
+
+  it("the expected predicate sees the part as its target", () => {
+    const m = model(
+      [ANGLE_X],
+      [],
+      [
+        meshPart("p", TRIANGLE, [0, 1, 2], {
+          warps: angleXMeshWarp([0, 0, 0, 0, 0, -2]),
+        }),
+      ],
+    );
+    const report = checkFolds(m, {
+      expected: (target, _pose, value) =>
+        target.kind === "part" &&
+        target.id === "p" &&
+        value("ParamAngleX") === 30,
+    });
+    const [target] = report.targets;
+
+    expect(target.kind).toBe("ok");
+    expect(target.expected!.ratio).toBeCloseTo(-1, 6);
+    expect(target.expected!.pose.name).toBe("ParamAngleX=30");
+    expect(target.worst!.ratio).toBeCloseTo(1, 6);
   });
 });
 

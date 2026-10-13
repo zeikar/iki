@@ -61,6 +61,8 @@ values, `setView` throws on a non-finite centre or a non-positive size.
 | `IdleMotion`                                     | Auto-blink / breath / gaze-drift driver                                                                             |
 | `PhysicsMotion`                                  | Spring-mass-damper secondary motion (`model.physics`)                                                               |
 | `HairChainMotion`                                | Multi-segment angular chain with gravity (`model.physicsChains`)                                                    |
+| `checkFolds`                                     | A report-only `FoldReport`: per warp grid and mesh part, flip / collapse / ok and its least area ratio and pose     |
+| `foldPoses`                                      | The `FoldPose[]` `checkFolds` checks by default: rest, every parameter's extremes, angle corners × eyes/mouth/arms  |
 | `translate` `rotate` `scale` `multiply` `toMat3` | The 2D affine helpers the engine itself uses                                                                        |
 
 ## Motion drivers
