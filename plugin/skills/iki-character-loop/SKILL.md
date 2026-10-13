@@ -1,6 +1,6 @@
 ---
 name: iki-character-loop
-description: Drive a generator/critic loop that refines a rigged Iki character (`.iki`) until it matches a reference illustration. Draws a reference with the iki-create-image skill, then alternates the iki-character-artist agent (draws, composes, tunes, rigs) with the iki-character-critic agent (scores a rubric, emits typed findings) until the critic says ship and the user has nothing to add, or a cap is hit. Use when a generated character is renderable but not good-looking enough, or when the user asks to iterate a character toward a target look.
+description: Drive a generator/critic loop that refines a rigged Iki character (`.iki`) until it matches a reference illustration. Draws a reference with the iki-create-image skill, then alternates the iki-character-artist agent (draws, composes, tunes, rigs) with the iki-character-critic agent (scores a rubric, emits typed findings) until the critic says ship and the user has nothing to add, or a cap is hit. The iki-character-appeal-critic judges the renders for appeal without the reference each round. Use when a generated character is renderable but not good-looking enough, or when the user asks to iterate a character toward a target look.
 ---
 
 # Iki Character Loop (generator ↔ critic)
@@ -13,29 +13,37 @@ fixed target to aim at, and someone to say how far off it is.
 references (iki-create-image, once)
       │
       ▼
-  ┌─► artist ──► rigged .iki ──► orchestrator renders ──► critic ──┐
-  │                                                                │
-  └──────────────── typed findings ◄───────────────────────────────┘
+  ┌─► artist ──► rigged .iki ──► orchestrator renders ──┬─► critic ────────┐
+  │                                                     └─► appeal critic ─┤
+  │                                                                        │
+  └───────────────────── typed findings ◄──────────────────────────────────┘
 ```
 
-**You are the orchestrator.** You spawn both agents, carry artifacts between
+**You are the orchestrator.** You spawn the three agents, carry artifacts between
 them, render each round, arbitrate escalations, and enforce the caps.
-Neither agent talks to the other directly.
+No agent talks to another directly.
 
 ## Host dispatch
 
 - **Claude Code:** dispatch the bundled agents as `iki:iki-character-artist`
-  and `iki:iki-character-critic`.
+  and `iki:iki-character-critic`, and `iki:iki-character-appeal-critic` fresh
+  each round with only its inputs in the prompt.
 - **Codex:** the Markdown files in `agents/` are role instructions, not
   registered agent types. Resolve the plugin root two directories above this
   skill's directory. Spawn a standard subagent for each role and tell it to
   read the body of [the artist](../../agents/iki-character-artist.md) or
-  [the critic](../../agents/iki-character-critic.md), passing the absolute
-  plugin root and the round's inputs. Their YAML `tools`, `model` and `color`
-  fields are Claude metadata; use Codex's available tools and inherited model.
-  Resume the same subagent for later work. If subagents are unavailable,
+  [the critic](../../agents/iki-character-critic.md) or
+  [the appeal critic](../../agents/iki-character-appeal-critic.md), passing the
+  absolute plugin root and the round's inputs. Their YAML `tools`, `model` and
+  `color` fields are Claude metadata; use Codex's available tools and inherited
+  model. Resume the same artist or critic subagent for later work. Spawn the
+  appeal critic without the parent's history (`fork_turns: "none"`) and never
+  resume it: a forked subagent inherits this conversation, references and the critic's judgments
+  included, which would end its blindness. If subagents are unavailable,
   perform the artist and critic steps sequentially with the same ownership
-  rules, rubric and caps.
+  rules, rubric and caps, and the appeal checklist after the critic's step; it
+  is not reference-blind (you have seen the reference), so say so in item
+  4's message to the user rather than claim it.
 
 MCP tool prefixes vary by host: resolve the bundled `iki` server's tools by
 their tool names. The render step needs no browser automation in either host.
@@ -172,7 +180,7 @@ changing any of them mid-loop or on a restart invalidates every prior score.
 1. Dispatch **the artist** (see Host dispatch) with `reference` (the front view
    only — `gen-images.sh --ref` attaches it to every job), `workdir`, `round`,
    `style` (the contents of `<workdir>/style.json`, which its rig step passes
-   to `auto_rig_from_layers` when it is not empty), and the critic's findings
+   to `auto_rig_from_layers` when it is not empty), and both critics' findings
    (none on round 1). A full body
    also passes `reference-full` (`<workdir>/reference-full.png`, which its
    `body.png` and `arm.png` jobs attach instead), `reference-wave`
@@ -235,20 +243,64 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    contents of `<workdir>/figure.json`) and `body-renders` (the whole-canvas `full-*.png` poses) and, with a pose forearm,
    `reference-wave`; its `renders` and
    `turn-pair` are the bust crops.
-4. Ask the user, every round whatever the verdict, as soon as the critic
-   returns, before its verdict is acted on and before Step 2: list the
+
+   In parallel (neither needs the other), dispatch **the appeal critic** with
+   `renders` (`<workdir>/renders/rest.png`, `turn-p30.png`,
+   `mouth-open-0-form-0.png`, `mouth-open-0.6-form-0.png`; a full body also
+   `full-rest.png`), `layout` (the contents of `<workdir>/layout.json`) and
+   `round` — and nothing else in its prompt: no reference, no `layers`, no
+   `preview.png`, nothing of the critic's report.
+
+   When both reports are back, type any `refer` on the closed mouth by the
+   model's mouth route, read off this round's `<workdir>/layers/` file names
+   (`mouth_inner.png` / `lip_*.png` is the lip set; `mouth.png` with
+   `mouth_open.png` is the legacy pair).
+   Legacy pair: the closed mouth is `mouth.png` as drawn, the rig bends
+   nothing, so a V or over-lifted corners is the drawing: a `regenerate` of
+   `mouth.png` with a gentle closed curve, never a rig escalation. Lip set: the
+   artist rigged it on the pinned server, so its closed line is already the
+   current rig's closing of the drawn arc (a smooth parabola, sag capped at
+   `CLOSED_SAG_MAX`, a drawn kink closed away); a model left by a restart from
+   an older rig is re-rigged by the artist first, since its V may be one the
+   rig no longer draws. Then route by the critic's own closed-line check of the
+   same round: if it names a `regenerate` of `mouth_keyed.png` or an `escalate`
+   on `packages/editor/src/auto-rig/mouth.ts`, the `refer` rides on that
+   finding (the appeal critic's direction wins on the mouth's expression, item 5's
+   rule; a rider on the critic's `regenerate` needs no OK, as the critic's own
+   needs none); if it names nothing, read the closed crop against the critic's
+   rules. A line inside them (sag within the cap, ends tapered, no tick) that
+   still reads V or over-lifted is the drawn arc's depth: a `regenerate` of
+   `mouth_keyed.png` drawn shallower at the centre with the upper line flatter.
+   A line outside them (a surviving kink, a sag past the cap) is the rig: an
+   `escalate` on `mouth.ts`. Never type a lip set
+   by whether the closed line matches the drawing; the rig smooths it on
+   purpose.
+
+4. Ask the user, every round whatever the verdict, once both critics
+   have returned and the `refer` is typed, before the critic's verdict is acted on and before Step 2: list the
    absolute paths of `<workdir>/renders/rest.png`, `turn-p30.png` and
    `mouth-open-0-form-0.png` (a full body also `full-rest.png`) for the user
    to open — sent as files too where the host offers a tool for it — with the
-   critic's `SCORES:` and `VERDICT:` lines, and ask for a one-line reaction
-   ("fine" if none). A reaction that names a change becomes a finding of the
-   type it implies — a `retune` naming the layout key, or a `regenerate` of
+   critic's `SCORES:` and `VERDICT:` lines and the appeal critic's `APPEAL:`
+   line, and ask for a one-line reaction ("fine" if none). When the appeal
+   critic named a `regenerate`, or its `refer` was typed as one above, the same
+   question names the part and the billed job once; that finding goes to the
+   artist only on the user's OK, and a declined one is dropped (the user's word
+   stands for Step 2's stop rule). The appeal critic's `retune`s are free and
+   need no OK. A reaction that names a change becomes a finding of the type it
+   implies — a `retune` naming the layout key, or a `regenerate` of
    the part — marked as the user's. The user's eye overrides a ratio that
    passes and a `ship` or `stop` verdict: the loop runs another round, within
    Step 2's caps. "fine" adds nothing.
 5. Route: `regenerate` and `retune` go back to the artist — a `retune` names a
    `layout.json` key, a `mirror-parts.json` entry or a `style.json` knob, or on
-   a full body `canvas.json`'s `canvasHeight`.
+   a full body `canvas.json`'s `canvasHeight`. The appeal critic's `retune`s go
+   with them, marked as its own, and so does a `regenerate` item 4 approved; a
+   `refer` typed as an `escalate` is handled as the critic's are. The reference
+   keeps identity (hair, outfit, palette, the style the features are drawn in),
+   so the critic wins there where the two disagree; on proportions,
+   placement and expression within that look the appeal critic wins; the
+   user's reaction (item 4) overrides both.
    Handle `escalate` yourself — decide whether the package change is
    warranted, and if it is, make it as normal code work with a test and a
    changeset. A render-vs-report `escalate` (the critic's Δ beyond ±0.05)
@@ -282,12 +334,14 @@ changing any of them mid-loop or on a restart invalidates every prior score.
 
 Stop on the first of:
 
-- critic returns `ship` or `stop` and the user's reaction (Step 1, item 4)
-  named nothing to act on
+- critic returns `ship` or `stop`, the appeal critic's line ends in `stop` (or
+  the user said in item 4 to leave what it still names), and the user's
+  reaction (Step 1, item 4) named nothing to act on
 - **3 rounds that spent generation** (the billed cap)
 - two consecutive rounds in which **no axis reached a new maximum** — keep a
   high-water mark per axis, because an unweighted total nets a real `rig` 3→4
-  against a `palette` 4→3 drift and reads as no progress
+  against a `palette` 4→3 drift and reads as no progress; each of the nine
+  `APPEAL:` scores is its own axis too, never their total
 
 A round run on the user's finding counts like any other: toward the billed cap
 when it spends generation, and a new maximum on any axis resets the

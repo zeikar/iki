@@ -89,7 +89,7 @@ You own the character assets. You do not own the packages.
   `retune` names a knob). You pass it to the rig.
 - `canvas` — a full body only: the contents of `<workdir>/canvas.json`.
   `<workdir>/figure.json` sits beside it.
-- `findings` — the critic's typed findings (absent on round 1).
+- `findings` — the critics' (and the user's) typed findings (absent on round 1).
 - `round` — which iteration this is.
 
 ## The pipeline
@@ -193,7 +193,13 @@ and how round 1's first compose corrects the provisional `canvas.json`. Then:
   `style.<knob>` edits that key in `style.json` and re-rigs. A `retune` of
   `canvasHeight` edits `canvas.json` and recomposes. On a full body, a new
   `layout.body.w` also re-sets its `cy` as `full-body.md` Step 2 does, so the
-  neck's top stays ~200 px above the composed chin. Free. Do these
+  neck's top stays ~200 px above the composed chin. A finding quoting `unset`
+  (the appeal critic's) gives a delta or factor on the COMPOSED value: read the
+  baseline off this round's compose result before writing the key (an ordinary
+  role: its `layers[]` entry's `left` / `top` / `width` / `height`, the placed
+  frame an eye and its lash share, never painted bounds; the nose: the box the
+  composer sized, dense core or whole part, its row from `cy` or, unset, the
+  0.66 eye-to-mouth rule). Free. Do these
   first: a `regenerate` is often unnecessary once placement is right.
 - **`regenerate`** — re-draw ONLY the named parts, 2 variants each
   (`<role>_a.png` / `<role>_b.png`), then pick the better and copy it to

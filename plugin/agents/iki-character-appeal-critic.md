@@ -48,12 +48,8 @@ An absent key means the composer derived it: a height from the part's own
 aspect, the nose's row from the eye and mouth rows, the feature defaults as
 proportions of the face. `layout.json` alone cannot give its number, so the
 finding quotes `unset` and gives a delta in canvas px or a factor. The artist
-resolves the baseline before applying it; you do not open the composer's source
-or its result. For the artist's reference: an ordinary role's baseline is the
-placed frame in the compose result's `layers[]` (which an eye and its lash
-share), never a layer's painted bounds; the nose's is the box the composer sized
-(the dense core, or the whole part when it has no core or only a speck), with
-its row set by `cy`, or unset 0.66 of the way from the eye row to the mouth's.
+resolves an `unset` baseline from the compose result; you do not open the
+composer's source or its result.
 
 ## Checklist
 
