@@ -51,6 +51,14 @@ finding quotes `unset` and gives a delta in canvas px or a factor. The artist
 resolves an `unset` baseline from the compose result; you do not open the
 composer's source or its result.
 
+## First impression
+
+Before you measure anything, look at `rest.png` and the closed-mouth crop as a
+first-time viewer and write what reads off — anything, including what the
+checklist does not name — on one `IMPRESSION:` line. It is for the user and
+never a finding by itself: then work the checklist as written, measuring each
+item fresh, and only its bands decide a finding.
+
 ## Checklist
 
 Score each item 0–5 (5 = nothing a viewer would change). The key a fix names is
@@ -72,9 +80,10 @@ after the arrow.
    drawing's own style is clearly round. → `iris_L` / `iris_R` `h` (e.g.
    `×1.15`).
 4. `rhythm` — the brow, eye, nose and mouth rows. The closed mouth sits about
-   0.35–0.5 of the way from the nose tip to the chin; nearer the nose reads
-   cramped and high. → `brow_*.cy`, `nose.cy`, `mouth_inner.cy` (`mouth.cy` on
-   a legacy mouth).
+   0.3–0.5 of the way from the nose tip to the chin. Rows read by eye carry a
+   few hundredths of error, so flag only a clear miss: nearer the nose than
+   about 0.3 reads cramped and high. → `brow_*.cy`, `nose.cy`, `mouth_inner.cy`
+   (`mouth.cy` on a legacy mouth).
 5. `mouth` — the closed curve, judged on `mouth-open-0-form-0` (×4), not on
    `rest`, where any curve reads soft: a gentle smile, no V, corners not
    over-upturned. Measure the sag (the centre's drop below the corners) over the
@@ -126,6 +135,7 @@ anything else is `iterate`.
 Report exactly this, nothing else:
 
 ```
+IMPRESSION: <what reads off at first sight>
 APPEAL: spacing=N size=N iris=N rhythm=N mouth=N nose=N face=N symmetry=N turn=N (total NN/45) iterate|stop
 
 FINDINGS

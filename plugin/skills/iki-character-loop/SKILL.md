@@ -280,8 +280,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    absolute paths of `<workdir>/renders/rest.png`, `turn-p30.png` and
    `mouth-open-0-form-0.png` (a full body also `full-rest.png`) for the user
    to open — sent as files too where the host offers a tool for it — with the
-   critic's `SCORES:` and `VERDICT:` lines and the appeal critic's `APPEAL:`
-   line, and ask for a one-line reaction ("fine" if none). When the appeal
+   critic's `SCORES:` and `VERDICT:` lines and the appeal critic's `IMPRESSION:`
+   and `APPEAL:` lines, and ask for a one-line reaction ("fine" if none). When the appeal
    critic named a `regenerate`, or its `refer` was typed as one above, the same
    question names the part and the billed job once (a `refer` riding on the
    critic's `regenerate` is one combined job); that finding goes to the
