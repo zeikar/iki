@@ -18,14 +18,15 @@ blush), each with a description a host picks by.
 
 ## What's in it
 
-| Component                          | What it does                                                                                                                                                                                               |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`iki-character`** (skill)        | One pass: generate role-separated part PNGs → compose to canvas layers → auto-rig to a renderable `.iki`                                                                                                   |
-| **`iki-character-loop`** (skill)   | Generator/critic loop that refines a character against a reference until it is worth shipping                                                                                                              |
-| **`iki-create-image`** (skill)     | Draws the reference and the parts through the Codex CLI's image tool, or hands you the prompts when Codex is not set up; the other two skills call it                                                      |
-| **`iki-character-artist`** (agent) | Draws, composes, tunes `layout.json`, re-rigs — the loop's generator half                                                                                                                                  |
-| **`iki-character-critic`** (agent) | Scores a rubric and emits typed findings — the loop's discriminator half                                                                                                                                   |
-| **`iki` MCP server**               | [`@ikijs/mcp`](https://www.npmjs.com/package/@ikijs/mcp) over `npx`: read/validate `.iki`, `compose_layers_from_parts`, `measure_layers`, `auto_rig_from_layers`, `measure_turn_reference`, `render_poses` |
+| Component                                 | What it does                                                                                                                                                                                               |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`iki-character`** (skill)               | One pass: generate role-separated part PNGs → compose to canvas layers → auto-rig to a renderable `.iki`                                                                                                   |
+| **`iki-character-loop`** (skill)          | Generator/critic loop that refines a character against a reference until it is worth shipping                                                                                                              |
+| **`iki-create-image`** (skill)            | Draws the reference and the parts through the Codex CLI's image tool, or hands you the prompts when Codex is not set up; the other two skills call it                                                      |
+| **`iki-character-artist`** (agent)        | Draws, composes, tunes `layout.json`, re-rigs — the loop's generator half                                                                                                                                  |
+| **`iki-character-critic`** (agent)        | Scores a rubric and emits typed findings — the loop's discriminator half                                                                                                                                   |
+| **`iki-character-appeal-critic`** (agent) | Judges the renders for appeal without the reference and names free layout retunes, beside the critic every round                                                                                           |
+| **`iki` MCP server**                      | [`@ikijs/mcp`](https://www.npmjs.com/package/@ikijs/mcp) over `npx`: read/validate `.iki`, `compose_layers_from_parts`, `measure_layers`, `auto_rig_from_layers`, `measure_turn_reference`, `render_poses` |
 
 The skills carry the hard-won part: the prompt patterns that get _clean
 role-separated_ art out of an image model (an eyeless face base, an iris-free
@@ -64,7 +65,7 @@ codex plugin marketplace add .
 codex plugin add iki@iki
 ```
 
-Both hosts share `skills/` and `.mcp.json`. Claude Code registers the two
+Both hosts share `skills/` and `.mcp.json`. Claude Code registers the three
 agent files directly; the loop skill tells Codex to pass those same role
 instructions to standard subagents, or run the roles sequentially when
 subagents are unavailable. The loop's renders need no browser automation in either host.
