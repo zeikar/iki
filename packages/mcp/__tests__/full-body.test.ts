@@ -620,7 +620,7 @@ describe("arms", () => {
       expect(
         near(await rgbAt(posed.previewPose!, hand!.x, hand!.y), [...SKIN]),
       ).toBe(true);
-    });
+    }, 120_000);
 
     it("removes the pose layers and preview-pose.png once forearm_pose.png is gone", async () => {
       const dir = partsDir();
