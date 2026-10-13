@@ -264,6 +264,28 @@ describe("checkModelFolds", () => {
     ]);
   });
 
+  it("counts no closure for a part whose shutting parameter the model does not declare", () => {
+    const m = model(
+      [ANGLE_X],
+      [
+        triangle("eye_R", [
+          {
+            parameter: "ParamAngleX",
+            keyforms: [
+              { value: 0, offsets: STILL },
+              { value: 30, offsets: FLAT },
+            ],
+          },
+        ]),
+      ],
+    );
+    const [target] = checkModelFolds(m).offenders;
+
+    expect(target.target.id).toBe("eye_R");
+    expect(target.kind).toBe("flip");
+    expect(target.expected).toBeUndefined();
+  });
+
   it("leaves a fold on a part outside the closures actionable at the same pose", () => {
     const m = model(
       [MOUTH],

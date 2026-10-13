@@ -795,7 +795,7 @@ describe("foldPoses", () => {
     expect(foldPoses(model([]))).toEqual([{ name: "rest", values: {} }]);
   });
 
-  it("head angles, eyes and mouth: rest, the singles, then 8 corners × 4 crosses", () => {
+  it("head angles, eyes and mouth: rest, the singles, then 8 angle corners alone and × 8 crosses", () => {
     const poses = foldPoses(model(HEAD));
     const names = poses.map((p) => p.name);
 
@@ -804,25 +804,25 @@ describe("foldPoses", () => {
     expect(
       poses.slice(1, 13).every((p) => Object.keys(p.values).length === 1),
     ).toBe(true);
-    expect(crosses(poses)).toHaveLength(8 * 4);
-    expect(poses).toHaveLength(1 + HEAD.length * 2 + 8 * 4);
-    // The eyes move together and both groups take both ends.
+    expect(crosses(poses)).toHaveLength(8 + 8 * 8);
+    expect(poses).toHaveLength(1 + HEAD.length * 2 + 8 + 8 * 8);
+    // The angle corners come alone, the other parameters at their defaults.
+    expect(names).toContain("ParamAngleX=30 ParamAngleY=30 ParamAngleZ=30");
     expect(names).toContain(
       "ParamAngleX=-30 ParamAngleY=30 ParamAngleZ=-30 ParamEyeLOpen=0 ParamEyeROpen=0 ParamMouthOpenY=1",
     );
-    expect(
-      crosses(poses).every(
-        (p) => p.values.ParamEyeLOpen === p.values.ParamEyeROpen,
-      ),
-    ).toBe(true);
+    // Each eye takes its own end, so a wink meets a turn.
+    expect(names).toContain(
+      "ParamAngleX=30 ParamAngleY=-30 ParamAngleZ=-30 ParamEyeLOpen=0 ParamEyeROpen=1 ParamMouthOpenY=0",
+    );
   });
 
-  it("body angles and arms widen the crosses to at most 1024", () => {
+  it("body angles and arms widen the poses to at most 2112", () => {
     const poses = foldPoses(model([...HEAD, ...BODY, ...ARMS]));
     const names = poses.map((p) => p.name);
 
     expect(new Set(names).size).toBe(names.length);
-    expect(crosses(poses)).toHaveLength(64 * 16);
+    expect(crosses(poses)).toHaveLength(64 + 64 * 32);
     expect(
       crosses(poses).every(
         (p) =>

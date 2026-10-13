@@ -31,6 +31,8 @@ const SHUT_BY = new Map<string, string>([
 
 /** `checkFolds` over `foldPoses(model)`, the closures above kept out of `worst`. */
 export function checkModelFolds(model: IkiModel): FoldReport {
+  // An undeclared parameter reads 0 from the store, which is no closure.
+  const declared = new Set(model.parameters.map((p) => p.id));
   return checkFolds(model, {
     // The effective value, not the pose's overrides: the auto-rig's mouth
     // rests shut at its default, so `rest` and the other parameters' singles
@@ -38,7 +40,9 @@ export function checkModelFolds(model: IkiModel): FoldReport {
     expected: (target, _pose, value) => {
       if (target.kind !== "part") return false;
       const shutBy = SHUT_BY.get(target.id);
-      return shutBy !== undefined && value(shutBy) === 0;
+      return (
+        shutBy !== undefined && declared.has(shutBy) && value(shutBy) === 0
+      );
     },
   });
 }

@@ -90,7 +90,8 @@ const ANGLES = [
 
 /** Crossed with every angle corner, each group's parameters at min then at max together. */
 const CROSSES = [
-  [P.EyeOpenLeft, P.EyeOpenRight],
+  [P.EyeOpenLeft],
+  [P.EyeOpenRight],
   [P.MouthOpen],
   [P.ArmLeft, P.ArmRight],
   [P.ElbowLeft, P.ElbowRight],
@@ -99,9 +100,10 @@ const CROSSES = [
 /**
  * The poses `checkFolds` checks by default: `rest`; every movable parameter
  * alone at its min and at its max; and, on a model declaring any head or body
- * angle, every min/max corner of those angles crossed with the eyes, the
- * mouth, the arms and the elbows shut/open — 2⁶ · 2⁴ = 1024 at most — where
- * moves no single extreme shows stack up. Deduplicated by `name`.
+ * angle, every min/max corner of those angles alone, then crossed with each
+ * eye on its own, the mouth, the arms and the elbows (the last two paired)
+ * shut/open — 2⁶ + 2⁶ · 2⁵ = 2112 at most — where moves no single extreme
+ * shows stack up. Deduplicated by `name`.
  */
 export function foldPoses(model: IkiModel): FoldPose[] {
   const byId = new Map(
@@ -126,21 +128,30 @@ export function foldPoses(model: IkiModel): FoldPose[] {
 
   const angles = declared(ANGLES);
   if (angles.length === 0) return poses;
-  const groups: IkiParameter[][] = [
-    ...angles.map((p) => [p]),
-    ...CROSSES.map(declared).filter((g) => g.length > 0),
-  ];
-  let corners: Record<string, number>[] = [{}];
-  for (const group of groups) {
-    corners = corners.flatMap((values) =>
-      (["min", "max"] as const).map((end) => {
-        const next = { ...values };
-        for (const p of group) next[p.id] = p[end];
-        return next;
-      }),
-    );
-  }
-  for (const values of corners) add(values);
+  const expand = (
+    corners: Record<string, number>[],
+    groups: IkiParameter[][],
+  ) => {
+    for (const group of groups) {
+      corners = corners.flatMap((values) =>
+        (["min", "max"] as const).map((end) => {
+          const next = { ...values };
+          for (const p of group) next[p.id] = p[end];
+          return next;
+        }),
+      );
+    }
+    return corners;
+  };
+  // The angle corners alone come first: the other parameters rest at their
+  // defaults there, which no min/max cross reaches.
+  const angleCorners = expand(
+    [{}],
+    angles.map((p) => [p]),
+  );
+  for (const values of angleCorners) add(values);
+  const crosses = CROSSES.map(declared).filter((g) => g.length > 0);
+  for (const values of expand(angleCorners, crosses)) add(values);
   return poses;
 }
 
