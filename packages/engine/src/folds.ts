@@ -102,7 +102,7 @@ const CROSSES = [
  * alone at its min and at its max; and, on a model declaring any head or body
  * angle, every min/max corner of those angles alone, then crossed with each
  * eye on its own, the mouth, the arms and the elbows (the last two paired)
- * shut/open — 2⁶ + 2⁶ · 2⁵ = 2112 at most — where moves no single extreme
+ * shut/open — 2⁶ + 2⁶ · 2⁵ = 2112 corner poses at most — where moves no single extreme
  * shows stack up. Deduplicated by `name`.
  */
 export function foldPoses(model: IkiModel): FoldPose[] {

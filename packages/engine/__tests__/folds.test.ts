@@ -817,7 +817,7 @@ describe("foldPoses", () => {
     );
   });
 
-  it("body angles and arms widen the poses to at most 2112", () => {
+  it("body angles and arms widen the corner poses to at most 2112", () => {
     const poses = foldPoses(model([...HEAD, ...BODY, ...ARMS]));
     const names = poses.map((p) => p.name);
 
