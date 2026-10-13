@@ -266,8 +266,7 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    same round: if it names a `regenerate` of `mouth_keyed.png` or an `escalate`
    on `packages/editor/src/auto-rig/mouth.ts`, the `refer` rides on that
    finding (the appeal critic's direction wins on the mouth's expression, item 5's
-   rule; a rider on the critic's `regenerate` needs no OK, as the critic's own
-   needs none); if it names nothing, read the closed crop against the critic's
+   rule; item 4 names the combined fix as one job for the user's OK); if it names nothing, read the closed crop against the critic's
    rules. A line inside them (sag within the cap, ends tapered, no tick) that
    still reads V or over-lifted is the drawn arc's depth: a `regenerate` of
    `mouth_keyed.png` drawn shallower at the centre with the upper line flatter.
@@ -284,7 +283,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    critic's `SCORES:` and `VERDICT:` lines and the appeal critic's `APPEAL:`
    line, and ask for a one-line reaction ("fine" if none). When the appeal
    critic named a `regenerate`, or its `refer` was typed as one above, the same
-   question names the part and the billed job once; that finding goes to the
+   question names the part and the billed job once (a `refer` riding on the
+   critic's `regenerate` is one combined job); that finding goes to the
    artist only on the user's OK, and a declined one is dropped (the user's word
    stands for Step 2's stop rule). The appeal critic's `retune`s are free and
    need no OK. A reaction that names a change becomes a finding of the type it

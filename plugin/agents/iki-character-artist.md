@@ -198,9 +198,10 @@ and how round 1's first compose corrects the provisional `canvas.json`. Then:
   baseline off this round's compose result before writing the key (an ordinary
   role: its `layers[]` entry's `left` / `top` / `width` / `height`, the placed
   frame an eye and its lash share, never painted bounds; the nose: the box the
-  composer sized, dense core or whole part, its row from `cy` or, unset, the
-  0.66 eye-to-mouth rule). Free. Do these
-  first: a `regenerate` is often unnecessary once placement is right.
+  composer sized, dense core or whole part; a set `cy` is its centre row, but
+  unset its last covered row (the tip) is round(0.66 of the way from the eye
+  row to the mouth's), so to write `cy` use `tipRow + 1 - boxHeight / 2`, then
+  apply the delta). Free. Do these first: a `regenerate` is often unnecessary once placement is right.
 - **`regenerate`** — re-draw ONLY the named parts, 2 variants each
   (`<role>_a.png` / `<role>_b.png`), then pick the better and copy it to
   `parts/<role>.png`. Generation is billed and slow; never re-roll the whole set
