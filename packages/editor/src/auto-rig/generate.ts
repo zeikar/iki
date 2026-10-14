@@ -63,6 +63,7 @@ import { checkHeadEdges, checkLayers, checkStrandEdges } from "./checks";
 import { renderedLander, sideIrises, solveContext } from "./context";
 import { buildHeadFrame, type HeadFrame } from "./head";
 import { buildFaceMesh, type Region } from "./face-mesh";
+import { applyPatches } from "./patches";
 import {
   bh,
   boxOfLayer,
@@ -379,6 +380,20 @@ export function generateIkiFromLayerSet(
   }
 
   const parameters = declareParameters(new Set(byRole.keys()));
+  // Every keyform is baked by now, and the model and the turn report below
+  // read these same arrays, so both describe the patched rig.
+  const reports =
+    options.patches === undefined
+      ? undefined
+      : applyPatches(options.patches, {
+          grids: new Map(
+            [...grids].map(([family, g]) => [WARP_ID[family as GridFamily], g]),
+          ),
+          parts,
+          boxOf: (role) => (has(role) ? box(role) : undefined),
+          faceWidth: byRole.get("face")!.cropW,
+          parameters,
+        });
   const model: IkiModel = {
     version: IKI_FORMAT_VERSION,
     name: "auto-rigged",
@@ -393,6 +408,7 @@ export function generateIkiFromLayerSet(
 
   // Reported only for a model that validates.
   const valid = parseIkiModel(model);
+  if (reports !== undefined) options.onPatchesApplied?.(reports);
   if (hasNose && options.onTurnSolved) {
     options.onTurnSolved(
       turnReport(

@@ -228,6 +228,12 @@ export interface GenerateOptions {
   /** Per-character tuning from the profile's defaults (`profile.ts`). */
   style?: RigStyle;
   onTurnSolved?: (report: TurnSolveReport) => void;
+  /** Displacements added to the generated rig's stops (`RigPatch`), replayed
+   *  on every rig; a refused op throws `PatchError` and rigs nothing. */
+  patches?: RigPatch[];
+  /** What each of `patches` moved, in order — called only when `patches` is
+   *  given, and only for a model that validates. */
+  onPatchesApplied?: (report: PatchReport[]) => void;
   headEdges?: HeadEdges;
   strandEdges?: { left?: IrisStrand; right?: IrisStrand };
 }
