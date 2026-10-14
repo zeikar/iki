@@ -682,11 +682,13 @@ describe("the head turn", () => {
     /** The `character(opts)` layer of a role. */
     const layerOf = (opts: CharacterOptions, role: string) =>
       character(opts).layers.find((l) => l.role === role)!;
-    /** Canvas row of the cap's last vertex row: the last of the front hair's
-     *  vertex rows that pairs, with the row above it, to form a cell whose
-     *  rows both lie at least 1.5 eye heights above the eye row — read off
-     *  the eye boxes and the front hair's mesh. */
-    const capBottom = (m: IkiModel) => {
+    /** The front hair's vertex rows `ys`, model y top to bottom; the cap's
+     *  last, `last`: the last that pairs, with the row above it, to form a
+     *  cell whose rows both lie at least 1.5 eye heights above the eye row;
+     *  `zero`, the first under it at or below the eyes' top; and the face
+     *  plate's top, at or below which a row is the front hair's own, no
+     *  crown — read off the eye and face boxes and the front hair's mesh. */
+    const capRows = (m: IkiModel) => {
       const part = (id: string) => m.parts.find((p) => p.id === id)!;
       const eyes = [part("eye_L"), part("eye_R")];
       const eyeY = (eyes[0].transform.y + eyes[1].transform.y) / 2;
@@ -699,6 +701,14 @@ describe("the head turn", () => {
       let last = -1;
       for (let r = 1; r < ys.length; r++)
         if (ys[r] >= eyeY + 1.5 * eyeH) last = r;
+      let zero = last + 1;
+      while (zero < ys.length && ys[zero] > eyeY + eyeH / 2) zero++;
+      const face = part("face");
+      return { ys, last, zero, plateTop: face.transform.y + face.height / 2 };
+    };
+    /** Canvas row of the cap's last vertex row (`capRows`). */
+    const capBottom = (m: IkiModel) => {
+      const { ys, last } = capRows(m);
       return Math.round(500 - ys[last]);
     };
     /**
@@ -1129,6 +1139,106 @@ describe("the head turn", () => {
           edge(tightLock.model, "hair_front", x, EYE_Y, ax),
           `AngleX ${ax}`,
         ).toBe(edge(held, "hair_front", x, EYE_Y, ax));
+      }
+    });
+
+    /** The cap's blend toward the back hair's motion on each vertex row `ys`
+     *  turning by AngleX `ax`, read at the axis, where the ride lifts nothing
+     *  and the cap cuts least: how far short of the same set without runs
+     *  (`held`) the front hair turns there, over how far that lies from the
+     *  back hair's motion. */
+    const blends = (m: IkiModel, held: IkiModel, ys: number[], ax: number) =>
+      ys.map((y) => {
+        const h = shift(held, 0, y, ax);
+        return (h - shift(m, 0, y, ax)) / (h + DRIFT / HH);
+      });
+    /** `tuckedTemple` at hairFollow 2. On the cap row at the plate's top
+     *  (canvas row 210) the back hair reaches 58 px past the bangs' edges;
+     *  on the turn the row's edges would run past that, and a cut alone
+     *  brings them back in, so on its own the row blends next to nothing —
+     *  as silver-hood's cap row at y 0.333 did. The cap rows under it pass
+     *  over the tucked rows looking down and blend wholly. */
+    const tucked = (drop?: typeof ALL_RUNS) =>
+      rig({ tuckedTemple: true }, {}, { style: { hairFollow: 2 }, drop }).model;
+    const tuckedModel = tucked();
+    const tuckedHeld = tucked(ALL_RUNS);
+
+    it("ramps the cap's blend out evenly below the cap, to nothing at the eyes' top", () => {
+      // Under each cap row at or below the plate's top the blend falls no
+      // faster than evenly, to nothing at the first vertex row at or below
+      // the eyes' top (`zero`): each row blends the most of those rows'
+      // blends so scaled, or its own where that is more. A row that binds
+      // nothing of its own takes the ramp exactly: fullBack's and the tuft's
+      // unbound temple (canvas rows 250–330, under the plate's top row, which
+      // moves with the back hair) and every row past the cap. tuckedTemple's
+      // cap rows all blend wholly, and the row past them ramps out from the
+      // cap's last.
+      const cases: [string, IkiModel, IkiModel, number[]][] = [
+        ["fullBack", full, today, [250, 290, 330]],
+        [
+          "tuft",
+          tuft.model,
+          rig({ tuft: true }, {}, { drop: ALL_RUNS }).model,
+          [250, 290, 330],
+        ],
+        ["tuckedTemple", tuckedModel, tuckedHeld, []],
+      ];
+      for (const [name, m, held, unbound] of cases) {
+        const { ys, last, zero, plateTop } = capRows(m);
+        const row = (r: number) => Math.round(500 - ys[r]);
+        expect(row(zero), name).toBe(410);
+        // The ramp's sources.
+        const sources = ys
+          .map((_, q) => q)
+          .filter((q) => q <= last && ys[q] <= plateTop);
+        for (const ax of [-30, 30]) {
+          const label = `${name}, AngleX ${ax}`;
+          const b = blends(m, held, ys, ax);
+          expect(Math.max(...sources.map((q) => b[q])), label).toBeGreaterThan(
+            0.5,
+          );
+          for (let r = sources[0] + 1; r < zero; r++) {
+            const ramp = Math.max(
+              ...sources
+                .filter((q) => q < r)
+                .map((q) => (b[q] * (zero - r)) / (zero - q)),
+            );
+            const at = `${label}, row ${row(r)}`;
+            expect(b[r], at).toBeGreaterThan(ramp - 0.01);
+            if (r > last || unbound.includes(row(r)))
+              expect(b[r], at).toBeLessThan(ramp + 0.01);
+          }
+          // From `zero` down, today's motion.
+          for (let r = zero; r < ys.length; r++) {
+            expect(
+              Math.abs(shift(m, 0, ys[r], ax) - shift(held, 0, ys[r], ax)),
+              `${label}, row ${row(r)}`,
+            ).toBeLessThan(1e-3);
+          }
+        }
+      }
+    });
+
+    it("blends no cap row less than the one under it", () => {
+      // tuckedTemple's row at the plate's top would blend next to nothing,
+      // over rows that blend wholly: it takes their blend, so the cap does
+      // not shear between a row turning with the face and the rows under it
+      // holding to the back hair.
+      const { ys, zero, plateTop } = capRows(tuckedModel);
+      const first = ys.findIndex((y) => y <= plateTop);
+      for (const ax of [-30, 30]) {
+        const label = `AngleX ${ax}`;
+        const b = blends(tuckedModel, tuckedHeld, ys, ax);
+        expect(b[first + 1], label).toBeGreaterThan(0.5);
+        // The row at the plate's top is raised with it.
+        expect(b[first], label).toBeGreaterThan(0.5);
+        // From the cap's top row under the plate down to `zero`.
+        for (let r = first + 1; r <= zero; r++) {
+          expect(
+            b[r - 1],
+            `${label}, row ${Math.round(500 - ys[r - 1])}`,
+          ).toBeGreaterThan(b[r] - 0.01);
+        }
       }
     });
 
