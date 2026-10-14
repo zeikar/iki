@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import type { PatchReport, RigPatch } from "@ikijs/editor";
 import {
   validateIki,
   describeIki,
@@ -14,6 +15,21 @@ import { renderPoses } from "./render-poses";
 
 /** Injected by tsup (and vitest) from this package's package.json version. */
 declare const __MCP_VERSION__: string;
+
+/** One `PATCH` line per op `auto_rig_from_layers` replayed. */
+function formatPatchReports(reports: PatchReport[]): string[] {
+  return reports.map((r) => {
+    const at = Object.keys(r.at)
+      .sort()
+      .map((p) => `${p}=${r.at[p]}`)
+      .join(" ");
+    const where =
+      r.cols !== undefined && r.rows !== undefined
+        ? `cols ${r.cols[0]}-${r.cols[1]}, rows ${r.rows[0]}-${r.rows[1]}`
+        : "vertices";
+    return `PATCH ${r.index} ${r.target} at ${at}: ${r.moved} of ${r.of} points (${where}), largest move ${r.maxPx} model px`;
+  });
+}
 
 export function createIkiMcpServer(): McpServer {
   const server = new McpServer({ name: "iki", version: __MCP_VERSION__ });
@@ -95,7 +111,7 @@ export function createIkiMcpServer(): McpServer {
     "auto_rig_from_layers",
     {
       description:
-        "Auto-rigs role-named PNG layers (face, eye_L/eye_R and either mouth or the lip set (mouth_inner + lip_lower + lip_upper, a mouth that folds open instead of crossfading) required; iris_L/R, brow_L/R, hair_front, body, arm_L/arm_R, forearm_pose_L/forearm_pose_R, mouth_tongue/mouth_teeth (only with the lip set: drawn under its lips and clipped to mouth_inner), etc. optional; an arm needs the body, a pose forearm needs its arm, and a partial lip set, one mixed with mouth/mouth_open, or mouth_tongue/mouth_teeth without it is refused) into a renderable .iki written to disk. Pass full-canvas PNG file paths; returns the output path + summary (the model is NOT inlined). Filenames map to roles unless `fileName` is given. The result's `folds` is the written rig's fold report, printed after the path the way render_poses prints it, and report-only: a fold never refuses the rig.",
+        "Auto-rigs role-named PNG layers (face, eye_L/eye_R and either mouth or the lip set (mouth_inner + lip_lower + lip_upper, a mouth that folds open instead of crossfading) required; iris_L/R, brow_L/R, hair_front, body, arm_L/arm_R, forearm_pose_L/forearm_pose_R, mouth_tongue/mouth_teeth (only with the lip set: drawn under its lips and clipped to mouth_inner), etc. optional; an arm needs the body, a pose forearm needs its arm, and a partial lip set, one mixed with mouth/mouth_open, or mouth_tongue/mouth_teeth without it is refused) into a renderable .iki written to disk. Pass full-canvas PNG file paths; returns the output path + summary (the model is NOT inlined). Filenames map to roles unless `fileName` is given. The result's `folds` is the written rig's fold report, printed after the path the way render_poses prints it, and report-only: a fold never refuses the rig. `patches` (see its field) adds displacements to existing keyform stops of the freshly generated rig; each op then prints one line between the path and the fold report — `PATCH <i> <target> at <Param=v …>: <moved> of <of> points (cols a-b, rows c-d), largest move <maxPx> model px`, with `(vertices)` in place of the columns and rows for a mesh part — and the result's `patches` carries the same reports (`index`, `target`, `at`, `moved`, `of`, `cols`/`rows` for a grid, `maxPx`), present whenever `patches` was passed, `[]` included. An op the input schema accepts but the rig refuses comes back as `INVALID: patches[i]…` and nothing is written; an op with a missing field or a field of the wrong type is the SDK's input validation error.",
       inputSchema: {
         layers: z
           .array(
@@ -154,13 +170,47 @@ export function createIkiMcpServer(): McpServer {
           .describe(
             "Per-character tuning from the profile the rig defaults to: `turn` scales the whole head turn (plate, features, hair and the eyes' foreshortening; 0..3, 1 = the profile; ignored when `turnTargets.eyeShift` is given), `featureLead` how far the features lead the face plate (0..3, 1 = the profile), `hairFollow` the front hair's share of the face's turn (0..2, profile 1), `outlineFollow` its outer edge's share where the front hair draws the head's outline (0..2, profile 0: the outline holds), `blink` how far the upper lid comes down over the eye's height (0.1..1, profile 0.6), `sway` the hair sway amplitude (0..5, 1 = the profile). A value out of range, or a knob not named here, comes back as `INVALID: …`.",
           ),
+        patches: z
+          .array(
+            z
+              .object({
+                target: z.string(),
+                at: z.record(z.string(), z.number()),
+                region: z
+                  .object({
+                    role: z.string(),
+                    // Not z.tuple: its JSON Schema is the array-form `items`
+                    // draft 2020-12 forbids. The rig checks the pair's order.
+                    x: z.array(z.number()).length(2),
+                    y: z.array(z.number()).length(2),
+                  })
+                  .passthrough(),
+                by: z.object({ dx: z.number(), dy: z.number() }).passthrough(),
+                falloff: z.number().optional(),
+                why: z.string().optional(),
+              })
+              .passthrough(),
+          )
+          .optional()
+          .describe(
+            "Displacements ADDED to EXISTING keyform stops of the freshly generated rig, each op `{ target, at, region, by, falloff?, why? }`. They are replayed on every rig of these inputs, over whatever the rig now bakes, so they hold through a layout or `style` retune; ops on one stop add up, whatever their order. `target` is a feature grid — `eyeWarp_L`, `eyeWarp_R`, `browWarp_L`, `browWarp_R`, `noseWarp`, `mouthWarp`, whose `at` names both `ParamAngleX` and `ParamAngleY`, each -30, 0 or 30, never both 0 — or a mesh part with warps (`face`, `hair_front`, …), whose `at` names exactly one parameter at one of that part's warp keyform values, never the parameter's default nor the stop where the rig shuts the part on purpose (`eye_*` and `lash_lower_*` at their `ParamEye*Open` 0, the lip set and its tongue and teeth at `ParamMouthOpenY` 0), which the fold check exempts. The rest pose is the drawn art and no patch changes it. `bodyWarp` and the matrix deformers are not targets, and a patch adds no stop and changes no parameter range. `region` `{ role, x: [from, to], y: [from, to] }` is a rectangle in fractions of the REST layer box (the opaque crop) of `role`, origin top-left, x right, y DOWN, and may reach past the box: the target's points whose REST position lies inside take the whole of `by`, those within `falloff` of it a smooth share, the rest nothing. `by` `{ dx, dy }` and `falloff` are in face widths (the `face` layer's crop width), on screen axes: +dx toward the viewer's right (a character's `_L` side), +dy DOWN. Between stops the engine blends linearly, so a fix at ParamAngleX -30 shows at half strength at -15 and none at rest. `why` is a note the rig ignores. An op this schema accepts but the rig refuses — an unknown key, target, role or stop, the rest stop or a shut stop, a region running backwards or catching none of the target's points — comes back as `INVALID: patches[i]…`, listing the keys, targets, stops or roles there are, or where the target's points lie in the role's box, and nothing is written; a missing field or one of the wrong type is refused by the schema itself, as the SDK's input validation error.",
+          ),
       },
     },
     async (args) => {
       try {
-        const r = await autoRigFromLayers(args);
+        const r = await autoRigFromLayers({
+          ...args,
+          // `.length(2)` makes each region span a pair, which its inferred
+          // `number[]` cannot say.
+          patches: args.patches as RigPatch[] | undefined,
+        });
         const text = r.ok
-          ? [r.path, ...formatFoldReport(r.folds, r.canvas)].join("\n")
+          ? [
+              r.path,
+              ...formatPatchReports(r.patches ?? []),
+              ...formatFoldReport(r.folds, r.canvas),
+            ].join("\n")
           : `INVALID: ${r.error}`;
         return { content: [{ type: "text", text }], structuredContent: r };
       } catch (err) {

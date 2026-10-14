@@ -227,6 +227,33 @@ The Recommended column is where a character's tuning stays — the span that sti
 
 A value out of its range comes back as `INVALID: … style.<knob> …` (`style.turn 4 is outside [0, 3]`), and so does a knob not named here. Over MCP a `style` that is not an object, or a knob that is not a number, never reaches the tool: its input schema refuses it, and the SDK answers with an `isError` result reading `MCP error -32602: Input validation error: …`. A `turn` the art has no room for is not refused — it comes back clamped (below).
 
+`patches` is optional too, and local where `style` is global: each op ADDS a displacement to one EXISTING keyform stop of one target, and every other stop and the rest pose stay as the rig generates them. Between stops the engine blends linearly, so a fix at `ParamAngleX` −30 shows at half strength at −15 and fades to nothing at rest. Leave it out, or pass `[]`, for the rig as generated.
+
+```jsonc
+{
+  "patches": [
+    {
+      "target": "eyeWarp_R",
+      "at": { "ParamAngleX": -30, "ParamAngleY": 0 },
+      "region": { "role": "eye_R", "x": [0.0, 0.2], "y": [0.3, 0.5] },
+      "by": { "dx": 0.02, "dy": 0.0 },
+      "falloff": 0.03,
+      "why": "one line",
+    },
+  ],
+}
+```
+
+- `target` — a feature grid or a mesh part. The grids are the `warp2d` deformers `eyeWarp_L`, `eyeWarp_R`, `browWarp_L`, `browWarp_R`, `noseWarp` and `mouthWarp`, those the layer set rigs: their `at` names BOTH `ParamAngleX` and `ParamAngleY`, each −30, 0 or 30, never both 0. A mesh part with warps (`face`, `hair_front`, `lash_L`, …) takes an `at` naming exactly ONE parameter at a value the part has a warp keyform at, e.g. `{ "ParamAngleX": -30 }`, never that parameter's default (the part's rest) nor the stop where the rig shuts the part on purpose — `eye_*` and `lash_lower_*` at their `ParamEye*Open` 0, the lip set with its tongue and teeth at `ParamMouthOpenY` 0 — which the fold check exempts, so a fold a patch made there would never be reported. The rest pose is the drawn art, which no patch changes: change it with the layout or by regenerating the layer. `bodyWarp` and the matrix deformers are not targets, and a patch adds no stop and changes no parameter range.
+- `region` — a rectangle in fractions of the REST layer box of part `role` (its opaque box in the layer PNG), origin top-left, x right, y DOWN; it may reach past the box (below 0 or above 1). The target's points whose REST position falls inside take the whole of `by`, points within `falloff` of it a smooth share, the rest nothing. The region is located at REST, even though the defect shows on a posed render.
+- `by` — the displacement at that stop, in FACE WIDTHS (the `face` layer's opaque box width), on screen axes: +`dx` toward the viewer's right, +`dy` DOWN. A character's Left (`_L`) is the viewer's RIGHT. On a 400 px face, `dx: 0.02` is 8 px to the right at that stop.
+- `falloff` — in face widths; 0 or absent is a hard edge.
+- `why` — one line for whoever edits the patches next; the rig ignores it.
+
+The ops replay on the freshly generated rig every time it is rigged, added to whatever it now bakes, so a patch survives a layout or `style` retune: pass the whole list on every call. Ops on one stop add up, whatever their order. Each op prints one line after the path and before the fold report — `PATCH 0 eyeWarp_R at ParamAngleX=-30 ParamAngleY=0: 4 of 25 points (cols 0-1, rows 1-2), largest move 8 model px`, with `(vertices)` in place of the columns and rows for a mesh part, the move in model px (the layer PNGs' own pixels) — and the result's `patches` carries the same reports, `[]` for `[]`. An op the tool's input schema accepts but the rig refuses comes back as `INVALID: patches[i]…` and nothing is written: an unknown key, target, role or stop (the message lists the keys, the grids and mesh parts, the roles or the target's stops there are), the rest stop or a shut stop (it names where to patch instead), or a region that runs backwards or catches none of the target's points (it gives where they lie at rest, in fractions of the role's box). Over MCP an op with a missing field, or a field of the wrong type, never reaches the tool: the SDK answers with an `isError` result, as for `style`.
+
+`patches` needs `@ikijs/mcp` 0.26.0 or later. An older server drops the field silently and rigs WITHOUT it: the result then has no `PATCH` line and no `patches` field. On such a server treat `patches` as unavailable, and never trust a model from such a call as patched.
+
 Leave `turnTargets` out: the rig then renders the profile, which is the default and every character's starting point, and `style` is how a character is tuned from it. Pass `turnTargets` only to match a measured front/turned pair literally — the cues `measure_turn_reference` reads off a front view and the same character turned at the same scale (`eyeShift`, `farEyeRatio`, `silhouetteRatio`, and optionally `noseShift` / `mouthShift`; the shifts are magnitudes, the sign is the turn's own business). Each cue given is fitted — `eyeShift` by the turn's amount (so `style.turn` is ignored beside it), `farEyeRatio` by the eyes' foreshortening, `silhouetteRatio` by the hair's width at full turn, `noseShift` / `mouthShift` by that feature's own shift — and an omitted one stays at the profile. The **iki-character-loop** skill no longer measures a pair: its drawn turned reference is a style check the critic reads by eye. `headHalfWidth` is not an input — the rig measures it off the layers and refuses one passed in — and a field not named here is refused too.
 
 Either way the result reports that measured `headHalfWidth` alongside a `turn` report: `turn.achieved` is what the turn reaches (with no `turnTargets`, what the cues read on the profile's own turn), and `turn.clamped` names what the rig cut down to what this art can do — the turn itself, as `eyeShift` (yours, or the profile's times `style.turn`), past the room the art leaves: the far eye inside the face plate's edge, the chin over a neck the face paints (a torso's neck bounds nothing, so the turned renders are its check), and the far iris clear of the bangs' side strand where the rig measured one; and a profile `noseShift` / `mouthShift` past its own room; and a passed `silhouetteRatio` that would narrow a face drawn without hair too far for the head to cover its far ear's slide. A clamp is not a refusal: the rig still built. A layer set with no `nose` (see Step 1) still turns on the profile and its `style` but fits nothing: the values in `turnTargets` are inert (a field not named here is still refused) and the result carries no `turn` report.

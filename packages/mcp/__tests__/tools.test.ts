@@ -23,6 +23,7 @@ import {
   detectAlphaBbox,
   packAtlas,
   type IrisStrand,
+  type RigPatch,
 } from "@ikijs/editor";
 import { TURN } from "../../editor/src/auto-rig/profile";
 
@@ -1633,6 +1634,112 @@ describe("autoRigFromLayers", () => {
     expect(unknown.ok).toBe(false);
     if (unknown.ok) return;
     expect(unknown.error).toMatch(/style\.turns/);
+  });
+
+  // ── patches ──────────────────────────────────────────────────────────────
+
+  /** The far side of the turn, over the whole right eye: 0.05 face widths to
+   *  the viewer's right, 3.1 px on the 62 px face crop (the 60 px rect and
+   *  the alpha bbox's 1 px margin each side). */
+  const eyeOp = {
+    target: "eyeWarp_R",
+    at: { [StandardParameter.AngleX]: -30, [StandardParameter.AngleY]: 0 },
+    region: { role: "eye_R", x: [0, 1], y: [0, 1] },
+    by: { dx: 0.05, dy: 0 },
+  } satisfies RigPatch;
+
+  it("replays patches on the rig and echoes what each moved; `patches: []` writes the same model as none", async () => {
+    const dir = tmpDir();
+    const layers = (await writeTurnLayers(dir)).map((p) => ({ path: p }));
+    const basePath = path.join(dir, "base.iki");
+    const patchedPath = path.join(dir, "patched.iki");
+    const emptyPath = path.join(dir, "empty.iki");
+    const base = await autoRigFromLayers({ layers, outputPath: basePath });
+    const patched = await autoRigFromLayers({
+      layers,
+      outputPath: patchedPath,
+      patches: [eyeOp],
+    });
+    const empty = await autoRigFromLayers({
+      layers,
+      outputPath: emptyPath,
+      patches: [],
+    });
+    expect(base.ok && patched.ok && empty.ok).toBe(true);
+    if (!base.ok || !patched.ok || !empty.ok) return;
+
+    // Absent without `patches`, `[]` for none: how a caller tells this server
+    // from one that drops the field.
+    expect("patches" in base).toBe(false);
+    expect(empty.patches).toEqual([]);
+    expect(fs.readFileSync(emptyPath).equals(fs.readFileSync(basePath))).toBe(
+      true,
+    );
+
+    expect(patched.patches).toHaveLength(1);
+    const [report] = patched.patches!;
+    expect(report).toMatchObject({ index: 0, target: "eyeWarp_R" });
+    expect(report.at).toEqual(eyeOp.at);
+    expect(report.moved).toBeGreaterThan(0);
+    expect(report.moved).toBeLessThanOrEqual(report.of);
+    expect(report.maxPx).toBeCloseTo(3.1, 5);
+
+    // The (−30, 0) keyform moved by the op, 3.1 px right on the points it
+    // moved and nowhere else.
+    const read = (p: string) =>
+      parseIkiModel(JSON.parse(fs.readFileSync(p, "utf8")));
+    const before = turnKeyform(read(basePath), "eyeWarp_R").offsets;
+    const after = turnKeyform(read(patchedPath), "eyeWarp_R").offsets;
+    expect(after).toHaveLength(before.length);
+    let moved = 0;
+    for (let k = 0; k < before.length; k += 2) {
+      const dx = after[k] - before[k];
+      if (Math.abs(dx) > 1e-9) {
+        expect(dx).toBeCloseTo(3.1, 5);
+        moved++;
+      }
+      expect(after[k + 1]).toBe(before[k + 1]);
+    }
+    expect(moved).toBe(report.moved);
+
+    // With that one keyform put back, the patched model is the unpatched one:
+    // every other keyform of eyeWarp_R, every other deformer and every part.
+    const restored = read(patchedPath);
+    turnKeyform(restored, "eyeWarp_R").offsets.splice(0, Infinity, ...before);
+    expect(restored).toEqual(read(basePath));
+  });
+
+  it("refuses a patch op with an unknown key, an unknown target or the rest stop as patches[0]…, writing nothing", async () => {
+    const dir = tmpDir();
+    const layers = (await writeTurnLayers(dir)).map((p) => ({ path: p }));
+    const cases: [string, RigPatch, RegExp][] = [
+      ["unknown key", { ...eyeOp, foo: 1 } as RigPatch, /^patches\[0\]\.foo /],
+      [
+        "unknown target",
+        { ...eyeOp, target: "eyeWarp_X" },
+        /^patches\[0\]\.target "eyeWarp_X"/,
+      ],
+      [
+        "rest stop",
+        {
+          ...eyeOp,
+          at: { [StandardParameter.AngleX]: 0, [StandardParameter.AngleY]: 0 },
+        },
+        /^patches\[0\]\.at .* rest stop/,
+      ],
+    ];
+    for (const [label, op, message] of cases) {
+      const outPath = path.join(dir, `${label.replace(/ /g, "-")}.iki`);
+      const r = await autoRigFromLayers({
+        layers,
+        outputPath: outPath,
+        patches: [op],
+      });
+      expect(r.ok, label).toBe(false);
+      if (r.ok) return;
+      expect(r.error, label).toMatch(message);
+      expect(fs.existsSync(outPath), label).toBe(false);
+    }
   });
 
   it("refuses a misspelt turnTargets field instead of dropping it", async () => {

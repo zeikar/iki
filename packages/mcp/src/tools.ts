@@ -16,11 +16,14 @@ import {
   parseLayerRoles,
   partIdsOfRole,
   LayerGeometryError,
+  PatchError,
   TurnTargetError,
   type IrisStrand,
   type LayerSetMeasurer,
   type AtlasAssignment,
   type AtlasLayout,
+  type PatchReport,
+  type RigPatch,
   type RigStyle,
   type TurnTargets,
   type TurnSolveReport,
@@ -336,6 +339,10 @@ export interface AutoRigInput {
   /** Per-character tuning from the profile's defaults (see
    *  @ikijs/editor's `RigStyle`). */
   style?: RigStyle;
+  /** Displacements added to existing keyform stops of the freshly generated
+   *  rig, replayed on every rig of these inputs (see @ikijs/editor's
+   *  `RigPatch`). */
+  patches?: RigPatch[];
 }
 
 /** The turn cues a caller may pass, which is every one but `headHalfWidth`:
@@ -405,6 +412,10 @@ export type AutoRigResult =
        *  mouth shutting on purpose set apart as `expected`. Report-only: a
        *  fold never refuses the rig. */
       folds: FoldReport;
+      /** What each of `input.patches` moved on this rig, in order — present
+       *  whenever `patches` was passed, `[]` included, so a caller can tell
+       *  this server from one that drops the field. */
+      patches?: PatchReport[];
     }
   | { ok: false; error: string };
 
@@ -478,7 +489,10 @@ async function renderAtlasPage(
  * and hair layers' opaque runs and the nose's dense core, returned as
  * `noseCore`); what the solve settled on comes back in `turn`. Under
  * `quantizeColors` the nose is atlased alone on a second, lossless page, which
- * the palette would otherwise rim; `atlasBytes` sums both pages.
+ * the palette would otherwise rim; `atlasBytes` sums both pages. The
+ * generator replays `input.patches` on the fresh rig before it validates and
+ * reports the turn, and what each op moved comes back in `patches`; a refused
+ * op writes nothing.
  *
  * Re-host of examples/editor/src/store.ts `importLayerSet` with the three DOM
  * pixel functions swapped for the sharp-backed ./node-images helpers; the pure
@@ -624,14 +638,16 @@ export async function autoRigFromLayers(
 
     // Internal pipeline — direct calls. By here roles + bboxes are validated, so
     // a throw is an invariant break / bug and must propagate to `isError` —
-    // except for the generator's two input errors, each a fact about the
-    // request, not a bug: the turn solve, the one part of it that reads CALLER
-    // input, throws TurnTargetError (a field that is not a number, a target
-    // this layer set cannot reach); and art geometry the rig cannot build on
-    // (a body's hips with no room under its pivots, an arm too short for its
-    // pivots, a lip set whose mouth_inner has no opaque pixel) throws
-    // LayerGeometryError.
+    // except for the generator's three input errors, each a fact about the
+    // request, not a bug: the turn solve, which reads CALLER input, throws
+    // TurnTargetError (a field that is not a number, a target this layer set
+    // cannot reach); the patch replay, which reads the caller's `patches`,
+    // throws PatchError (a malformed op, or one that misses this rig); and
+    // art geometry the rig cannot build on (a body's hips with no room under
+    // its pivots, an arm too short for its pivots, a lip set whose
+    // mouth_inner has no opaque pixel) throws LayerGeometryError.
     let turn: TurnSolveReport | undefined;
+    let patches: PatchReport[] | undefined;
     let model: IkiModel;
     try {
       // The caller's fields cross as passed (a headHalfWidth was refused
@@ -649,12 +665,26 @@ export async function autoRigFromLayers(
             turn = report;
           },
           ...(input.style === undefined ? {} : { style: input.style }),
+          ...(input.patches === undefined
+            ? {}
+            : {
+                patches: input.patches,
+                onPatchesApplied: (reports: PatchReport[]) => {
+                  patches = reports;
+                },
+              }),
           ...(headEdges === undefined ? {} : { headEdges }),
           ...(strandEdges === undefined ? {} : { strandEdges }),
         },
       );
     } catch (e) {
-      if (!(e instanceof TurnTargetError || e instanceof LayerGeometryError)) {
+      if (
+        !(
+          e instanceof TurnTargetError ||
+          e instanceof LayerGeometryError ||
+          e instanceof PatchError
+        )
+      ) {
         throw e;
       }
       throw new AutoRigInputError(e.message);
@@ -742,6 +772,7 @@ export async function autoRigFromLayers(
       ...(noseCore === undefined ? {} : { noseCore }),
       ...(turn === undefined ? {} : { turn }),
       folds,
+      ...(patches === undefined ? {} : { patches }),
     };
   } catch (err) {
     if (err instanceof AutoRigInputError)

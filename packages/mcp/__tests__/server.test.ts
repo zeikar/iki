@@ -267,6 +267,97 @@ describe("MCP server integration", () => {
     expect(sc.turn!.achieved.eyeShift).toBeCloseTo(0.1, 2);
   });
 
+  it("auto_rig_from_layers accepts patches through the tool schema and prints a PATCH line per op between the path and the folds", async () => {
+    pair = await createPair();
+    const dir = tmpDir();
+    const paths = await writeTurnLayers(dir);
+    const outPath = path.join(dir, "model.iki");
+
+    const result = await pair.client.callTool({
+      name: "auto_rig_from_layers",
+      arguments: {
+        layers: paths.map((p) => ({ path: p })),
+        outputPath: outPath,
+        patches: [
+          {
+            target: "eyeWarp_R",
+            at: { ParamAngleY: 0, ParamAngleX: -30 },
+            region: { role: "eye_R", x: [0, 1], y: [0, 1] },
+            by: { dx: 0.05, dy: 0 },
+            why: "far eye a little out",
+          },
+          {
+            target: "face",
+            at: { ParamAngleX: -30 },
+            region: { role: "face", x: [0, 0.5], y: [0, 1] },
+            by: { dx: 0, dy: 0.01 },
+          },
+        ],
+      },
+    });
+
+    const sc = result.structuredContent as {
+      ok: boolean;
+      patches?: { moved: number }[];
+    };
+    expect(sc.ok).toBe(true);
+    expect(result.isError).toBeFalsy();
+    expect(sc.patches).toHaveLength(2);
+    const texts = (result.content as { type: string; text: string }[]).filter(
+      (c) => c.type === "text",
+    );
+    const [first, grid, part, ...folds] = texts[0].text.split("\n");
+    expect(first).toBe(outPath);
+    // `at` sorted by parameter id, whatever order it was passed in; the
+    // moves are face widths of the 62 px face crop (the 60 px rect and the
+    // alpha bbox's 1 px margin each side).
+    expect(grid).toMatch(
+      /^PATCH 0 eyeWarp_R at ParamAngleX=-30 ParamAngleY=0: [1-9]\d* of \d+ points \(cols \d+-\d+, rows \d+-\d+\), largest move 3\.1 model px$/,
+    );
+    expect(part).toMatch(
+      /^PATCH 1 face at ParamAngleX=-30: [1-9]\d* of \d+ points \(vertices\), largest move 0\.6 model px$/,
+    );
+    expect(folds.length).toBeGreaterThan(0);
+    for (const line of folds) expect(line).toMatch(/^FOLDS?[ :]/);
+  });
+
+  it("auto_rig_from_layers lets an unknown patch key through the tool schema to the rig, which refuses it as INVALID: patches[0].<key> (not isError)", async () => {
+    pair = await createPair();
+    const dir = tmpDir();
+    const paths = await writeTurnLayers(dir);
+    const outPath = path.join(dir, "model.iki");
+
+    const result = await pair.client.callTool({
+      name: "auto_rig_from_layers",
+      arguments: {
+        layers: paths.map((p) => ({ path: p })),
+        outputPath: outPath,
+        patches: [
+          {
+            target: "eyeWarp_R",
+            at: { ParamAngleX: -30, ParamAngleY: 0 },
+            region: { role: "eye_R", x: [0, 1], y: [0, 1] },
+            by: { dx: 0.05, dy: 0 },
+            foo: 1,
+          },
+        ],
+      },
+    });
+
+    const sc = result.structuredContent as { ok: boolean; error?: string };
+    expect(sc.ok).toBe(false);
+    expect(result.isError).toBeFalsy();
+    expect(sc.error).toMatch(/^patches\[0\]\.foo /);
+    const texts = (result.content as { type: string; text: string }[]).filter(
+      (c) => c.type === "text",
+    );
+    // The refusal lists the keys an op takes.
+    expect(texts[0].text).toMatch(
+      /^INVALID: patches\[0\]\.foo is not one of target, at, region, by, falloff, why$/,
+    );
+    expect(fs.existsSync(outPath)).toBe(false);
+  });
+
   it("auto_rig_from_layers returns ok:false + INVALID: (not isError) for a bad path", async () => {
     pair = await createPair();
     const dir = tmpDir();
@@ -290,7 +381,7 @@ describe("MCP server integration", () => {
     expect(texts[0].text).toMatch(/^INVALID:/);
   });
 
-  it("auto_rig_from_layers leaves a malformed turnTargets or style to the tool schema, which the SDK answers with isError", async () => {
+  it("auto_rig_from_layers leaves a malformed turnTargets, style or patches op to the tool schema, which the SDK answers with isError", async () => {
     pair = await createPair();
     const dir = tmpDir();
     const layers = (await writeTurnLayers(dir)).map((p) => ({ path: p }));
@@ -302,6 +393,28 @@ describe("MCP server integration", () => {
       ["style", null],
       ["style", []],
       ["style", { turn: "1" }],
+      [
+        "patches",
+        [
+          {
+            target: "eyeWarp_R",
+            at: { ParamAngleX: -30, ParamAngleY: 0 },
+            region: { role: "eye_R", x: [0, 1], y: [0, 1] },
+            by: { dx: "1", dy: 0 },
+          },
+        ],
+      ],
+      [
+        "patches",
+        [
+          {
+            target: "eyeWarp_R",
+            at: { ParamAngleX: -30, ParamAngleY: 0 },
+            region: { role: "eye_R", x: [0, 0.5, 1], y: [0, 1] },
+            by: { dx: 0.05, dy: 0 },
+          },
+        ],
+      ],
     ] as const;
     for (const [i, [field, value]] of cases.entries()) {
       const outPath = path.join(dir, `malformed-${i}.iki`);
