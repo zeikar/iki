@@ -21,6 +21,7 @@ each constant is what it is.
 | `solve.ts`        | the profile in this head's pixels; fitting the cues; room, clamps, refusals; report                           |
 | `context.ts`      | what the solve reads off the layers; the lander that reads a rig back as drawn                                |
 | `checks.ts`       | input checks: a malformed layer throws, a malformed turn option `TurnTargetError`                             |
+| `patches.ts`      | the rig patch layer: `displace` ops replayed onto the generated rig's keyform stops                           |
 | `drivers.ts`      | everything but the turn: blink fold, gaze, brows, mouth, hair sway, roll hang                                 |
 | `animations.ts`   | the default expressions and motions, each described; filtered to the declared parameters                      |
 | `generate.ts`     | assembly: parts, meshes, deformers, parameters, physics, expressions, motions                                 |
@@ -483,6 +484,41 @@ was measured); `depths` each family's shift at ±30 as the depth a rotation
 would need for it (`shift / sin 30°`), in `holdBase` units; `radius` the
 curvature the plate would need to put the eyes that far in front of its edge.
 
+## Patches
+
+`options.patches` corrects a generated rig where its shape is wrong at one
+stop (a lock that crosses the cheek at AngleX −30) without hand-editing the
+model. An op is a `displace`: a delta added to ONE existing keyform stop of a
+target, over a region. It is a delta, not a coordinate, so the corrective
+shape stays keyed to the stop and is regenerated underneath: retune the
+layout or `style`, re-rig, and the patch lands on the new rig.
+
+- **Target** — a feature grid (`eyeWarp_L`/`_R`, `browWarp_L`/`_R`,
+  `noseWarp`, `mouthWarp`) or a mesh part with warps (`face`, `hair_front`, …).
+  `bodyWarp` and the matrix deformers are refused. `at` names the stop: a grid's,
+  both `ParamAngleX` and `ParamAngleY`, each of its stops, never both 0; a
+  part's, exactly one parameter at one of its warp keyform values.
+- **Region** — fractions of a role's REST layer box, origin top-left, y down,
+  free to reach past the box. A target point (a grid's lattice point, a
+  part's mesh vertex) takes the whole of `by` when its rest position lies
+  inside, a smoothstep share within `falloff`, nothing beyond.
+- **Units** — `by` and `falloff` are in face widths (the `face` layer's crop
+  width), on screen axes: +dx toward the viewer's right, +dy down.
+- **Rounding** — the contributions to an offset are summed in sorted order
+  and rounded once, as the generator rounds it: 0.1 px on a grid's offsets,
+  1e-4 on a part's local ones (stored over the part's width and height). Op
+  order never changes the model.
+- **Where it applies** — after the parts and grids are built, before
+  validation and the turn report, so the report describes the patched rig.
+  Every op is checked before any keyform changes: a refusal rigs nothing.
+- **Refused** — a malformed op or unknown key, target, role or stop; the rest
+  stop (the drawn art; patch a stop at ±30 instead); a part's by-design
+  closure (`SHUT_BY` at 0), which the fold check exempts, so a fold made there
+  would never be reported; a region that catches none of the target's points.
+  Each throws `PatchError`, `patches[i]…`, naming what there is instead.
+- **Echo** — `options.onPatchesApplied` gets a `PatchReport` per op: points
+  (or vertices) moved of all, a grid's columns and rows, the largest move.
+
 ## Everything else
 
 - **Blink** — the eye white folds to zero height on a crease, its upper edge
@@ -646,6 +682,11 @@ model with a pose forearm adds `Wave` (below the table).
 
 ## Known limits
 
+- A stop patch fades linearly to rest and reaches neighbouring poses by the
+  bilinear blend: half strength at 15°, none at the opposite corner. The fold
+  check samples rest, the singles and the corners, not between stops. The
+  body's own invariants (`refuseFold`, the cap bound, the far-iris bound) do
+  not see a patch.
 - The mouth fold shows no opening until the lips have parted about one stroke
   (MouthOpen ≈ w′/(H + w′)): the interior's top stays under the line's ink
   until `v·H > w′(1 − v)`. A mouth drawn as a dot, a
