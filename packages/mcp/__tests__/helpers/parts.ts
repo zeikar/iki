@@ -18,7 +18,7 @@ import sharp from "sharp";
 type RGB = [number, number, number];
 type SetPixel = (x: number, y: number, rgb: RGB, alpha?: number) => void;
 
-const WHITE: RGB = [255, 255, 255];
+export const WHITE: RGB = [255, 255, 255];
 const DARK: RGB = [20, 20, 30];
 export const SKIN: RGB = [240, 205, 180];
 const BLUE: RGB = [40, 90, 200];
@@ -30,6 +30,12 @@ const CREASE: RGB = [215, 190, 185];
 export const EYE_SHADE: RGB = [200, 205, 225];
 export const EYE_MARK_BELOW: RGB = [230, 190, 200];
 export const EYE_MARK_BESIDE: RGB = [240, 215, 150];
+// The marks writeEyewhite's `lidBand` paints beside the band: a shade on the
+// white as warm as the lid's skin (red over blue by 40), far enough off SKIN
+// in green and blue that resampling cannot carry one near the other, and a
+// crease as cool as the white.
+export const EYE_WARM_SHADE: RGB = [235, 180, 195];
+export const CREASE_COOL: RGB = [170, 170, 190];
 const BLUSH: RGB = [245, 160, 170];
 export const BLUSH_MARK: RGB = [200, 80, 100];
 export const SLEEVE: RGB = [70, 80, 160];
@@ -138,7 +144,14 @@ function rim(
  * the alpha 128 the split counts as painted. The marks the
  * white keeps: an EYE_SHADE band on its upper rows that touches it, an
  * EYE_MARK_BELOW dot under the lower rim, and an EYE_MARK_BESIDE dot past its
- * tear-duct end, level with the white there rather than above it.
+ * tear-duct end, level with the white there rather than above it. `lidBand`
+ * adds the lid's skin a drawn eye carries over its lash: a SKIN band 4 px
+ * thick directly outside the almond's upper edge, touching the lash rim and,
+ * in the unlashed tear-duct columns, the white itself, so the white and the
+ * band are one painted set. With it comes an EYE_WARM_SHADE band on the
+ * white's upper rows, painted like EYE_SHADE: as warm as the skin, but under
+ * the lash, so the white keeps it. `"creased"` adds a CREASE_COOL crease
+ * detached above the band, as light and cool as the white.
  */
 export async function writeEyewhite(
   dir: string,
@@ -147,6 +160,7 @@ export async function writeEyewhite(
     crease,
     lowerLid = true,
     faintLowerSpeck = false,
+    lidBand = false,
   }: {
     tearDuct?: "left" | "right";
     crease?: "short" | "long" | "bridged" | "translucent";
@@ -154,6 +168,8 @@ export async function writeEyewhite(
     lowerLid?: boolean;
     /** Dark residue under alpha 8 below the white, inside its frame. */
     faintLowerSpeck?: boolean;
+    /** The lid's skin drawn attached above the white. */
+    lidBand?: boolean | "creased";
   } = {},
 ): Promise<void> {
   await writeRgbaPart(dir, "eyewhite.png", 72, 48, (set) => {
@@ -184,6 +200,20 @@ export async function writeEyewhite(
         for (let x = 33; x <= 38; x++) set(x, y, EYE_MARK_BELOW);
       for (let y = 22; y <= 25; y++)
         for (let x = 69; x <= 71; x++) set(x, y, EYE_MARK_BESIDE);
+    }
+    if (lidBand) {
+      // Painted before the lash, which covers its outer 4 px.
+      rim(set, bounds, 36, 24, 64, 40, 8, (y) => y < 16, EYE_WARM_SHADE);
+      // The ring between the almond and the 72x48 ellipse round it: rows 0-3
+      // at the middle, x 1..70 at row 17. Rows under 18 keep it clear of the
+      // almond's ends (rows 20-27 at x 4 and 67), where a pixel level with
+      // the white's end is kept by design.
+      rim(set, bounds, 36, 24, 72, 48, 4, (y) => y < 18, SKIN);
+      // The ring 2 px outside the band's ellipse, with 2 transparent px
+      // between them; the image's top clips it over the middle, so it shows
+      // over the band's sides only.
+      if (lidBand === "creased")
+        rim(set, bounds, 36, 24, 80, 56, 2, (y) => y < 12, CREASE_COOL);
     }
     // The almond spans x 4..67; its end fifth is 13 px.
     const unlashed = (x: number) =>

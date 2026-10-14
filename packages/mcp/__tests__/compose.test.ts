@@ -17,9 +17,13 @@ import { denseCoreOf } from "../src/measure-turn";
 import { decodePng } from "../src/node-images";
 import {
   BLUSH_MARK,
+  CREASE_COOL,
   EYE_MARK_BELOW,
   EYE_MARK_BESIDE,
   EYE_SHADE,
+  EYE_WARM_SHADE,
+  SKIN,
+  WHITE,
   writeBodyWithMark,
   writeEyewhite,
   writePartsSet,
@@ -147,6 +151,33 @@ async function statsFor(dir: string, role: string) {
   return stats;
 }
 
+/** A composed layer's inked pixels (alpha over 8): how many, and the row of
+ *  each dark one (luma under 120). */
+async function inkRowsOf(dir: string, role: string) {
+  const png = await decodePng(path.join(dir, `${role}.png`));
+  const dark: number[] = [];
+  let inked = 0;
+  for (let y = 0; y < png.height; y++) {
+    for (let x = 0; x < png.width; x++) {
+      const i = (y * png.width + x) * 4;
+      if (png.rgba[i + 3] <= 8) continue;
+      inked++;
+      if (lumaAt(png.rgba, i) < 120) dark.push(y);
+    }
+  }
+  return { dark, inked };
+}
+
+/** The highest luma among the pixels of `rgba` at alpha 128 or over. */
+function lightestOpaque(rgba: Buffer): number {
+  let lightest = 0;
+  for (let i = 0; i < rgba.length; i += 4) {
+    if (rgba[i + 3] < 128) continue;
+    lightest = Math.max(lightest, lumaAt(rgba, i));
+  }
+  return lightest;
+}
+
 /**
  * The composed nose's dense core, in canvas px, read the way the composer
  * places it: a box's centre is `x + w/2` (pixel x covers [x, x+1)), and its
@@ -223,38 +254,24 @@ describe("composeLayersFromParts", () => {
     const eye = await statsFor(out, "eye_L");
     const lash = await statsFor(out, "lash_L");
     const lower = await statsFor(out, "lash_lower_L");
-    const rowsOf = async (role: string) => {
-      const png = await decodePng(path.join(out, `${role}.png`));
-      const dark: number[] = [];
-      let inked = 0;
-      for (let y = 0; y < png.height; y++) {
-        for (let x = 0; x < png.width; x++) {
-          const i = (y * png.width + x) * 4;
-          if (png.rgba[i + 3] <= 8) continue;
-          inked++;
-          if (lumaAt(png.rgba, i) < 120) dark.push(y);
-        }
-      }
-      return { dark, inked };
-    };
     const mid = eye.marginTop + eye.h / 2;
 
     // The sclera is the blink clip-mask shape: the upper lash was recoloured
     // white, so nothing dark survives in its top half. The lower lid stays as
     // drawn: whitened, a lash hanging below the white would show as a flick.
-    const sclera = await rowsOf("eye_L");
+    const sclera = await inkRowsOf(out, "eye_L");
     expect(sclera.dark.length).toBeGreaterThan(0);
     expect(Math.min(...sclera.dark)).toBeGreaterThan(mid);
 
     // The lash inks only the TOP of the shared frame — that is the fold that
     // covers the closed-eye seam, rather than the eye shrinking in place.
-    const upper = await rowsOf("lash_L");
+    const upper = await inkRowsOf(out, "lash_L");
     expect(Math.max(...upper.dark)).toBeGreaterThan(eye.marginTop);
     expect(Math.max(...upper.dark)).toBeLessThanOrEqual(mid);
 
     // The lower lid inks only the bottom, all of it dark: it is the ink the
     // iris would otherwise paint over.
-    const lowerRows = await rowsOf("lash_lower_L");
+    const lowerRows = await inkRowsOf(out, "lash_lower_L");
     expect(lowerRows.dark.length).toBe(lowerRows.inked);
     expect(Math.min(...lowerRows.dark)).toBeGreaterThan(mid);
 
@@ -363,12 +380,7 @@ describe("composeLayersFromParts", () => {
       // The lash still carries only the dark rim: none of the crease's light
       // ink moved into it.
       const lashPng = await decodePng(path.join(dir, `lash_${side}.png`));
-      let lightest = 0;
-      for (let i = 0; i < lashPng.rgba.length; i += 4) {
-        if (lashPng.rgba[i + 3] < 128) continue;
-        lightest = Math.max(lightest, lumaAt(lashPng.rgba, i));
-      }
-      expect(lightest).toBeLessThan(120);
+      expect(lightestOpaque(lashPng.rgba)).toBeLessThan(120);
     }
     expect(r.measure.warnings.filter((w) => /^lash_/.test(w))).toEqual([]);
   });
@@ -476,6 +488,73 @@ describe("composeLayersFromParts", () => {
       expect(eye.marginTop).toBe(lash.marginTop);
     }
     expect(r.measure.warnings.filter((w) => /^lash_/.test(w))).toEqual([]);
+  });
+
+  it("drops the lid's skin drawn attached above the eye white from the sclera", async () => {
+    // The band touches the lash rim and, in the unlashed tear-duct columns,
+    // the white itself, so the detached rule reads it as part of the white.
+    const lidded = partsDir();
+    await writePartsSet(lidded, { omit: ["eyewhite.png"] });
+    await writeEyewhite(lidded, { tearDuct: "right", lidBand: true });
+    const dir = outDir();
+    const r = await composeOk({ partsDir: lidded, outDir: dir });
+
+    // The frame is still the source's alpha bbox, the band's rows and all
+    // (70x44, 98x62 at w 98), so no layout moves.
+    const frame = await statsFor(lidded, "eyewhite");
+    expect([frame.w, frame.h]).toEqual([70, 44]);
+    for (const role of ["eye_L", "eye_R", "lash_L", "lash_R"]) {
+      const layer = r.layers.find((l) => l.role === role)!;
+      expect(layer.height).toBe(Math.round((frame.h * layer.width) / frame.w));
+    }
+    const source = await decodePng(path.join(lidded, "eyewhite.png"));
+    expect(countNear(source.rgba, SKIN)).toBeGreaterThan(0);
+    // The lower lids are written too.
+    expect(r.skipped).toEqual([]);
+    for (const side of ["L", "R"]) {
+      // The sclera is the iris's clip: a band left in it lets the iris show
+      // above the lash at rest, and at half blink the fold carries it over
+      // the iris's rows. The lash rim is the top of both.
+      const eye = await statsFor(dir, `eye_${side}`);
+      const lash = await statsFor(dir, `lash_${side}`);
+      expect(eye.marginTop).toBe(lash.marginTop);
+      const sclera = await decodePng(path.join(dir, `eye_${side}.png`));
+      expect(countNear(sclera.rgba, SKIN)).toBe(0);
+      expect(countNear(sclera.rgba, WHITE)).toBeGreaterThan(0);
+      // The warm shade under the lash is as warm as the skin, but below the
+      // lash's lowest row it is the white's, and stays.
+      expect(countNear(sclera.rgba, EYE_WARM_SHADE)).toBeGreaterThan(0);
+      // The lower lid still inks below the eye's middle, and the lash still
+      // carries only the dark rim: none of the band moved into it.
+      const lower = await inkRowsOf(dir, `lash_lower_${side}`);
+      expect(lower.dark.length).toBeGreaterThan(0);
+      expect(Math.min(...lower.dark)).toBeGreaterThan(
+        eye.marginTop + eye.h / 2,
+      );
+      const lashPng = await decodePng(path.join(dir, `lash_${side}.png`));
+      expect(lightestOpaque(lashPng.rgba)).toBeLessThan(120);
+    }
+    expect(
+      r.measure.warnings.filter((w) => /^lash_|^eye_.*facing/.test(w)),
+    ).toEqual([]);
+  });
+
+  it("drops the lid's skin under a crease as cool as the eye white", async () => {
+    // The crease is detached above the band, but light and cool, so it must
+    // not pass for the white's top in its columns and stop the cut there.
+    const creased = partsDir();
+    await writePartsSet(creased, { omit: ["eyewhite.png"] });
+    await writeEyewhite(creased, { tearDuct: "right", lidBand: "creased" });
+    const dir = outDir();
+    await composeOk({ partsDir: creased, outDir: dir });
+
+    const source = await decodePng(path.join(creased, "eyewhite.png"));
+    expect(countNear(source.rgba, CREASE_COOL)).toBeGreaterThan(0);
+    expect(countNear(source.rgba, SKIN)).toBeGreaterThan(0);
+    for (const side of ["L", "R"]) {
+      const sclera = await decodePng(path.join(dir, `eye_${side}.png`));
+      expect(countNear(sclera.rgba, SKIN)).toBe(0);
+    }
   });
 
   it("keys the white ground out of a part that arrived without alpha", async () => {

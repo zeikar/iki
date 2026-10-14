@@ -102,6 +102,13 @@ const EYE_LASH_LUMA = 120;
 // an arc that folds DOWN over the eye on blink instead of a full ring that
 // shrinks in place; those below it are the lower lid's line and lashes.
 const LASH_KEEP_FRACTION = 0.5;
+// A light pixel whose red exceeds its blue by this much is the lid's skin, not
+// the white. Measured on five drawn eyewhites: each sclera's median r - b sits
+// between -11 (mint's blue-white) and 0, and each lid band's 5th percentile
+// between 37 and 55 (silver-hood's band 242,208,191, mint's 231,196,184). A
+// cool shade painted on the white (the test fixture's 200,205,225) runs blue
+// over red, so it can never match.
+const EYE_LID_WARMTH = 30;
 
 interface RoleLayout {
   /** Part file name in the parts dir (the eye pair's two are split in memory). */
@@ -1078,6 +1085,19 @@ function detachedAboveWhite(rgba: Buffer, W: number, H: number): Uint8Array {
  * path. The frame is still the source's alpha bbox, crease and all, so the
  * layout places the pair where it did before.
  *
+ * The lid's skin drawn as a band over the lash is dropped from the sclera too.
+ * It meets the white at the corners, so the detached rule keeps it as the
+ * white's; left in the clip, the rig's `blinkFold` carries it over the iris's
+ * rows at half blink, where the lash its `lashFold` folds does not cover it,
+ * and a taller iris shows through it above the lash at rest. The cut takes
+ * only warm skin (painted, light, red over blue by EYE_LID_WARMTH) above both
+ * its column's white top and the lowest dark row there. Its limits: a lid as
+ * cool as the white is not told apart from it; the band's antialiased edge
+ * under alpha ALPHA_OPAQUE is not cut, so it stays in the clip as the white's
+ * fringe, a faint outline of the band; and a sclera tinted warmer than the
+ * rule everywhere has no white top, so it is left whole. The frame is
+ * unchanged.
+ *
  * Both come back as PNG buffers. The script this ports wrote them back into the
  * parts dir, but that dir is an INPUT here (reads are deliberately unconfined),
  * so the tool never writes there — only under the confined outDir.
@@ -1112,6 +1132,47 @@ async function prepEyeSplit(
   // Dark pixels above this row are the upper lash; below it, the lower lid.
   const lashCutoffY = minY + LASH_KEEP_FRACTION * (maxY - minY + 1);
   const detached = detachedAboveWhite(data, W, H);
+  const isDark = (i: number) =>
+    data[i + 3] > 0 && luma(data, i) < EYE_LASH_LUMA;
+  const isLight = (i: number) =>
+    data[i + 3] >= ALPHA_OPAQUE && luma(data, i) >= EYE_LASH_LUMA;
+  const isWarm = (i: number) => data[i] - data[i + 2] >= EYE_LID_WARMTH;
+  // Each column's white top: its first painted, light, cool pixel that is not
+  // a mark detached above the white (a cool crease would stop the cut).
+  const whiteTop = new Int32Array(W).fill(-1);
+  for (let x = 0; x < W; x++) {
+    for (let y = 0; y < H; y++) {
+      const i = (y * W + x) * 4;
+      if (!detached[y * W + x] && isLight(i) && !isWarm(i)) {
+        whiteTop[x] = y;
+        break;
+      }
+    }
+  }
+  // The columns outside the outermost two with a white top take the nearer
+  // one's. A column between them with no cool pixel stays -1 and is left
+  // uncut, and with no white top anywhere nothing is cut.
+  let first = 0;
+  while (first < W && whiteTop[first] === -1) first++;
+  if (first < W) {
+    let last = W - 1;
+    while (whiteTop[last] === -1) last--;
+    whiteTop.fill(whiteTop[first], 0, first);
+    whiteTop.fill(whiteTop[last], last + 1);
+  }
+  // The row the lid's skin is cut above: the lowest dark row over the white,
+  // or the white's top where the column draws none. Any dark pixel counts,
+  // a lash tail hanging past lashCutoffY too, so a misread keeps skin rather
+  // than cutting under the lash.
+  const lidStop = Int32Array.from(whiteTop);
+  for (let x = 0; x < W; x++) {
+    for (let y = whiteTop[x] - 1; y >= 0; y--) {
+      if (isDark((y * W + x) * 4)) {
+        lidStop[x] = y;
+        break;
+      }
+    }
+  }
 
   const sclera = Buffer.from(data);
   const lash = Buffer.from(data);
@@ -1120,12 +1181,13 @@ async function prepEyeSplit(
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const i = (y * W + x) * 4;
-      const isDark = data[i + 3] > 0 && luma(data, i) < EYE_LASH_LUMA;
+      const dark = isDark(i);
       const upper = y <= lashCutoffY;
-      if (isDark && upper) sclera[i] = sclera[i + 1] = sclera[i + 2] = 255; // dark -> white
+      if (dark && upper) sclera[i] = sclera[i + 1] = sclera[i + 2] = 255; // dark -> white
       if (detached[y * W + x]) sclera[i + 3] = 0;
-      if (!(isDark && upper)) lash[i + 3] = 0;
-      if (isDark && !upper) lowerInk = true;
+      if (y < lidStop[x] && isLight(i) && isWarm(i)) sclera[i + 3] = 0;
+      if (!(dark && upper)) lash[i + 3] = 0;
+      if (dark && !upper) lowerInk = true;
       else lashLower[i + 3] = 0;
     }
   }
