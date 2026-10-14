@@ -3,6 +3,8 @@
  * file-name → role parse every host runs before measuring.
  */
 
+import { StandardParameter as P } from "@ikijs/format";
+
 /** Which turn family a role rides: each family is baked on its own grid. */
 export type Family =
   | "face"
@@ -41,6 +43,23 @@ export type LipInsideRole = (typeof LIP_INSIDE_ROLES)[number];
 
 export const isLipInsideRole = (role: string): role is LipInsideRole =>
   (LIP_INSIDE_ROLES as readonly string[]).includes(role);
+
+/**
+ * The parts the auto-rig flattens on purpose, each with the parameter that
+ * shuts it at 0: an eye's sclera and lower lid as ITS OWN lid closes, and the
+ * lip set with its tongue and teeth as the mouth shuts. A fold check exempts
+ * these closures; a patch may not land on them.
+ */
+export const SHUT_BY: ReadonlyMap<string, string> = new Map([
+  ["eye_L", P.EyeOpenLeft],
+  ["lash_lower_L", P.EyeOpenLeft],
+  ["eye_R", P.EyeOpenRight],
+  ["lash_lower_R", P.EyeOpenRight],
+  ...[...LIP_ROLES, ...LIP_INSIDE_ROLES].map((id): [string, string] => [
+    id,
+    P.MouthOpen,
+  ]),
+]);
 
 /** Back to front. `@ikijs/mcp`'s composer draws in the same order. */
 export const ROLE_TABLE: readonly RoleSpec[] = [

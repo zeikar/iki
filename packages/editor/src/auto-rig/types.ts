@@ -1,7 +1,7 @@
 /**
  * The public shapes of the auto-rig: what a host hands `generateIkiFromLayerSet`
- * and what the turn solve reports back. Pixel measurement lives in
- * `layer-measure.ts`; everything here is already-decoded geometry.
+ * and what the turn solve and the patch replay report back. Pixel measurement
+ * lives in `layer-measure.ts`; everything here is already-decoded geometry.
  */
 
 import { TURN, type RigStyle } from "./profile";
@@ -155,6 +155,67 @@ export interface TurnSolveReport {
   /** Targets cut down to what this layer set can do. */
   clamped: (keyof TurnTargets)[];
   strandOverlap?: { left?: StrandOverlap; right?: StrandOverlap };
+}
+
+/**
+ * One `displace` op of the rig patch layer: a displacement ADDED to one
+ * EXISTING keyform stop of `target` on the freshly generated rig, so it is
+ * replayed on every re-rig over whatever the generator now bakes. Every other
+ * stop and the rest pose stay as generated; between stops the engine blends
+ * linearly, so a fix at AngleX −30 shows at half strength at −15.
+ */
+export interface RigPatch {
+  /** A feature grid (`eyeWarp_L`/`_R`, `browWarp_L`/`_R`, `noseWarp`,
+   *  `mouthWarp`) or a mesh part with warps (`face`, `hair_front`, …). The
+   *  body warp and the matrix deformers are not patchable. */
+  target: string;
+  /** The stop. A grid's names both `ParamAngleX` and `ParamAngleY`, each one
+   *  of its stops (−30, 0, 30), never both 0; a part's names exactly one
+   *  parameter it has a warp keyform at, never at that parameter's default
+   *  nor where the rig shuts the part on purpose (`SHUT_BY` at 0). */
+  at: Record<string, number>;
+  /** A rectangle in fractions of the REST layer box of `role`, origin
+   *  top-left, x right, y DOWN; it may reach past the box (x < 0 or > 1).
+   *  The target's points whose REST position lies inside take the whole of
+   *  `by`. */
+  region: { role: string; x: [number, number]; y: [number, number] };
+  /** In face widths (the `face` layer's crop width), screen axes: +dx toward
+   *  the viewer's right (a character's `_L` side), +dy DOWN. */
+  by: { dx: number; dy: number };
+  /** Face widths past the region over which `by` eases to nothing; 0 or
+   *  absent, a hard edge. */
+  falloff?: number;
+  /** Why the op exists, for whoever edits the patches next; the rig ignores
+   *  it. */
+  why?: string;
+}
+
+/** What one op moved on the rig it was replayed on. */
+export interface PatchReport {
+  /** The op's index in `patches`. */
+  index: number;
+  target: string;
+  at: Record<string, number>;
+  /** Points (grid) or vertices (part) the op moved at all. */
+  moved: number;
+  /** All of the target's points or vertices. */
+  of: number;
+  /** Grid targets only: the lattice columns and rows the moved points span,
+   *  0 at the left and at the top. */
+  cols?: [number, number];
+  rows?: [number, number];
+  /** The largest move, model px. */
+  maxPx: number;
+}
+
+/** A patch op that is malformed or misses the rig: an unknown target, role,
+ *  key or stop, the rest stop, a by-design closure, or a region that catches
+ *  none of the target's points. Its message starts `patches[i]`. */
+export class PatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PatchError";
+  }
 }
 
 export interface HeadEdges {
