@@ -227,7 +227,7 @@ export function generateIkiFromLayerSet(
   // --- the turn ---
   const ctx = solveContext(solveFrame, byRole, turnOptions, hasNose);
   const boxes: TurnModel["boxes"] = Object.fromEntries(
-    (["eye_L", "eye_R", "brow_L", "brow_R"] as const)
+    (["eye_L", "eye_R", "iris_L", "iris_R", "brow_L", "brow_R"] as const)
       .filter(has)
       .map((r) => [r, box(r)]),
   );
@@ -660,9 +660,15 @@ function buildPart(
   };
 }
 
+/** Vertex rows between the cap's limit and the irises' top the ramp wants. */
+const RAMP_ROWS = 3;
+/** The smallest cell a ramp row may leave, px. */
+const MIN_RAMP_CELL = 4;
+
 /** The front hair's mesh grid over its box `b`: even cells no coarser than a
  *  fraction of the head, plus columns where its follow bends, so the mesh
- *  carries the bends exactly. */
+ *  carries the bends exactly, plus rows between the cap and the irises where
+ *  it has fewer than `RAMP_ROWS`, which the cap's blend ramps out over. */
 function hairFrontGrid(
   b: Box,
   frame: HeadFrame,
@@ -691,6 +697,29 @@ function hairFrontGrid(
     { length: rows + 1 },
     (_, r) => b.y1 - (bh(b) * r) / rows,
   );
+  // The cap's blend ramps out over the rows between its limit and the irises'
+  // top pixel row's centre, so a coarse mesh gets rows strictly between them
+  // (and inside the box, so the cap's rows never change): the widest segment
+  // is halved until three rows lie there, or none is 8 px, so no cell under
+  // 4 px is made.
+  const eyes = [boxes.eye_L, boxes.eye_R].filter((e) => e !== undefined);
+  const irises = [boxes.iris_L, boxes.iris_R].filter((e) => e !== undefined);
+  if (eyes.length > 0 && irises.length > 0) {
+    const eyeY = eyes.reduce((t, e) => t + (e.y0 + e.y1) / 2, 0) / eyes.length;
+    const eyeH = eyes.reduce((t, e) => t + (e.y1 - e.y0), 0) / eyes.length;
+    const hi = Math.min(eyeY + 1.5 * eyeH, b.y1);
+    const lo = Math.max(Math.max(...irises.map((e) => e.y1)) - 0.5, b.y0);
+    for (;;) {
+      const edges = [hi, ...ys.filter((y) => y < hi && y > lo), lo];
+      if (edges.length - 2 >= RAMP_ROWS) break;
+      let gap = 0;
+      for (let i = 1; i + 1 < edges.length; i++)
+        if (edges[i] - edges[i + 1] > edges[gap] - edges[gap + 1]) gap = i;
+      if (edges[gap] - edges[gap + 1] < 2 * MIN_RAMP_CELL) break;
+      ys.push((edges[gap] + edges[gap + 1]) / 2);
+      ys.sort((p, q) => q - p);
+    }
+  }
   return { xs, ys };
 }
 

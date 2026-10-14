@@ -61,6 +61,13 @@ export interface CharacterOptions {
   /** Bangs cut short: a fringe over the forehead only, the back hair
    *  drawing the head's outline. */
   shortFringe?: boolean;
+  /** As `shortFringe`, both hair layers carrying their opaque runs: the
+   *  fringe one run over its whole width (columns 380–621), the back hair one
+   *  solid run (columns 370–631) on every row, 10 px past the fringe's ends,
+   *  so the fringe's edges are bound and blend. The fringe is 200 px tall (to
+   *  row 350, model y 150), so its last row lies under the cap's limit but
+   *  above the eyes' top (model y 100). */
+  shortFringeRuns?: boolean;
   /** The optional eye and cheek roles: pupils, highlights, blush. */
   extras?: boolean;
   /** A back hair drawn wide behind the bangs — ±310 at the eye row, the
@@ -88,6 +95,9 @@ export interface CharacterOptions {
    *  down pass over it looking down, while the rows above them, backed 58 px
    *  past their edges, never do. */
   tuckedTemple?: boolean;
+  /** As `fullBack`, but the eyes are 30 px tall (rows 418–448, about the same
+   *  centre), so their top (row 418) lies 22 px under the irises' (row 396). */
+  shallowEyes?: boolean;
   /** As `fullBack`, but on the solid band (the eye rows, below the cap) each
    *  lock's outer edge sits at ±200 (canvas columns 300 and 701), 30 px past
    *  the eyes' outer corners, over back hair solid out to 2 px past them. */
@@ -266,7 +276,8 @@ export function character(opts: CharacterOptions = {}): {
     nose = true,
     hair = true,
     fringe = false,
-    shortFringe = false,
+    shortFringe: shortFringeOnly = false,
+    shortFringeRuns = false,
     extras = false,
     tuft = false,
     dip = false,
@@ -279,6 +290,7 @@ export function character(opts: CharacterOptions = {}): {
     narrowCap = false,
     tuckedTemple = false,
     tightLock = false,
+    shallowEyes = false,
   } = opts;
   // The `fullBack` variant an option names, if any.
   const variant = (
@@ -296,6 +308,7 @@ export function character(opts: CharacterOptions = {}): {
       ["tightLock", tightLock],
     ] as const
   ).find(([, on]) => on)?.[0];
+  const shortFringe = shortFringeOnly || shortFringeRuns;
   const fullBack = opts.fullBack === true || variant !== undefined;
   const face = { x: 300, y: 200, w: 401, h: 560 };
   const halfWidths = faceRows(face.h);
@@ -316,8 +329,18 @@ export function character(opts: CharacterOptions = {}): {
           }
         : {}),
     }),
-    layer("eye_R", { x: 330, y: 400, w: 130, h: 66 }),
-    layer("eye_L", { x: 541, y: 400, w: 130, h: 66 }),
+    layer("eye_R", {
+      x: 330,
+      y: shallowEyes ? 418 : 400,
+      w: 130,
+      h: shallowEyes ? 30 : 66,
+    }),
+    layer("eye_L", {
+      x: 541,
+      y: shallowEyes ? 418 : 400,
+      w: 130,
+      h: shallowEyes ? 30 : 66,
+    }),
     layer("iris_R", { x: 358, y: 396, w: 74, h: 74 }),
     layer("iris_L", { x: 569, y: 396, w: 74, h: 74 }),
     layer("lash_R", { x: 330, y: 400, w: 130, h: 35 }),
@@ -351,9 +374,19 @@ export function character(opts: CharacterOptions = {}): {
     );
   }
   if (hair && shortFringe) {
+    const solid = (h: number, run: number[]) =>
+      Array.from({ length: h }, () => run);
     layers.push(
-      layer("hair_back", { x: 110, y: 20, w: 780, h: 980 }),
-      layer("hair_front", { x: 380, y: 150, w: 241, h: 180 }),
+      layer(
+        "hair_back",
+        { x: 110, y: 20, w: 780, h: 980 },
+        shortFringeRuns ? { rowRuns: solid(980, [370, 631]) } : {},
+      ),
+      layer(
+        "hair_front",
+        { x: 380, y: 150, w: 241, h: shortFringeRuns ? 200 : 180 },
+        shortFringeRuns ? { rowRuns: solid(200, [380, 621]) } : {},
+      ),
     );
     // The back hair draws the outline at the eye row; the fringe stops
     // above the eyes, so no strand crosses an iris's row.

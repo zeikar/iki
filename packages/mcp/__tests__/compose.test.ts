@@ -129,6 +129,35 @@ function countNear(rgba: Buffer, rgb: readonly number[]): number {
   return n;
 }
 
+/** The columns of a decoded PNG's pixels near `rgb` (`isNear`). */
+function columnsNear(
+  png: { rgba: Buffer; width: number },
+  rgb: readonly number[],
+): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < png.rgba.length; i += 4)
+    if (isNear(png.rgba, i, rgb)) out.push((i / 4) % png.width);
+  return out;
+}
+
+/** No lid skin in the sclera's lashed columns: what remains lies in the
+ *  tear-duct end's fifth of the eye's own width (the fixture's right 30 %
+ *  before the flip, the left after it). */
+function expectSkinOnlyAtTearDuct(png: { rgba: Buffer; width: number }): void {
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  for (let i = 3; i < png.rgba.length; i += 4) {
+    if (png.rgba[i] === 0) continue;
+    const x = ((i - 3) / 4) % png.width;
+    x0 = Math.min(x0, x);
+    x1 = Math.max(x1, x);
+  }
+  for (const x of columnsNear(png, SKIN)) {
+    const at = (x - x0) / (x1 - x0);
+    expect(at < 0.3 || at > 0.7, `skin at ${at.toFixed(2)}`).toBe(true);
+  }
+}
+
 /** The mean column of a decoded PNG's pixels near `rgb` (`isNear`). */
 function meanColumnNear(
   png: { rgba: Buffer; width: number },
@@ -493,6 +522,8 @@ describe("composeLayersFromParts", () => {
   it("drops the lid's skin drawn attached above the eye white from the sclera", async () => {
     // The band touches the lash rim and, in the unlashed tear-duct columns,
     // the white itself, so the detached rule reads it as part of the white.
+    // Only the lashed columns are cut: a lash-free column's band and the
+    // white's own warm shading sit on the white alike.
     const lidded = partsDir();
     await writePartsSet(lidded, { omit: ["eyewhite.png"] });
     await writeEyewhite(lidded, { tearDuct: "right", lidBand: true });
@@ -519,11 +550,20 @@ describe("composeLayersFromParts", () => {
       const lash = await statsFor(dir, `lash_${side}`);
       expect(eye.marginTop).toBe(lash.marginTop);
       const sclera = await decodePng(path.join(dir, `eye_${side}.png`));
-      expect(countNear(sclera.rgba, SKIN)).toBe(0);
+      expectSkinOnlyAtTearDuct(sclera);
       expect(countNear(sclera.rgba, WHITE)).toBeGreaterThan(0);
       // The warm shade under the lash is as warm as the skin, but below the
       // lash's lowest row it is the white's, and stays.
-      expect(countNear(sclera.rgba, EYE_WARM_SHADE)).toBeGreaterThan(0);
+      const layer = r.layers.find((l) => l.role === `eye_${side}`)!;
+      const area = (layer.width / frame.w) * (layer.height / frame.h);
+      // The share of the source's shade the sclera keeps, by area: about
+      // 0.77 as drawn (the lash covers its outer rows and the resample blurs
+      // its edge), 0.58 when the cut takes the shade in the lash-free
+      // tear-duct columns.
+      expect(
+        countNear(sclera.rgba, EYE_WARM_SHADE) /
+          (area * countNear(source.rgba, EYE_WARM_SHADE)),
+      ).toBeGreaterThan(0.7);
       // The lower lid still inks below the eye's middle, and the lash still
       // carries only the dark rim: none of the band moved into it.
       const lower = await inkRowsOf(dir, `lash_lower_${side}`);
@@ -553,7 +593,7 @@ describe("composeLayersFromParts", () => {
     expect(countNear(source.rgba, SKIN)).toBeGreaterThan(0);
     for (const side of ["L", "R"]) {
       const sclera = await decodePng(path.join(dir, `eye_${side}.png`));
-      expect(countNear(sclera.rgba, SKIN)).toBe(0);
+      expectSkinOnlyAtTearDuct(sclera);
     }
   });
 

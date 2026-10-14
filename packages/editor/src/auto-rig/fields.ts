@@ -55,7 +55,9 @@ export interface TurnModel {
   /** Landmarks: each eye white's and brow's box, the nose's landmark and
    *  bridge top, the mouth anchor (`mouth.ts`): the closed drawing's centre,
    *  or the lip set's seam. */
-  boxes: Partial<Record<"eye_L" | "eye_R" | "brow_L" | "brow_R", Box>>;
+  boxes: Partial<
+    Record<"eye_L" | "eye_R" | "iris_L" | "iris_R" | "brow_L" | "brow_R", Box>
+  >;
   noseAt?: { x: number; y: number };
   noseTopY?: number;
   mouthAt: { x: number; y: number };
@@ -68,7 +70,7 @@ export interface TurnModel {
 
 /** The front hair's mesh grid, model coords: its vertex columns left to
  *  right (even columns plus those where its follow bends), and its vertex
- *  rows top to bottom, evenly spaced. */
+ *  rows top to bottom (even rows, plus those the cap's ramp needs). */
 export interface HairFrontGrid {
   xs: number[];
   ys: number[];
@@ -437,6 +439,9 @@ function hairFrontField(m: TurnModel): Field {
     followAt,
     eyeY + 1.5 * eyeH,
     eyeY + eyeH / 2,
+    Math.max(
+      ...[m.boxes.iris_L, m.boxes.iris_R].map((b) => b?.y1 ?? -Infinity),
+    ),
   );
   const followOf = (x: number, y: number, s: number) =>
     followAt(x, y, s) + (ride === undefined ? 0 : ride.lift(x, y, s));
@@ -472,19 +477,22 @@ function crownBlend(m: TurnModel, y: number): number {
   return 1 - smoothstep(top, Math.max(top + 1, m.hairTop), y);
 }
 
-/** Where model y falls among the evenly spaced vertex rows `ys` (top to
- *  bottom), as the render interpolates between them: the row above it, `r`,
- *  and its share `t` of the way to the next. With `snap`, a vertex — whose y
- *  the mesh rounds to 1e-5 of its box — reads its own row alone. */
+/** Where model y falls among the vertex rows `ys` (top to bottom), as the
+ *  render interpolates between them: the row above it, `r`, and its share `t`
+ *  of the way to the next. With `snap`, a vertex — whose y the mesh rounds to
+ *  1e-5 of its box — reads its own row alone. */
 function gridRow(
   ys: number[],
   y: number,
   snap = false,
 ): { r: number; t: number } {
   const n = ys.length;
-  let v = clamp(((ys[0] - y) / (ys[0] - ys[n - 1])) * (n - 1), 0, n - 1);
+  const yc = clamp(y, ys[n - 1], ys[0]);
+  let r = 0;
+  while (r < n - 2 && ys[r + 1] >= yc) r++;
+  let v = r + (ys[r] - yc) / (ys[r] - ys[r + 1]);
   if (snap && Math.abs(v - Math.round(v)) < 1e-3) v = Math.round(v);
-  const r = Math.min(n - 2, Math.floor(v));
+  r = Math.min(n - 2, Math.floor(v));
   return { r, t: v - r };
 }
 
@@ -711,12 +719,19 @@ interface CapEdge {
  * inside its interval — on a crown row, the whole bound — and going up from
  * the plate's top no crown row blends less than the one under it, nor does
  * any cap row. Under a cap row at or below the plate's top the blend falls
- * no faster than evenly, to nothing at the first vertex row at or below the
- * eyes' top (`eyeTop`, where the far eye's lead is whole), so a strand leans
+ * no faster than evenly in distance, to nothing at the first vertex row at or below the
+ * eyes' top (`eyeTop`, where the far eye's lead is whole; stepped up a row
+ * at a time while it lies under the irises' top, `irisTop`, so no painted
+ * iris row takes any of the ramp, and no further than the row under the
+ * cap's last; `hairFrontGrid` adds rows, inside its box, between the cap's
+ * limit and the irises' top up to three where it had fewer and the span can
+ * take them in cells of 4 px or more; a span thinner than
+ * that keeps the rows it has, so the ramp there is as short as they allow), so a
+ * strand leans
  * across those rows instead of bending in one; a cap row with no bound edge
  * of its own ramps too. That vertex row and those under it keep today's
  * motion, where the far eye's lock and the turn solve's far-iris bound
- * (`strand.y`) read it; the pixel rows between the eyes' top and that row
+ * (`strand.y`) read it; the pixel rows between that row and the one above
  * take a fading share of the row above's blend — its blend times their
  * distance from that row over one row interval — so they leave today's
  * motion by at most the row above's change times the slab over one row
@@ -731,7 +746,8 @@ interface CapEdge {
  *
  * So at every angle of the turn, the nod and the roll the cap's edge goes no
  * further outside the back hair than the nod alone puts it. From the first
- * vertex row at or below the eyes' top down the front hair keeps today's
+ * vertex row at or below the eyes' top (or the row above, past a shallow
+ * eye) down the front hair keeps today's
  * motion, so the lock over the far eye still goes as far as that eye's
  * corner and the turn solve's far-iris bound is untouched; and the sway
  * springs, which swing each layer by its own height, are bounded by nothing.
@@ -743,6 +759,7 @@ function outerRide(
   followAt: Follow,
   capLimit: number,
   eyeTop: number,
+  irisTop: number,
 ): OuterRide | undefined {
   const f = m.frame;
   const grid = m.hairFrontGrid;
@@ -997,19 +1014,33 @@ function outerRide(
   // it and the rows under it keep today's motion.
   let zero = last + 1;
   while (zero < n && ys[zero] > eyeTop) zero++;
+  // A shallow eye can put that row under the irises' top: step back up to the
+  // row at or above the centre of the irises' top pixel row (a row below the
+  // zero row is untouched), so the ramp never reaches a painted iris row; it
+  // goes no further up than the row under the cap's last, where it is only the
+  // cap's.
+  while (zero > last + 1 && zero < n && ys[zero] < irisTop - 0.5) zero--;
   // Under a cap row at or below the plate's top the blend falls no faster
-  // than evenly, to nothing at `zero`: a strand leans across those rows
+  // than evenly in distance, to nothing at `zero`: a strand leans across those rows
   // instead of bending in one. A crown row starts no ramp: its blend acts
   // only within its own-motion share w (plus `crownRide`'s extra), so it is
   // not how far the strand lags the face, and a crown top blending 1 would
   // ramp the whole cap off the face.
-  for (let j = 0; j < 2; j++) {
+  // Where it ends, y: `zero`'s row, or — hair that ends above the eyes' top
+  // has none — the row it would sit on, the eyes' top stepped back to the
+  // irises' top pixel row's centre, kept under the mesh's last row. With every
+  // row on the cap there is nothing to ramp over.
+  const endY =
+    zero < n
+      ? ys[zero]
+      : Math.min(Math.max(eyeTop, irisTop - 0.5), ys[n - 1] - 1);
+  for (let j = 0; j < 2 && last < n - 1; j++) {
     for (let r = 1; r < zero; r++) {
       for (let q = 0; q < r && q <= last; q++) {
         if (wr[q] < 1) continue;
         blend[r * 2 + j] = Math.max(
           blend[r * 2 + j],
-          (blend[q * 2 + j] * (zero - r)) / (zero - q),
+          (blend[q * 2 + j] * (ys[r] - endY)) / (ys[q] - endY),
         );
       }
     }

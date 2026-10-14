@@ -111,20 +111,21 @@ export function gridMesh(cols: number, rows: number): IkiMesh {
   return { vertices, uvs, indices };
 }
 
-/** A mesh over `b` on `grid`; row 0 on top, each cell split as `gridMesh`'s. */
+/** A mesh over `b` on `grid` (rows need not be even); row 0 on top, each cell split as `gridMesh`'s. */
 export function columnMesh(
   b: Box,
   grid: { xs: number[]; ys: number[] },
 ): IkiMesh {
-  const { xs } = grid;
-  const rows = grid.ys.length - 1;
+  const { xs, ys } = grid;
+  const rows = ys.length - 1;
   const vertices: number[] = [];
   const uvs: number[] = [];
   for (let r = 0; r <= rows; r++) {
+    const v = (ys[0] - ys[r]) / (ys[0] - ys[rows]);
     for (const x of xs) {
       const u = (x - b.x0) / bw(b);
-      vertices.push(roundTo(u - 0.5, 1e-5), roundTo(0.5 - r / rows, 1e-5));
-      uvs.push(roundTo(u, 1e-5), roundTo(r / rows, 1e-5));
+      vertices.push(roundTo(u - 0.5, 1e-5), roundTo(0.5 - v, 1e-5));
+      uvs.push(roundTo(u, 1e-5), roundTo(v, 1e-5));
     }
   }
   const n = xs.length;

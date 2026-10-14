@@ -685,7 +685,8 @@ describe("the head turn", () => {
     /** The front hair's vertex rows `ys`, model y top to bottom; the cap's
      *  last, `last`: the last that pairs, with the row above it, to form a
      *  cell whose rows both lie at least 1.5 eye heights above the eye row;
-     *  `zero`, the first under it at or below the eyes' top; and the face
+     *  `zero`, the first under it at or below the eyes' top, or the row above
+     *  that while it lies under the irises' top; and the face
      *  plate's top, at or below which a row is the front hair's own, no
      *  crown — read off the eye and face boxes and the front hair's mesh. */
     const capRows = (m: IkiModel) => {
@@ -703,6 +704,14 @@ describe("the head turn", () => {
         if (ys[r] >= eyeY + 1.5 * eyeH) last = r;
       let zero = last + 1;
       while (zero < ys.length && ys[zero] > eyeY + eyeH / 2) zero++;
+      // ... stepped back up while it lies under the irises' top.
+      const irisTop = Math.max(
+        ...["iris_L", "iris_R"].map(
+          (id) => part(id).transform.y + part(id).height / 2,
+        ),
+      );
+      while (zero > last + 1 && zero < ys.length && ys[zero] < irisTop - 0.5)
+        zero--;
       const face = part("face");
       return { ys, last, zero, plateTop: face.transform.y + face.height / 2 };
     };
@@ -1165,7 +1174,7 @@ describe("the head turn", () => {
 
     it("ramps the cap's blend out evenly below the cap, to nothing at the eyes' top", () => {
       // Under each cap row at or below the plate's top the blend falls no
-      // faster than evenly, to nothing at the first vertex row at or below
+      // faster than evenly in distance, to nothing at the first vertex row at or below
       // the eyes' top (`zero`): each row blends the most of those rows'
       // blends so scaled, or its own where that is more. A row that binds
       // nothing of its own takes the ramp exactly: fullBack's and the tuft's
@@ -1186,7 +1195,7 @@ describe("the head turn", () => {
       for (const [name, m, held, unbound] of cases) {
         const { ys, last, zero, plateTop } = capRows(m);
         const row = (r: number) => Math.round(500 - ys[r]);
-        expect(row(zero), name).toBe(410);
+        expect(row(zero), name).toBe(383);
         // The ramp's sources.
         const sources = ys
           .map((_, q) => q)
@@ -1201,7 +1210,7 @@ describe("the head turn", () => {
             const ramp = Math.max(
               ...sources
                 .filter((q) => q < r)
-                .map((q) => (b[q] * (zero - r)) / (zero - q)),
+                .map((q) => (b[q] * (ys[r] - ys[zero])) / (ys[q] - ys[zero])),
             );
             const at = `${label}, row ${row(r)}`;
             expect(b[r], at).toBeGreaterThan(ramp - 0.01);
@@ -1215,6 +1224,168 @@ describe("the head turn", () => {
               `${label}, row ${row(r)}`,
             ).toBeLessThan(1e-3);
           }
+        }
+      }
+    });
+
+    it("leaves the turn alone when shallow eyes put the eyes' top under the irises", () => {
+      // 30 px eyes put the first vertex row at or below their top (row 418)
+      // under the irises' top (row 396): the ramp ends at the row above it
+      // instead, so none of it falls over an iris row. The span between the
+      // cap and the irises is 7.5 px, too thin to take a row, so the ramp is
+      // as short as the existing rows allow. The turn keeps the eyes' shift
+      // (0.1943, as without the ramp; 0.1379 with it ended below the irises)
+      // and no iris under a strand.
+      const { report, model } = rig({ fullBack: true, shallowEyes: true });
+      const { ys, last } = capRows(model);
+      expect(Math.round(500 - ys[last])).toBe(370);
+      expect(report!.achieved.eyeShift).toBeGreaterThan(0.19);
+      expect(report!.strandOverlap).toBeUndefined();
+      // No vertex row at or below the irises' top pixel row's centre blends.
+      const held = rig(
+        { fullBack: true, shallowEyes: true },
+        {},
+        { drop: ALL_RUNS },
+      ).model;
+      for (const ax of [-30, 30]) {
+        const b = blends(model, held, ys, ax);
+        ys.forEach((y, r) => {
+          if (y <= 500 - 396 - 0.5)
+            expect(
+              b[r],
+              `AngleX ${ax}, row ${Math.round(500 - y)}`,
+            ).toBeCloseTo(0, 2);
+        });
+      }
+    });
+
+    it("spreads the cap's blend over rows between the cap and the irises", () => {
+      // The ramp needs rows to fall over: tuckedTemple at hairFollow 2 has the
+      // front hair's cap riding 62 px with the back hair over the rows the
+      // face's follow leaves at -3 px, and one 40 px cell between the cap's
+      // last row and the irises' top would jump all 65 px in it. With the
+      // mesh refined to three rows there, no adjacent pair of vertex rows at
+      // the axis steps over 0.45 of that (the widest is 27 px).
+      const JUMP = 0.45 * 65;
+      for (const [name, opts, style] of [
+        ["tuckedTemple", { tuckedTemple: true }, { hairFollow: 2 }],
+      ] as const) {
+        const { model } = rig(opts, {}, { style });
+        const { ys, last } = capRows(model);
+        const irisTop = Math.max(
+          ...["iris_L", "iris_R"].map((id) => {
+            const p = model.parts.find((q) => q.id === id)!;
+            return p.transform.y + p.height / 2;
+          }),
+        );
+        const between = ys.filter((y, r) => r > last && y > irisTop);
+        expect(between.length, name).toBeGreaterThanOrEqual(3);
+        for (const ax of [-30, 30]) {
+          let widest = 0;
+          for (let r = 1; r < ys.length; r++) {
+            const dx =
+              edge(model, "hair_front", 0, ys[r], ax) -
+              edge(model, "hair_front", 0, ys[r - 1], ax);
+            widest = Math.max(widest, Math.abs(dx));
+          }
+          expect(widest, `${name}, AngleX ${ax}`).toBeLessThan(JUMP);
+        }
+      }
+    });
+
+    it("falls evenly in distance over the ramp's cells, whatever their heights", () => {
+      // The refined rows split a cell unevenly (the cap's last row to the
+      // first new one is wider than the new ones): a blend even per row would
+      // pack its fall into the narrow cells. The step per px of height over
+      // the cells from the cap's last row to the ramp's end stays within 1.5×
+      // of its mean.
+      for (const [name, opts, style] of [
+        ["tuckedTemple", { tuckedTemple: true }, { hairFollow: 2 }],
+      ] as const) {
+        const { model } = rig(opts, {}, { style });
+        const { ys, last, zero } = capRows(model);
+        expect(zero - last, name).toBeGreaterThanOrEqual(3);
+        for (const ax of [-30, 30]) {
+          const slopes: number[] = [];
+          for (let r = last + 1; r <= zero; r++)
+            slopes.push(
+              Math.abs(
+                edge(model, "hair_front", 0, ys[r], ax) -
+                  edge(model, "hair_front", 0, ys[r - 1], ax),
+              ) /
+                (ys[r - 1] - ys[r]),
+            );
+          const mean = slopes.reduce((a, b) => a + b) / slopes.length;
+          expect(Math.max(...slopes), `${name}, AngleX ${ax}`).toBeLessThan(
+            1.5 * mean,
+          );
+        }
+      }
+    });
+
+    it("adds no row outside the front hair's box to cropped bangs, and ramps them to a finite end", () => {
+      // shortFringe's bangs end above the eyes' rows, so the span between the
+      // cap's limit and the irises lies under their box: its mesh rows stay
+      // the box's even ones, from its top (model y 350) to its bottom (170).
+      const m = rig({ shortFringe: true }).model;
+      const part = m.parts.find((p) => p.id === "hair_front")!;
+      const ys = [...new Set(part.mesh!.vertices.filter((_, i) => i % 2))]
+        .map((u) => part.transform.y + u * part.height)
+        .sort((a, b) => b - a);
+      expect(ys[0]).toBeCloseTo(350, 3);
+      expect(ys[ys.length - 1]).toBeCloseTo(170, 3);
+      const step = (ys[0] - ys[ys.length - 1]) / (ys.length - 1);
+      ys.forEach((y, r) =>
+        expect(y, `row ${r}`).toBeCloseTo(350 - r * step, 2),
+      );
+
+      // With measured runs the hair's whole mesh lies above the eyes' top, so
+      // the ramp has no vertex row to end at: it ends at the row that vertex
+      // would sit on, the eyes' top, finite and under every mesh row.
+      const st = {};
+      const withRuns = rig({ shortFringeRuns: true }, {}, st).model;
+      const held = rig(
+        { shortFringeRuns: true },
+        {},
+        { ...st, drop: ALL_RUNS },
+      ).model;
+      const { ys: rows, last } = capRows(withRuns);
+      for (const p of withRuns.parts)
+        for (const w of p.warps ?? [])
+          for (const k of w.keyforms)
+            for (const o of k.offsets)
+              expect(Number.isFinite(o), `${p.id} ${w.parameter}`).toBe(true);
+      const partOf = (id: string) => withRuns.parts.find((q) => q.id === id)!;
+      const eyeTop = Math.max(
+        ...["eye_L", "eye_R"].map(
+          (id) => partOf(id).transform.y + partOf(id).height / 2,
+        ),
+      );
+      const irisTop = Math.max(
+        ...["iris_L", "iris_R"].map(
+          (id) => partOf(id).transform.y + partOf(id).height / 2,
+        ),
+      );
+      const end = Math.min(
+        Math.max(eyeTop, irisTop - 0.5),
+        rows[rows.length - 1] - 1,
+      );
+      expect(last, "the cap's last row is not the mesh's").toBeLessThan(
+        rows.length - 1,
+      );
+      for (const ax of [-30, 30]) {
+        const b = blends(withRuns, held, rows, ax);
+        const sources = rows
+          .map((_, q) => q)
+          .filter((q) => q <= last && rows[q] <= capRows(withRuns).plateTop);
+        for (let r = 1; r < rows.length; r++) {
+          const ramp = Math.max(
+            0,
+            ...sources
+              .filter((q) => q < r)
+              .map((q) => (b[q] * (rows[r] - end)) / (rows[q] - end)),
+          );
+          expect(b[r], `AngleX ${ax}, row ${r}`).toBeGreaterThan(ramp - 0.01);
         }
       }
     });

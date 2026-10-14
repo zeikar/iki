@@ -1090,9 +1090,12 @@ function detachedAboveWhite(rgba: Buffer, W: number, H: number): Uint8Array {
  * white's; left in the clip, the rig's `blinkFold` carries it over the iris's
  * rows at half blink, where the lash its `lashFold` folds does not cover it,
  * and a taller iris shows through it above the lash at rest. The cut takes
- * only warm skin (painted, light, red over blue by EYE_LID_WARMTH) above both
- * its column's white top and the lowest dark row there. Its limits: a lid as
- * cool as the white is not told apart from it; the band's antialiased edge
+ * only warm skin (painted, light, red over blue by EYE_LID_WARMTH) above the
+ * lowest dark row over the white, in the columns that have a lash there.
+ * Its limits: a band drawn over a lash-free column (the tear duct, the
+ * corners) stays, since there colour alone cannot tell it from the white's
+ * own warm shading or caruncle; a lid as cool as the white is not told apart
+ * from it; the band's antialiased edge
  * under alpha ALPHA_OPAQUE is not cut, so it stays in the clip as the white's
  * fringe, a faint outline of the band; and a sclera tinted warmer than the
  * rule everywhere has no white top, so it is left whole. The frame is
@@ -1161,10 +1164,11 @@ async function prepEyeSplit(
     whiteTop.fill(whiteTop[last], last + 1);
   }
   // The row the lid's skin is cut above: the lowest dark row over the white,
-  // or the white's top where the column draws none. Any dark pixel counts,
-  // a lash tail hanging past lashCutoffY too, so a misread keeps skin rather
-  // than cutting under the lash.
-  const lidStop = Int32Array.from(whiteTop);
+  // in a column with one only (-1: no cut). Any dark pixel counts, a lash
+  // tail hanging past lashCutoffY too, so a misread keeps skin rather than
+  // cutting under the lash. A lash-free column is never cut: there a lid band
+  // and the white's own warm shading or caruncle sit on the white alike.
+  const lidStop = new Int32Array(W).fill(-1);
   for (let x = 0; x < W; x++) {
     for (let y = whiteTop[x] - 1; y >= 0; y--) {
       if (isDark((y * W + x) * 4)) {
