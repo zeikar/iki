@@ -591,7 +591,7 @@ FINDINGS
    correction: <the exact prompt directive to use>
 2. [retune] target=<layout.json key, style.json knob, mirror-parts.json, or canvas.json canvasHeight>
    problem: <what is wrong, with the measured number>
-   correction: <new value or direction>
+   correction: <the key's new value or a delta on it, in the key's own terms — not a measured span: the lip opening's width is not `mouth_inner.w`, which sizes the whole keyed frame>
 3. [patch] target=<warp2d grid or part, from rig-view> at=<its stop, e.g. ParamAngleX=-30 ParamAngleY=0> region=<role> x=[a, b] y=[c, d] op=<i, only to change or retire accepted op i>
    problem: <what is wrong, on which render, with evidence>
    correction: <direction on screen axes and a first amount in face widths, e.g. dx +0.02; or "retire" (by 0)>

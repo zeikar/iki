@@ -27,7 +27,9 @@ No agent talks to another directly.
 
 - **Claude Code:** dispatch the bundled agents as `iki:iki-character-artist`
   and `iki:iki-character-critic`, and `iki:iki-character-appeal-critic` fresh
-  each round with only its inputs in the prompt.
+  each round with only its inputs in the prompt. A session started before the
+  plugin gained an agent cannot dispatch it by name: give a general-purpose
+  subagent that role file's body instead, as Codex does.
 - **Codex:** the Markdown files in `agents/` are role instructions, not
   registered agent types. Resolve the plugin root two directories above this
   skill's directory. Spawn a standard subagent for each role and tell it to
