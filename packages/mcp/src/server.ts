@@ -4,6 +4,7 @@ import type { PatchReport, RigPatch } from "@ikijs/editor";
 import {
   validateIki,
   describeIki,
+  describeIkiAt,
   listStandardParameters,
   autoRigFromLayers,
 } from "./tools";
@@ -65,16 +66,33 @@ export function createIkiMcpServer(): McpServer {
     "describe_iki",
     {
       description:
-        "Summarizes a valid model's canvas/params/parts/deformers and its expressions and motion clips (with the descriptions a host picks them by); returns an error for an invalid model.",
+        "Summarizes a valid model's canvas/params/parts/deformers and its expressions and motion clips (with the descriptions a host picks them by); returns an error for an invalid model. It is also the patch writer's view of a rigged model: each part's rest box in model px and in bust-render px, each part's warp stops, each warp2d's stops, and faceWidth, which is what an auto_rig_from_layers `patches` op is aimed with. Pass exactly one of model or modelPath; prefer modelPath for a written rig so a large model never crosses your context.",
       inputSchema: {
         model: z
           .unknown()
+          .optional()
           .describe("Raw .iki model JSON (object or JSON string)"),
+        modelPath: z
+          .string()
+          .optional()
+          .describe(
+            "Path to a written .iki model (relative to the working directory, inside it)",
+          ),
       },
     },
-    async ({ model }) => {
+    async ({ model, modelPath }) => {
       try {
-        const r = describeIki(model);
+        if ((model === undefined) === (modelPath === undefined)) {
+          const error = "pass model or modelPath";
+          return {
+            content: [{ type: "text", text: `INVALID: ${error}` }],
+            structuredContent: { ok: false, error },
+          };
+        }
+        const r =
+          modelPath !== undefined
+            ? describeIkiAt(modelPath)
+            : describeIki(model);
         const text = r.ok
           ? JSON.stringify(r.summary, null, 2)
           : `INVALID: ${r.error}`;

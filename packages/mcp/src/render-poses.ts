@@ -52,7 +52,7 @@ export interface RenderPlan {
 // The playground's view width for a full body, in model widths.
 const FULL_BODY_VIEW_WIDTH = 2.5;
 // The model's square is drawn this many px wide, in the whole shot or a crop.
-const BUST_SIZE = 560;
+export const BUST_SIZE = 560;
 
 export function planRenders(model: IkiModel): RenderPlan {
   const { width: W, height: H } = model.canvas;

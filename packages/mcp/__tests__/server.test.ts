@@ -174,6 +174,53 @@ describe("MCP server integration", () => {
     expect(sc.summary.name).toBe("test-model");
   });
 
+  it("describe_iki { modelPath } returns the patch writer's view of a written rig", async () => {
+    pair = await createPair();
+    const dir = tmpDir();
+    const paths = await writeRequiredLayers(dir);
+    const outPath = path.join(dir, "model.iki");
+    await pair.client.callTool({
+      name: "auto_rig_from_layers",
+      arguments: {
+        layers: paths.map((p) => ({ path: p })),
+        outputPath: outPath,
+      },
+    });
+
+    const result = await pair.client.callTool({
+      name: "describe_iki",
+      arguments: { modelPath: outPath },
+    });
+    expect(result.isError).toBeFalsy();
+    const sc = result.structuredContent as {
+      ok: true;
+      summary: {
+        faceWidth: number;
+        bustScale: number;
+        parts: { id: string; box: { w: number }; bustBox: { w: number } }[];
+      };
+    };
+    expect(sc.ok).toBe(true);
+    const face = sc.summary.parts.find((p) => p.id === "face")!;
+    expect(sc.summary.faceWidth).toBe(face.box.w);
+    expect(face.bustBox.w).toBeCloseTo(face.box.w * sc.summary.bustScale, 0);
+  });
+
+  it("describe_iki with neither or both of model and modelPath is INVALID text, not isError", async () => {
+    pair = await createPair();
+    for (const args of [{}, { model: validModel(), modelPath: "model.iki" }]) {
+      const result = await pair.client.callTool({
+        name: "describe_iki",
+        arguments: args,
+      });
+      expect(result.isError).toBeFalsy();
+      const texts = (result.content as { type: string; text: string }[]).filter(
+        (c) => c.type === "text",
+      );
+      expect(texts[0].text).toBe("INVALID: pass model or modelPath");
+    }
+  });
+
   it("list_standard_parameters returns 28 entries under structuredContent.parameters", async () => {
     pair = await createPair();
     const result = await pair.client.callTool({

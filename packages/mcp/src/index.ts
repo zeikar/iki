@@ -1,11 +1,13 @@
 export {
   validateIki,
   describeIki,
+  describeIkiAt,
   listStandardParameters,
   autoRigFromLayers,
   type ValidateResult,
   type DescribeResult,
   type IkiSummary,
+  type PartSummary,
   type DeformerSummary,
   type StandardParameterInfo,
   type AutoRigInput,

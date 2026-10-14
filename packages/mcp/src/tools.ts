@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   parseIkiModel,
@@ -30,6 +31,7 @@ import {
 } from "@ikijs/editor";
 import type { FoldReport } from "@ikijs/engine";
 import { checkModelFolds } from "./fold-report";
+import { BUST_SIZE } from "./render-poses";
 import {
   decodePng,
   cropToBuffer,
@@ -45,6 +47,7 @@ import {
   MAX_TOTAL_PIXELS,
   MAX_OUTPUT_BYTES,
   resolveInputPath,
+  confineToWorkingDirectory,
   resolveOutputPath,
   writeFileAtomic,
 } from "./limits";
@@ -55,12 +58,28 @@ export interface IkiSummary {
   name: string;
   canvas: { width: number; height: number };
   parameters: { id: string; min: number; max: number; default: number }[];
-  parts: { id: string; order: number; deformer?: string }[];
+  parts: PartSummary[];
   deformers: DeformerSummary[];
+  /** The `face` part's width in model px: the unit a rig patch op's `by` and `falloff` are measured in. */
+  faceWidth?: number;
+  /** Bust-render px per model px (`BUST_SIZE / canvas.width`). */
+  bustScale: number;
   /** Each expression's id and the description a host picks it by. */
   expressions: { id: string; description: string }[];
   /** Each motion group's clip descriptions, by clip index. */
   motions: Record<string, string[]>;
+}
+
+export interface PartSummary {
+  id: string;
+  order: number;
+  deformer?: string;
+  /** Rest box in model px from the canvas top-left, y down; the frame of the fold lines and `layout.json`. */
+  box: { x: number; y: number; w: number; h: number };
+  /** The same box in bust-render px. */
+  bustBox: { x: number; y: number; w: number; h: number };
+  /** The part's own warps: parameter and the keyform stop values. */
+  warps?: { parameter: string; stops: number[] }[];
 }
 
 export interface DeformerSummary {
@@ -75,6 +94,8 @@ export interface DeformerSummary {
         parameterY: string;
         gridX: number;
         gridY: number;
+        stopsX: number[];
+        stopsY: number[];
       };
 }
 
@@ -119,12 +140,37 @@ export function describeIki(model: unknown): DescribeResult {
     default: p.default,
   }));
 
-  const parts = m.parts.map((p) => {
-    const entry: { id: string; order: number; deformer?: string } = {
+  const W = m.canvas.width;
+  const H = m.canvas.height;
+  const bustScale = BUST_SIZE / W;
+  const tenth = (n: number) => Math.round(n * 10) / 10;
+  const parts = m.parts.map((p): PartSummary => {
+    // The auto-rig's deformers carry no rest transform, so the part's own
+    // transform places it.
+    const box = {
+      x: W / 2 + p.transform.x - p.width / 2,
+      y: H / 2 - p.transform.y - p.height / 2,
+      w: p.width,
+      h: p.height,
+    };
+    const entry: PartSummary = {
       id: p.id,
       order: p.order,
+      box,
+      bustBox: {
+        x: tenth(box.x * bustScale),
+        y: tenth(box.y * bustScale),
+        w: tenth(box.w * bustScale),
+        h: tenth(box.h * bustScale),
+      },
     };
     if (p.deformer !== undefined) entry.deformer = p.deformer;
+    if (p.warps !== undefined && p.warps.length > 0) {
+      entry.warps = p.warps.map((w) => ({
+        parameter: w.parameter,
+        stops: w.keyforms.map((k) => k.value),
+      }));
+    }
     return entry;
   });
 
@@ -142,6 +188,8 @@ export function describeIki(model: unknown): DescribeResult {
             parameterY: d.warp2d.parameterY,
             gridX: d.grid.cols,
             gridY: d.grid.rows,
+            stopsX: d.warp2d.valuesX,
+            stopsY: d.warp2d.valuesY,
           };
         } else if (d.warps !== undefined && d.warps.length > 0) {
           entry.warp = {
@@ -175,9 +223,32 @@ export function describeIki(model: unknown): DescribeResult {
     deformers,
     expressions,
     motions,
+    bustScale,
   };
+  const face = m.parts.find((p) => p.id === "face");
+  if (face !== undefined) summary.faceWidth = face.width;
 
   return { ok: true, summary };
+}
+
+/**
+ * `describeIki` on a written model, read from `modelPath` (confined to the
+ * working directory like `renderPoses`), so a large model never crosses an
+ * agent's context inline.
+ */
+export function describeIkiAt(modelPath: string): DescribeResult {
+  try {
+    const modelFile = confineToWorkingDirectory(
+      process.cwd(),
+      resolveInputPath(modelPath, "model"),
+      "model path",
+      modelPath,
+    );
+    return describeIki(readFileSync(modelFile, "utf8"));
+  } catch (e) {
+    if (e instanceof AutoRigInputError) return { ok: false, error: e.message };
+    throw e;
+  }
 }
 
 // Static map of standard parameter ids to human-readable descriptions,

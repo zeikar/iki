@@ -13,6 +13,7 @@ import {
 import {
   validateIki,
   describeIki,
+  describeIkiAt,
   listStandardParameters,
   autoRigFromLayers,
   type AutoRigTurnTargets,
@@ -135,6 +136,15 @@ describe("describeIki", () => {
           ...validModel().parts[0],
           deformer: "faceWarp",
           mesh: warpChildMesh(),
+          warps: [
+            {
+              parameter: "ParamA",
+              keyforms: [
+                { value: -1, offsets: Array(6).fill(0) },
+                { value: 0.5, offsets: Array(6).fill(1) },
+              ],
+            },
+          ],
         },
       ],
     };
@@ -149,9 +159,20 @@ describe("describeIki", () => {
     expect(summary.parameters).toEqual([
       { id: "ParamA", min: -1, max: 1, default: 0 },
     ]);
+    // 800x600 canvas, a 100x100 part at the centre: left/top = 350/250, and
+    // the bust render is 560 / 800 = 0.7 px per model px.
     expect(summary.parts).toEqual([
-      { id: "part1", order: 0, deformer: "faceWarp" },
+      {
+        id: "part1",
+        order: 0,
+        deformer: "faceWarp",
+        box: { x: 350, y: 250, w: 100, h: 100 },
+        bustBox: { x: 245, y: 175, w: 70, h: 70 },
+        warps: [{ parameter: "ParamA", stops: [-1, 0.5] }],
+      },
     ]);
+    expect(summary.bustScale).toBeCloseTo(0.7, 10);
+    expect(summary.faceWidth).toBeUndefined();
 
     expect(summary.deformers).toHaveLength(2);
 
@@ -252,7 +273,85 @@ describe("describeIki", () => {
       parameterY: "ParamY",
       gridX: 2,
       gridY: 1,
+      stopsX: [-30, 0, 30],
+      stopsY: [-30, 30],
     });
+    expect(summary.bustScale).toBeCloseTo(0.7, 10);
+    expect(summary.faceWidth).toBeUndefined();
+    expect(summary.parts[0].warps).toBeUndefined();
+  });
+
+  it("puts a part's box at its transform and reports faceWidth from the face part", () => {
+    const base = validModel();
+    const result = describeIki({
+      ...base,
+      parts: [
+        { ...base.parts[0], id: "face", width: 200, height: 120 },
+        {
+          ...base.parts[0],
+          id: "eye_L",
+          order: 1,
+          width: 40,
+          height: 20,
+          transform: { x: -60, y: 30 },
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.summary.faceWidth).toBe(200);
+    // x: 400 - 60 - 20 = 320; y (y up in the model): 300 - 30 - 10 = 260.
+    expect(result.summary.parts[1].box).toEqual({
+      x: 320,
+      y: 260,
+      w: 40,
+      h: 20,
+    });
+    expect(result.summary.parts[1].bustBox).toEqual({
+      x: 224,
+      y: 182,
+      w: 28,
+      h: 14,
+    });
+  });
+});
+
+describe("describeIkiAt", () => {
+  const dirs: string[] = [];
+  afterAll(() => {
+    for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
+  });
+  function modelFile(): string {
+    const d = fs.mkdtempSync(
+      path.join(process.cwd(), "node_modules", ".iki-mcp-describe-"),
+    );
+    dirs.push(d);
+    const file = path.join(d, "model.iki");
+    fs.writeFileSync(file, JSON.stringify(validModel()));
+    return file;
+  }
+
+  it("returns the summary describeIki gives the written JSON", () => {
+    const file = modelFile();
+    expect(describeIkiAt(file)).toEqual(describeIki(validModel()));
+    expect(describeIkiAt(file).ok).toBe(true);
+  });
+
+  it("refuses a path outside the working directory", () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "iki-mcp-outside-"));
+    dirs.push(d);
+    const outside = path.join(d, "model.iki");
+    fs.writeFileSync(outside, JSON.stringify(validModel()));
+    const r = describeIkiAt(outside);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("model path");
+  });
+
+  it("refuses a missing file", () => {
+    const r = describeIkiAt(
+      path.join(process.cwd(), "node_modules", ".does-not-exist.iki"),
+    );
+    expect(r.ok).toBe(false);
   });
 });
 
