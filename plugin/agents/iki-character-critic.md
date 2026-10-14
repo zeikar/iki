@@ -101,9 +101,10 @@ artist agent applies your findings; the orchestrator arbitrates.
 - `round` — which iteration this is.
 - `scores` — the previous rounds' `SCORES:` lines, so you can compare each axis
   against its best so far (none on round 1).
-- `turn-clamped` — this round's artist's own `TURN:` line, verbatim: its
-  `turn.achieved`, `turn.clamped` and `turn.strandOverlap`, or "none" when no
-  turn was solved. `turn.achieved` is what the rig reports it renders at full
+- `turn-clamped` — the kept model's turn line, verbatim (this round's artist's
+  own `TURN:`, or its `TURN-CANDIDATE:` when the patch gate kept the
+  candidate): its `turn.achieved`, `turn.clamped` and `turn.strandOverlap`,
+  or "none" when no turn was solved. `turn.achieved` is what the rig reports it renders at full
   turn, as the mean of its −30 and +30 cues (`eyeShift` as a magnitude) —
   what your own measurement of the render is checked against (Step 1).
   `turn.clamped` names what this art's room cut down: the turn (`eyeShift`)
@@ -128,6 +129,23 @@ artist agent applies your findings; the orchestrator arbitrates.
   `eye_R` and `lash_lower_R` by `ParamEyeROpen`, and `mouth_inner`,
   `mouth_tongue`, `mouth_teeth`, `lip_lower` and `lip_upper` with
   `ParamMouthOpenY` at 0. `unavailable` means the server predates the report.
+- `rig-view` — the `describe_iki` summary of this round's model: each part's
+  rest `box` in model px from the canvas's top-left (y down) and the same box
+  as `bustBox` in `renders`' px (`bustScale` of them per model px),
+  `faceWidth` (the `face` part's width in model px, the unit a patch moves
+  by), the targets a `patch` can name with their stops — each part's `warps`
+  and each `warp2d` grid's `stopsX` / `stopsY` — and `parameters` with their
+  defaults. `unavailable` means the server predates it.
+- `patches` — the accepted patch ops (`[]` for none), already in the rig and
+  in every render, so a fix one of them made is not found again. A `patch`
+  that changes one names its index (`op=<i>`); one that made things worse is
+  retired the same way, its `by` set to 0.
+- `rejected` — the contents of `<workdir>/patches-rejected.json`: the ops the
+  patch gate turned down on their own pairs (`judged:`) or with their batch
+  (`batch:`), a re-rig stranded (`stale:`) or the rig refused (`refused:`),
+  each with its verdict. Name no `patch` that is the same op as a `judged:`
+  entry — the same target, stop and region role with the direction's signs
+  unchanged, in any amount; any other entry rules out only that exact op.
 
 Read every reference, `preview.png` and every render before writing anything.
 
@@ -439,9 +457,12 @@ reads too weak there is a `retune` of the placement that gave out (the eye in
 the iris — say which room ran out.
 
 Redrawing a part cannot put depth into a turn, so a head-turn (`ParamAngleX`)
-finding is a `style` retune first; it is an `escalate` only as a rig defect —
-a seam, a fold, a part detaching from the one it sits on — or as the
-render-vs-report discrepancy of Step 1.
+finding is a `style` retune first. A defect local to one feature at one stop
+that no knob reaches — the far eye riding over the ear at ±30, a bangs band
+shearing — is a `patch` next. It is an `escalate` only as a defect of the
+whole rig — a seam from draw order, a fold, a part detaching from the one it
+sits on across the whole head — or as the render-vs-report discrepancy of
+Step 1.
 
 At the `ParamAngleY` midpoint (15°) the question is whether the face reads as
 tipping — the features moving further than the plate, the face shortening a
@@ -449,9 +470,12 @@ little looking down — or the whole head slides up and down unchanged. No
 `style` knob reaches the nod: its keyforms are the profile's own vertical
 displacements, which `style.turn`, `featureLead`, `hairFollow` and
 `outlineFollow` (the turn's) and `style.blink` and `style.sway` (their own
-parameters) all leave as measured. A nod motion defect is therefore an
-`escalate` on `packages/editor/src/auto-rig/` with the 15° render as
-evidence, never a `style` retune.
+parameters) all leave as measured. A nod defect local to one feature (one
+feature sliding against its neighbour, say) is therefore a `patch` at the
+`ParamAngleY` stop past the 15° render, which shows it at half strength; a
+nod of the whole head that slides instead of tipping is an `escalate` on
+`packages/editor/src/auto-rig/` with the 15° render as evidence. Neither is a
+`style` retune.
 
 The deltas from Step 1 check the render against the rig's report, not whether
 the turn reads right: a delta within ±0.05 clears nothing about the look, and
@@ -492,8 +516,23 @@ Every finding carries a `type`, and the type decides who acts:
   naming the part file. On a full body with a pose forearm, `layout.forearm_pose_*`
   is among the retune targets, and on a lip set `layout.mouth_inner`. **Free** — recomposing and re-rigging cost nothing, so
   prefer this whenever it can work.
+- **`patch`** — the art and its placement are right and no `style` knob
+  reaches the defect, but one displacement at ONE existing keyform stop would:
+  a far feature over the ear at ±30, a bangs band shearing at a stop, a nod
+  defect local to one feature. Name the target and its stop from `rig-view`
+  (a `warp2d` grid, or a part with `warps`), the region as fractions of one
+  role's rest box (origin top-left, y down; read off its `box`, or its
+  `bustBox` against a render), the direction on screen axes and a first
+  amount in face widths (render px ÷ `bustScale` ÷ `faceWidth`), with the
+  render as evidence; a defect mirrored at the opposite stop is one finding
+  that says so. The op itself is the **iki-character** skill's Step 3
+  `patches`. **Free** — it re-rigs and spends no generation, but the
+  orchestrator keeps it only when a blind judge prefers it and nothing new
+  folds. What a patch cannot fix stays `escalate`: a seam from draw order,
+  ghosting, a texture sliding on its UVs, a `FOLD` line, anything across the
+  whole head. With `rig-view` `unavailable`, name no `patch`.
 - **`escalate`** — the fix lies outside the parts dir, `layout.json`,
-  `mirror-parts.json`, `style.json` and `canvas.json`:
+  `mirror-parts.json`, `style.json`, `canvas.json` and a `patch`:
   `packages/editor/src/auto-rig/`, the engine, the format. The artist is not allowed to touch
   these. State the file, the suspected cause and the evidence; the orchestrator
   decides.
@@ -508,7 +547,9 @@ the pose — unless a `measure_layers` warning this round already names that
 part: then it routes as that warning does.
 
 Before writing a `regenerate`, ask whether a `retune` would do. Historically
-most defects that _looked_ like bad art were placement constants.
+most defects that _looked_ like bad art were placement constants. Ask it of a
+`patch` too: a `retune` that would do comes first, and a `patch` comes before
+an `escalate` of a defect local to one feature at one stop.
 
 A render-vs-report delta beyond ±0.05 and a visual turn finding are separate
 findings even in the same round — list each on its own line with its own
@@ -551,7 +592,10 @@ FINDINGS
 2. [retune] target=<layout.json key, style.json knob, mirror-parts.json, or canvas.json canvasHeight>
    problem: <what is wrong, with the measured number>
    correction: <new value or direction>
-3. [escalate] target=<file:symbol>
+3. [patch] target=<warp2d grid or part, from rig-view> at=<its stop, e.g. ParamAngleX=-30 ParamAngleY=0> region=<role> x=[a, b] y=[c, d] op=<i, only to change or retire accepted op i>
+   problem: <what is wrong, on which render, with evidence>
+   correction: <direction on screen axes and a first amount in face widths, e.g. dx +0.02; or "retire" (by 0)>
+4. [escalate] target=<file:symbol>
    problem: <what is wrong, with evidence>
 
 PROGRESS

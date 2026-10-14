@@ -43,7 +43,7 @@ No agent talks to another directly.
   perform the artist and critic steps sequentially with the same ownership
   rules, rubric and caps, and the appeal checklist after the critic's step; it
   is not reference-blind (you have seen the reference), so say so in item
-  4's message to the user rather than claim it.
+  6's message to the user rather than claim it.
 
 MCP tool prefixes vary by host: resolve the bundled `iki` server's tools by
 their tool names. The render step needs no browser automation in either host.
@@ -72,8 +72,9 @@ defects are not art defects. From one real session, six defects:
 
 Four of six were code or constants. A critic that can only say "try again" would
 have burned the quota and never fixed them. So findings are typed —
-`regenerate` (billed), `retune` (free), `escalate` (orchestrator only) — and the
-artist routes on the type.
+`regenerate` (billed), `retune` (free), `patch` (free, kept only through a
+blind gate), `escalate` (orchestrator only) — and the artist routes on the
+type.
 
 ## This is not really a GAN
 
@@ -116,10 +117,14 @@ a missing parts dir. The `iki` repo ignores `iki-char/`; in any other project ad
 it to `.gitignore` before the first run, or the generated art lands in a commit.
 
 ```bash
-mkdir -p iki-char/parts iki-char/layers iki-char/renders/debug
+mkdir -p iki-char/parts iki-char/layers iki-char/renders/debug \
+  iki-char/renders/patch/before iki-char/renders/patch/after iki-char/renders/judge
 [ -f iki-char/layout.json ] || echo '{}' > iki-char/layout.json
 [ -f iki-char/style.json ] || echo '{}' > iki-char/style.json
+[ -f iki-char/patches.json ] || echo '{"patches":[]}' > iki-char/patches.json
+[ -f iki-char/patches-rejected.json ] || echo '{"rejected":[]}' > iki-char/patches-rejected.json
 [ -f iki-char/canvas.json ] || echo '{}' > iki-char/canvas.json
+rm -f iki-char/patches-candidate.json iki-char/iki-character-candidate.iki
 ```
 
 The seed lines only write a file that is missing, so re-entering or
@@ -129,8 +134,22 @@ gitignored, so an overwrite here has no repository copy to recover it from.
 `auto_rig_from_layers` (their defaults, and the recommended ranges a retune
 stays inside, are in the **iki-character** skill, Step 3), where `{}` is the
 profile every character starts from. Only the artist
-edits it, and only on a critic `retune`. `canvas.json` stays `{}` for a bust;
-a full body writes its `canvasHeight` there (below).
+edits it, and only on a critic `retune`. `patches.json` holds the accepted
+patch ops (that skill's Step 3 `patches`), which only the patch gate (Step 1)
+adds to; the artist only drops from it, for a part it redraws.
+`patches-rejected.json` is your log of what the gate turned down on its own
+pairs (`judged:`) or with its batch (`batch:`), a re-rig stranded (`stale:`)
+or the rig refused (`refused:`), each entry
+`{ "op": …, "round": N, "verdict": "…" }` under `rejected`. A `judged:`
+entry rules out the same op in any amount — the same `target`, `at` and
+`region.role` with `by` pointing the same way — and any other entry only
+that exact op; neither the critic nor the artist proposes a ruled-out op
+again. The `rm` line clears a proposal an
+interrupted run left unjudged; `patches.json` and `iki-character.iki` only
+ever hold accepted ops, so nothing else needs undoing. The `renders/patch/`
+and `renders/judge/` dirs are the gate's, since `render_poses` never creates
+one. `canvas.json` stays `{}` for a bust; a full body writes its
+`canvasHeight` there (below).
 
 Every image in the loop goes through the **iki-create-image** skill. Run its
 `--check` before the first one: without Codex on this machine, each billed
@@ -180,7 +199,9 @@ changing any of them mid-loop or on a restart invalidates every prior score.
 1. Dispatch **the artist** (see Host dispatch) with `reference` (the front view
    only — `gen-images.sh --ref` attaches it to every job), `workdir`, `round`,
    `style` (the contents of `<workdir>/style.json`, which its rig step passes
-   to `auto_rig_from_layers` when it is not empty), and both critics' findings
+   to `auto_rig_from_layers` when it is not empty), `patches` (the
+   `patches` array of `<workdir>/patches.json`, read at dispatch) with
+   `rejected` (`<workdir>/patches-rejected.json`'s), and both critics' findings
    (none on round 1). A full body
    also passes `reference-full` (`<workdir>/reference-full.png`, which its
    `body.png` and `arm.png` jobs attach instead), `reference-wave`
@@ -200,11 +221,114 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    **iki-create-image** skill's hand-off says, wait until they say the images
    are in place, then resume the SAME artist to pick, compose and rig them.
 
-   **An artist that returns no model otherwise ends the round the same way** —
-   a refused rig leaves nothing to render. Skip the render and the critic (there
-   is nothing to score), keep its escalation, and go to Step 2.
+   **An artist that returns `BLOCKED` on an accepted op** (an
+   `INVALID: patches[i]…` rigging the accepted array: a layout or grid change
+   stranded it) has not finished the round either: move that op from
+   `patches.json` to `patches-rejected.json`, its verdict `stale:` and the
+   message, then resume the SAME artist with the new `patches` to rig again —
+   the round goes on. Each `refused patch: <op> — <message>` in a report's
+   `ESCALATED` (a candidate op the artist gave up) goes to
+   `patches-rejected.json` the same way, its verdict `refused:` and the
+   message.
 
-2. **Render it** with the `iki` server's `render_poses` tool:
+   **An artist that returns no model otherwise ends the round as a usage
+   limit does** — a refused rig leaves nothing to render. Skip the render and
+   the critic (there is nothing to score), keep its escalation, and go to
+   Step 2.
+
+2. **Read the rig's view** once the artist returns a model: call the `iki`
+   server's `describe_iki { modelPath }` on `<workdir>/iki-character-base.iki`
+   when the artist's `PATCHES:` reads `proposed`, else on
+   `<workdir>/iki-character.iki` — this round's layers either way, and a patch
+   moves no box, stop or `faceWidth`, so it serves whichever model item 3
+   keeps. Keep its text as `rig-view` for the gate and the critic: each part's
+   rest `box` in model px from the top-left and `bustBox` in the bust renders'
+   px, `faceWidth`, the patchable targets with their stops, and `parameters`
+   with their defaults. Any `INVALID:` or error makes `rig-view`
+   `unavailable` — a server before 0.26.0 strips `modelPath` and complains
+   about the model instead.
+3. **The patch gate** — only when the artist's `PATCHES:` reads `proposed`.
+   Paths here are in `<workdir>`. To _discard the candidate_ is to delete
+   `patches-candidate.json` and `iki-character-candidate.iki` and
+   `mv iki-character-base.iki iki-character.iki`.
+
+   Diff `patches.json` (the accepted array, this round's drops included)
+   against `patches-candidate.json` by index: every op past the accepted
+   array's end, or at an index with any field changed, is a gated op. A
+   candidate shorter than `patches.json`, or with an op among the accepted
+   array's indices naming another `target`, `at` or `region.role` than the
+   accepted op there, has lost or shifted an op (a change in place keeps
+   those three): discard the candidate, log nothing, tell the user and go to
+   item 4. No gated op (the artist gave up its only proposal and re-rigged,
+   so the candidate equals the accepted array) leaves nothing to judge:
+   discard the candidate, log nothing and go to item 4 (`render_poses`
+   refuses an empty `poses`).
+
+   Build ONE pose list for the whole batch: per distinct `target` + `at` +
+   `region.role` among the gated ops (the long experiment's 12 ops needed
+   six), its stop (`values` the op's `at`) and its midpoint (each parameter
+   at `(stop + default) / 2`, the default from `rig-view`'s `parameters`:
+   `{ParamAngleX: -30}` → −15, `{ParamMouthOpenY: 1}` → 0.5). Name each from
+   the target, the role and the settings, unique across the batch
+   (`eyeWarp_R-eye_R-AngleX-30-AngleY0-stop`, `…-mid`; the tool refuses a
+   repeat), and crop it to the role's `box` in `rig-view` grown by half
+   `faceWidth` a side (the tool clamps it to the canvas). Then exactly two
+   `render_poses` calls with that list: `iki-character-base.iki` into
+   `renders/patch/before/` and `iki-character-candidate.iki` into
+   `renders/patch/after/`. Check each result's pose names against the ones
+   passed; a mismatch is an old server, so the gate cannot run: discard the
+   candidate, log nothing and tell the user.
+
+   Read both fold reports (the engine's set plus these poses). The
+   baseline's must read `FOLDS: none …`: a `FOLD` there is the critic's
+   escalation before any patch, so discard the candidate and log nothing.
+   No patch can be judged on a folding baseline, so patches are unavailable
+   until item 4's fold report reads `FOLDS: none …` again (see item 7); say
+   so to the user.
+
+   Then judge blind. Empty `renders/judge/`, and per pair flip a coin and
+   MOVE its before and after renders there as `pair<k>-A.png` and
+   `pair<k>-B.png` — move, not copy, so no file left on disk matches either
+   side — keeping the key to yourself. Dispatch ONE judge for every pair,
+   fresh, with nothing but those paths and this prompt (`<feature>` in plain
+   words for the op's role — "the eye on the left", "the front hair" — never
+   the op):
+
+   ```text
+   Open only the image paths listed below, and nothing else.
+   Each pair is the same character, in the same pose, rigged two ways.
+   For each pair: which side's <feature> reads more natural (no part
+   sliding over another, no seam, no squash)? Answer A, B or same, with
+   one phrase why.
+   pair1, <feature>: <pair1-A.png path> <pair1-B.png path>
+   …
+   ```
+
+   Claude Code: a general-purpose subagent; Codex: a standard subagent
+   spawned with `fork_turns: "none"` and never resumed. Without subagents no
+   judge is blind, and the gate cannot run, as on an old server.
+
+   ONE verdict for the whole batch. Decode each answer with your key into
+   `candidate`, `baseline` or `same`, its phrase kept. Accept when the judge
+   prefers the candidate on at least one pair and the baseline on none, AND the
+   candidate's fold report reads `FOLDS: none …`:
+   `mv patches-candidate.json patches.json`,
+   `mv iki-character-candidate.iki iki-character.iki`, delete
+   `iki-character-base.iki`, and the artist's `TURN-CANDIDATE:` becomes this
+   round's `TURN:`. Otherwise reject: append each gated op to
+   `patches-rejected.json` with the round and a verdict read off ITS OWN
+   pairs — the stop and midpoint of its `target` + `at` + `region.role`, as
+   decoded answers, never raw A/B. Own pairs with any `baseline`, or all
+   `same`, give `judged:` and those answers; otherwise (they favour it) the
+   verdict is `batch:` and what sank the batch (another op's pair, or the
+   candidate's `FOLD` line). Discard the candidate, and the artist's `TURN:`
+   (the baseline's) stands; `patches.json` was never touched, so it still
+   holds the accepted array with this round's drops. Say which, with the
+   decoded answers, in item 6's message. Neither `patches.json` nor
+   `iki-character.iki` ever holds an unjudged proposal, so an interrupted
+   gate leaves both accepted.
+
+4. **Render it** with the `iki` server's `render_poses` tool:
    `render_poses { modelPath: <workdir>/iki-character.iki, outDir: <workdir>/renders }`
    (`outDir` must already exist and sit under the server's cwd; Step 0 makes
    it). It needs `@ikijs/mcp` 0.24.0+, Node 22+ and an installed Chrome, Edge
@@ -245,19 +369,23 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `full-elbow-{l,r}-{m10,45,90}`, and with a pose forearm `full-pose-l`,
    `full-pose-r`, `full-pose-r-angle-m15`, `full-pose-r-angle-p15`,
    `full-pose-r-half`.
-3. Dispatch **the critic** (see Host dispatch) with `reference`, `reference-30`, `layers`,
+5. Dispatch **the critic** (see Host dispatch) with `reference`, `reference-30`, `layers`,
    `renders` (the returned paths other than `mouth-*` and `full-*`; each input
    below is a subset of the returned paths, so a stale file from an earlier
    round is never picked up), `turn-pair` (`<workdir>/renders/rest.png`,
    `turn-m30.png` and `turn-p30.png`), `mouth-renders` (the 15 `mouth-*.png`
    crops), `round`, `scores` (the previous rounds' `SCORES:` lines),
-   and `turn-clamped` (this round's artist's own `TURN:` line, verbatim — its
+   and `turn-clamped` (the KEPT model's turn line, verbatim: the artist's
+   `TURN:`, or its `TURN-CANDIDATE:` when item 3 accepted — its
    `turn.achieved`, `turn.clamped` and `turn.strandOverlap`, or "none" when no
    turn was solved) so the critic can check the render against the rig's own
-   report and tell a clamp this art forced from a new turn defect, and `folds`
-   (Step 2's fold report, verbatim and complete: every `FOLD` line or the one
+   report and tell a clamp this art forced from a new turn defect, `folds`
+   (item 4's fold report, verbatim and complete: every `FOLD` line or the one
    `FOLDS: none …` line, and the `FOLDS expected:` line when there is one; or
-   `unavailable` from a server before 0.25.0). It returns
+   `unavailable` from a server before 0.25.0), `rig-view` (item 2's text, or
+   `unavailable`), `patches` (the accepted array, `<workdir>/patches.json`
+   as item 3 left it) and `rejected` (`<workdir>/patches-rejected.json`'s,
+   so it names no patch the log rules out). It returns
    scores and typed findings. A full body also passes `reference-full`, `figure` (the
    contents of `<workdir>/figure.json`) and `body-renders` (the whole-canvas `full-*.png` poses) and, with a pose forearm,
    `reference-wave`; its `renders` and
@@ -284,8 +412,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    rig no longer draws. Then route by the critic's own closed-line check of the
    same round: if it names a `regenerate` of `mouth_keyed.png` or an `escalate`
    on `packages/editor/src/auto-rig/mouth.ts`, the `refer` rides on that
-   finding (the appeal critic's direction wins on the mouth's expression, item 5's
-   rule; item 4 names the combined fix as one job for the user's OK); if it names nothing, read the closed crop against the critic's
+   finding (the appeal critic's direction wins on the mouth's expression, item 7's
+   rule; item 6 names the combined fix as one job for the user's OK); if it names nothing, read the closed crop against the critic's
    rules. A line inside them (sag within the cap, ends tapered, no tick) that
    still reads V or over-lifted is the drawn arc's depth: a `regenerate` of
    `mouth_keyed.png` drawn shallower at the centre with the upper line flatter.
@@ -294,7 +422,7 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    by whether the closed line matches the drawing; the rig smooths it on
    purpose.
 
-4. Ask the user, every round whatever the verdict, once both critics
+6. Ask the user, every round whatever the verdict, once both critics
    have returned and the `refer` is typed, before the critic's verdict is acted on and before Step 2: list the
    absolute paths of `<workdir>/renders/rest.png`, `turn-p30.png` and
    `mouth-open-0-form-0.png` (a full body also `full-rest.png`) for the user
@@ -311,28 +439,36 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    the part — marked as the user's. The user's eye overrides a ratio that
    passes and a `ship` or `stop` verdict: the loop runs another round, within
    Step 2's caps. "fine" adds nothing.
-5. Route: `regenerate` and `retune` go back to the artist — a `retune` names a
+7. Route: `regenerate` and `retune` go back to the artist — a `retune` names a
    `layout.json` key, a `mirror-parts.json` entry or a `style.json` knob, or on
    a full body `canvas.json`'s `canvasHeight`. The appeal critic's `retune`s go
-   with them, marked as its own, and so does a `regenerate` item 4 approved; a
+   with them, marked as its own, and so does a `regenerate` item 6 approved; a
    `refer` typed as an `escalate` is handled as the critic's are. The reference
    keeps identity (hair, outfit, palette, the style the features are drawn in),
    so the critic wins there where the two disagree; on proportions,
    placement and expression within that look the appeal critic wins; the
-   user's reaction (item 4) overrides both.
+   user's reaction (item 6) overrides both.
+   The critic's `patch` findings go to the artist too, free like a `retune`:
+   a patch round spends no generation, so it counts toward no billed cap.
+   Once patches prove unavailable in a run — an artist's
+   `PATCHES: unavailable`, or a gate that could not run (item 3) — route that
+   run's `patch` findings as `escalate`; after a gate that found the baseline
+   folding, route them so until item 4's fold report reads `FOLDS: none …`
+   again, since the critic would name the same patch every round.
    Handle `escalate` yourself — decide whether the package change is
    warranted, and if it is, make it as normal code work with a test and a
    changeset. A render-vs-report `escalate` (the critic's Δ beyond ±0.05)
    comes off the palette-quantized model, so confirm it losslessly before
    deciding: call `auto_rig_from_layers` yourself on the same layers (every
-   `<workdir>/layers/*.png` but the previews, `preview.png` and `preview-pose.png`) with the same `style`, no
+   `<workdir>/layers/*.png` but the previews, `preview.png` and `preview-pose.png`) with the same `style` and
+   `patches` (the accepted array, which moves `turn.achieved`), no
    `quantizeColors`, and `outputPath: <workdir>/iki-character-lossless.iki`;
    call `render_poses` on that file into `<workdir>/renders/lossless/` (`mkdir -p` first);
    then measure them as the critic's Step 1
    does — rest against each turn, with the `iris` window its finding names and
    `debugDir: <workdir>/renders/lossless`, the overlays checked, the two
-   directions averaged — against that rig's own `turn.achieved` (the artist's
-   again: the report is read off the layers, not the atlas). A Δ that closes
+   directions averaged — against that rig's own `turn.achieved` (the kept
+   model's again: the report is read off the layers, not the atlas). A Δ that closes
    was the palette moving the iris detection, and the escalation drops. A Δ
    still beyond ±0.05 is a render-vs-report discrepancy, not yet a rig defect:
    the report lands each iris's painted span and the layers' silhouette edges,
@@ -346,16 +482,16 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `packages/`. A turn the art has no room
    for — the far eye at the face plate's edge, the chin at the neck's, the far
    iris at the bangs' side strand — comes back CLAMPED, not refused, so the rig
-   still built; the clamp and any `strandOverlap` reach the critic in the same
-   `TURN:` line (`turn-clamped`).
+   still built; the clamp and any `strandOverlap` reach the critic in the kept
+   model's turn line (`turn-clamped`).
 
 ### Step 2 — stop
 
 Stop on the first of:
 
 - critic returns `ship` or `stop`, the appeal critic's line ends in `stop` (or
-  the user said in item 4 to leave what it still names), and the user's
-  reaction (Step 1, item 4) named nothing to act on
+  the user said in item 6 to leave what it still names), and the user's
+  reaction (Step 1, item 6) named nothing to act on
 - **3 rounds that spent generation** (the billed cap)
 - two consecutive rounds in which **no axis reached a new maximum** — keep a
   high-water mark per axis, because an unweighted total nets a real `rig` 3→4
@@ -376,10 +512,13 @@ The rig's defaults are constants picked by eye on our own characters
 whose amounts read wrong on the rig's own renders — too weak or too strong,
 the features leading the face too much or too little, the hair following it
 too much or too little — is first a `style` retune, free and per character,
-inside the recommended ranges and never toward what `reference-30.png` shows. A rig
-defect is the package escalation: a seam, a fold, a part detaching from the one
-it sits on, or a nod that slides instead of tipping (no `style` knob reaches
-`ParamAngleY`). A render that disagrees with the rig's own report even on a
+inside the recommended ranges and never toward what `reference-30.png` shows. A
+local keyform defect — one feature wrong at one stop, the far eye over the ear
+at ±30 or a bangs band shearing, which no knob reaches — is first a `patch`,
+kept only through the gate (Step 1, item 3). A defect of the whole rig is the
+package escalation: a seam, a fold, a part detaching from the one it sits on
+across the whole head, or a nod that slides instead of tipping (no `style`
+knob reaches `ParamAngleY`). A render that disagrees with the rig's own report even on a
 lossless pair (the critic's render-vs-report delta, re-measured as in Step 1)
 is a package escalation too, but a discrepancy to diagnose — the rig's
 landing or the tool's detection — not a rig defect on sight. Treat a repeated `rig` escalation as a signal to fix
