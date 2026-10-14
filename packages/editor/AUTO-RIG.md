@@ -497,7 +497,9 @@ layout or `style`, re-rig, and the patch lands on the new rig.
   `noseWarp`, `mouthWarp`) or a mesh part with warps (`face`, `hair_front`, …).
   `bodyWarp` and the matrix deformers are refused. `at` names the stop: a grid's,
   both `ParamAngleX` and `ParamAngleY`, each of its stops, never both 0; a
-  part's, exactly one parameter at one of its warp keyform values.
+  part's, exactly one parameter at one of its warp keyform values, never
+  `ParamAngleZ` or `ParamBodyAngleZ`: they roll the deformers the part hangs
+  under, which would turn the displacement off the screen axes.
 - **Region** — fractions of a role's REST layer box, origin top-left, y down,
   free to reach past the box. A target point (a grid's lattice point, a
   part's mesh vertex) takes the whole of `by` when its rest position lies

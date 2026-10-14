@@ -31,7 +31,7 @@ import {
 } from "@ikijs/editor";
 import type { FoldReport } from "@ikijs/engine";
 import { checkModelFolds } from "./fold-report";
-import { BUST_SIZE } from "./render-poses";
+import { BUST_SIZE, bustPadY } from "./render-poses";
 import {
   decodePng,
   cropToBuffer,
@@ -76,7 +76,7 @@ export interface PartSummary {
   deformer?: string;
   /** Rest box in model px from the canvas top-left, y down; the frame of the fold lines and `layout.json`. */
   box: { x: number; y: number; w: number; h: number };
-  /** The same box in bust-render px. */
+  /** The same box in bust-render px, including the padding above a landscape model. */
   bustBox: { x: number; y: number; w: number; h: number };
   /** The part's own warps: parameter and the keyform stop values. */
   warps?: { parameter: string; stops: number[] }[];
@@ -143,6 +143,7 @@ export function describeIki(model: unknown): DescribeResult {
   const W = m.canvas.width;
   const H = m.canvas.height;
   const bustScale = BUST_SIZE / W;
+  const padY = bustPadY(W, H);
   const tenth = (n: number) => Math.round(n * 10) / 10;
   const parts = m.parts.map((p): PartSummary => {
     // The auto-rig's deformers carry no rest transform, so the part's own
@@ -159,7 +160,7 @@ export function describeIki(model: unknown): DescribeResult {
       box,
       bustBox: {
         x: tenth(box.x * bustScale),
-        y: tenth(box.y * bustScale),
+        y: tenth(padY + box.y * bustScale),
         w: tenth(box.w * bustScale),
         h: tenth(box.h * bustScale),
       },

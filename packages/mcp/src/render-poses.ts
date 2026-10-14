@@ -70,6 +70,14 @@ const CROP_MAX_HEIGHT = 8192;
 const POSE_NAME = /^[A-Za-z0-9_.-]+$/;
 
 /**
+ * Bust-render px of vertical padding above a landscape model: the renderer
+ * fits it into the square canvas and centres it. Zero for square and tall ones.
+ */
+export function bustPadY(width: number, height: number): number {
+  return Math.max(0, (BUST_SIZE - (BUST_SIZE * height) / width) / 2);
+}
+
+/**
  * The model's own pose set, or `requested` alone when given. Throws
  * `AutoRigInputError` for a request it cannot render.
  */
@@ -92,6 +100,7 @@ export function planRenders(
   // The model's square sits in the middle of the canvas.
   const x0 = (canvas.width - BUST_SIZE) / 2;
   const s = BUST_SIZE / W;
+  const y0 = bustPadY(W, H);
 
   // The auto-rigger writes world-space part transforms and its deformers carry
   // no base transform, so the rest transform alone places the part.
@@ -150,7 +159,7 @@ export function planRenders(
         values: pose.values,
         crop: {
           sx: x0 + left * s,
-          sy: top * s,
+          sy: y0 + top * s,
           sw: w * s,
           sh: h * s,
           dw: CROP_WIDTH,
@@ -206,7 +215,7 @@ export function planRenders(
     // small mouth is unreadable in the whole shot.
     const crop = {
       sx: x0 + (mouth.cx - 90) * s,
-      sy: (mouth.cy - 60) * s,
+      sy: y0 + (mouth.cy - 60) * s,
       sw: 180 * s,
       sh: 120 * s,
       dw: 720,

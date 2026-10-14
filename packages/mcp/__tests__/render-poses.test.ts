@@ -272,6 +272,19 @@ describe("planRenders", () => {
     });
   });
 
+  it("offsets a crop and the mouth crop by the padding above a landscape model", () => {
+    // 800x600: s = 0.7, the model is 420 tall in the 560 square, so 70 px of padding.
+    const plan = planRenders(model(800, 600), [
+      { name: "c", values: {}, crop: { x: 100, y: 200, w: 200, h: 100 } },
+    ]);
+    expect(plan.poses[0].crop?.sy).toBeCloseTo(70 + 200 * 0.7);
+    const mouth = planRenders(model(800, 600)).poses.find((p) =>
+      p.name.startsWith("mouth-"),
+    );
+    // The mouth part sits at the centre: cy = 300.
+    expect(mouth?.crop?.sy).toBeCloseTo(70 + 240 * 0.7);
+  });
+
   it("clamps a crop past the canvas edge to the canvas before converting it", () => {
     // x -50..150 and y 1000..1300 meet the 1120 canvas in 0..150 x 1000..1120.
     const [pose] = planRenders(model(1120, 1120), [

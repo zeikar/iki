@@ -43,6 +43,10 @@ const OP_KEYS = ["target", "at", "region", "by", "falloff", "why"];
 const REGION_KEYS = ["role", "x", "y"];
 const BY_KEYS = ["dx", "dy"];
 
+// The parameters that rotate the deformers a part hangs under (`generate.ts`'s
+// head and body roll); a part offset at one of their stops is turned by it.
+const ROLLS = new Set<string>([P.AngleZ, P.BodyAngleZ]);
+
 const REST_IS_ART =
   "rest is the drawn art, which no patch changes (change it with the layout or by regenerating the layer)";
 
@@ -262,6 +266,11 @@ function partStop(
   if (keyform === undefined) {
     throw new PatchError(
       `${name}.at must name one parameter at one of ${part.id}'s warp stops (${listStops(warps, () => true)}), got ${JSON.stringify(at)}`,
+    );
+  }
+  if (ROLLS.has(param)) {
+    throw new PatchError(
+      `${name}.at ${param}: that parameter rolls ${part.id}'s deformer chain, so a displacement at its stop is not on screen axes; patch another of its stops (${listStops(warps, (p) => !ROLLS.has(p))}) or its feature grid instead`,
     );
   }
   const isRest = (p: string, v: number) =>

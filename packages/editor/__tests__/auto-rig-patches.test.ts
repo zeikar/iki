@@ -396,6 +396,17 @@ describe("rig patches: refusals", () => {
     expect(rig([shut("lash_L")]).patches![0].moved).toBeGreaterThan(0);
   });
 
+  it("refuses a part's roll stop, which would turn the displacement off the screen axes", () => {
+    const message = refusal({
+      target: "hair_front",
+      at: { [P.AngleZ]: 30 },
+      region: { role: "hair_front", ...WHOLE },
+      by: { dx: 0.01, dy: 0 },
+    });
+    expect(message).toContain("that parameter rolls");
+    expect(message).toContain(`${P.AngleX}@`);
+  });
+
   it("refuses a part's stop that names two parameters, listing its stops", () => {
     expect(
       refusal({ ...faceOp, at: { [P.AngleX]: -30, [P.AngleY]: 30 } }),

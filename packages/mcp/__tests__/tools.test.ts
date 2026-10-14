@@ -160,14 +160,15 @@ describe("describeIki", () => {
       { id: "ParamA", min: -1, max: 1, default: 0 },
     ]);
     // 800x600 canvas, a 100x100 part at the centre: left/top = 350/250, and
-    // the bust render is 560 / 800 = 0.7 px per model px.
+    // the bust render is 560 / 800 = 0.7 px per model px, with (560 - 420) / 2
+    // = 70 px of padding above the landscape model.
     expect(summary.parts).toEqual([
       {
         id: "part1",
         order: 0,
         deformer: "faceWarp",
         box: { x: 350, y: 250, w: 100, h: 100 },
-        bustBox: { x: 245, y: 175, w: 70, h: 70 },
+        bustBox: { x: 245, y: 245, w: 70, h: 70 },
         warps: [{ parameter: "ParamA", stops: [-1, 0.5] }],
       },
     ]);
@@ -309,7 +310,7 @@ describe("describeIki", () => {
     });
     expect(result.summary.parts[1].bustBox).toEqual({
       x: 224,
-      y: 182,
+      y: 252,
       w: 28,
       h: 14,
     });
