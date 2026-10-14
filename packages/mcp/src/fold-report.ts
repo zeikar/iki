@@ -4,36 +4,30 @@
  * the text lines both tools print it as.
  */
 
-import { LIP_INSIDE_ROLES, LIP_ROLES } from "@ikijs/editor";
+import { SHUT_BY } from "@ikijs/editor";
 import {
   checkFolds,
+  foldPoses,
   type FoldHit,
+  type FoldPose,
   type FoldReport,
   type FoldTarget,
 } from "@ikijs/engine";
-import { StandardParameter as P, type IkiModel } from "@ikijs/format";
+import type { IkiModel } from "@ikijs/format";
 
 /**
- * The parts the auto-rig flattens on purpose, each with the parameter that
- * shuts it at 0: an eye's sclera and lower lid as ITS OWN lid closes, and the
- * lip set with its tongue and teeth as the mouth shuts.
+ * `checkFolds` over `foldPoses(model)` then one pose per `extraValues` set,
+ * appended as given (a set equal to a default pose is checked twice), with
+ * the auto-rig's by-design closures (`SHUT_BY`) kept out of `worst`.
  */
-const SHUT_BY = new Map<string, string>([
-  ["eye_L", P.EyeOpenLeft],
-  ["lash_lower_L", P.EyeOpenLeft],
-  ["eye_R", P.EyeOpenRight],
-  ["lash_lower_R", P.EyeOpenRight],
-  ...[...LIP_ROLES, ...LIP_INSIDE_ROLES].map((id): [string, string] => [
-    id,
-    P.MouthOpen,
-  ]),
-]);
-
-/** `checkFolds` over `foldPoses(model)`, the closures above kept out of `worst`. */
-export function checkModelFolds(model: IkiModel): FoldReport {
+export function checkModelFolds(
+  model: IkiModel,
+  extraValues: Record<string, number>[] = [],
+): FoldReport {
   // An undeclared parameter reads 0 from the store, which is no closure.
   const declared = new Set(model.parameters.map((p) => p.id));
   return checkFolds(model, {
+    poses: [...foldPoses(model), ...extraValues.map(foldPose)],
     // The effective value, not the pose's overrides: the auto-rig's mouth
     // rests shut at its default, so `rest` and the other parameters' singles
     // are shut-mouth poses too.
@@ -78,6 +72,21 @@ export function formatFoldReport(
     );
   }
   return lines;
+}
+
+/**
+ * `values` named by the `FoldPose.name` contract, as the engine names its own
+ * poses (its helper is not exported): sorted `id=value` pairs joined by one
+ * space, `rest` when empty. Never a caller's PNG name, so a `FOLD` line keeps
+ * settings a host can reproduce.
+ */
+export function foldPose(values: Record<string, number>): FoldPose {
+  const ids = Object.keys(values).sort();
+  const name =
+    ids.length === 0
+      ? "rest"
+      : ids.map((id) => `${id}=${values[id]}`).join(" ");
+  return { name, values };
 }
 
 function offenderLine(

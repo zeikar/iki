@@ -6,8 +6,17 @@ import {
   type IkiParameter,
   type IkiPart,
 } from "@ikijs/format";
-import type { FoldHit, FoldReport, FoldTarget } from "@ikijs/engine";
-import { checkModelFolds, formatFoldReport } from "../src/fold-report";
+import {
+  foldPoses,
+  type FoldHit,
+  type FoldReport,
+  type FoldTarget,
+} from "@ikijs/engine";
+import {
+  checkModelFolds,
+  foldPose,
+  formatFoldReport,
+} from "../src/fold-report";
 
 // --- formatFoldReport ---------------------------------------------------------
 
@@ -306,6 +315,74 @@ describe("checkModelFolds", () => {
     expect(target.target).toEqual({ kind: "part", id: "mouth_open" });
     expect(target.worst!.pose.name).toBe("rest");
     expect(target.expected).toBeUndefined();
+  });
+
+  // Flat only at ParamAngleX -15, which no default pose reaches.
+  const flatAtMinus15 = () =>
+    triangle("face", [
+      {
+        parameter: "ParamAngleX",
+        keyforms: [
+          { value: -30, offsets: STILL },
+          { value: -15, offsets: FLAT },
+          { value: 0, offsets: STILL },
+          { value: 30, offsets: STILL },
+        ],
+      },
+    ]);
+
+  it("sweeps an extra value set after the engine's own poses and names its fold by the settings, not a caller's name", () => {
+    const m = model([ANGLE_X], [flatAtMinus15()]);
+    const plain = checkModelFolds(m);
+    expect(plain.offenders).toEqual([]);
+
+    // All renderPoses hands over for a pose it writes as rest.png: its values.
+    const report = checkModelFolds(m, [{ ParamAngleX: -15 }]);
+
+    expect(report.poses).toBe(plain.poses + 1);
+    const [face] = report.offenders;
+    expect(face.target.id).toBe("face");
+    expect(face.kind).toBe("flip");
+    expect(face.worst!.pose).toEqual({
+      name: "ParamAngleX=-15",
+      values: { ParamAngleX: -15 },
+    });
+    const lines = formatFoldReport(report, m.canvas);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/ pose \[ParamAngleX=-15\] /);
+    expect(lines[0]).not.toContain("[rest]");
+  });
+
+  it("appends a set equal to a default pose without merging it, and names a set of several by its sorted pairs", () => {
+    const m = model([ANGLE_X, MOUTH], [flatAtMinus15()]);
+    const plain = checkModelFolds(m);
+
+    const report = checkModelFolds(m, [
+      {},
+      { ParamMouthOpenY: 1, ParamAngleX: -15 },
+    ]);
+
+    expect(report.poses).toBe(plain.poses + 2);
+    expect(report.offenders[0].worst!.pose.name).toBe(
+      "ParamAngleX=-15 ParamMouthOpenY=1",
+    );
+    // The default `rest` pose ties it first, so the report cannot show it.
+    expect(foldPose({}).name).toBe("rest");
+  });
+
+  it("names an extra value set exactly as the engine names the same default pose", () => {
+    // Angle corners crossed with the mouth: rest, singles and two-id sets.
+    const m = model([ANGLE_X, MOUTH], [flatAtMinus15()]);
+    const defaults = foldPoses(m);
+    expect(defaults.map((p) => p.name)).toContain(
+      "ParamAngleX=30 ParamMouthOpenY=1",
+    );
+
+    for (const pose of defaults) {
+      // Shuffled key order: the name must not follow it.
+      const values = Object.fromEntries(Object.entries(pose.values).reverse());
+      expect(foldPose(values).name).toBe(pose.name);
+    }
   });
 
   it("finds no offender on the playground hero: its eye closures are all expected", () => {

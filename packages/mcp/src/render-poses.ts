@@ -49,12 +49,34 @@ export interface RenderPlan {
   poses: RenderPose[];
 }
 
+/** A pose the caller names, rendered in place of the model's own set. */
+export interface RequestedPose {
+  /** Written as `<outDir>/<name>.png`. */
+  name: string;
+  values: Record<string, number>;
+  /** Model px from the top-left; absent = framed as the standard shots. */
+  crop?: { x: number; y: number; w: number; h: number };
+}
+
 // The playground's view width for a full body, in model widths.
 const FULL_BODY_VIEW_WIDTH = 2.5;
 // The model's square is drawn this many px wide, in the whole shot or a crop.
 export const BUST_SIZE = 560;
+// A requested crop is drawn this many px wide, at its own aspect, and at
+// most this many tall: the page sizes a canvas to it.
+const CROP_WIDTH = 720;
+const CROP_MAX_HEIGHT = 8192;
+// The name becomes a file in outDir: no separator can climb out of it.
+const POSE_NAME = /^[A-Za-z0-9_.-]+$/;
 
-export function planRenders(model: IkiModel): RenderPlan {
+/**
+ * The model's own pose set, or `requested` alone when given. Throws
+ * `AutoRigInputError` for a request it cannot render.
+ */
+export function planRenders(
+  model: IkiModel,
+  requested?: RequestedPose[],
+): RenderPlan {
   const { width: W, height: H } = model.canvas;
   const fullBody = H > W;
   const canvas = fullBody
@@ -99,6 +121,45 @@ export function planRenders(model: IkiModel): RenderPlan {
     name,
     values,
   });
+
+  if (requested) {
+    if (requested.length === 0) throw new AutoRigInputError("poses is empty");
+    const poses = requested.map((pose, i): RenderPose => {
+      checkRequest(requested, i);
+      if (!pose.crop) return square(pose.name, pose.values);
+      // Clamped to the canvas first, so a box grown past an edge still renders.
+      const left = Math.max(pose.crop.x, 0);
+      const top = Math.max(pose.crop.y, 0);
+      const w = Math.min(pose.crop.x + pose.crop.w, W) - left;
+      const h = Math.min(pose.crop.y + pose.crop.h, H) - top;
+      // Negated so a NaN corner is refused too.
+      if (!(w > 0 && h > 0)) {
+        throw new AutoRigInputError(
+          `poses[${i}].crop does not overlap the model's ${W}x${H} canvas`,
+        );
+      }
+      // Refused here, not by the page after earlier poses were written.
+      const dh = Math.round((CROP_WIDTH * h) / w);
+      if (dh < 1 || dh > CROP_MAX_HEIGHT) {
+        throw new AutoRigInputError(
+          `poses[${i}].crop meets the canvas in ${w}x${h} model px, which ${CROP_WIDTH} px wide draws ${dh} px tall, outside 1..${CROP_MAX_HEIGHT}`,
+        );
+      }
+      return {
+        name: pose.name,
+        values: pose.values,
+        crop: {
+          sx: x0 + left * s,
+          sy: top * s,
+          sw: w * s,
+          sh: h * s,
+          dw: CROP_WIDTH,
+          dh,
+        },
+      };
+    });
+    return { canvas, view, fullBody, mouth, poses };
+  }
 
   // The engine ignores an undeclared id, so this only keeps `stress` from
   // naming settings the rig lacks: every loop rig declares its other ids (the
@@ -220,11 +281,38 @@ export function planRenders(model: IkiModel): RenderPlan {
   return { canvas, view, fullBody, mouth, poses };
 }
 
+/** `requested[i]`'s name and values, as `planRenders` takes them. */
+function checkRequest(requested: RequestedPose[], i: number): void {
+  const { name, values } = requested[i];
+  if (!POSE_NAME.test(name)) {
+    throw new AutoRigInputError(
+      `poses[${i}].name must match ${POSE_NAME.source} (it names <outDir>/<name>.png): ${JSON.stringify(name)}`,
+    );
+  }
+  const first = requested.findIndex(
+    (p) => p.name.toLowerCase() === name.toLowerCase(),
+  );
+  if (first < i) {
+    throw new AutoRigInputError(
+      `poses[${i}].name ${JSON.stringify(name)} repeats poses[${first}].name ${JSON.stringify(requested[first].name)} (ignoring case: one file on a case-insensitive disk)`,
+    );
+  }
+  for (const [id, value] of Object.entries(values)) {
+    if (!Number.isFinite(value)) {
+      throw new AutoRigInputError(
+        `poses[${i}].values.${id} must be a finite number, got ${value}`,
+      );
+    }
+  }
+}
+
 export interface RenderPosesInput {
   /** The rigged `.iki` to render (resolved against cwd). */
   modelPath: string;
   /** Existing directory under cwd the pose PNGs are written into. */
   outDir: string;
+  /** Rendered in place of the model's own set; each is also fold-checked. */
+  poses?: RequestedPose[];
 }
 
 export type RenderPosesResult =
@@ -282,11 +370,14 @@ export async function renderPoses(
     );
     const outDir = resolveOutputDir(input.outDir);
     const model = loadIkiModel(readFileSync(modelFile, "utf8"));
-    const plan = planRenders(model);
+    const plan = planRenders(model, input.poses);
     const browser = findBrowser();
     if (!browser) return { ok: false, error: NO_BROWSER_MESSAGE };
     const pageScript = readPageScript();
-    const folds = checkModelFolds(model);
+    const folds = checkModelFolds(
+      model,
+      input.poses?.map((p) => p.values),
+    );
 
     const { failedTextures, poses } = await withBrowser(
       browser,

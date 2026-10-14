@@ -218,7 +218,14 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    message and render again once it is fixed: the round waits, it is not over.
    The model decides the set: a full body when the canvas is taller than wide,
    the mouth crops centred on the rigged mouth part, the `full-pose-*` poses
-   when `ParamArmPoseR` is declared. The result lists the written paths, then
+   when `ParamArmPoseR` is declared. Called with `poses` (each
+   `{ name, values, crop? }`, the `crop` in model px from the top-left — the
+   frame of `describe_iki`'s boxes and the `FOLD` lines — and clamped to the
+   canvas) it renders those alone and adds them to the fold sweep; that needs
+   0.26.0+, and an older server strips the field silently and renders the
+   standard set, so after every call with `poses` compare the returned pose
+   names with the ones passed: a mismatch means an old server, and the patch
+   gate is unavailable. The result lists the written paths, then
    ends with the model's fold report: a `FOLD` line per warp grid or mesh part
    that flips or collapses at some pose, or `FOLDS: none over N poses`, and a
    `FOLDS expected:` line for the closures the rig draws on purpose (an eye or

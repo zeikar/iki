@@ -506,6 +506,37 @@ describe("MCP server integration", () => {
     expect(text.text).toMatch(/^INVALID: output dir escapes the working/);
   });
 
+  it("render_poses takes poses through the tool schema: a well-formed list reaches the handler, a malformed one is the SDK's input validation error", async () => {
+    pair = await createPair();
+    const { client } = pair;
+    const call = (poses: unknown) =>
+      client.callTool({
+        name: "render_poses",
+        arguments: { modelPath: "package.json", outDir: os.tmpdir(), poses },
+      });
+
+    const parsed = await call([
+      {
+        name: "eyeWarp_R-stop",
+        values: { ParamAngleX: -30, ParamAngleY: 0 },
+        crop: { x: 400, y: 300, w: 220, h: 160 },
+      },
+      { name: "rest", values: {} },
+    ]);
+    expect(parsed.isError).toBeFalsy();
+    const [text] = parsed.content as { type: string; text: string }[];
+    expect(text.text).toMatch(/^INVALID: output dir escapes the working/);
+
+    // A schema without the field would strip it and answer as above.
+    const malformed = await call([
+      { name: "a", values: {}, crop: [400, 300, 220, 160] },
+    ]);
+    expect(malformed.isError).toBe(true);
+    const [error] = malformed.content as { type: string; text: string }[];
+    expect(error.text).toMatch(/Input validation error/);
+    expect(error.text).toContain("poses");
+  });
+
   it("compose_layers_from_parts composes the parts fixture and returns layers + measure", async () => {
     pair = await createPair();
     const partsDir = tmpDir();

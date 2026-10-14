@@ -42,6 +42,7 @@ export {
 export {
   renderPoses,
   type RenderPosesInput,
+  type RequestedPose,
   type RenderPosesResult,
 } from "./render-poses";
 export { createIkiMcpServer } from "./server";

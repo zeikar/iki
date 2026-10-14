@@ -5,8 +5,13 @@ import path from "node:path";
 import sharp from "sharp";
 import { parseIkiModel, type IkiModel } from "@ikijs/format";
 import { composeLayersFromParts } from "../src/compose";
+import { checkModelFolds, formatFoldReport } from "../src/fold-report";
 import { findBrowser } from "../src/render-browser";
-import { planRenders, renderPoses } from "../src/render-poses";
+import {
+  planRenders,
+  renderPoses,
+  type RenderPosesInput,
+} from "../src/render-poses";
 import { autoRigFromLayers } from "../src/tools";
 import { writeFullBodyParts } from "./helpers/parts";
 
@@ -237,6 +242,66 @@ describe("planRenders", () => {
       ...MOUTH,
     ]);
   });
+
+  it("plans only the given poses, uncropped ones framed as the standard shots", () => {
+    // The model has a mouth, so its own set would add the mouth crops too.
+    const plan = planRenders(model(1120, 1120), [
+      { name: "eye-stop", values: { ParamAngleX: -30 } },
+      { name: "rest", values: { ParamAngleX: -15 } },
+    ]);
+    expect(plan.mouth).toBeDefined();
+    expect(plan.poses.map((p) => [p.name, p.values])).toEqual([
+      ["eye-stop", { ParamAngleX: -30 }],
+      ["rest", { ParamAngleX: -15 }],
+    ]);
+    for (const p of plan.poses) expect(p.crop).toBeUndefined();
+  });
+
+  it("converts a crop from model px to canvas px, drawn 720 wide", () => {
+    // s = 0.5 on a bust; 720 · 101 / 300 = 242.4 rounds to 242.
+    const [pose] = planRenders(model(1120, 1120), [
+      { name: "eye", values: {}, crop: { x: 100, y: 200, w: 300, h: 101 } },
+    ]).poses;
+    expect(pose.crop).toEqual({
+      sx: 50,
+      sy: 100,
+      sw: 150,
+      sh: 50.5,
+      dw: 720,
+      dh: 242,
+    });
+  });
+
+  it("clamps a crop past the canvas edge to the canvas before converting it", () => {
+    // x -50..150 and y 1000..1300 meet the 1120 canvas in 0..150 x 1000..1120.
+    const [pose] = planRenders(model(1120, 1120), [
+      { name: "edge", values: {}, crop: { x: -50, y: 1000, w: 200, h: 300 } },
+    ]).poses;
+    expect(pose.crop).toEqual({
+      sx: 0,
+      sy: 500,
+      sw: 75,
+      sh: 60,
+      dw: 720,
+      dh: 576,
+    });
+  });
+
+  it("frames a full body's uncropped custom pose in the middle square and its crop inside it", () => {
+    // s = 0.5 and the square starts at x0 = 420.
+    const plan = planRenders(model(1120, 3695), [
+      { name: "plain", values: {} },
+      {
+        name: "cropped",
+        values: {},
+        crop: { x: 100, y: 2000, w: 200, h: 100 },
+      },
+    ]);
+    expect(plan.poses.map((p) => p.crop)).toEqual([
+      { sx: 420, sy: 0, sw: 560, sh: 560, dw: 560, dh: 560 },
+      { sx: 470, sy: 1000, sw: 100, sh: 50, dw: 720, dh: 360 },
+    ]);
+  });
 });
 
 // Temp dirs live UNDER cwd (node_modules is gitignored) so they satisfy the
@@ -293,6 +358,102 @@ describe("renderPoses refusals", () => {
       outDir: dir,
     });
     expect(!r.ok && r.error).toBe("version must be a finite number");
+  });
+});
+
+// Each refusal comes back before the browser search, so none needs a browser:
+// with one installed a missed refusal would render, without one it would
+// report the missing browser instead.
+describe("renderPoses refuses a custom pose list", () => {
+  const refusal = async (poses: RenderPosesInput["poses"]) => {
+    const dir = tmpDir();
+    const modelPath = path.join(dir, "m.iki");
+    fs.writeFileSync(modelPath, JSON.stringify(model(1100, 1100)));
+    const r = await renderPoses({ modelPath, outDir: dir, poses });
+    expect(r.ok).toBe(false);
+    return !r.ok && r.error;
+  };
+
+  it("refuses an empty list", async () => {
+    expect(await refusal([])).toBe("poses is empty");
+  });
+
+  it.each(["", "../up", "a/b", "a\\b", "has space"])(
+    "refuses the name %j, which would not stay a file in outDir",
+    async (name) => {
+      expect(
+        await refusal([
+          { name: "ok", values: {} },
+          { name, values: {} },
+        ]),
+      ).toBe(
+        `poses[1].name must match ^[A-Za-z0-9_.-]+$ (it names <outDir>/<name>.png): ${JSON.stringify(name)}`,
+      );
+    },
+  );
+
+  it("refuses a repeated name", async () => {
+    expect(
+      await refusal([
+        { name: "a", values: {} },
+        { name: "b", values: {} },
+        { name: "a", values: { ParamAngleX: 30 } },
+      ]),
+    ).toBe(
+      'poses[2].name "a" repeats poses[0].name "a" (ignoring case: one file on a case-insensitive disk)',
+    );
+    expect(
+      await refusal([
+        { name: "rest", values: {} },
+        { name: "Rest", values: { ParamAngleX: 30 } },
+      ]),
+    ).toBe(
+      'poses[1].name "Rest" repeats poses[0].name "rest" (ignoring case: one file on a case-insensitive disk)',
+    );
+  });
+
+  it.each([NaN, Infinity, -Infinity])("refuses the value %s", async (value) => {
+    expect(
+      await refusal([
+        { name: "a", values: { ParamAngleY: 0, ParamAngleX: value } },
+      ]),
+    ).toBe(`poses[0].values.ParamAngleX must be a finite number, got ${value}`);
+  });
+
+  it.each([
+    { x: 1100, y: 0, w: 100, h: 100 },
+    { x: 0, y: -200, w: 100, h: 200 },
+    { x: 10, y: 10, w: 0, h: 100 },
+    { x: 10, y: 10, w: 100, h: -5 },
+    { x: NaN, y: 10, w: 100, h: 100 },
+  ])("refuses the crop %j, which misses the canvas", async (crop) => {
+    expect(await refusal([{ name: "a", values: {}, crop }])).toBe(
+      "poses[0].crop does not overlap the model's 1100x1100 canvas",
+    );
+  });
+
+  it("refuses a crop whose clamped shape draws under 1 or over 8192 px tall at 720 wide", async () => {
+    // 720 · 0.5 / 1100 = 0.33 rounds to 0.
+    expect(
+      await refusal([
+        { name: "a", values: {}, crop: { x: 0, y: 0, w: 1100, h: 0.5 } },
+      ]),
+    ).toBe(
+      "poses[0].crop meets the canvas in 1100x0.5 model px, which 720 px wide draws 0 px tall, outside 1..8192",
+    );
+    // 100 wide, but only 10 of it on the canvas: 720 · 1100 / 10 = 79200.
+    expect(
+      await refusal([
+        { name: "a", values: {}, crop: { x: 1090, y: 0, w: 100, h: 1100 } },
+      ]),
+    ).toBe(
+      "poses[0].crop meets the canvas in 10x1100 model px, which 720 px wide draws 79200 px tall, outside 1..8192",
+    );
+    // The bound itself is drawn: 720 · 1024 / 90 = 8192.
+    const [tall] = planRenders(model(1100, 1100), [
+      { name: "tall", values: {}, crop: { x: 0, y: 0, w: 90, h: 1024 } },
+    ]).poses;
+    expect(tall.crop!.dh).toBe(8192);
   });
 });
 
@@ -353,4 +514,64 @@ describe.skipIf(findBrowser() === undefined)("renderPoses in a browser", () => {
       expect(png(pose).equals(png(rest)), `${pose} vs ${rest}`).toBe(false);
     }
   }, 120_000);
+
+  it("renders only the given poses, a crop 720 wide, and folds-checks each by its settings, not its name", async () => {
+    // A 200 px triangle flat only at ParamAngleX -15, which no default fold
+    // pose reaches.
+    const m: IkiModel = {
+      ...model(1100, 1100, [], []),
+      parameters: [{ id: "ParamAngleX", min: -30, max: 30, default: 0 }],
+      parts: [
+        {
+          ...part("face", 0, 0),
+          width: 200,
+          height: 200,
+          mesh: {
+            vertices: [-0.5, -0.5, 0.5, -0.5, -0.5, 0.5],
+            uvs: [0, 0, 0, 0, 0, 0],
+            indices: [0, 1, 2],
+          },
+          warps: [
+            {
+              parameter: "ParamAngleX",
+              keyforms: [
+                { value: -30, offsets: [0, 0, 0, 0, 0, 0] },
+                { value: -15, offsets: [0, 0, 0, 0, 0, -1] },
+                { value: 0, offsets: [0, 0, 0, 0, 0, 0] },
+                { value: 30, offsets: [0, 0, 0, 0, 0, 0] },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const dir = tmpDir();
+    const modelPath = path.join(dir, "fold.iki");
+    fs.writeFileSync(modelPath, JSON.stringify(m));
+
+    const r = await renderPoses({
+      modelPath,
+      outDir: dir,
+      poses: [
+        {
+          name: "rest",
+          values: { ParamAngleX: -15 },
+          crop: { x: 450, y: 450, w: 200, h: 100 },
+        },
+        { name: "whole", values: {} },
+      ],
+    });
+    if (!r.ok) throw new Error(r.error);
+
+    expect(r.poses.map((p) => p.name)).toEqual(["rest", "whole"]);
+    const size = async (name: string) => {
+      const meta = await sharp(path.join(dir, `${name}.png`)).metadata();
+      return [meta.width, meta.height];
+    };
+    expect(await size("rest")).toEqual([720, 360]);
+    expect(await size("whole")).toEqual([560, 560]);
+    expect(r.folds.poses).toBe(checkModelFolds(m).poses + 2);
+    const [line] = formatFoldReport(r.folds, r.modelCanvas);
+    expect(line).toMatch(/^FOLD flip part face .* pose \[ParamAngleX=-15\] /);
+  }, 60_000);
 });
