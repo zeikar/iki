@@ -814,21 +814,32 @@ describe("the head turn", () => {
       }
     });
 
-    it("holds the edge as today where the back hair is not behind it", () => {
-      const rows = {
-        // The back's outer end 5 px inside the bangs' edge.
-        temple: rowY(270),
-        // A sliver outside the edge, nothing until 8 px inside it.
-        gap: rowY(680),
-      };
-      for (const [name, y] of Object.entries(rows)) {
-        for (const ax of [-30, -15, 15, 30]) {
-          for (const x of [-262, 262]) {
-            expect(
-              edge(full, "hair_front", x, y, ax),
-              `${name}, x ${x}, AngleX ${ax}`,
-            ).toBe(edge(today, "hair_front", x, y, ax));
-          }
+    it("holds the edge as today where the back hair is not behind it, but on the cap's ramp eases it toward the back hair's motion", () => {
+      // Past the cap's ramp, under the eyes' top: a sliver outside the edge,
+      // nothing until 8 px inside it.
+      const gap = rowY(680);
+      // On the cap, under its first vertex row below the plate's top (row
+      // 210), which moves with the back hair: the back's outer end 5 px
+      // inside the bangs' edge. Nothing bounds this edge, but the cap's blend
+      // ramps out across it.
+      const temple = rowY(270);
+      for (const ax of [-30, -15, 15, 30]) {
+        const s = Math.sign(ax);
+        for (const x of [-262, 262]) {
+          const label = `x ${x}, AngleX ${ax}`;
+          expect(edge(full, "hair_front", x, gap, ax), `gap, ${label}`).toBe(
+            edge(today, "hair_front", x, gap, ax),
+          );
+          // Today's hold turns further than the back hair, and the ramp
+          // leaves the edge between the two, off today's.
+          const held = edge(today, "hair_front", x, temple, ax);
+          const back = edge(full, "hair_back", x, temple, ax);
+          const ramped = edge(full, "hair_front", x, temple, ax);
+          expect(s * (back - held), `temple, ${label}`).toBeLessThan(-1);
+          expect(s * (ramped - held), `temple, ${label}`).toBeLessThan(-1);
+          expect(s * (ramped - back), `temple, ${label}`).toBeGreaterThan(
+            -ROUNDING,
+          );
         }
       }
     });
@@ -1107,8 +1118,8 @@ describe("the head turn", () => {
     });
 
     it("leaves the rows beside the eyes as today, however little back hair is behind them", () => {
-      // Below the cap the front hair keeps today's motion: at the eye row
-      // each lock's outer edge (±200) has back hair only 2 px past it.
+      // Under the eyes' top the front hair keeps today's motion: at the eye
+      // row each lock's outer edge (±200) has back hair only 2 px past it.
       const held = rig({ tightLock: true }, {}, { drop: ALL_RUNS }).model;
       for (const ax of [-30, -15, 15, 30]) {
         // The far lock's outer edge: column 701 turning toward +x, 300

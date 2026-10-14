@@ -377,7 +377,8 @@ export function hairFrontBends(
  * `hairOuter` — the outline is the back hair's, and holds —
  * the lock easing between. On a row where the back hair paints behind that
  * edge at every turn and nod angle, the edge rides further, up to the face's
- * follow, and on its cap less, so that the turn never carries the edge
+ * follow, and on its cap less — the cap's blend easing out over the rows
+ * below it to the eyes' top — so that the turn never carries the edge
  * further outside the back hair painted behind it than the nod alone does
  * (`outerRide`). Its crown, above the face plate's top, is the top of the
  * head: on the turn it rides with the cap as far as back hair is painted
@@ -427,8 +428,16 @@ function hairFrontField(m: TurnModel): Field {
     );
     return core + (m.hairOuter - core) * out;
   };
-  // The cap: the rows above the eyes and off the far eye's band.
-  const ride = outerRide(m, inner, coreAt, followAt, eyeY + 1.5 * eyeH);
+  // The cap: the rows above the eyes and off the far eye's band, its blend
+  // easing out down to the eyes' top, where the far eye's lead is whole.
+  const ride = outerRide(
+    m,
+    inner,
+    coreAt,
+    followAt,
+    eyeY + 1.5 * eyeH,
+    eyeY + eyeH / 2,
+  );
   const followOf = (x: number, y: number, s: number) =>
     followAt(x, y, s) + (ride === undefined ? 0 : ride.lift(x, y, s));
   // The front hair's own motion against the back hair's, along the turn.
@@ -628,8 +637,8 @@ interface OuterRide {
   lift: Follow;
   /** On the cap, the follow a row gives up out toward its edge (≤ 0). */
   cut: Follow;
-  /** On the cap, the share of a row's follow that blends toward the back
-   *  hair's own motion. */
+  /** On the cap and the rows under it down to the eyes' top, the share of a
+   *  row's follow that blends toward the back hair's own motion. */
   blend: (y: number, s: number) => number;
 }
 
@@ -700,18 +709,32 @@ interface CapEdge {
  * today's width. Then each row blends toward the back hair's motion by the
  * least share that brings every bound edge in its window, on both sides,
  * inside its interval — on a crown row, the whole bound — and going up from
- * the plate's top no crown row blends less than the one under it. Both are
- * linear between vertex columns, so the render carries them. `crownRide`
- * still reads today's follow (`followAt` + `lift`), so its extra weight is
- * today's; the cut and the blend only lower the motion along the turn, so
- * its own bound still holds where that weight rides.
+ * the plate's top no crown row blends less than the one under it, nor does
+ * any cap row. Under a cap row at or below the plate's top the blend falls
+ * no faster than evenly, to nothing at the first vertex row at or below the
+ * eyes' top (`eyeTop`, where the far eye's lead is whole), so a strand leans
+ * across those rows instead of bending in one; a cap row with no bound edge
+ * of its own ramps too. That vertex row and those under it keep today's
+ * motion, where the far eye's lock and the turn solve's far-iris bound
+ * (`strand.y`) read it; the pixel rows between the eyes' top and that row
+ * take a fading share of the row above's blend — its blend times their
+ * distance from that row over one row interval — so they leave today's
+ * motion by at most the row above's change times the slab over one row
+ * interval. The ramp is even in the blend, not in the motion: a row's own
+ * follow still rises toward the eyes. Raising a blend only moves an edge
+ * toward the back hair's motion, which lies in every interval, so the bound
+ * holds unchanged. The cut and the blend are linear between vertex columns,
+ * so the render carries them. `crownRide` still reads today's follow
+ * (`followAt` + `lift`), so its extra weight is today's; the cut and the
+ * blend only lower the motion along the turn, so its own bound still holds
+ * where that weight rides.
  *
  * So at every angle of the turn, the nod and the roll the cap's edge goes no
- * further outside the back hair than the nod alone puts it. Below the cap
- * the front hair keeps today's motion, so the lock over the far eye still
- * goes as far as that eye's corner and the turn solve's far-iris bound is
- * untouched; and the sway springs, which swing each layer by its own height,
- * are bounded by nothing.
+ * further outside the back hair than the nod alone puts it. From the first
+ * vertex row at or below the eyes' top down the front hair keeps today's
+ * motion, so the lock over the far eye still goes as far as that eye's
+ * corner and the turn solve's far-iris bound is untouched; and the sway
+ * springs, which swing each layer by its own height, are bounded by nothing.
  */
 function outerRide(
   m: TurnModel,
@@ -719,6 +742,7 @@ function outerRide(
   coreAt: Follow,
   followAt: Follow,
   capLimit: number,
+  eyeTop: number,
 ): OuterRide | undefined {
   const f = m.frame;
   const grid = m.hairFrontGrid;
@@ -961,11 +985,33 @@ function outerRide(
         cuts[(r * 2 + j) * nc + c] = after[c] - today[c];
     });
   }
-  // Up from the plate's top, no crown row blends less than the one under it.
+  // Going up, no cap row — the crown's included — blends less than the one
+  // under it.
   for (let j = 0; j < 2; j++) {
     for (let r = n - 2; r >= 0; r--) {
-      if (wr[r] < 1)
+      if (r <= last || wr[r] < 1)
         blend[r * 2 + j] = Math.max(blend[r * 2 + j], blend[(r + 1) * 2 + j]);
+    }
+  }
+  // The first vertex row under the cap at or below the eyes' top (n: none):
+  // it and the rows under it keep today's motion.
+  let zero = last + 1;
+  while (zero < n && ys[zero] > eyeTop) zero++;
+  // Under a cap row at or below the plate's top the blend falls no faster
+  // than evenly, to nothing at `zero`: a strand leans across those rows
+  // instead of bending in one. A crown row starts no ramp: its blend acts
+  // only within its own-motion share w (plus `crownRide`'s extra), so it is
+  // not how far the strand lags the face, and a crown top blending 1 would
+  // ramp the whole cap off the face.
+  for (let j = 0; j < 2; j++) {
+    for (let r = 1; r < zero; r++) {
+      for (let q = 0; q < r && q <= last; q++) {
+        if (wr[q] < 1) continue;
+        blend[r * 2 + j] = Math.max(
+          blend[r * 2 + j],
+          (blend[q * 2 + j] * (zero - r)) / (zero - q),
+        );
+      }
     }
   }
   const cutRow = (r: number, j: number, x: number) =>
