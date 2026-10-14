@@ -1,5 +1,13 @@
 # @ikijs/editor
 
+## 0.25.0
+
+### Minor Changes
+
+- c8b96db: `generateIkiFromLayerSet` takes `options.patches`: the rig patch layer. A `displace` op adds a displacement to one existing keyform stop of a feature grid (`eyeWarp_L`/`_R`, `browWarp_L`/`_R`, `noseWarp`, `mouthWarp`) or of a mesh part's warp (`face`, `hair_front`, …), on the rig just generated. `region` is a rectangle in fractions of a role's rest layer box (origin top-left, y down); the target's points whose rest position lies inside take the whole of `by`, those within `falloff` of it a smooth share. `by` and `falloff` are in face widths, on screen axes (+dx right, +dy down). The ops are replayed after the parts and grids are built and before validation and the turn report, so the report describes the patched rig, and they sum in sorted order and round once, so op order never changes the model. The rest stop is refused (rest is the drawn art), and so is a part's by-design closure (`SHUT_BY` at 0, now exported), which the fold check exempts, and so is a part's `ParamAngleZ` or `ParamBodyAngleZ` stop (they roll its deformers, so a displacement there would leave the screen axes); `bodyWarp` and the matrix deformers are not targets. A refused op throws `PatchError` (`patches[i]…`) and rigs nothing. `options.onPatchesApplied` receives a `PatchReport` per op (`moved` of `of`, the grid columns and rows, `maxPx`). `RigPatch`, `PatchReport`, `PatchError` and `SHUT_BY` are exported.
+
+  A rig without `patches` is byte-identical to before. No `.iki` format change.
+
 ## 0.24.1
 
 ### Patch Changes
