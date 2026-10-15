@@ -37,12 +37,21 @@ orchestrator arbitrates.
 - `layout` — the contents of `<workdir>/layout.json`. Use it only to name keys
   and quote the values it sets.
 - `round` — which iteration this is.
+- `locked` — `layout.json` keys the user has fixed (`[]` for none). Name no
+  finding on a locked key, whatever its item scores: score the item as you
+  see it, and when its fix is a locked key, `<key> locked by the user` on the
+  `NOTES:` line is that item's reason (Findings). The list never says why a
+  key was locked or to what.
 
 **Scale.** Amounts are canvas px of the composer's 1100-px-wide canvas.
 `rest.png` and `turn-p30.png` show the model's top 1100 × 1100 square at
 560 px, so a render distance × 1100/560 (about ×2) is canvas px. The mouth crops
 show 180 × 120 canvas px at 720 × 480: ÷ 4. `full-rest.png` shows the whole
-canvas at the same 560/1100 scale.
+canvas at the same 560/1100 scale in a wider frame: 1400 px wide (2.5 canvas
+widths, room for a raised arm) and the canvas's height × 560/1100 tall (1880
+for a 3692-px canvas; read the PNG's size), the 1100-px canvas drawn 560 px
+wide in its middle. So canvas x = (render x − 420) × 1100/560 and canvas y =
+render y × 1100/560.
 
 An absent key means the composer derived it: a height from the part's own
 aspect, the nose's row from the eye and mouth rows, the feature defaults as

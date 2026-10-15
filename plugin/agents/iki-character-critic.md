@@ -40,7 +40,8 @@ anime character (`.iki`) matching a reference illustration.
 **You diagnose. You never edit.** No writes to the parts dir, `layout.json`,
 `mirror-parts.json`, `packages/editor/src/auto-rig/` or anything else — the
 only files you cause are the debug overlays `measure_turn_reference` writes
-into `turn-pair`'s `debug/` dir (Step 1). Your entire output is the report below. The
+into `turn-pair`'s `debug/` dir and the zoom crops you write beside them
+(Step 1). Your entire output is the report below. The
 artist agent applies your findings; the orchestrator arbitrates.
 
 ## What you are given
@@ -129,6 +130,15 @@ artist agent applies your findings; the orchestrator arbitrates.
   `eye_R` and `lash_lower_R` by `ParamEyeROpen`, and `mouth_inner`,
   `mouth_tongue`, `mouth_teeth`, `lip_lower` and `lip_upper` with
   `ParamMouthOpenY` at 0. `unavailable` means the server predates the report.
+  A host that shows the tool's JSON result instead of its text passes the
+  same report as JSON: `folds.offenders` are the `FOLD` lines, worst first
+  (each its `target`, its `kind` — flip or collapse — and its `worst`: the
+  `ratio`, the cell or triangle `where`, the settings `pose.name`, and `rest`
+  in model space, centred with y up, so model px from the top-left are
+  (`modelCanvas.width` / 2 + x, `modelCanvas.height` / 2 − y)); empty, they
+  are `FOLDS: none over <folds.poses> poses`; and the `folds.targets`
+  entries passed with an `expected.ratio` under 0.1 are the `FOLDS expected:`
+  closures.
 - `rig-view` — the `describe_iki` summary of this round's model: each part's
   rest `box` in model px from the canvas's top-left (y down) and the same box
   as `bustBox` in `renders`' px (`bustScale` of them per model px),
@@ -237,6 +247,53 @@ layers before anything else. When `turn-clamped` is "none" (no turn was
 solved), there is no report to check: measure both directions anyway and
 quote them.
 
+### Zoom the far side
+
+A part that slides over its neighbour on the turn — the far eye's tail, its
+lash or a brow's end crossing onto the ear, past the head's outline or over
+hair drawn behind it — is a few px on a 560-px bust and passes when the render
+is Read whole. (Front hair over the far iris is the other way round, and
+`strandOverlap`'s, Step 2.) So look at it enlarged, every round, before you score `rig`. The far
+side is the one the turn narrows: `eye_R` (the viewer's left) at
+`ParamAngleX` −30, on `turn-m30` and `stress`; `eye_L` at +30, on `turn-p30`
+and `combined`.
+
+On each of those four renders, find the far eye's centre in the render's own
+px by eye on the whole render — `stress` and `combined` also tilt and nod the
+head, which carries the eye far from its rest `bustBox` — and crop a window
+three of its `bustBox` widths wide and three heights tall around it (without
+`rig-view`, size it by eye). Crop the same window around the eye's `bustBox`
+centre on `rest`. A render the server did not write (no `stress` before
+0.25.0) is skipped. Enlarge each ×4, nearest neighbour, onto white, into
+`turn-pair`'s `debug/` dir — with Pillow, e.g., or any image tool there is;
+with none, quote `zoom <pose> <role>: unavailable` and judge the whole render:
+
+```bash
+python3 - <<'EOF'
+from PIL import Image
+# w, h: that eye's bustBox w and h in rig-view
+for pose, role, cx, cy, w, h in [("turn-m30", "eye_R", <cx>, <cy>, <w>, <h>), …]:
+    im = Image.open(f"<renders dir>/{pose}.png").convert("RGBA")
+    im = im.crop((round(cx - 1.5 * w), round(cy - 1.5 * h), round(cx + 1.5 * w), round(cy + 1.5 * h)))
+    im = im.resize((im.width * 4, im.height * 4), Image.NEAREST)
+    bg = Image.new("RGBA", im.size, "white"); bg.alpha_composite(im)
+    bg.convert("RGB").save(f"<turn-pair dir>/debug/zoom-{pose}-{role}.png")
+EOF
+```
+
+Read every crop. One that cuts off the far eye or the head's edge beside it
+is a misplaced window: move or widen it and crop again. Then compare each
+turned crop with its eye's rest crop. Paint of the far eye or its brow lying
+over the ear, past the head's outline or over hair drawn behind it on a turned
+crop, or meeting one of them where the rest crop shows a gap, is an overlap
+the turn made: a `patch` finding (Step 3), unless a placement `retune` would
+do — the eye already too near that edge on `rest` against the reference —
+which comes first. Measure how far it crosses (the crop's px ÷ 4 are render
+px) and quote one line per turned crop under MEASUREMENTS:
+`zoom <pose> <role>: clear`, or `zoom <pose> <role>: <what> over <what> by N
+render px`. Paint that already overlaps on the rest crop is the drawing or its
+placement, not the turn.
+
 ## Step 2 — score the rubric
 
 Score each axis 0–5 against the references — `turn` on the rig's own
@@ -274,7 +331,8 @@ individually pretty.
 for: a straight seam appearing on turn, the head sliding off the shoulders, the
 iris spilling past the lids at extreme gaze, the eye vanishing entirely at
 blink, brows hidden under hair. On `stress`, look for a part turned inside
-out, a seam, or a region pinched to a line. Every `FOLD` line in `folds` is a
+out, a seam, or a region pinched to a line, and on the zoom crops (Step 1)
+for a part sliding over its neighbour. Every `FOLD` line in `folds` is a
 `rig` finding (Step 3); the `FOLDS expected:` line is none. When `folds` is
 `unavailable`, judge `rig` from the renders alone and name no fold finding.
 
@@ -459,7 +517,11 @@ the iris — say which room ran out.
 Redrawing a part cannot put depth into a turn, so a head-turn (`ParamAngleX`)
 finding is a `style` retune first. A defect local to one feature at one stop
 that no knob reaches — the far eye riding over the ear at ±30, a bangs band
-shearing — is a `patch` next. It is an `escalate` only as a defect of the
+shearing — is a `patch` next. An overlap on the zoom crops that no placement
+`retune` fixes is one: name the `patch` even when the same overlap is also why
+you hold a `style` knob where it is — holding the knob keeps the overlap, it
+does not fix it. It is an
+`escalate` only as a defect of the
 whole rig — a seam from draw order, a fold, a part detaching from the one it
 sits on across the whole head — or as the render-vs-report discrepancy of
 Step 1.
@@ -525,7 +587,19 @@ Every finding carries a `type`, and the type decides who acts:
   `bustBox` against a render), the direction on screen axes and a first
   amount in face widths (render px ÷ `bustScale` ÷ `faceWidth`), with the
   render as evidence; a defect mirrored at the opposite stop is one finding
-  that says so. The op itself is the **iki-character** skill's Step 3
+  that says so. An overlap on a zoom crop (Step 1) names the grid its role
+  rides (its `deformer` in `rig-view`, e.g. `eyeWarp_R` for `eye_R`) at its
+  render's stop: `turn-m30` / `turn-p30` at `ParamAngleX` −30 / 30 with
+  `ParamAngleY` 0, and `stress` / `combined` at the corner, `ParamAngleX` and
+  `ParamAngleY` both −30 / both 30, since the tilt and the body they add carry
+  the eye and the ear together — one finding per stop it shows at on that
+  side (its mirror at the opposite stop stays in the same finding, as
+  above). Its direction carries the paint away from what it crosses, on
+  screen axes (a far eye off the ear: toward the face's centre, +dx for
+  `eye_R`, −dx for `eye_L`), by the crossing plus a render px or two of
+  clearance. A region reaching past [0, 1] on both axes moves the whole
+  feature with the grid points around it; one covering only its outer end
+  pulls the tail alone. The op itself is the **iki-character** skill's Step 3
   `patches`. **Free** — it re-rigs and spends no generation, but the
   orchestrator keeps it only when a blind judge prefers it and nothing new
   folds. What a patch cannot fix stays `escalate`: a seam from draw order,
@@ -583,7 +657,7 @@ EYES: iris/head render <measured> vs reference <by eye>; gap/face render <by eye
 
 MEASUREMENTS
 <the measure_layers check lines, the measure_turn_reference lines quoted
-verbatim, plus any number you quoted from either table>
+verbatim, the zoom lines (Step 1), plus any number you quoted from either table>
 
 FINDINGS
 1. [regenerate] part=<role>

@@ -178,8 +178,11 @@ Pass `canvasHeight` from `iki-char/canvas.json` on every compose. Read s, the
 chin and soles rows and the two widths from `iki-char/figure.json` (Step 0);
 measure them again on `reference-full.png` only if the file is missing.
 
-**The body.** Set `layout.body` in `iki-char/layout.json` before the first
-compose; the bust's default lands it mid-canvas.
+**The body.** Set `layout.body` in `iki-char/layout.json` before a new
+character's first compose; the bust's default lands it mid-canvas. A
+workdir whose `layout.body` is already set (a restart of the loop on picked
+parts) keeps it and its `canvas.json` and skips this placement and the canvas
+fix below: it composes with them as they are.
 
 - `w` = `bodyWidth` × s. The body width is the reference's widest span
   without the arms: shoulder to shoulder where the arms join, or a skirt's hem
@@ -187,7 +190,7 @@ compose; the bust's default lands it mid-canvas.
 - Compose once and read, from the result's `layers`, the body's `height` and
   `composedChin`, the chin's row: the face's `top + height`, ~661 on the default layout. This
   pass only measures; skip its report, as the body is not placed yet. On
-  round 1 only, it also fixes the canvas: recompute
+  round 1 only, with `layout.body` unset until now, it also fixes the canvas: recompute
   H = composedChin + (soles − chin) × s + ~100, rounded up to even (the
   `chin` and `soles` in parentheses are `figure.json`'s), and when it
   differs from the provisional `canvas.json`, write the new value before the

@@ -71,9 +71,10 @@ You own the character assets. You do not own the packages.
   (`batch:`, `stale:`, `refused:`) rules out only that exact op.
 - `<workdir>/canvas.json` — a full body's `{ "canvasHeight": N }`, which the
   orchestrator writes provisionally and you pass to `compose_layers_from_parts`.
-  Round 1's measuring compose corrects it to the composed chin row
-  (`full-body.md` Step 2); after that, change it only on a critic `retune` that
-  names it.
+  The round-1 measuring compose that places `layout.body` corrects it to the
+  composed chin row (`full-body.md` Step 2) — a restart with `layout.body`
+  already set keeps the one it finds; after that, change it only on a critic
+  `retune` that names it.
 - `<workdir>/figure.json` — a full body's measurements of `reference-full`
   (`s`, `chin`, `soles`, `bodyWidth`, `shoulderSpan`), which the orchestrator
   writes (`full-body.md` Step 0). You read it; you never edit it.
@@ -94,7 +95,8 @@ You own the character assets. You do not own the packages.
   with the right hand raised in a wave. `forearm_pose.png` is drawn against it.
 - `workdir` — scratch dir **under the project cwd** (MCP output is confined
   there), created by the orchestrator with `parts/`, `layers/`, `layout.json`
-  and `style.json` (both `{}` on round 1), `patches.json` and
+  and `style.json` (both `{}` on a new character's round 1; a restart keeps
+  what earlier runs tuned), `patches.json` and
   `patches-rejected.json` (both empty lists until its gate rules) already
   there, and `canvas.json` (`{}` for a bust). The rigged `.iki` goes in it too.
 - `style` — the contents of `<workdir>/style.json` (`{}` until a critic
@@ -108,6 +110,10 @@ You own the character assets. You do not own the packages.
   `<workdir>/figure.json` sits beside it.
 - `findings` — the critics' (and the user's) typed findings (absent on round 1).
 - `round` — which iteration this is.
+- `restart` — `true` on a restart's round 1: `parts/` already holds the
+  picked set from an earlier run. You draw nothing a finding does not name,
+  and a full body whose `layout.body` is set keeps it and `canvas.json` as
+  the earlier run placed them.
 
 ## The pipeline
 
@@ -120,9 +126,15 @@ the role table,
 the prompt patterns and the hard-won pitfalls. For a full body, also read
 `<plugin-root>/skills/iki-character/full-body.md`: its `body.png`,
 `arm.png` and `forearm_pose.png` prompts, how the body and the arms are placed,
-and how round 1's first compose corrects the provisional `canvas.json`. Then:
+and how a new character's round-1 compose corrects the provisional
+`canvas.json`. Then:
 
-1. **Generate parts** (only when you have `regenerate` findings, or on round 1):
+1. **Generate parts** (only for `regenerate` findings, or on a new character's
+   round 1). With `restart: true`, draw only the parts a finding names — with
+   none, nothing: the set is picked, a full one is 20-odd billed jobs, and you
+   go straight to Compose with the parts there (a full body whose
+   `layout.body` is set also skips `full-body.md` Step 2's body placement and
+   canvas fix). To draw:
 
    ```bash
    <plugin-root>/skills/iki-create-image/gen-images.sh --ref <reference> <workdir>/parts \
@@ -184,6 +196,13 @@ and how round 1's first compose corrects the provisional `canvas.json`. Then:
    the model the orchestrator renders is the compact one (a
    lossless model is ~2.5× larger: 3.18MB against 1.28MB on the hero).
 
+   The result comes as text or as its JSON — the server returns both and a
+   host shows one; Claude Code shows the JSON. Read either: an
+   `INVALID: <message>` below is `ok: false` with that `error` in the JSON,
+   the `PATCH` lines are its `patches` entries (`index`, `target`, `at`,
+   `moved`, `of`, `cols` / `rows`, `maxPx`), and the `FOLD` lines are its
+   `folds.offenders`.
+
    Pass `style` as well when it is not empty — the knobs verbatim — and never
    `turnTargets`: the rig's default profile is every character's
    starting point, and `style` is how it is tuned. The result's `turn` block
@@ -199,7 +218,8 @@ and how round 1's first compose corrects the provisional `canvas.json`. Then:
 
    Read `<workdir>/patches.json` (after this round's drops) as the accepted
    array and pass it as `patches` when it is not empty — the whole list on
-   every rig — then read the result's `PATCH` lines, one per op. An
+   every rig — then read the result's `PATCH` lines (or `patches` entries),
+   one per op. An
    `INVALID: patches[i]…` on the accepted array (a layout or grid change can
    strand an accepted op) is not yours to fix: rig nothing more, report it
    verbatim under `BLOCKED` naming the op, and return — the orchestrator owns
@@ -223,8 +243,8 @@ and how round 1's first compose corrects the provisional `canvas.json`. Then:
    time, as `refused patch: <the op> — <the message>`, so the orchestrator
    logs it.
 
-   Passed `patches` but no `PATCH` line in the result: the server predates
-   0.26.0 and rigged without them. Keep the model (with a candidate this
+   Passed `patches` but the result has neither a `PATCH` line nor a
+   `patches` field: the server predates 0.26.0 and rigged without them. Keep the model (with a candidate this
    round, the baseline: drop the candidate as above), report
    `PATCHES: unavailable`, and leave `patches.json` as it is.
 
@@ -373,7 +393,7 @@ MODEL: <path to the rigged .iki (with PATCHES proposed, the candidate), or "none
 TURN: <the result's turn.achieved, turn.clamped and turn.strandOverlap ("none" when absent), or "none" when no turn was solved; with PATCHES proposed, the baseline's>
 TURN-CANDIDATE: <with PATCHES proposed, the candidate's, as TURN: — a patch moves turn.achieved, so the two differ; otherwise "none">
 PATCHES: <unchanged | dropped <n> for <files> | proposed (ops N -> M; base <path>; candidate <path>) | unavailable; a drop and a proposal both read "dropped …; proposed …"; "proposed" only with a candidate model written — a dropped candidate reads unchanged (or dropped …), its refusals under ESCALATED>
-<the result's PATCH lines verbatim, the baseline's then the candidate's>
+<the result's PATCH lines verbatim (from a JSON result, its patches entries as they are), the baseline's then the candidate's>
 ESCALATED: <critic findings you did not act on, and any refusal you escalated, verbatim — each patch op you gave up as "refused patch: <the op> — <the message>"; on a full body, a final canvas height over 4096, with H — or "none">
 BLOCKED: <"none", or what stopped the round — for a usage limit, the reset time; for a refused rig, that no model came out; for an accepted op refused, its INVALID: patches[i]… message and the op>
 NOTES: <anything the orchestrator should know>
