@@ -126,6 +126,7 @@ mkdir -p iki-char/parts iki-char/layers iki-char/renders/debug \
 [ -f iki-char/patches.json ] || echo '{"patches":[]}' > iki-char/patches.json
 [ -f iki-char/patches-rejected.json ] || echo '{"rejected":[]}' > iki-char/patches-rejected.json
 [ -f iki-char/canvas.json ] || echo '{}' > iki-char/canvas.json
+[ -f iki-char/appeal-declined.json ] || echo '{"declined":[]}' > iki-char/appeal-declined.json
 rm -f iki-char/patches-candidate.json iki-char/iki-character-candidate.iki
 ```
 
@@ -151,7 +152,10 @@ interrupted run left unjudged; `patches.json` and `iki-character.iki` only
 ever hold accepted ops, so nothing else needs undoing. The `renders/patch/`
 and `renders/judge/` dirs are the gate's, since `render_poses` never creates
 one. `canvas.json` stays `{}` for a bust; a full body writes its
-`canvasHeight` there (below).
+`canvasHeight` there (below). `appeal-declined.json` is your log of the
+appeal critic's retunes the user turned down (Step 1, item 6), each
+`{ "keys": […], "direction": "…", "round": N }` under `declined`; its keys
+are the appeal critic's `locked`.
 
 Every image in the loop goes through the **iki-create-image** skill. Run its
 `--check` before the first one: without Codex on this machine, each billed
@@ -183,14 +187,25 @@ version of this loop; it is ignored.
 is picked, draw `reference-full.png` and write `<workdir>/outfit.txt`, `<workdir>/figure.json` (the figure's
 measurements) and `<workdir>/canvas.json` as the **iki-character** skill's
 `full-body.md` Step 0 says. On a restart, reuse an existing `reference-full.png`,
-`outfit.txt` and `figure.json`, as the other two. A full body with a pose
+`outfit.txt`, `figure.json` and `canvas.json`, as the other two: that
+`canvasHeight` is already corrected or tuned, so never write a provisional
+one over it. A full body with a pose
 forearm also draws `<workdir>/reference-wave.png` from `reference-full.png`
 with the **iki-create-image** skill's `gen-wave-reference.sh` (the
 **iki-character** skill's `full-body.md` Step 0 says how), reused on a restart
 and frozen like the other references. The `canvas.json` written there is
-provisional until round 1's measuring compose corrects it (`full-body.md`
-Step 2); from round 2 on the artist edits its `canvasHeight` only on a critic
-`retune`, as it does `style.json`.
+provisional until the round-1 measuring compose that places `layout.body`
+corrects it (`full-body.md` Step 2); after that the artist edits its
+`canvasHeight` only on a critic `retune`, as it does `style.json`.
+
+**Restarting on picked parts.** When `parts/` already holds a picked set —
+the plain `<role>.png` files, not only `_a` / `_b` variants — round 1 re-rigs
+what is there: dispatch the artist with `restart: true` (Step 1, item 1). It
+draws no part unless a finding carried into the round (the user's) names one,
+keeps the workdir's tuning (`layout.json`, `style.json`, `patches.json`, and
+on a full body whose `layout.body` is set, that placement and `canvas.json`),
+and composes, measures and rigs. A full set is 20-odd billed jobs, so a round
+1 that redraws it on a restart throws away the set the user already picked.
 
 Then go to Step 1. `reference.png` and `reference-30.png` (and, for a full
 body, `reference-full.png` and `reference-wave.png`) are frozen, because every round reads them and
@@ -203,8 +218,9 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `style` (the contents of `<workdir>/style.json`, which its rig step passes
    to `auto_rig_from_layers` when it is not empty), `patches` (the
    `patches` array of `<workdir>/patches.json`, read at dispatch) with
-   `rejected` (`<workdir>/patches-rejected.json`'s), and both critics' findings
-   (none on round 1). A full body
+   `rejected` (`<workdir>/patches-rejected.json`'s), both critics' findings
+   (none on round 1 but, restarting, the user's carried ones), and on a
+   restart's round 1 `restart: true` (Step 0). A full body
    also passes `reference-full` (`<workdir>/reference-full.png`, which its
    `body.png` and `arm.png` jobs attach instead), `reference-wave`
    (`<workdir>/reference-wave.png`, which its `forearm_pose.png` jobs attach), and `canvas` (the contents of
@@ -243,12 +259,14 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    when the artist's `PATCHES:` reads `proposed`, else on
    `<workdir>/iki-character.iki` — this round's layers either way, and a patch
    moves no box, stop or `faceWidth`, so it serves whichever model item 3
-   keeps. Keep its text as `rig-view` for the gate and the critic: each part's
+   keeps. Keep its summary (the text, or the JSON result's `summary` — item
+   4 says when a host shows which) as `rig-view` for the gate and the critic:
+   each part's
    rest `box` in model px from the top-left and `bustBox` in the bust renders'
    px, `faceWidth`, the patchable targets with their stops, and `parameters`
-   with their defaults. Any `INVALID:` or error makes `rig-view`
-   `unavailable` — a server before 0.26.0 strips `modelPath` and complains
-   about the model instead.
+   with their defaults. Any `INVALID:` (`ok: false` in the JSON) or error
+   makes `rig-view` `unavailable` — a server before 0.26.0 strips `modelPath`
+   and complains about the model instead.
 3. **The patch gate** — only when the artist's `PATCHES:` reads `proposed`.
    Paths here are in `<workdir>`. To _discard the candidate_ is to delete
    `patches-candidate.json` and `iki-character-candidate.iki` and
@@ -277,21 +295,25 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `faceWidth` a side (the tool clamps it to the canvas). Then exactly two
    `render_poses` calls with that list: `iki-character-base.iki` into
    `renders/patch/before/` and `iki-character-candidate.iki` into
-   `renders/patch/after/`. Check each result's pose names against the ones
-   passed; a mismatch is an old server, so the gate cannot run: discard the
-   candidate, log nothing and tell the user.
+   `renders/patch/after/`. Check each result's pose names (`poses[].name`
+   in the JSON form, the listed paths' file names in the text) against the
+   ones passed; a mismatch is an old server, so the gate cannot run: discard
+   the candidate, log nothing and tell the user.
 
-   Read both fold reports (the engine's set plus these poses). The
-   baseline's must read `FOLDS: none …`: a `FOLD` there is the critic's
-   escalation before any patch, so discard the candidate and log nothing.
-   No patch can be judged on a folding baseline, so patches are unavailable
-   until item 4's fold report reads `FOLDS: none …` again (see item 7); say
-   so to the user.
+   Read both fold reports (the engine's set plus these poses; item 4 says how
+   in either form). The baseline's must have no offender: a `FOLD` there is
+   the critic's escalation before any patch, so discard the candidate and log
+   nothing. No patch can be judged on a folding baseline, so patches are
+   unavailable until item 4's fold report has no offender again (see item
+   7); say so to the user.
 
-   Then judge blind. Empty `renders/judge/`, and per pair flip a coin and
+   Then judge blind. `renders/judge/` is empty between gates (a file left
+   there by an interrupted gate is deleted by name). Per pair flip a coin and
    MOVE its before and after renders there as `pair<k>-A.png` and
    `pair<k>-B.png` — move, not copy, so no file left on disk matches either
-   side — keeping the key to yourself. Dispatch ONE judge for every pair,
+   side. Keep the key in this conversation only, never in a file until the
+   verdict is decoded: a subagent can share your scratchpad (Claude Code's
+   do) and the workdir, so a key on disk sits where the judge works. Dispatch ONE judge for every pair,
    fresh, with nothing but those paths and this prompt (`<feature>` in plain
    words for the op's role — "the eye on the left", "the front hair" — never
    the op):
@@ -311,9 +333,13 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    judge is blind, and the gate cannot run, as on an old server.
 
    ONE verdict for the whole batch. Decode each answer with your key into
-   `candidate`, `baseline` or `same`, its phrase kept. Accept when the judge
+   `candidate`, `baseline` or `same`, its phrase kept. Then move each pair
+   back by the key — its before render to `renders/patch/before/` and its
+   after render to `renders/patch/after/`, under its pose name — which leaves
+   `renders/judge/` empty for the next gate without a wildcard `rm` (Claude
+   Code's safety check refuses `rm renders/judge/*`). Accept when the judge
    prefers the candidate on at least one pair and the baseline on none, AND the
-   candidate's fold report reads `FOLDS: none …`:
+   candidate's fold report has no offender:
    `mv patches-candidate.json patches.json`,
    `mv iki-character-candidate.iki iki-character.iki`, delete
    `iki-character-base.iki`, and the artist's `TURN-CANDIDATE:` becomes this
@@ -336,8 +362,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    it). It needs `@ikijs/mcp` 0.24.0+, Node 22+ and an installed Chrome, Edge
    or Chromium (`CHROME_PATH` for a non-standard install); `stress` and the
    fold report need 0.25.0+. A server without `render_poses` predates 0.24.0,
-   and a result with no `stress.png` and no line starting `FOLD` predates
-   0.25.0: update the plugin, whose `.mcp.json` pin moves when it adopts a
+   and a result with no `stress` pose and no fold report (no `FOLD…` line in
+   the text, no `folds` field in the JSON) predates 0.25.0: update the plugin, whose `.mcp.json` pin moves when it adopts a
    release. A server before 0.25.0 still renders every other pose, so the
    round goes on, with `folds` passed as `unavailable`. On an `INVALID:`
    refusal (no browser, a bad `CHROME_PATH`, Node < 22) give the user its
@@ -356,7 +382,26 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    that flips or collapses at some pose, or `FOLDS: none over N poses`, and a
    `FOLDS expected:` line for the closures the rig draws on purpose (an eye or
    the mouth shut). A fold never stops the round: it is the critic's input
-   (Step 3). A non-empty `failedTextures` means atlas pages did not load and
+   (Step 3).
+
+   **Two result forms.** The server returns every result both as text and as
+   structured JSON, and a host shows one — Claude Code shows the JSON, where
+   none of the lines above appear. Read the same facts off either. An
+   `INVALID: <message>` is `ok: false` with `error`. The written paths are
+   `poses[]` (`name`, `path`). The `FOLD` lines are `folds.offenders`, worst
+   first: each its `target`, its `kind` (flip or collapse) and its `worst` —
+   the `ratio`, the cell or triangle `where`, the settings `pose.name`, and
+   `rest` in model space, centred with y up, whose model px from the top-left
+   are (`modelCanvas.width` / 2 + x, `modelCanvas.height` / 2 − y).
+   `FOLDS: none over N poses` is an empty `folds.offenders`, N being
+   `folds.poses`. The `FOLDS expected:` line is each `folds.targets` entry
+   whose `expected.ratio` is under `folds.thresholds.collapse` (0.1). "No
+   offender" in this skill means either form of none. Pass the report on in
+   the form it came, never retyped into the other: the text's lines as they
+   are, or from the JSON `modelCanvas`, `folds.poses`, `folds.offenders` and
+   those `expected` entries (`target`, `expected`) copied as they are — the
+   rest of `folds.targets` is one entry per deformer and part, mostly `ok`,
+   and stays out. A non-empty `failedTextures` means atlas pages did not load and
    their parts are missing: render once more; if pages still fail, escalate,
    because the critic does not score renders with parts missing.
    The rest shot is untouched by construction, which matters because every
@@ -371,6 +416,7 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `full-elbow-{l,r}-{m10,45,90}`, and with a pose forearm `full-pose-l`,
    `full-pose-r`, `full-pose-r-angle-m15`, `full-pose-r-angle-p15`,
    `full-pose-r-half`.
+
 5. Dispatch **the critic** (see Host dispatch) with `reference`, `reference-30`, `layers`,
    `renders` (the returned paths other than `mouth-*` and `full-*`; each input
    below is a subset of the returned paths, so a stale file from an earlier
@@ -382,9 +428,10 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `turn.achieved`, `turn.clamped` and `turn.strandOverlap`, or "none" when no
    turn was solved) so the critic can check the render against the rig's own
    report and tell a clamp this art forced from a new turn defect, `folds`
-   (item 4's fold report, verbatim and complete: every `FOLD` line or the one
-   `FOLDS: none …` line, and the `FOLDS expected:` line when there is one; or
-   `unavailable` from a server before 0.25.0), `rig-view` (item 2's text, or
+   (item 4's fold report, complete and in the form it came: every `FOLD` line
+   or the one `FOLDS: none …` line, and the `FOLDS expected:` line when there
+   is one — or their JSON fields, as item 4 lists them; or `unavailable` from
+   a server before 0.25.0), `rig-view` (item 2's summary, or
    `unavailable`), `patches` (the accepted array, `<workdir>/patches.json`
    as item 3 left it) and `rejected` (`<workdir>/patches-rejected.json`'s,
    so it names no patch the log rules out). It returns
@@ -396,9 +443,11 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    In parallel (neither needs the other), dispatch **the appeal critic** with
    `renders` (`<workdir>/renders/rest.png`, `turn-p30.png`,
    `mouth-open-0-form-0.png`, `mouth-open-0.6-form-0.png`; a full body also
-   `full-rest.png`), `layout` (the contents of `<workdir>/layout.json`) and
-   `round` — and nothing else in its prompt: no reference, no `layers`, no
-   `preview.png`, nothing of the critic's report.
+   `full-rest.png`), `layout` (the contents of `<workdir>/layout.json`),
+   `round` and `locked` (every key in `<workdir>/appeal-declined.json`, names
+   only, `[]` for none) — and nothing else in its prompt: no reference, no
+   `layers`, no `preview.png`, nothing of the critic's report, no reason or
+   round a key was locked in.
 
    When both reports are back, type any `refer` on the closed mouth by the
    model's mouth route, read off this round's `<workdir>/layers/` file names
@@ -436,7 +485,17 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    critic's `regenerate` is one combined job); that finding goes to the
    artist only on the user's OK, and a declined one is dropped (the user's word
    stands for Step 2's stop rule). The appeal critic's `retune`s are free and
-   need no OK. A reaction that names a change becomes a finding of the type it
+   need no OK: the same message lists them by key and amount, and they go to
+   the artist unless the reaction declines one. A declined appeal retune —
+   this round's, or one an earlier round applied, whose keys then go back to
+   their values before it (that round's artist `RETUNED:` line has them) as a
+   `retune` marked as the user's — goes into `appeal-declined.json` with
+   every key it names, its direction and the round, so later rounds pass
+   those keys as `locked` and the appeal critic stops naming them, either way.
+   The user's word unlocks a key: delete it from its entry. A lock binds the
+   appeal critic only: a critic `retune` of a locked key is named in this
+   question before it is routed. A
+   reaction that names a change becomes a finding of the type it
    implies — a `retune` naming the layout key, or a `regenerate` of
    the part — marked as the user's. The user's eye overrides a ratio that
    passes and a `ship` or `stop` verdict: the loop runs another round, within
@@ -444,7 +503,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
 7. Route: `regenerate` and `retune` go back to the artist — a `retune` names a
    `layout.json` key, a `mirror-parts.json` entry or a `style.json` knob, or on
    a full body `canvas.json`'s `canvasHeight`. The appeal critic's `retune`s go
-   with them, marked as its own, and so does a `regenerate` item 6 approved; a
+   with them, marked as its own — one on a `locked` key is dropped — and so
+   does a `regenerate` item 6 approved; a
    `refer` typed as an `escalate` is handled as the critic's are. The reference
    keeps identity (hair, outfit, palette, the style the features are drawn in),
    so the critic wins there where the two disagree; on proportions,
@@ -455,8 +515,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    Once patches prove unavailable in a run — an artist's
    `PATCHES: unavailable`, or a gate that could not run (item 3) — route that
    run's `patch` findings as `escalate`; after a gate that found the baseline
-   folding, route them so until item 4's fold report reads `FOLDS: none …`
-   again, since the critic would name the same patch every round.
+   folding, route them so until item 4's fold report has no offender again,
+   since the critic would name the same patch every round.
    Handle `escalate` yourself — decide whether the package change is
    warranted, and if it is, make it as normal code work with a test and a
    changeset. A render-vs-report `escalate` (the critic's Δ beyond ±0.05)
