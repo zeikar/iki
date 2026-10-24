@@ -136,24 +136,35 @@ idleLabel.append(idleLabelText, idleCheckbox);
 idleRow.append(idleLabel);
 panel.insertBefore(idleRow, controls);
 
-// Model picker for the generated hero in public/, the vector sample, and a
-// local .iki file. Hero leads so the select's default already names the model
-// the page starts on. Built once, like the Idle row, so it survives the
-// per-model control rebuilds.
+// Model picker for the generated hero in public/, the regression corpus models
+// beside it (bob, a lip-set bust; mint and silver-hood, full bodies that declare
+// a Wave), the vector sample, and a local .iki file. Hero leads so the select's
+// default already names the model the page starts on. Built once, like the Idle
+// row, so it survives the per-model control rebuilds.
 const modelRow = document.createElement("div");
 modelRow.className = "control";
 const modelLabel = document.createElement("label");
 const modelLabelText = document.createElement("span");
 modelLabelText.textContent = "Model";
 const modelSelect = document.createElement("select");
+// `file` is the public/ model a fetched entry loads; switchModel looks it up.
+const modelEntries: readonly { value: string; text: string; file?: string }[] =
+  [
+    { value: "hero", text: "Hero character", file: "hero.iki" },
+    { value: "bob", text: "Bob — lip set", file: "bob.iki" },
+    { value: "mint", text: "Mint — full body", file: "mint.iki" },
+    {
+      value: "silver-hood",
+      text: "Silver Hood — full body",
+      file: "silver-hood.iki",
+    },
+    { value: "vector", text: "Vector sample" },
+    { value: "file", text: "Load a .iki file…" },
+  ];
 // "file" is the trigger entry (always re-selectable, opens the file dialog);
 // "local" is added once a file has actually loaded, titled with its name.
 let fileOption: HTMLOptionElement | undefined;
-for (const [value, text] of [
-  ["hero", "Hero character"],
-  ["vector", "Vector sample"],
-  ["file", "Load a .iki file…"],
-] as const) {
+for (const { value, text } of modelEntries) {
   const opt = document.createElement("option");
   opt.value = value;
   opt.textContent = text;
@@ -217,7 +228,8 @@ async function switchModel(which: string, file?: File): Promise<void> {
   const seq = ++modelSwitchSeq;
   try {
     let raw: unknown = sampleModel;
-    if (which === "hero") raw = await fetchModel("hero.iki");
+    const fetched = modelEntries.find((e) => e.value === which)?.file;
+    if (fetched) raw = await fetchModel(fetched);
     if (which === "local")
       raw = file ? JSON.parse(await file.text()) : cachedLocalRaw;
     if (seq !== modelSwitchSeq) return; // superseded while fetching
