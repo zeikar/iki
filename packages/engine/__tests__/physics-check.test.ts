@@ -38,24 +38,26 @@ describe("checkPhysics — examples/playground/public/bob.iki", () => {
     expect(report.offenders).toEqual([]);
   });
 
-  it("steps hairSway's head turn to its far end and settles at the scaled target", () => {
+  it("steps each of hairSway's inputs and reports the lagging head turn: a peak at its bound at once, then rest", () => {
     const { input, output, step } = target("hairSway");
-    expect(input).toEqual(["ParamAngleX"]);
+    expect(input).toEqual(["ParamAngleX", "ParamAmbientSway"]);
     expect(output).toBe("ParamHairSwayX");
     expect(step.values).toEqual({ ParamAngleX: 30 });
-    expectNear(step.peak, 7.02, 0.05);
-    expectNear(step.at, 0.58, 0.03);
-    expectNear(step.final, 5.0, 0.05);
-    expectNear(step.displacementPx, 5.08, 0.1);
+    // The bound −scale·weight = −14, less one sub-step.
+    expectNear(step.peak, -13.7, 0.05);
+    expectNear(step.at, 0.02, 0.03);
+    expectNear(step.final, 0, 0.05);
+    expectNear(step.displacementPx, 9.92, 0.1);
   });
 
-  it("steps hairTilt's head roll the same way and overshoots further", () => {
+  it("steps hairTilt's head roll, which lags the same way", () => {
     const { input, output, step } = target("hairTilt");
     expect(input).toEqual(["ParamAngleZ"]);
     expect(output).toBe("ParamHairSwayZ");
     expect(step.values).toEqual({ ParamAngleZ: 30 });
-    expectNear(step.peak, 11.53, 0.05);
-    expectNear(step.displacementPx, 8.35, 0.1);
+    expectNear(step.peak, -8.81, 0.05);
+    expectNear(step.final, 0, 0.05);
+    expectNear(step.displacementPx, 6.38, 0.1);
   });
 
   it("finds the two hair parts each spring drives", () => {
@@ -68,8 +70,10 @@ describe("checkPhysics — examples/playground/public/bob.iki", () => {
   });
 
   it("reads each output's idle peak as a size, the sway going both ways", () => {
-    expectNear(target("hairSway").idle.peak, 0.6, 0.05);
-    expectNear(target("hairTilt").idle.peak, 0.3, 0.05);
+    // The ambient sway drives hairSway in idle; hairTilt lags the idle's slow
+    // roll alone, so it barely stirs.
+    expectNear(target("hairSway").idle.peak, 3.68, 0.05);
+    expectNear(target("hairTilt").idle.peak, 0.02, 0.05);
   });
 
   it("is deterministic", () => {
