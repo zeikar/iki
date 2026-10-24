@@ -306,24 +306,50 @@ export interface IkiWarpDeformer {
 export type IkiDeformer = IkiMatrixDeformer | IkiWarpDeformer;
 
 /**
+ * One driver of a physics rig ({@link IkiPhysics}): its parameter's current
+ * value, signed-normalized around its engine-effective default, × `weight` is
+ * its share of the spring's target.
+ *
+ * `mode` decides what that share does to the output. `"follow"` (also when
+ * absent): the output carries the spring's position, so a held value holds the
+ * output displaced. `"lag"`: the output carries `scale·(x − target)` for this
+ * share, so it swings while the value moves and a held value returns it to rest.
+ */
+export interface IkiPhysicsInput {
+  parameter: string;
+  weight: number;
+  mode?: "follow" | "lag";
+}
+
+/**
  * A 1D spring-mass-damper secondary-motion rig.
  *
- * `input.parameter` drives the spring: its current value is signed-normalized
- * around its engine-effective default and multiplied by `weight` to form the
- * spring's target. The spring's lagging position is multiplied by `output.scale`
- * and added onto `output.parameter`'s engine-effective default — so the output
- * param lags and overshoots the input (hair/accessory sway). "Engine-effective
- * default" means the declared `default` clamped into `[min, max]`, matching how
- * the runtime parameter store rests an out-of-range default; host adapters must
- * clamp likewise. Spring constants are SECONDS-based. This is secondary motion
- * only: it must not write a host-driven input param
- * (`input.parameter !== output.parameter`).
+ * Each input's parameter value is signed-normalized around its engine-effective
+ * default (`nᵢ`); the spring's position `x` chases the target `T = Σ wᵢ·nᵢ` over
+ * every input, and the output is
+ * `out = outDefault + scale·(x − Σ_lag wᵢ·nᵢ)`, `outDefault` being
+ * `output.parameter`'s engine-effective default — so the output param lags and
+ * overshoots the inputs (hair/accessory sway), a follow input's share staying in
+ * it and a lag input's settling out (see {@link IkiPhysicsInput}).
+ * "Engine-effective default" means the declared `default` clamped into
+ * `[min, max]`, matching how the runtime parameter store rests an out-of-range
+ * default; host adapters must clamp likewise. Spring constants are
+ * SECONDS-based. This is secondary motion only: it must not write a host-driven
+ * input param (no input's `parameter` may equal `output.parameter`).
+ *
+ * A rig carries EITHER `input` XOR `inputs`, exactly one (validator-enforced);
+ * read them through `physicsInputs`.
  */
 export interface IkiPhysics {
   id: string;
-  /** Driver parameter; its signed-normalized value × `weight` is the spring target. */
-  input: { parameter: string; weight: number };
-  /** Driven parameter; the spring position × `scale` is added onto its default. */
+  /** The rig's one driver; absent when `inputs` is present. */
+  input?: IkiPhysicsInput;
+  /**
+   * Several drivers summed into one target, one per parameter (non-empty);
+   * absent when `input` is present.
+   */
+  inputs?: IkiPhysicsInput[];
+  /** Driven parameter; see the rig doc for what is added onto its default. */
   output: { parameter: string; scale: number };
   /** Spring mass (> 0). */
   mass: number;

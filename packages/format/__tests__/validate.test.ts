@@ -2159,6 +2159,20 @@ describe("physics rigs", () => {
         max: 20,
         default: 0,
       },
+      {
+        id: "ParamAmbientSway",
+        name: "Ambient Sway",
+        min: -1,
+        max: 1,
+        default: 0,
+      },
+      {
+        id: "ParamHairSwayZ",
+        name: "Hair Sway Z",
+        min: -20,
+        max: 20,
+        default: 0,
+      },
     ];
     // validModel()'s part binds "ParamA", which physicsModel no longer declares;
     // repoint it to a declared param so the part itself stays valid.
@@ -2181,7 +2195,7 @@ describe("physics rigs", () => {
   it("parses a valid single rig and round-trips onto model.physics", () => {
     const model = parseIkiModel(physicsModel([validRig]));
     expect(model.physics).toHaveLength(1);
-    expect(model.physics?.[0]).toEqual(validRig);
+    expect(model.physics?.[0]).toStrictEqual(validRig);
   });
 
   it("rejects an unknown input.parameter", () => {
@@ -2264,6 +2278,135 @@ describe("physics rigs", () => {
   it("treats physics as optional (omitted => model.physics is undefined)", () => {
     const model = parseIkiModel(validModel());
     expect(model.physics).toBeUndefined();
+  });
+
+  /** A rig on two inputs: AngleX lags, the ambient follows (no mode = follow). */
+  const multiRig = {
+    id: "hairSway",
+    inputs: [
+      { parameter: "ParamAngleX", weight: 1, mode: "lag" },
+      { parameter: "ParamAmbientSway", weight: 0.25 },
+    ],
+    output: { parameter: "ParamHairSwayX", scale: 14 },
+    mass: 1,
+    stiffness: 77,
+    damping: 4.4,
+  };
+
+  it("round-trips mode: lag on input", () => {
+    const rig = {
+      ...validRig,
+      input: { parameter: "ParamAngleX", weight: 1, mode: "lag" },
+    };
+    const model = parseIkiModel(physicsModel([rig]));
+    expect(model.physics?.[0]).toStrictEqual(rig);
+  });
+
+  it("round-trips inputs of two entries, keeping a mode and leaving an absent one absent", () => {
+    const model = parseIkiModel(physicsModel([multiRig]));
+    expect(model.physics?.[0]).toStrictEqual(multiRig);
+    expect(model.physics?.[0].inputs?.[1]).not.toHaveProperty("mode");
+  });
+
+  it("rejects a rig declaring both input and inputs", () => {
+    const rig = { ...multiRig, input: validRig.input };
+    expect(() => parseIkiModel(physicsModel([rig]))).toThrow(
+      /physics\[0\]: a physics rig declares only one of input or inputs, not both/,
+    );
+  });
+
+  it("rejects a rig declaring neither input nor inputs", () => {
+    const { input: _input, ...rig } = validRig;
+    expect(() => parseIkiModel(physicsModel([rig]))).toThrow(
+      /physics\[0\]: a physics rig must declare input or inputs/,
+    );
+  });
+
+  it("rejects an empty inputs array", () => {
+    const rig = { ...multiRig, inputs: [] };
+    expect(() => parseIkiModel(physicsModel([rig]))).toThrow(
+      /physics\[0\]\.inputs must be a non-empty array/,
+    );
+  });
+
+  it("rejects a mode outside follow and lag", () => {
+    const rig = {
+      ...multiRig,
+      inputs: [multiRig.inputs[0], { ...multiRig.inputs[1], mode: "lead" }],
+    };
+    expect(() => parseIkiModel(physicsModel([rig]))).toThrow(
+      /physics\[0\]\.inputs\[1\]\.mode must be "follow" or "lag"/,
+    );
+  });
+
+  it("rejects a mode outside follow and lag on input", () => {
+    const rig = {
+      ...validRig,
+      input: { parameter: "ParamAngleX", weight: 1, mode: "lead" },
+    };
+    expect(() => parseIkiModel(physicsModel([rig]))).toThrow(
+      /physics\[0\]\.input\.mode must be "follow" or "lag"/,
+    );
+  });
+
+  it("rejects a non-numeric weight in inputs", () => {
+    const rig = {
+      ...multiRig,
+      inputs: [
+        multiRig.inputs[0],
+        { parameter: "ParamAmbientSway", weight: "0.25" },
+      ],
+    };
+    expect(() => parseIkiModel(physicsModel([rig]))).toThrow(
+      /physics\[0\]\.inputs\[1\]\.weight must be a finite number/,
+    );
+  });
+
+  it("rejects an undeclared parameter in inputs", () => {
+    const rig = {
+      ...multiRig,
+      inputs: [multiRig.inputs[0], { parameter: "Nope", weight: 1 }],
+    };
+    expect(() => parseIkiModel(physicsModel([rig]))).toThrow(
+      /physics\[0\]\.inputs\[1\]\.parameter "Nope" is not a declared parameter/,
+    );
+  });
+
+  it("rejects a parameter repeated within inputs", () => {
+    const rig = {
+      ...multiRig,
+      inputs: [multiRig.inputs[0], { parameter: "ParamAngleX", weight: 0.5 }],
+    };
+    expect(() => parseIkiModel(physicsModel([rig]))).toThrow(
+      /physics\[0\]\.inputs\[1\]\.parameter "ParamAngleX" duplicates inputs\[0\]/,
+    );
+  });
+
+  it("rejects an inputs entry equal to the output (anti-feedback)", () => {
+    const rig = {
+      ...multiRig,
+      inputs: [multiRig.inputs[0], { parameter: "ParamHairSwayX", weight: 1 }],
+    };
+    expect(() => parseIkiModel(physicsModel([rig]))).toThrow(
+      /physics\[0\]: inputs\[1\]\.parameter and output\.parameter must differ \(anti-feedback\)/,
+    );
+  });
+
+  it("rejects a rig whose output is another rig's second input (feedback loop)", () => {
+    // rig 0 reads ParamHairSwayZ as its second input; rig 1 outputs it.
+    const rig0 = {
+      ...multiRig,
+      id: "a",
+      inputs: [multiRig.inputs[0], { parameter: "ParamHairSwayZ", weight: 1 }],
+    };
+    const rig1 = {
+      ...validRig,
+      id: "b",
+      output: { parameter: "ParamHairSwayZ", scale: 9 },
+    };
+    expect(() => parseIkiModel(physicsModel([rig0, rig1]))).toThrow(
+      /physics\[1\]\.output\.parameter "ParamHairSwayZ" is used as a physics input \(feedback loops are not supported\)/,
+    );
   });
 });
 

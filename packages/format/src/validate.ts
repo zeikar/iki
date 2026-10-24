@@ -17,6 +17,7 @@ import {
   type IkiPhysics,
   type IkiPhysicsChain,
   type IkiPhysicsChainSegment,
+  type IkiPhysicsInput,
   type IkiTexture,
   type IkiTransform,
   type IkiTransformChannel,
@@ -24,6 +25,7 @@ import {
   type IkiWarp,
   type IkiWarpDeformer,
 } from "./types";
+import { physicsInputs } from "./physics";
 import { parseExpressions, parseMotions } from "./validate-animations";
 import { IkiFormatError, isObject, num, str } from "./validate-primitives";
 
@@ -563,6 +565,33 @@ function parseBinding(
   };
 }
 
+function parsePhysicsInput(
+  value: unknown,
+  path: string,
+  validParameters: ReadonlySet<string>,
+): IkiPhysicsInput {
+  if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
+  const parameter = str(value.parameter, `${path}.parameter`);
+  if (!validParameters.has(parameter)) {
+    throw new IkiFormatError(
+      `${path}.parameter "${parameter}" is not a declared parameter`,
+    );
+  }
+  const input: IkiPhysicsInput = {
+    parameter,
+    weight: num(value.weight, `${path}.weight`),
+  };
+  // Added only when declared, so a follow input without it round-trips unchanged.
+  const mode = value.mode;
+  if (mode !== undefined) {
+    if (mode !== "follow" && mode !== "lag") {
+      throw new IkiFormatError(`${path}.mode must be "follow" or "lag"`);
+    }
+    input.mode = mode;
+  }
+  return input;
+}
+
 function parsePhysics(
   value: unknown,
   path: string,
@@ -570,19 +599,46 @@ function parsePhysics(
 ): IkiPhysics {
   if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
   const id = str(value.id, `${path}.id`);
-  if (!isObject(value.input)) {
-    throw new IkiFormatError(`${path}.input must be an object`);
+  // A rig carries EITHER input XOR inputs — exactly one; only the given one is
+  // kept, so an existing single-input rig parses to the same object.
+  if (value.input !== undefined && value.inputs !== undefined) {
+    throw new IkiFormatError(
+      `${path}: a physics rig declares only one of input or inputs, not both`,
+    );
+  }
+  if (value.input === undefined && value.inputs === undefined) {
+    throw new IkiFormatError(
+      `${path}: a physics rig must declare input or inputs`,
+    );
+  }
+  let drivers: Pick<IkiPhysics, "input" | "inputs">;
+  if (value.inputs !== undefined) {
+    if (!Array.isArray(value.inputs) || value.inputs.length === 0) {
+      throw new IkiFormatError(`${path}.inputs must be a non-empty array`);
+    }
+    const inputs = value.inputs.map((entry, j) =>
+      parsePhysicsInput(entry, `${path}.inputs[${j}]`, validParameters),
+    );
+    // One entry per parameter keeps each value's share and mode in one place.
+    const seen = new Map<string, number>();
+    inputs.forEach((entry, j) => {
+      const first = seen.get(entry.parameter);
+      if (first !== undefined) {
+        throw new IkiFormatError(
+          `${path}.inputs[${j}].parameter "${entry.parameter}" duplicates inputs[${first}]`,
+        );
+      }
+      seen.set(entry.parameter, j);
+    });
+    drivers = { inputs };
+  } else {
+    drivers = {
+      input: parsePhysicsInput(value.input, `${path}.input`, validParameters),
+    };
   }
   if (!isObject(value.output)) {
     throw new IkiFormatError(`${path}.output must be an object`);
   }
-  const inputParameter = str(value.input.parameter, `${path}.input.parameter`);
-  if (!validParameters.has(inputParameter)) {
-    throw new IkiFormatError(
-      `${path}.input.parameter "${inputParameter}" is not a declared parameter`,
-    );
-  }
-  const weight = num(value.input.weight, `${path}.input.weight`);
   const outputParameter = str(
     value.output.parameter,
     `${path}.output.parameter`,
@@ -599,19 +655,23 @@ function parsePhysics(
   if (mass <= 0) throw new IkiFormatError(`${path}.mass must be > 0`);
   if (stiffness <= 0) throw new IkiFormatError(`${path}.stiffness must be > 0`);
   if (damping < 0) throw new IkiFormatError(`${path}.damping must be >= 0`);
-  if (inputParameter === outputParameter) {
-    throw new IkiFormatError(
-      `${path}: input.parameter and output.parameter must differ (anti-feedback)`,
-    );
-  }
-  return {
+  const rig: IkiPhysics = {
     id,
-    input: { parameter: inputParameter, weight },
+    ...drivers,
     output: { parameter: outputParameter, scale },
     mass,
     stiffness,
     damping,
   };
+  physicsInputs(rig).forEach((entry, j) => {
+    if (entry.parameter === outputParameter) {
+      const label = rig.inputs ? `inputs[${j}]` : "input";
+      throw new IkiFormatError(
+        `${path}: ${label}.parameter and output.parameter must differ (anti-feedback)`,
+      );
+    }
+  });
+  return rig;
 }
 
 function parsePhysicsChainSegment(
@@ -1184,11 +1244,11 @@ export function parseIkiModel(input: unknown): IkiModel {
   // One unconditional shared cross-rig pass over flat physics[] and physicsChains[].
   // Checks: rig/chain id uniqueness (shared seenIds — chain ids must be unique vs
   // flat rig ids too), output-param uniqueness (shared seenOutputs), and no output
-  // may equal a flat rig's input (feedback loops unsupported).
+  // may equal any input of a flat rig (feedback loops unsupported).
   {
-    // physicsInputIds: input parameters of flat rigs only (chains have no explicit input param)
+    // physicsInputIds: every input parameter of every flat rig (chains have no explicit input param)
     const physicsInputIds = new Set(
-      (physics ?? []).map((r) => r.input.parameter),
+      (physics ?? []).flatMap((r) => physicsInputs(r).map((p) => p.parameter)),
     );
     const seenIds = new Set<string>();
     const seenOutputs = new Set<string>();

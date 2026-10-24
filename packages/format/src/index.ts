@@ -28,6 +28,7 @@ export {
   type IkiPhysics,
   type IkiPhysicsChain,
   type IkiPhysicsChainSegment,
+  type IkiPhysicsInput,
   type IkiTexture,
   type IkiTransform,
   type IkiTransformChannel,
@@ -37,5 +38,6 @@ export {
   type IkiWarpGrid,
 } from "./types";
 export { StandardParameter, type StandardParameterId } from "./parameters";
+export { physicsInputs } from "./physics";
 export { IkiFormatError } from "./validate-primitives";
 export { loadIkiModel, parseIkiModel } from "./validate";
