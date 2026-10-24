@@ -1,5 +1,18 @@
 # @ikijs/mcp
 
+## 0.28.0
+
+### Minor Changes
+
+- b4af5c3: `list_standard_parameters` lists `ParamAmbientSway` (29 entries): the slow zero-mean drift the engine's idle writes for physics rigs to follow. Rigged models declare it, and a spring's `PHYSICS` line lists every input of its rig. The bundled engine (the `render_poses` page and the physics report) plays a rig's `lag` inputs and steps each input of a multi-input spring alone, reporting the run that moves the parts most.
+
+### Patch Changes
+
+- Updated dependencies [b2b07a6]
+- Updated dependencies [bb44a3e]
+  - @ikijs/editor@0.26.0
+  - @ikijs/format@0.9.0
+
 ## 0.27.0
 
 ### Minor Changes
