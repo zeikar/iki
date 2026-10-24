@@ -22,3 +22,9 @@ export {
   type FoldReport,
   type FoldTarget,
 } from "./folds";
+export {
+  checkPhysics,
+  type PhysicsReport,
+  type PhysicsResponse,
+  type PhysicsTarget,
+} from "./physics-check";
