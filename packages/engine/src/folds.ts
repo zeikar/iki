@@ -7,20 +7,11 @@ import {
   type IkiWarpDeformer,
   StandardParameter as P,
 } from "@ikijs/format";
-import { type Affine, multiply, rotate, scale, translate } from "./affine";
-import {
-  type ResolvedDeformers,
-  type ResolvedTransform,
-  evaluateTransform,
-  resolveDeformers,
-} from "./deform";
+import type { Affine } from "./affine";
+import { resolveDeformers } from "./deform";
+import { type LandedPart, landPart, landedPart, staticDeformers } from "./land";
 import { ParameterStore } from "./parameter-store";
-import { applyWarps } from "./warp";
-import {
-  applyWarpToChild,
-  deformWarpGrid,
-  transformGridPoints,
-} from "./warp-grid";
+import { deformWarpGrid } from "./warp-grid";
 
 /** A parameter setting to check the rig at; every other parameter rests at its default. */
 export interface FoldPose {
@@ -162,19 +153,6 @@ function poseName(values: Record<string, number>): string {
 }
 
 /**
- * The model's deformers with every binding and keyform removed: the rig no
- * parameter moves. Its matrix worlds place a rest location, and a part's
- * baseline, in model space.
- */
-function staticDeformers(model: IkiModel): IkiDeformer[] {
-  return (model.deformers ?? []).map((d) =>
-    d.kind === "warp"
-      ? { ...d, warps: undefined, warp2d: undefined }
-      : { ...d, bindings: undefined },
-  );
-}
-
-/**
  * Doubled signed area of each cell's four corner triangles — the corner, then
  * its two neighbours counter-clockwise (y up), as the auto-rig's body fold
  * refusal takes them — at index `cell * 4 + k`. Positive on a rest lattice.
@@ -226,14 +204,6 @@ function triangleAreas(
   return out;
 }
 
-/** A part's placement as `player.ts` drawPart builds it: translate · rotate · scale(size). */
-function placement(part: IkiPart, t: ResolvedTransform): Affine {
-  return multiply(
-    multiply(translate(t.x, t.y), rotate(t.rotation)),
-    scale(part.width * t.scaleX, part.height * t.scaleY),
-  );
-}
-
 /** A target's least ratio so far over one class of poses. */
 interface Least {
   ratio: number;
@@ -256,18 +226,8 @@ interface GridSweep extends Sweep {
   deformer: IkiWarpDeformer;
 }
 
-interface PartSweep extends Sweep {
-  part: IkiPart;
+interface PartSweep extends Sweep, LandedPart {
   indices: number[];
-  /** The warp deformer it hangs from, which lands it instead of a matrix. */
-  warpDeformer?: IkiWarpDeformer;
-  /** The mesh as the renderer holds it: part-local, float32. */
-  vertices: Float32Array;
-  /** Per-pose scratch: the mesh after its keyforms, then where it lands. */
-  local: Float32Array;
-  landed: Float32Array;
-  /** The baseline's points: the mesh on the static chain, model space. */
-  restPoints: Float64Array;
 }
 
 /**
@@ -291,13 +251,7 @@ function keepLeast(
   }
 }
 
-/**
- * A mesh part's sweep, its baseline set once: the authored mesh through the
- * part's base transform and the static world it hangs from — its matrix
- * deformer's, or its warp's PARENT's (identity at a root). The grid never
- * enters it, so a vertex the grid pins to its edge is measured, not
- * cancelled.
- */
+/** A mesh part's sweep: its landing, with the triangles' rest areas measured on its baseline. */
 function partSweep(
   part: IkiPart,
   mesh: IkiMesh,
@@ -305,62 +259,14 @@ function partSweep(
   worlds: Map<string, Affine>,
   store: ParameterStore,
 ): PartSweep {
-  // Found as drawPart finds it: a part hung from a warp is that warp's child.
-  const warpDeformer = deformers.find(
-    (d): d is IkiWarpDeformer => d.kind === "warp" && d.id === part.deformer,
-  );
-  const frame = warpDeformer ? warpDeformer.parent : part.deformer;
-  const placed = placement(
-    part,
-    evaluateTransform(part.transform, undefined, store),
-  );
-  // Float64: a triangle authored degenerate stays exactly so, under `tiny`.
-  const restPoints = transformGridPoints(
-    mesh.vertices,
-    frame === undefined ? placed : multiply(worlds.get(frame)!, placed),
-    new Float64Array(mesh.vertices.length),
-  );
+  const landing = landedPart(part, mesh.vertices, deformers, worlds, store);
   return {
+    ...landing,
     target: { kind: "part", id: part.id },
-    restAreas: triangleAreas(restPoints, mesh.indices),
+    restAreas: triangleAreas(landing.restPoints, mesh.indices),
     tiny: 1e-9 * part.width * part.height,
-    part,
     indices: mesh.indices,
-    warpDeformer,
-    vertices: Float32Array.from(mesh.vertices),
-    local: new Float32Array(mesh.vertices.length),
-    landed: new Float32Array(mesh.vertices.length),
-    restPoints,
   };
-}
-
-/**
- * Where `sweep`'s part lands at a pose, model space, by drawPart's three
- * branches: a warp child bound to its RAW rest grid and sampled on the
- * resolved one, a matrix child through its deformer's world, a free part by
- * its placement alone.
- */
-function landPart(
-  sweep: PartSweep,
-  store: ParameterStore,
-  { worlds, grids }: ResolvedDeformers,
-): Float32Array {
-  const { part, warpDeformer, local, landed } = sweep;
-  applyWarps(sweep.vertices, part.warps, store, local);
-  const placed = placement(
-    part,
-    evaluateTransform(part.transform, part.bindings, store),
-  );
-  if (warpDeformer) {
-    const grid = grids.get(warpDeformer.id)!;
-    applyWarpToChild(local, placed, warpDeformer.grid, grid, landed);
-  } else if (part.deformer !== undefined) {
-    const world = worlds.get(part.deformer)!;
-    transformGridPoints(local, multiply(world, placed), landed);
-  } else {
-    transformGridPoints(local, placed, landed);
-  }
-  return landed;
 }
 
 /**
