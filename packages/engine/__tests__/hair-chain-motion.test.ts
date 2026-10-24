@@ -316,4 +316,30 @@ describe("HairChainMotion", () => {
     );
     expect(motion.drivenParameterIds).toEqual([SEG0_OUT, SEG1_OUT]);
   });
+
+  it("counts no guard resets for a well-behaved chain", () => {
+    const motion = new HairChainMotion(
+      [makeChain()],
+      PARAMS,
+      DEFORMERS,
+      () => 30,
+      () => {},
+    );
+    for (const t of timestamps(1000, 10, 16)) motion.update(t);
+    expect(motion.resets).toEqual([0, 0]);
+  });
+
+  it("counts the resets of the diverging segment only", () => {
+    const chain = makeChain();
+    chain.segments[0] = { ...chain.segments[0], mass: 1e-6, stiffness: 1e6 };
+    const motion = new HairChainMotion(
+      [chain],
+      PARAMS,
+      DEFORMERS,
+      () => 30,
+      () => {},
+    );
+    for (const t of timestamps(1000, 40, 16)) motion.update(t);
+    expect(motion.resets[0]).toBeGreaterThan(0);
+  });
 });

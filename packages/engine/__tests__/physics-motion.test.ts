@@ -238,4 +238,49 @@ describe("PhysicsMotion", () => {
     );
     expect(motion.drivenParameterIds).toEqual([OUTPUT, "ParamOther"]);
   });
+
+  it("counts no guard resets for a well-behaved rig", () => {
+    const { sink } = makeSink();
+    const motion = new PhysicsMotion([rig()], PARAMS, () => 30, sink);
+    for (const t of timestamps(1000, 10, 16)) motion.update(t);
+    expect(motion.resets).toEqual([0]);
+  });
+
+  it("counts a state reset when the integrator diverges", () => {
+    const { sink } = makeSink();
+    let now = 1000;
+    const diverging: IkiPhysics = { ...rig(), mass: 0.001, stiffness: 1e6 };
+    const motion = new PhysicsMotion(
+      [diverging],
+      PARAMS,
+      () => (now <= 1000 ? 0 : 30),
+      sink,
+    );
+    for (const t of timestamps(1000, 200, 16)) {
+      now = t;
+      motion.update(t);
+    }
+    expect(motion.resets[0]).toBeGreaterThan(0);
+  });
+
+  it("counts an emit fallback the sink never sees", () => {
+    const { sink, emissions } = makeSink();
+    let now = 1000;
+    const overflowing: IkiPhysics = {
+      ...rig(),
+      input: { parameter: INPUT, weight: Number.MAX_VALUE },
+    };
+    const motion = new PhysicsMotion(
+      [overflowing],
+      PARAMS,
+      () => (now <= 1000 ? 0 : 30),
+      sink,
+    );
+    for (const t of timestamps(1000, 10, 16)) {
+      now = t;
+      motion.update(t);
+    }
+    expect(motion.resets[0]).toBeGreaterThan(0);
+    expect(new Set(emissions.get(OUTPUT))).toEqual(new Set([0]));
+  });
 });

@@ -56,6 +56,13 @@ interface RigState {
 export class PhysicsMotion {
   /** The output parameter of every rig, in rig order — what `emit` writes. */
   readonly drivenParameterIds: readonly string[];
+  /**
+   * Per rig: how many times the finiteness guard reset its state or `emit`
+   * replaced its non-finite product. Up to two per frame, so guard activations,
+   * not repaired frames. A diagnostic; emitted values are unchanged.
+   */
+  readonly resets: readonly number[];
+  private readonly resetCounts: number[];
   private readonly rigs: readonly IkiPhysics[];
   private readonly read: (id: string) => number;
   private readonly sink: (id: string, value: number) => void;
@@ -77,6 +84,8 @@ export class PhysicsMotion {
     this.params = new Map(params.map((p) => [p.id, p]));
     this.state = rigs.map(() => ({ x: 0, v: 0 }));
     this.drivenParameterIds = rigs.map((rig) => rig.output.parameter);
+    this.resetCounts = rigs.map(() => 0);
+    this.resets = this.resetCounts;
   }
 
   /**
@@ -99,7 +108,7 @@ export class PhysicsMotion {
         const st = this.state[i];
         st.x = this.targetFor(this.rigs[i]);
         st.v = 0;
-        this.emit(this.rigs[i], st);
+        this.emit(i, st);
       }
       return;
     }
@@ -128,8 +137,9 @@ export class PhysicsMotion {
       if (!Number.isFinite(st.x) || !Number.isFinite(st.v)) {
         st.x = Number.isFinite(targets[i]) ? targets[i] : 0;
         st.v = 0;
+        this.resetCounts[i]++;
       }
-      this.emit(this.rigs[i], st);
+      this.emit(i, st);
     }
   }
 
@@ -150,7 +160,8 @@ export class PhysicsMotion {
   }
 
   /** Write outputDefault + x * scale onto the output param via the sink. */
-  private emit(rig: IkiPhysics, st: RigState): void {
+  private emit(index: number, st: RigState): void {
+    const rig = this.rigs[index];
     const outParam = this.params.get(rig.output.parameter);
     // clamp to match ParameterStore's engine-effective default (see signedNormalized).
     const outDefault = outParam
@@ -160,9 +171,8 @@ export class PhysicsMotion {
     // Final guard: even a finite-but-enormous `x` could overflow the product to
     // ±Infinity. Emit the rest pose rather than hand a non-finite value to the
     // sink, which would drop the write and leave the output stuck where it was.
-    this.sink(
-      rig.output.parameter,
-      Number.isFinite(value) ? value : outDefault,
-    );
+    const finite = Number.isFinite(value);
+    if (!finite) this.resetCounts[index]++;
+    this.sink(rig.output.parameter, finite ? value : outDefault);
   }
 }

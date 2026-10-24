@@ -60,6 +60,14 @@ interface ChainData {
 export class HairChainMotion {
   /** Every segment's output, chain by chain — what `emitSegment` writes. */
   readonly drivenParameterIds: readonly string[];
+  /**
+   * Per segment, in `drivenParameterIds` order: how many times the finiteness
+   * guard reset its state or `emitSegment` replaced its non-finite product. Up
+   * to two per frame, so guard activations, not repaired frames. A diagnostic;
+   * emitted values are unchanged.
+   */
+  readonly resets: readonly number[];
+  private readonly resetCounts: number[];
   private readonly chainData: ChainData[];
   private readonly params: Map<string, IkiParameter>;
   private readonly deformers: IkiDeformer[];
@@ -94,6 +102,8 @@ export class HairChainMotion {
     this.drivenParameterIds = chains.flatMap((c) =>
       c.segments.map((s) => s.output.parameter),
     );
+    this.resetCounts = this.drivenParameterIds.map(() => 0);
+    this.resets = this.resetCounts;
   }
 
   /**
@@ -117,11 +127,12 @@ export class HairChainMotion {
     if (this.clock.isSeedFrame) {
       // FIRST FRAME: seed rest, emit outDefault for every segment, NO integration.
       this.clock.advance(nowMs);
+      let flat = 0;
       for (const cd of this.chainData) {
         for (let i = 0; i < cd.chain.segments.length; i++) {
           cd.state[i].angle = 0;
           cd.state[i].angularVelocity = 0;
-          this.emitSegment(cd.chain.segments[i], cd.state[i]);
+          this.emitSegment(flat++, cd.chain.segments[i], cd.state[i]);
         }
       }
       return;
@@ -150,6 +161,7 @@ export class HairChainMotion {
     }
 
     // Emit always (even on zero substeps) so the sink stays in sync.
+    let flat = 0;
     for (const cd of this.chainData) {
       for (let i = 0; i < cd.chain.segments.length; i++) {
         const st = cd.state[i];
@@ -163,8 +175,9 @@ export class HairChainMotion {
         ) {
           st.angle = 0;
           st.angularVelocity = 0;
+          this.resetCounts[flat]++;
         }
-        this.emitSegment(cd.chain.segments[i], st);
+        this.emitSegment(flat++, cd.chain.segments[i], st);
       }
     }
   }
@@ -238,16 +251,19 @@ export class HairChainMotion {
   }
 
   /** Emit outDefault + (θ_i · RAD2DEG) · scale for one segment. */
-  private emitSegment(seg: IkiPhysicsChainSegment, st: SegmentState): void {
+  private emitSegment(
+    flat: number,
+    seg: IkiPhysicsChainSegment,
+    st: SegmentState,
+  ): void {
     const outParam = this.params.get(seg.output.parameter);
     const outDefault = outParam
       ? clamp(outParam.default, outParam.min, outParam.max)
       : 0;
     const value = outDefault + st.angle * RAD2DEG * seg.output.scale;
     // Final guard: even a finite-but-enormous θ could overflow to ±Infinity.
-    this.sink(
-      seg.output.parameter,
-      Number.isFinite(value) ? value : outDefault,
-    );
+    const finite = Number.isFinite(value);
+    if (!finite) this.resetCounts[flat]++;
+    this.sink(seg.output.parameter, finite ? value : outDefault);
   }
 }
