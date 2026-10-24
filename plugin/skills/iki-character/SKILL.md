@@ -324,7 +324,11 @@ parameters and success criterion as above.
 `ParamHairSwayX`/`ParamHairSwayZ` (panel label "Hair Sway X"/"Hair Sway Z") are
 physics OUTPUTS: the springs write them, so do not judge the hair from a
 frozen pose — physics only advances inside the playground's idle loop.
-Recheck Idle and watch, or drive the sway parameters directly — `setParam` in
+`ParamAmbientSway` ("Ambient Sway") is the idle's own slow drift the hair
+follows in idle, written every frame like Breath, so a slider move on it is
+overwritten. Rigs from `@ikijs/mcp` 0.28.0 on declare it; a rig from an older
+server lacks it, and its hair barely moves in idle.
+Recheck Idle and watch, or drive the hair-sway outputs directly — `setParam` in
 a checkout, the panel slider standalone — to see the root-pinned swing shape.
 
 ## Pitfalls (hard-won — read before generating)

@@ -58,7 +58,7 @@ values, `setView` throws on a non-finite centre or a non-positive size.
 | `IkiLoadResult`                                  | `{ failedTextures, superseded }` returned by `load()`                                                               |
 | `ParameterStore`                                 | The clamped parameter map the player drives                                                                         |
 | `IkiMotion`                                      | Idle, clips, expressions, physics and chains, stepped as one; `playExpression` / `stopExpression` / `playMotion`    |
-| `IdleMotion`                                     | Auto-blink / breath / gaze-drift driver                                                                             |
+| `IdleMotion`                                     | Auto-blink / breath / gaze-drift / head-sway driver, plus the ambient sway hair physics follows                     |
 | `PhysicsMotion`                                  | Spring-mass-damper secondary motion (`model.physics`)                                                               |
 | `HairChainMotion`                                | Multi-segment angular chain with gravity (`model.physicsChains`)                                                    |
 | `checkFolds`                                     | A report-only `FoldReport`: per warp grid and mesh part, flip / collapse / ok and its least area ratio and pose     |
@@ -161,10 +161,11 @@ else writes rests at its default once the expressions let go of it (a stop, or
 a replace by one that doesn't drive it) or a one-shot ends.
 
 A model that declares an `Idle` motion group loops its clips in place of the
-procedural head sway and gaze (`AngleX/Y/Z`, `EyeballX/Y`); blink and breath
-stay procedural, and the format rejects an `Idle` curve on `EyeOpen` or
-`Breath`. A head or gaze parameter the `Idle` clips don't animate is
-left unwritten by idle; a one-shot or an expression can still drive it.
+procedural head sway and gaze (`AngleX/Y/Z`, `EyeballX/Y`); blink, breath and
+the ambient sway stay procedural, and the format rejects an `Idle` curve on
+`EyeOpen`, `Breath` or `AmbientSway`. A head or gaze parameter the `Idle`
+clips don't animate is left unwritten by idle; a one-shot or an expression can
+still drive it.
 
 ## Rendering notes
 

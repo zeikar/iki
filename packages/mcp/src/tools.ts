@@ -317,6 +317,11 @@ const STANDARD_PARAMETER_INFO: StandardParameterInfo[] = [
     description: "Idle breath (0 .. 1), cycled by the host.",
   },
   {
+    id: StandardParameter.AmbientSway,
+    description:
+      "Ambient sway (-1 .. 1): a slow zero-mean drift the idle writes for physics rigs to follow (the auto-rig's hair in idle). Not a wind: no bias. Stays procedural under a declared Idle group, as Breath does.",
+  },
+  {
     id: StandardParameter.BrowLeftY,
     description: "Left brow raise/lower (-1 .. 1).",
   },

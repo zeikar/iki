@@ -17,6 +17,7 @@ describe("StandardParameter", () => {
       BodyAngleY: "ParamBodyAngleY",
       BodyAngleZ: "ParamBodyAngleZ",
       Breath: "ParamBreath",
+      AmbientSway: "ParamAmbientSway",
       BrowLeftY: "ParamBrowLY",
       BrowRightY: "ParamBrowRY",
       BrowLeftAngle: "ParamBrowLAngle",

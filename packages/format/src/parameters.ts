@@ -46,6 +46,10 @@ export const StandardParameter = {
   BodyAngleZ: "ParamBodyAngleZ",
   /** Idle breath (0 .. 1), cycled by the host. */
   Breath: "ParamBreath",
+  /** Ambient sway (-1 .. 1): a slow zero-mean drift the idle writes for physics
+   *  rigs to follow (the auto-rig's hair in idle). Not a wind: no bias. Stays
+   *  procedural under a declared Idle group, as Breath does. */
+  AmbientSway: "ParamAmbientSway",
   /** Left brow vertical raise/lower (-1 down .. 1 up). */
   BrowLeftY: "ParamBrowLY",
   /** Right brow vertical raise/lower (-1 down .. 1 up). */

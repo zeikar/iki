@@ -96,10 +96,11 @@ clip. A fade left out, on an expression or a clip, lasts `DEFAULT_FADE_SECONDS`
 instant. An expression's `fadeIn` also times a replace, from the replaced
 expression's current output; its `fadeOut` applies only when it is stopped,
 back to the base. The `Idle` group
-(`IDLE_MOTION_GROUP`) loops; blink and breath stay procedural under it, so its
-curves may not animate `EyeOpen` L/R or `Breath`. Every other group plays once
-and may animate them. For a seamless `Idle` loop, start and end a smooth curve
-at a turning point (where the motion naturally slows), or mark it `linear`.
+(`IDLE_MOTION_GROUP`) loops; blink, breath and the ambient sway stay procedural
+under it, so its curves may not animate `EyeOpen` L/R, `Breath` or
+`AmbientSway`. Every other group plays once and may animate them. For a
+seamless `Idle` loop, start and end a smooth curve at a turning point (where
+the motion naturally slows), or mark it `linear`.
 
 ### Side convention
 

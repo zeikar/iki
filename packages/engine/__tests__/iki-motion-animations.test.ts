@@ -241,10 +241,12 @@ describe("IkiMotion animations API", () => {
     );
 
     expect(motion.drivenParameterIds).toEqual([
-      // Idle replaces the procedural head and gaze; blink and breath stay.
+      // Idle replaces the procedural head and gaze; blink, breath and the
+      // ambient sway stay.
       StandardParameter.EyeOpenLeft,
       StandardParameter.EyeOpenRight,
       StandardParameter.Breath,
+      StandardParameter.AmbientSway,
       // Curve parameters, group by group.
       StandardParameter.AngleX,
       StandardParameter.AngleY,
@@ -257,7 +259,7 @@ describe("IkiMotion animations API", () => {
 });
 
 describe("IkiMotion frame order", () => {
-  it("writes blink and breath, the clips, the expression, then the rig and the chain, each id once", () => {
+  it("writes blink, breath and the ambient sway, the clips, the expression, then the rig and the chain, each id once", () => {
     const { motion, step } = harness(animatedModel());
     motion.playMotion("Nod", 0);
     motion.playExpression("smile");
@@ -269,6 +271,7 @@ describe("IkiMotion frame order", () => {
         StandardParameter.EyeOpenLeft,
         StandardParameter.EyeOpenRight,
         StandardParameter.Breath,
+        StandardParameter.AmbientSway,
         StandardParameter.AngleX,
         StandardParameter.AngleY,
         StandardParameter.BrowLeftY,
@@ -473,18 +476,19 @@ describe("IkiMotion Idle replacement", () => {
         StandardParameter.EyeOpenLeft,
         StandardParameter.EyeOpenRight,
         StandardParameter.Breath,
+        StandardParameter.AmbientSway,
         StandardParameter.AngleX,
       ]),
     );
   });
 
-  it("without an Idle group, idle writes all eight procedural ids every update", () => {
+  it("without an Idle group, idle writes all nine procedural ids every update", () => {
     // A declared group that is not Idle replaces nothing.
     const { step } = harness(
       model({ motions: { Nod: [clip(StandardParameter.AngleY, 5)] } }),
     );
     const idleIds = new IdleMotion(() => {}).drivenParameterIds;
-    expect(idleIds).toHaveLength(8);
+    expect(idleIds).toHaveLength(9);
 
     for (const now of [1000, 1016, 1032]) {
       expect(idsOf(step(now))).toEqual(idleIds);

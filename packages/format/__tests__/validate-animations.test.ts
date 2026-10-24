@@ -7,10 +7,11 @@ import {
 } from "@ikijs/format";
 
 /** The ids the procedural idle keeps under a declared Idle group. */
-const BLINK_AND_BREATH = [
+const IDLE_PROCEDURAL = [
   StandardParameter.EyeOpenLeft,
   StandardParameter.EyeOpenRight,
   StandardParameter.Breath,
+  StandardParameter.AmbientSway,
 ];
 
 function model(expressions?: unknown) {
@@ -21,7 +22,7 @@ function model(expressions?: unknown) {
     parameters: [
       { id: "ParamA", name: "A", min: -1, max: 1, default: 0 },
       { id: "ParamMouthOpenY", name: "Mouth", min: 0, max: 1, default: 0 },
-      ...BLINK_AND_BREATH.map((id) => ({
+      ...IDLE_PROCEDURAL.map((id) => ({
         id,
         name: id,
         min: 0,
@@ -262,11 +263,11 @@ describe("motions — accepted", () => {
     expect(parseIkiModel(motionModel(motions)).motions).toEqual(motions);
   });
 
-  it("accepts blink and breath curves in a one-shot group", () => {
+  it("accepts blink, breath and ambient sway curves in a one-shot group", () => {
     const motions = {
       Wink: [
         clip({
-          curves: BLINK_AND_BREATH.map((parameter) => ({
+          curves: IDLE_PROCEDURAL.map((parameter) => ({
             parameter,
             keys: [
               [0, 1],
@@ -327,7 +328,7 @@ describe("motions — rejected", () => {
       'motions["Nod"][0].description must contain a non-whitespace character',
     );
   });
-  it.each(BLINK_AND_BREATH)("Idle curve on %s", (parameter) => {
+  it.each(IDLE_PROCEDURAL)("Idle curve on %s", (parameter) => {
     rejectsMotions(
       {
         Idle: [
@@ -339,7 +340,7 @@ describe("motions — rejected", () => {
           }),
         ],
       },
-      `motions["Idle"][0].curves[1].parameter "${parameter}" stays procedural: an Idle clip may not animate blink or breath`,
+      `motions["Idle"][0].curves[1].parameter "${parameter}" stays procedural: an Idle clip may not animate blink, breath or the ambient sway`,
     );
   });
   it("zero duration", () => {

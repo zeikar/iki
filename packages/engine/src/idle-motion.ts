@@ -39,6 +39,17 @@ const SWAY_Y_PERIOD_MS = 7300;
 const SWAY_Z_AMP_DEG = 1.1;
 const SWAY_Z_PERIOD_MS = 11300;
 
+// Ambient sway: the drift hair physics follows in idle, where the head sway
+// alone barely moves it. Two near-coprime periods (29:43) inside 2.5–5 s, away
+// from the breath and the head sines above so nothing beats in step; the
+// amplitudes sum to exactly ±1, the parameter's range. Zero phase, so the
+// resting pose writes 0 and it takes no rng draw (the blink and gaze
+// schedules keep their sequence).
+const AMBIENT_AMP_A = 0.6;
+const AMBIENT_PERIOD_A_MS = 2900;
+const AMBIENT_AMP_B = 0.4;
+const AMBIENT_PERIOD_B_MS = 4300;
+
 // --- Small pure helpers -------------------------------------------------------
 
 /**
@@ -76,9 +87,10 @@ export interface IdleMotionOptions {
 }
 
 /**
- * Pure-logic idle-animation driver. Animates the eight "life" parameters
- * (eyes, breath, gaze, head sway) on an internal clock so tab-backgrounding
- * or irregular frame delivery can't produce teleports or snap-close blinks.
+ * Pure-logic idle-animation driver. Animates the nine "life" parameters
+ * (eyes, breath, gaze, head sway, ambient sway) on an internal clock so
+ * tab-backgrounding or irregular frame delivery can't produce teleports or
+ * snap-close blinks.
  *
  * Usage:
  *   const idle = new IdleMotion(player.setParameter.bind(player));
@@ -103,6 +115,7 @@ export class IdleMotion {
     StandardParameter.AngleX,
     StandardParameter.AngleY,
     StandardParameter.AngleZ,
+    StandardParameter.AmbientSway,
   ];
   private readonly sink: (id: string, value: number) => void;
   private readonly rng: () => number;
@@ -194,6 +207,7 @@ export class IdleMotion {
     this.sink(StandardParameter.AngleX, this.swayX());
     this.sink(StandardParameter.AngleY, this.swayY());
     this.sink(StandardParameter.AngleZ, this.swayZ());
+    this.sink(StandardParameter.AmbientSway, this.ambientSway());
   }
 
   // ---------------------------------------------------------------------------
@@ -211,6 +225,7 @@ export class IdleMotion {
     this.sink(StandardParameter.AngleX, 0);
     this.sink(StandardParameter.AngleY, 0);
     this.sink(StandardParameter.AngleZ, 0);
+    this.sink(StandardParameter.AmbientSway, 0);
   }
 
   /** Returns the current eye-open value (0..1) and advances blink state. */
@@ -268,6 +283,15 @@ export class IdleMotion {
   private swayZ(): number {
     return (
       SWAY_Z_AMP_DEG * Math.sin((2 * Math.PI * this.clockMs) / SWAY_Z_PERIOD_MS)
+    );
+  }
+
+  /** Ambient sway (-1..1), pure function of the internal clock. */
+  private ambientSway(): number {
+    const t = 2 * Math.PI * this.clockMs;
+    return (
+      AMBIENT_AMP_A * Math.sin(t / AMBIENT_PERIOD_A_MS) +
+      AMBIENT_AMP_B * Math.sin(t / AMBIENT_PERIOD_B_MS)
     );
   }
 

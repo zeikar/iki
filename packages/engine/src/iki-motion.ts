@@ -55,9 +55,9 @@ const HEAD_AND_GAZE: ReadonlySet<string> = new Set([
  * loop in place of the procedural head sway and gaze — IdleMotion's AngleX/Y/Z
  * and EyeballX/Y writes are dropped. A head or gaze parameter the Idle clips
  * don't animate is left unwritten by idle and rests where it is (a one-shot or
- * an expression can still drive it). Blink (EyeOpen L/R) and Breath stay
- * procedural: the format rejects an Idle curve on them. Without an `Idle`
- * group the procedural idle runs whole.
+ * an expression can still drive it). Blink (EyeOpen L/R), Breath and the
+ * ambient sway stay procedural: the format rejects an Idle curve on them.
+ * Without an `Idle` group the procedural idle runs whole.
  *
  * The host schedules; this class has no timers, rAF, DOM, or Date.now.
  *
@@ -166,8 +166,8 @@ export class IkiMotion {
    * Advance everything to the same wall-clock timestamp (milliseconds), in
    * this order:
    *
-   * 1. Idle writes blink, breath (and head and gaze, unless replaced) into
-   *    this update's frame.
+   * 1. Idle writes blink, breath, the ambient sway (and head and gaze, unless
+   *    replaced) into this update's frame.
    * 2. The clip stage writes the `Idle` loop, then the one-shot over it.
    * 3. The expression stage writes the active expression, fading in from the
    *    pose it replaced, or a stop fading back to base.

@@ -19,6 +19,7 @@ const EMITTED_IDS = new Set([
   StandardParameter.AngleX,
   StandardParameter.AngleY,
   StandardParameter.AngleZ,
+  StandardParameter.AmbientSway,
 ]);
 
 // Head-sway envelope bounds matching the impl's intent — NOT imported from impl.
@@ -85,7 +86,7 @@ describe("IdleMotion survives a non-finite timestamp", () => {
 });
 
 describe("sink-only contract", () => {
-  it("emits exactly the 8 standard parameter ids", () => {
+  it("emits exactly the 9 standard parameter ids", () => {
     const emissions = drive(timestamps(0, 10, 100), cyclingRng([0.5]));
     expect(new Set(emissions.keys())).toEqual(EMITTED_IDS);
   });
@@ -99,7 +100,7 @@ describe("sink-only contract", () => {
     expect([...emissions.keys()]).toEqual([...ids]);
   });
 
-  it("first update emits resting pose: eyes=1, breath=0.5, gaze=0,0, sway=0,0", () => {
+  it("first update emits resting pose: eyes=1, breath=0.5, gaze=0,0, sway=0,0, ambient=0", () => {
     const { sink, emissions } = makeSink();
     const motion = new IdleMotion(sink, { rng: cyclingRng([0.5]) });
     motion.update(1000);
@@ -111,9 +112,10 @@ describe("sink-only contract", () => {
     expect(emissions.get(StandardParameter.AngleX)![0]).toBe(0);
     expect(emissions.get(StandardParameter.AngleY)![0]).toBe(0);
     expect(emissions.get(StandardParameter.AngleZ)![0]).toBe(0);
+    expect(emissions.get(StandardParameter.AmbientSway)![0]).toBe(0);
   });
 
-  it("every update (including first) emits exactly all 8 ids", () => {
+  it("every update (including first) emits exactly all 9 ids", () => {
     // Verify counts are equal across all 7 params after N updates.
     const N = 20;
     const emissions = drive(timestamps(0, N, 100), cyclingRng([0.5]));
@@ -402,6 +404,36 @@ describe("head sway", () => {
     motion.update(60016);
     const after = emissions.get(StandardParameter.AngleX)!.at(-1)!;
     expect(Math.abs(after - before)).toBeLessThan(0.5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ambient sway
+// ---------------------------------------------------------------------------
+
+describe("ambient sway", () => {
+  // 60 s at 50 ms: long enough for both sines to line up near a peak.
+  const SIXTY_S = timestamps(0, 1201, 50);
+
+  it("stays within -1..1 and reaches near both ends", () => {
+    const series = drive(SIXTY_S, cyclingRng([0.5])).get(
+      StandardParameter.AmbientSway,
+    )!;
+    for (const v of series) expect(Math.abs(v)).toBeLessThanOrEqual(1);
+    expect(Math.max(...series)).toBeGreaterThan(0.9);
+    expect(Math.min(...series)).toBeLessThan(-0.9);
+  });
+
+  it("is a function of the clock alone: two different rngs write the same series", () => {
+    // It takes no rng draw, which would shift the blink and gaze schedules.
+    const a = drive(SIXTY_S, cyclingRng([0])).get(
+      StandardParameter.AmbientSway,
+    );
+    const b = drive(SIXTY_S, cyclingRng([0.9, 0.3, 0.6])).get(
+      StandardParameter.AmbientSway,
+    );
+    expect(a).toHaveLength(SIXTY_S.length);
+    expect(a).toEqual(b);
   });
 });
 

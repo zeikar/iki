@@ -221,7 +221,7 @@ describe("MCP server integration", () => {
     }
   });
 
-  it("list_standard_parameters returns 28 entries under structuredContent.parameters", async () => {
+  it("list_standard_parameters returns 29 entries under structuredContent.parameters", async () => {
     pair = await createPair();
     const result = await pair.client.callTool({
       name: "list_standard_parameters",
@@ -231,7 +231,7 @@ describe("MCP server integration", () => {
     const sc = result.structuredContent as {
       parameters: { id: string; description: string }[];
     };
-    expect(sc.parameters).toHaveLength(28);
+    expect(sc.parameters).toHaveLength(29);
     expect(result.isError).toBeFalsy();
   });
 

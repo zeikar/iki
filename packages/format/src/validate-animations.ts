@@ -22,11 +22,12 @@ const INTERPOLATIONS: ReadonlySet<string> = new Set(["linear", "smooth"]);
 
 // A declared Idle group replaces only the procedural head sway and gaze, and
 // its loop is written after the procedural idle: an Idle curve on these would
-// overwrite the blink or breath on every frame.
+// overwrite the blink, breath or ambient sway on every frame.
 const IDLE_PROCEDURAL: ReadonlySet<string> = new Set([
   StandardParameter.EyeOpenLeft,
   StandardParameter.EyeOpenRight,
   StandardParameter.Breath,
+  StandardParameter.AmbientSway,
 ]);
 
 // A host (or an LLM) picks an entry by its description, so it needs real text.
@@ -209,7 +210,7 @@ function parseMotionClip(
     }
     if (idle && IDLE_PROCEDURAL.has(parameter)) {
       throw new IkiFormatError(
-        `${at}.parameter "${parameter}" stays procedural: an Idle clip may not animate blink or breath`,
+        `${at}.parameter "${parameter}" stays procedural: an Idle clip may not animate blink, breath or the ambient sway`,
       );
     }
     if (seen.has(parameter)) {

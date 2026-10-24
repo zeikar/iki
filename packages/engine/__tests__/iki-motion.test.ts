@@ -162,8 +162,8 @@ describe("IkiMotion", () => {
       RIG_OUT,
       SEG0_OUT,
     ];
-    expect(writes.slice(0, 10)).toEqual(expectedOrder);
-    expect(writes.slice(10, 20)).toEqual(expectedOrder);
+    expect(writes.slice(0, 11)).toEqual(expectedOrder);
+    expect(writes.slice(11, 22)).toEqual(expectedOrder);
 
     motion.update(1032);
     // The published list is exactly what was written, not a literal.

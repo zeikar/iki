@@ -357,8 +357,8 @@ describe("describeIkiAt", () => {
 });
 
 describe("listStandardParameters", () => {
-  it("returns exactly 28 entries", () => {
-    expect(listStandardParameters()).toHaveLength(28);
+  it("returns exactly 29 entries", () => {
+    expect(listStandardParameters()).toHaveLength(29);
   });
 
   it("ids match the full set of StandardParameter values", () => {
