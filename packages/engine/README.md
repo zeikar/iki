@@ -63,6 +63,7 @@ values, `setView` throws on a non-finite centre or a non-positive size.
 | `HairChainMotion`                                | Multi-segment angular chain with gravity (`model.physicsChains`)                                                    |
 | `checkFolds`                                     | A report-only `FoldReport`: per warp grid and mesh part, flip / collapse / ok and its least area ratio and pose     |
 | `foldPoses`                                      | The `FoldPose[]` `checkFolds` checks by default: rest, every parameter's extremes, angle corners × eyes/mouth/arms  |
+| `checkPhysics`                                   | A report-only `PhysicsReport`: per rig and chain segment, ok / frozen / unstable, step and idle amplitude, px moved |
 | `translate` `rotate` `scale` `multiply` `toMat3` | The 2D affine helpers the engine itself uses                                                                        |
 
 ## Motion drivers
@@ -104,6 +105,14 @@ inside `IkiMotion`.
 
 Both physics drivers integrate on a fixed 1/60 s sub-step with a clamped frame
 delta, so a backgrounded tab or a long hitch cannot snap the rig.
+
+Both also expose `resets`: per output, in `drivenParameterIds` order, how many
+times their finiteness guard repaired it — guard activations, up to two a
+frame, not repaired frames; the emitted values are unchanged. Known limit:
+`checkPhysics` reads a chain's instability from that guard and from a
+sustained pin only, so finite chain divergence that trips neither is deferred
+to a later slice (the auto-rig generates no chains) and shows only in the
+numbers.
 
 ### Expressions and motion clips
 
