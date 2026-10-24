@@ -284,3 +284,91 @@ describe("PhysicsMotion", () => {
     expect(new Set(emissions.get(OUTPUT))).toEqual(new Set([0]));
   });
 });
+
+describe("PhysicsMotion follows or lags each input", () => {
+  const LEVER = "ParamLever";
+  const params: IkiParameter[] = [
+    ...PARAMS,
+    { id: LEVER, name: "Lever", min: -1, max: 1, default: 0 },
+  ];
+
+  /** rig()'s spring, driven by the given inputs. */
+  function rigWith(inputs: IkiPhysics["inputs"]): IkiPhysics {
+    const { input: _single, ...base } = rig();
+    return { ...base, inputs };
+  }
+
+  const lagX = { parameter: INPUT, weight: 1, mode: "lag" as const };
+  // ~5 s of 16 ms frames after the seed frame.
+  const ts = timestamps(1000, 314, 16);
+
+  it("swings the output on a lag input's step and settles it back to rest", () => {
+    const inputFn = (_id: string, t: number) => (t <= ts[0] ? 0 : 30);
+    const out = drive([rigWith([lagX])], params, inputFn, ts).get(OUTPUT)!;
+    // −scale·weight = 10, less at most one sub-step's travel.
+    expect(Math.abs(out[1] - 10)).toBeLessThan(0.3);
+    expect(Math.abs(last(out))).toBeLessThan(0.01);
+  });
+
+  it("seeds a displaced lag input at rest and a follow input at its value", () => {
+    const lagOnly = drive([rigWith([lagX])], params, () => 30, ts).get(OUTPUT)!;
+    for (const v of lagOnly) expect(Math.abs(v)).toBeLessThan(1e-9);
+
+    const lever = { parameter: LEVER, weight: 0.25 };
+    const mixed = drive(
+      [rigWith([lagX, lever])],
+      params,
+      (id) => (id === INPUT ? 30 : 1),
+      ts,
+    ).get(OUTPUT)!;
+    // scale·weight·n for the follow lever, nothing for the held AngleX.
+    for (const v of mixed) expect(Math.abs(v - -2.5)).toBeLessThan(1e-9);
+  });
+
+  it("passes a follow input's held value while a held lag input settles out", () => {
+    const lever = { parameter: LEVER, weight: 0.25, mode: "follow" as const };
+    const inputFn = (id: string, t: number) =>
+      t <= ts[0] ? 0 : id === INPUT ? 30 : 1;
+    const out = drive([rigWith([lagX, lever])], params, inputFn, ts).get(
+      OUTPUT,
+    )!;
+    expect(Math.max(...out.map(Math.abs))).toBeGreaterThan(5); // the AngleX swing
+    expect(Math.abs(last(out) - -2.5)).toBeLessThan(0.01);
+  });
+
+  it("sums two follow inputs into one target", () => {
+    const inputs = [
+      { parameter: INPUT, weight: 1 },
+      { parameter: LEVER, weight: 0.5 },
+    ];
+    const inputFn = (id: string, t: number) =>
+      t <= ts[0] ? 0 : id === INPUT ? 30 : 1;
+    const out = drive([rigWith(inputs)], params, inputFn, ts).get(OUTPUT)!;
+    expect(Math.abs(last(out) - -15)).toBeLessThan(0.01); // −10·(1·1 + 0.5·1)
+  });
+
+  it("re-emits the last output on a non-finite frame without reading inputs", () => {
+    let value = 0;
+    let reads = 0;
+    const read = (id: string) => {
+      reads++;
+      return id === INPUT ? value : 0;
+    };
+    const { sink, emissions } = makeSink();
+    const motion = new PhysicsMotion([rigWith([lagX])], params, read, sink);
+    motion.update(1000);
+    value = 30;
+    for (const t of timestamps(1016, 10, 16)) motion.update(t);
+    const out = emissions.get(OUTPUT)!;
+    const before = last(out);
+
+    value = 0;
+    reads = 0;
+    motion.update(NaN);
+    expect(reads).toBe(0);
+    expect(last(out)).toBe(before);
+
+    motion.update(1016 + 10 * 16);
+    expect(last(out)).not.toBe(before);
+  });
+});

@@ -1,4 +1,8 @@
-import type { IkiParameter, IkiPhysics } from "@ikijs/format";
+import {
+  type IkiParameter,
+  type IkiPhysics,
+  physicsInputs,
+} from "@ikijs/format";
 import { FIXED_DT_S, FixedStepClock } from "./frame-clock";
 import { clamp } from "./math";
 
@@ -28,16 +32,33 @@ function signedNormalized(
 interface RigState {
   x: number; // spring position (lagging, normalized-ish units)
   v: number; // spring velocity
+  lag: number; // Σ wᵢ·nᵢ over the lag inputs, as the last finite frame read it
+}
+
+/** One input of a rig, resolved once so the frame loop never branches on shape. */
+interface RigInput {
+  parameter: string;
+  weight: number;
+  lag: boolean;
 }
 
 /**
  * Host-agnostic 1D spring-mass-damper secondary-motion driver — the physics
- * peer of {@link IdleMotion}. For each rig it reads the input parameter,
- * signed-normalizes it around the input's default × `weight` to form a spring
- * target, integrates a lagging spring position with semi-implicit (symplectic)
- * Euler on a fixed 1/60s sub-step accumulator, and writes
- * `outputDefault + x * scale` onto the output parameter — so the output lags
- * and overshoots the input (hair/accessory sway).
+ * peer of {@link IdleMotion}. For each rig it reads every input parameter,
+ * signed-normalizes it around its default × `weight`, sums those into one spring
+ * target `T`, integrates a lagging spring position `x` with semi-implicit
+ * (symplectic) Euler on a fixed 1/60s sub-step accumulator, and writes
+ * `outputDefault + (x − L) * scale` onto the output parameter, `L` being the
+ * lag inputs' share of `T` — so the output lags and overshoots the inputs
+ * (hair/accessory sway).
+ *
+ * By superposition a follow input's held value stays in the output (the spring
+ * settles at `T`), while a lag input's held value settles out, returning the
+ * output to rest: it swings only while that input moves. A rig seeded with a
+ * lag input already displaced emits rest, without a kick. Inputs are not
+ * smoothed, so a one-frame step on a lag input snaps the output by
+ * `−scale·weight·Δn` before the spring catches up — deferred until a captured
+ * snap calls for a rate limit.
  *
  * Usage:
  *   const physics = new PhysicsMotion(
@@ -64,6 +85,7 @@ export class PhysicsMotion {
   readonly resets: readonly number[];
   private readonly resetCounts: number[];
   private readonly rigs: readonly IkiPhysics[];
+  private readonly inputs: readonly (readonly RigInput[])[];
   private readonly read: (id: string) => number;
   private readonly sink: (id: string, value: number) => void;
   private readonly params: Map<string, IkiParameter>;
@@ -79,10 +101,17 @@ export class PhysicsMotion {
     sink: (id: string, value: number) => void,
   ) {
     this.rigs = rigs;
+    this.inputs = rigs.map((rig) =>
+      physicsInputs(rig).map(({ parameter, weight, mode }) => ({
+        parameter,
+        weight,
+        lag: mode === "lag",
+      })),
+    );
     this.read = read;
     this.sink = sink;
     this.params = new Map(params.map((p) => [p.id, p]));
-    this.state = rigs.map(() => ({ x: 0, v: 0 }));
+    this.state = rigs.map(() => ({ x: 0, v: 0, lag: 0 }));
     this.drivenParameterIds = rigs.map((rig) => rig.output.parameter);
     this.resetCounts = rigs.map(() => 0);
     this.resets = this.resetCounts;
@@ -92,8 +121,12 @@ export class PhysicsMotion {
    * Advance every rig to the given wall-clock timestamp (milliseconds).
    *
    * First call: seed each spring to rest AT its current target (so a model
-   * loaded with a nonzero input does not kick), emit the resting output, and
-   * return without integrating — mirroring IdleMotion's first-frame behavior.
+   * loaded with a nonzero input does not kick: a lag input emits rest, a follow
+   * input its value), emit that output, and return without integrating —
+   * mirroring IdleMotion's first-frame behavior.
+   *
+   * A non-finite `nowMs` after that is a dropped frame: every rig re-emits its
+   * last output from its stored state without reading its inputs.
    *
    * Subsequent calls: {@link FixedStepClock} folds the clamped frame delta into
    * its accumulator and returns how many {@link FIXED_DT_S} sub-steps are due;
@@ -106,22 +139,31 @@ export class PhysicsMotion {
       this.clock.advance(nowMs);
       for (let i = 0; i < this.rigs.length; i++) {
         const st = this.state[i];
-        st.x = this.targetFor(this.rigs[i]);
+        const { target, lag } = this.targetFor(i);
+        st.x = target;
         st.v = 0;
+        st.lag = lag;
         this.emit(i, st);
       }
       return;
     }
 
+    // A dropped frame (the clock rejects it as well). Re-emit from the stored
+    // `L` rather than read the inputs, or a lag rig's output would move on it.
+    if (!Number.isFinite(nowMs)) {
+      for (let i = 0; i < this.rigs.length; i++) this.emit(i, this.state[i]);
+      return;
+    }
+
     const steps = this.clock.advance(nowMs);
 
-    // update() is synchronous, so the input cannot change mid-loop — read each
+    // update() is synchronous, so the inputs cannot change mid-loop — read each
     // rig's target ONCE per frame and reuse it across the sub-steps.
-    const targets = this.rigs.map((rig) => this.targetFor(rig));
+    const targets = this.rigs.map((_, i) => this.targetFor(i));
 
     for (let s = 0; s < steps; s++) {
       for (let i = 0; i < this.rigs.length; i++) {
-        this.step(this.rigs[i], this.state[i], targets[i]);
+        this.step(this.rigs[i], this.state[i], targets[i].target);
       }
     }
 
@@ -134,21 +176,32 @@ export class PhysicsMotion {
       // current target: the store DROPS a non-finite write, so an un-reset rig
       // would emit NaN every frame and silently freeze the part at its last
       // good pose instead of visibly diverging.
+      const { target, lag } = targets[i];
       if (!Number.isFinite(st.x) || !Number.isFinite(st.v)) {
-        st.x = Number.isFinite(targets[i]) ? targets[i] : 0;
+        st.x = Number.isFinite(target) ? target : 0;
         st.v = 0;
         this.resetCounts[i]++;
       }
+      st.lag = lag;
       this.emit(i, st);
     }
   }
 
-  /** Spring target = signed-normalized input value × weight. */
-  private targetFor(rig: IkiPhysics): number {
-    const param = this.params.get(rig.input.parameter);
-    const value = this.read(rig.input.parameter);
-    const norm = param ? signedNormalized(value, param) : 0;
-    return norm * rig.input.weight;
+  /**
+   * Rig `index`'s spring target `T` = Σ signed-normalized input value × weight,
+   * and `L`, the lag inputs' share of it. Reads each input once.
+   */
+  private targetFor(index: number): { target: number; lag: number } {
+    let target = 0;
+    let lag = 0;
+    for (const input of this.inputs[index]) {
+      const param = this.params.get(input.parameter);
+      const value = this.read(input.parameter);
+      const share = (param ? signedNormalized(value, param) : 0) * input.weight;
+      target += share;
+      if (input.lag) lag += share;
+    }
+    return { target, lag };
   }
 
   /** One semi-implicit (symplectic) Euler sub-step of FIXED_DT_S seconds. */
@@ -159,7 +212,7 @@ export class PhysicsMotion {
     st.x += st.v * FIXED_DT_S;
   }
 
-  /** Write outputDefault + x * scale onto the output param via the sink. */
+  /** Write outputDefault + (x − L) * scale onto the output param via the sink. */
   private emit(index: number, st: RigState): void {
     const rig = this.rigs[index];
     const outParam = this.params.get(rig.output.parameter);
@@ -167,7 +220,7 @@ export class PhysicsMotion {
     const outDefault = outParam
       ? clamp(outParam.default, outParam.min, outParam.max)
       : 0;
-    const value = outDefault + st.x * rig.output.scale;
+    const value = outDefault + (st.x - st.lag) * rig.output.scale;
     // Final guard: even a finite-but-enormous `x` could overflow the product to
     // ±Infinity. Emit the rest pose rather than hand a non-finite value to the
     // sink, which would drop the write and leave the output stuck where it was.
