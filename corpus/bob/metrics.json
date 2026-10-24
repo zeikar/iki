@@ -1,0 +1,38 @@
+{
+  "canvas": {
+    "width": 1100,
+    "height": 1100
+  },
+  "partCount": 22,
+  "parameterCount": 20,
+  "atlasBytes": 549172,
+  "modelBytes": 809627,
+  "modelSha256": "c6c5518bee17abedf7533cb857f959890daa672f4841d91cf87c8c0110f258d8",
+  "turn": {
+    "achieved": {
+      "eyeShift": 0.156,
+      "farEyeRatio": 0.7279,
+      "silhouetteRatio": 1
+    },
+    "clamped": [],
+    "strandOverlap": null
+  },
+  "patches": null,
+  "folds": {
+    "poses": 617,
+    "offenders": []
+  },
+  "motions": [
+    "Nod",
+    "Shake",
+    "Tilt"
+  ],
+  "expressions": [
+    "smile",
+    "laugh",
+    "angry",
+    "sad",
+    "surprised",
+    "shy"
+  ]
+}

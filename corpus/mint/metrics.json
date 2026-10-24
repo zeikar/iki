@@ -1,0 +1,116 @@
+{
+  "canvas": {
+    "width": 1100,
+    "height": 3692
+  },
+  "partCount": 30,
+  "parameterCount": 28,
+  "atlasBytes": 1466640,
+  "modelBytes": 1863615,
+  "modelSha256": "dc41a390837f19b752ab895ae683c7c044f206d527ee1a4ec48ecabd30ae47ff",
+  "turn": {
+    "achieved": {
+      "eyeShift": 0.1562,
+      "farEyeRatio": 0.7247,
+      "silhouetteRatio": 1
+    },
+    "clamped": [],
+    "strandOverlap": null
+  },
+  "patches": [
+    {
+      "index": 0,
+      "target": "eyeWarp_R",
+      "at": {
+        "ParamAngleX": -30,
+        "ParamAngleY": -30
+      },
+      "moved": 35,
+      "of": 35,
+      "maxPx": 12.1,
+      "cols": [
+        0,
+        6
+      ],
+      "rows": [
+        0,
+        4
+      ]
+    },
+    {
+      "index": 1,
+      "target": "eyeWarp_R",
+      "at": {
+        "ParamAngleX": -30,
+        "ParamAngleY": -30
+      },
+      "moved": 15,
+      "of": 35,
+      "maxPx": 6.8,
+      "cols": [
+        0,
+        2
+      ],
+      "rows": [
+        0,
+        4
+      ]
+    },
+    {
+      "index": 2,
+      "target": "eyeWarp_R",
+      "at": {
+        "ParamAngleX": -30,
+        "ParamAngleY": 0
+      },
+      "moved": 35,
+      "of": 35,
+      "maxPx": 3.2,
+      "cols": [
+        0,
+        6
+      ],
+      "rows": [
+        0,
+        4
+      ]
+    },
+    {
+      "index": 3,
+      "target": "eyeWarp_R",
+      "at": {
+        "ParamAngleX": -30,
+        "ParamAngleY": 0
+      },
+      "moved": 15,
+      "of": 35,
+      "maxPx": 3.2,
+      "cols": [
+        0,
+        2
+      ],
+      "rows": [
+        0,
+        4
+      ]
+    }
+  ],
+  "folds": {
+    "poses": 2169,
+    "offenders": []
+  },
+  "motions": [
+    "Nod",
+    "Shake",
+    "Tilt",
+    "Wave"
+  ],
+  "expressions": [
+    "smile",
+    "laugh",
+    "angry",
+    "sad",
+    "surprised",
+    "shy"
+  ]
+}
