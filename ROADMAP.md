@@ -5,7 +5,7 @@ Where Iki is and where it is going. The short version lives in
 deliberately deferred.
 
 1. **Format + runtime** (parameter-driven color quads) — done
-   - **Idle motion** — host-agnostic `IdleMotion` driver (auto-blink / breath / gaze drift / head sway on all three axes) shipped by the engine, consumed by the playground and the editor preview — done
+   - **Idle motion** — host-agnostic `IdleMotion` driver (auto-blink / breath / gaze drift / head sway on all three axes / the ambient sway hair physics follows) shipped by the engine, consumed by the playground and the editor preview — done
 2. **Charivo adapter** — [`@charivo/render-iki`](https://github.com/zeikar/charivo/tree/main/packages/render-iki) implementing the renderer contract — working as a private local-dogfood package in the Charivo repo
 3. **Textures** — atlas + UV-rect texture sampling, `color` as tint multiplier — done
    > Atlas authors should add padding / extruded borders between sub-rects to avoid LINEAR-filter bleeding.
@@ -43,7 +43,8 @@ deliberately deferred.
    - Multi-segment gravity-hung chains (`model.physicsChains`) driven by `HairChainMotion`, for hair strands that lag and swing on a head turn
    - Auto-rig emits hair-sway rigs automatically when a `hair_front` layer is present — one behind the head turn, one behind the tilt — and both hair layers swing on them through root-pinned warps
    - Physics check — done: `checkPhysics` (`@ikijs/engine`) steps every rig's input to its far end and runs the seeded idle through the real drivers, lands what the output moves against the rendered rest pose, and flags frozen or unstable motion (a spring whose integrator step map expands, a finiteness-guard reset, an output pinned at its range end); `auto_rig_from_layers` and `render_poses` report it after the folds and never refuse; `pnpm corpus` records it
-   - Deferred: warp-aware chains, auto-generated chain rigs; the critic and loop reading the physics check (the plugin adopts it with its next pin move); finite chain divergence that trips neither the guard nor a pin (user decision, 2026-10-24 — the auto-rig generates no chains; such a chain shows in the numbers only); the idle hair sway's amplitude (about 0.6 of the ±20 range on the defaults) is the next slice
+   - Pendulum hair — done: a physics rig takes one input or several (`inputs`), each `follow` or `lag`; the auto-rig's hair lags the head turn and tilt and swings back to rest while the pose holds (the roll's static hang stays `tiltHang`'s), and follows `ParamAmbientSway`, the slow drift `IdleMotion` writes, so idle hair moves (peak about 3.7 of ±20, under 3 model px) without a held turn leaving it swung
+   - Deferred: warp-aware chains, auto-generated chain rigs; the critic and loop reading the physics check (the plugin adopts it with its next pin move); finite chain divergence that trips neither the guard nor a pin (user decision, 2026-10-24 — the auto-rig generates no chains; such a chain shows in the numbers only); separate front and back hair outputs (the next slice); input smoothing / a rate limit on lag inputs (only if a one-frame snap is seen); authoring `inputs` and `mode` in the editor Inspector (it shows them read-only)
 8. **Clipping masks** — done (stencil-based; e.g. an iris clipped to the sclera so it never spills at extreme gaze)
 9. **Expressions and motions** — in progress
    - Slice 1 — done: optional `expressions` and `motions` in the `.iki` format, the engine players on `IkiMotion`, and play buttons in the playground
