@@ -37,6 +37,8 @@ pnpm test
 
 Both must pass. `pnpm format` fixes formatting.
 
+A change to the auto-rigger (`packages/editor/src/auto-rig`, `packages/mcp/src`) also runs `pnpm corpus:check`, which re-rigs the characters in `corpus/` and diffs them against the committed baselines. When the change is intended, `pnpm corpus` rewrites the baselines; commit them with the change ([`corpus/README.md`](./corpus/README.md)).
+
 ## The layering rule
 
 The one architectural constraint worth knowing before you write code:
