@@ -116,10 +116,10 @@ describe("AddPhysicsRig", () => {
     const r = rig();
     const cmd = new AddPhysicsRig(r);
     // Mutating the caller's rig AFTER construction must not corrupt the command.
-    r.input.weight = 999;
+    r.input!.weight = 999;
     r.output.scale = 999;
     doc.execute(cmd);
-    expect(doc.getModel().physics?.[0].input.weight).toBe(1);
+    expect(doc.getModel().physics?.[0].input?.weight).toBe(1);
     expect(doc.getModel().physics?.[0].output.scale).toBe(-10);
   });
 });
@@ -211,10 +211,10 @@ describe("SetPhysicsRig", () => {
     doc.execute(new AddPhysicsRig(rig()));
     const patch = rig({ stiffness: 120 });
     const cmd = new SetPhysicsRig("r1", patch);
-    patch.input.weight = 999;
+    patch.input!.weight = 999;
     patch.output.scale = 999;
     doc.execute(cmd);
-    expect(doc.getModel().physics?.[0].input.weight).toBe(1);
+    expect(doc.getModel().physics?.[0].input?.weight).toBe(1);
     expect(doc.getModel().physics?.[0].output.scale).toBe(-10);
   });
 });

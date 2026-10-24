@@ -29,6 +29,7 @@ import type {
   IkiPhysics,
   IkiTransformChannel,
 } from "@ikijs/format";
+import { physicsInputs } from "@ikijs/format";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 import { decodeImageFile } from "./atlas-image";
@@ -263,7 +264,9 @@ export function Inspector() {
 // ── Physics rigs (model-level authoring) ─────────────────────────────────────
 
 /** Scalar fields of a physics rig editable via draft-state inputs. `weight` and
- *  `scale` live under the nested `input`/`output`; the rest are top-level. */
+ *  `scale` live under the nested `input`/`output`; the rest are top-level.
+ *  `weight` is edited only on a single-input rig (an `inputs` list is shown
+ *  read-only). */
 type PhysicsScalar = "weight" | "scale" | "mass" | "stiffness" | "damping";
 
 /** Return a deep-cloned rig with one scalar overwritten — never aliases the
@@ -274,7 +277,8 @@ function withPhysicsScalar(
   value: number,
 ): IkiPhysics {
   const next = structuredClone(rig);
-  if (field === "weight") next.input.weight = value;
+  // Only a single-input rig's row renders the weight field.
+  if (field === "weight") next.input!.weight = value;
   else if (field === "scale") next.output.scale = value;
   else next[field] = value;
   return next;
@@ -292,7 +296,9 @@ function defaultPhysicsRig(model: IkiModel): IkiPhysics | null {
   const physics = model.physics ?? [];
   const params = model.parameters;
   const existingOutputs = new Set(physics.map((r) => r.output.parameter));
-  const existingInputs = new Set(physics.map((r) => r.input.parameter));
+  const existingInputs = new Set(
+    physics.flatMap((r) => physicsInputs(r).map((i) => i.parameter)),
+  );
 
   let pair: { input: string; output: string } | null = null;
   for (const input of params) {
@@ -392,6 +398,9 @@ function PhysicsNumberDraftField({
  * in the parent's map) so adding/deleting a rig never shifts hook order. Each
  * committed edit builds a deep-cloned patched rig and dispatches one
  * `SetPhysicsRig` (one undo step); Delete dispatches `DeletePhysicsRig`.
+ * A single `input` is editable (its `mode` shown as a read-only tag); an
+ * `inputs` list is shown read-only, one line per entry, since authoring it is
+ * deferred. Edits clone the whole rig, so both survive them.
  */
 function PhysicsRigRow({
   rig,
@@ -406,7 +415,9 @@ function PhysicsRigRow({
     runCommand(new SetPhysicsRig(rig.id, patched));
   const setParam = (which: "input" | "output", parameter: string) => {
     const next = structuredClone(rig);
-    next[which].parameter = parameter;
+    // Only a single-input rig's row renders the input select.
+    if (which === "input") next.input!.parameter = parameter;
+    else next.output.parameter = parameter;
     set(next);
   };
 
@@ -430,25 +441,40 @@ function PhysicsRigRow({
           Delete
         </button>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <span style={labelStyle}>in</span>
-        <select
-          value={rig.input.parameter}
-          onChange={(e) => setParam("input", e.currentTarget.value)}
-          style={{ ...selectStyle, flex: 1, minWidth: 0 }}
-        >
-          {model.parameters.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.id}
-            </option>
-          ))}
-        </select>
-        <PhysicsNumberDraftField
-          label="w"
-          value={rig.input.weight}
-          onCommit={(v) => set(withPhysicsScalar(rig, "weight", v))}
-        />
-      </div>
+      {rig.input ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={labelStyle}>in</span>
+          <select
+            value={rig.input.parameter}
+            onChange={(e) => setParam("input", e.currentTarget.value)}
+            style={{ ...selectStyle, flex: 1, minWidth: 0 }}
+          >
+            {model.parameters.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.id}
+              </option>
+            ))}
+          </select>
+          <PhysicsNumberDraftField
+            label="w"
+            value={rig.input.weight}
+            onCommit={(v) => set(withPhysicsScalar(rig, "weight", v))}
+          />
+          {rig.input.mode && <span style={labelStyle}>{rig.input.mode}</span>}
+        </div>
+      ) : (
+        physicsInputs(rig).map((input) => (
+          <div
+            key={input.parameter}
+            style={{ display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <span style={labelStyle}>in</span>
+            <span style={{ fontSize: 11, color: "#e6e6ee" }}>
+              {input.parameter} · w {input.weight} · {input.mode ?? "follow"}
+            </span>
+          </div>
+        ))
+      )}
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <span style={labelStyle}>out</span>
         <select

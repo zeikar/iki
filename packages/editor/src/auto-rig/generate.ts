@@ -791,26 +791,33 @@ function deformers(
   return out;
 }
 
-/** Two springs, one per head axis the hair lags (a rig has one input). Each
- *  settles at a modest share of its range, so a held turn or tilt leaves the
- *  hair only a little swung. */
+/** Two pendulum springs, one per head axis the hair swings behind. Both
+ *  inputs lag: the hair trails a turn or tilt, overshoots and settles back to
+ *  rest while the head holds, since a held pose is the rig's job, not the
+ *  spring's (`tiltHang` alone hangs the hair under a roll). An instant step
+ *  of the head to its end swings the output at most scale × weight, 14 and 9.
+ *  `hairSway` also follows the idle's ambient sway at a quarter weight: a
+ *  lagging spring barely stirs under the idle's slow head sway, so this is
+ *  the hair's visible drift in idle. f₀ 1.4 Hz and ζ 0.25 give a few visible
+ *  swings; scale 14 is picked so the Shake clip with the ambient at its peak
+ *  stays inside the ±20 sway range. */
 function hairPhysics(): IkiPhysics[] {
+  const spring = { mass: 1, stiffness: 77, damping: 4.4 };
   return [
     {
       id: "hairSway",
-      input: { parameter: P.AngleX, weight: 1 },
-      output: { parameter: P.HairSwayX, scale: 5 },
-      mass: 1,
-      stiffness: 30,
-      damping: 3,
+      inputs: [
+        { parameter: P.AngleX, weight: 1, mode: "lag" },
+        { parameter: P.AmbientSway, weight: 0.25 },
+      ],
+      output: { parameter: P.HairSwayX, scale: 14 },
+      ...spring,
     },
     {
       id: "hairTilt",
-      input: { parameter: P.AngleZ, weight: 1 },
-      output: { parameter: P.HairSwayZ, scale: 8 },
-      mass: 1,
-      stiffness: 25,
-      damping: 2.5,
+      input: { parameter: P.AngleZ, weight: 1, mode: "lag" },
+      output: { parameter: P.HairSwayZ, scale: 9 },
+      ...spring,
     },
   ];
 }
@@ -873,6 +880,7 @@ function declareParameters(roles: Set<string>): IkiParameter[] {
   if (roles.has("hair_front")) {
     add(P.HairSwayX, "Hair Sway X", -SWAY_RANGE, SWAY_RANGE, 0);
     add(P.HairSwayZ, "Hair Sway Z", -SWAY_RANGE, SWAY_RANGE, 0);
+    add(P.AmbientSway, "Ambient Sway", -1, 1, 0);
   }
   return out;
 }

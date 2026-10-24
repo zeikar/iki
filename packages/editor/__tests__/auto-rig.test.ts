@@ -416,18 +416,42 @@ describe("generateIkiFromLayerSet: the model", () => {
       P.Breath,
       P.HairSwayX,
       P.HairSwayZ,
+      P.AmbientSway,
     ]) {
       expect(ids).toContain(id);
     }
-    expect(
-      model.physics?.map((r) => [r.input.parameter, r.output.parameter]),
-    ).toEqual([
-      [P.AngleX, P.HairSwayX],
-      [P.AngleZ, P.HairSwayZ],
+    expect(model.parameters.find((p) => p.id === P.AmbientSway)).toEqual({
+      id: P.AmbientSway,
+      name: "Ambient Sway",
+      min: -1,
+      max: 1,
+      default: 0,
+    });
+    // The turn and the tilt lag (a held one returns the hair to rest); the
+    // idle's ambient sway is followed.
+    const spring = { mass: 1, stiffness: 77, damping: 4.4 };
+    expect(model.physics).toEqual([
+      {
+        id: "hairSway",
+        inputs: [
+          { parameter: P.AngleX, weight: 1, mode: "lag" },
+          { parameter: P.AmbientSway, weight: 0.25 },
+        ],
+        output: { parameter: P.HairSwayX, scale: 14 },
+        ...spring,
+      },
+      {
+        id: "hairTilt",
+        input: { parameter: P.AngleZ, weight: 1, mode: "lag" },
+        output: { parameter: P.HairSwayZ, scale: 9 },
+        ...spring,
+      },
     ]);
     const bald = rig({ hair: false }).model;
     expect(bald.physics).toBeUndefined();
-    expect(bald.parameters.map((p) => p.id)).not.toContain(P.HairSwayX);
+    const baldIds = bald.parameters.map((p) => p.id);
+    expect(baldIds).not.toContain(P.HairSwayX);
+    expect(baldIds).not.toContain(P.AmbientSway);
   });
 
   it("is deterministic", () => {

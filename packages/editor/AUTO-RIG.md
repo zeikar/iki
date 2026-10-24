@@ -603,8 +603,14 @@ layout or `style`, re-rig, and the patch lands on the new rig.
 - **Hair sway** — with `hair_front`, two springs (`AngleX → HairSwayX`,
   `AngleZ → HairSwayZ`) drive root-pinned swings of both hair layers, their
   ends travelling 0.08 hh at full sway (±20), growing down the layer as
-  `t^1.4`. A spring settles on its target, so a held turn keeps the hair a
-  quarter swung toward it (a held roll, 40 %).
+  `t^1.4`. Both lag the head like a pendulum: the hair trails a turn or
+  tilt, overshoots and settles back to rest while the head holds (the roll's
+  own hang stays the static hang above). An instant step of the head to its
+  end swings the sway at most 14 (the tilt, 9). `HairSwayX` also follows the
+  idle's `AmbientSway` (declared with the hair) at a quarter weight, the
+  hair's slow drift in idle, peaking near 3.7 (about 0.015 hh). `style.sway`
+  scales the tip travel per sway unit, so it scales the turn's swing and the
+  idle drift alike; no spring constant is styled.
 - **Breath** — the shoulders (and the neck) lift 0.03 hh, the head 0.02 hh.
   On a body, the body warp lifts the chin's cell with the shoulders, so the
   head's own breath is the difference, a 0.01 hh drop; the hips and what lies
