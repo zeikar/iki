@@ -1,9 +1,10 @@
-import type {
-  IkiDeformer,
-  IkiModel,
-  IkiParameter,
-  IkiPart,
-  IkiPhysics,
+import {
+  type IkiDeformer,
+  type IkiModel,
+  type IkiParameter,
+  type IkiPart,
+  type IkiPhysics,
+  physicsInputs,
 } from "@ikijs/format";
 import { resolveDeformers } from "./deform";
 import { FIXED_DT_S } from "./frame-clock";
@@ -42,7 +43,10 @@ export interface PhysicsTarget {
   rig:
     | { kind: "spring"; id: string }
     | { kind: "chain"; id: string; segment: number };
-  /** The spring's input; for a chain, every parameter that turns its anchor. */
+  /**
+   * The spring's inputs, in rig order; for a chain, every parameter that turns
+   * its anchor.
+   */
   input: string[];
   /** The driven parameter. */
   output: string;
@@ -96,17 +100,22 @@ interface StepExcitation extends Excitation {
  * parts (`ok`), cannot (`frozen`) or runs away (`unstable`).
  *
  * Step: a fresh store and a driver holding only that rig, seeded at rest,
- * then the input set to its far end — the end farther from its clamped
- * default, `max` on a tie — and held for 5 s. A chain steps each parameter
- * that alone turns its anchor (probed at its max, min and every warp keyform
- * stop) in its own run, at the probe value that turned it most; it reports
- * the run moving the parts most among the runs that are not unstable. Idle:
- * every rig and chain together behind `IdleMotion` (seeded) for 30 s.
+ * then an input set to its far end — the end farther from its clamped
+ * default, `max` on a tie — and held for 5 s. A spring steps each input that
+ * has a range alone, in its own run. A chain steps each parameter that alone
+ * turns its anchor (probed at its max, min and every warp keyform stop) in
+ * its own run, at the probe value that turned it most. Either reports the run
+ * moving the parts most among the runs that are not unstable. A lag input's
+ * step peaks at once at the bound `−scale·weight` (less one sub-step) and its
+ * `final` reads rest: the bound is what a one-frame step shows, a gradual
+ * turn swings less. Idle: every rig and chain together behind `IdleMotion`
+ * (seeded) for 30 s.
  *
  * `displacementPx` is the largest vertex move of any part with the output
  * alone at every distinct value the run emitted, step or idle, against the
- * parts landed at rest. `frozen` when nothing reads the output, the input has no range, nothing turns a chain's anchor, or the
- * step moves the parts under 1 model px. `unstable`, before frozen, when a
+ * parts landed at rest. `frozen` when nothing reads the output, no input of a
+ * spring has a range, nothing turns a chain's anchor, or the step moves the
+ * parts under 1 model px. `unstable`, before frozen, when a
  * spring's one-sub-step map has a spectral radius over 1 or sits on its
  * undamped boundary (springs only: a chain's update is nonlinear), when a
  * driver's finiteness guard fires, or when the raw output stays outside its
@@ -128,26 +137,42 @@ export function checkPhysics(model: IkiModel): PhysicsReport {
   const param = (id: string) => model.parameters.find((p) => p.id === id)!;
 
   const springs = (model.physics ?? []).map((rig) => {
-    const input = param(rig.input.parameter);
+    const inputs = physicsInputs(rig).map((i) => param(i.parameter));
+    const ids = inputs.map((p) => p.id);
     const output = param(rig.output.parameter);
-    const far = farEnd(input);
-    const values = far === undefined ? {} : { [input.id]: far };
-    const reading = stepRun(model, [rig], [], values).get(output.id)!;
-    const step: StepExcitation = {
-      name: "the step",
-      reading,
-      displacementPx: displace(output, reading.values),
-      values,
-    };
+    const ranged = inputs.flatMap((input) => {
+      const far = farEnd(input);
+      return far === undefined ? [] : [{ [input.id]: far }];
+    });
+    // One unexcited run when nothing has a range, so mostMoving has a run.
+    const settings = ranged.length === 0 ? [{}] : ranged;
+    const steps = settings.map((values): StepExcitation => {
+      const reading = stepRun(model, [rig], [], values).get(output.id)!;
+      // A one-input rig has one run, so naming its setting would add nothing.
+      const setting =
+        inputs.length === 1
+          ? []
+          : Object.entries(values).map(([id, v]) => `${id}=${v}`);
+      return {
+        name: ["the step", ...setting].join(" "),
+        reading,
+        displacementPx: displace(output, reading.values),
+        values,
+      };
+    });
     const atIdle = idleExcitation(output);
+    const clean = steps.filter((s) => !unstableWhy(output, [s]));
     return target(model, {
       rig: { kind: "spring", id: rig.id },
-      input: [input.id],
+      input: ids,
       output,
-      step,
+      step: mostMoving(clean.length > 0 ? clean : steps),
       idle: atIdle,
-      unstable: springWhy(rig) ?? unstableWhy(output, [step, atIdle]),
-      inert: far === undefined ? `${input.id} has no range` : undefined,
+      unstable: springWhy(rig) ?? unstableWhy(output, [...steps, atIdle]),
+      inert:
+        ranged.length === 0
+          ? `${ids.join(", ")} ${ids.length === 1 ? "has" : "have"} no range`
+          : undefined,
     });
   });
 

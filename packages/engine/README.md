@@ -106,6 +106,10 @@ inside `IkiMotion`.
 Both physics drivers integrate on a fixed 1/60 s sub-step with a clamped frame
 delta, so a backgrounded tab or a long hitch cannot snap the rig.
 
+A `PhysicsMotion` rig takes one input or several, each `follow` (a held value
+holds the output displaced) or `lag` (the output swings while the value moves,
+then settles back to rest), and `checkPhysics` steps each input alone.
+
 Both also expose `resets`: per output, in `drivenParameterIds` order, how many
 times their finiteness guard repaired it — guard activations, up to two a
 frame, not repaired frames; the emitted values are unchanged. Known limit:

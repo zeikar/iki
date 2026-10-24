@@ -574,6 +574,69 @@ describe("checkPhysics — unstable springs", () => {
   });
 });
 
+describe("checkPhysics — springs with several inputs", () => {
+  /** hairSway lagging the head turn and following the lever. */
+  const mixed = (): IkiPhysics => {
+    const { input: _single, ...base } = hairSway();
+    return {
+      ...base,
+      inputs: [
+        { parameter: ANGLE_X.id, weight: 1, mode: "lag" },
+        { parameter: LEVER.id, weight: 0.25, mode: "follow" },
+      ],
+    };
+  };
+  const mixedModel = ({
+    inputs = [ANGLE_X, LEVER],
+    output = SWAY_X,
+  }: { inputs?: IkiParameter[]; output?: IkiParameter } = {}): IkiModel =>
+    model({
+      parameters: [...inputs, output],
+      deformers: [HEAD],
+      parts: [quad("hair", { deformer: "head", warps: [shift(output, 0.3)] })],
+      physics: [mixed()],
+    });
+
+  it("steps each input alone and reports the lag run, which moves the parts most", () => {
+    const t = only(mixedModel());
+    expect(t.kind).toBe("ok");
+    expect(t.input).toEqual(["ParamAngleX", "ParamLever"]);
+    expect(t.step.values).toEqual({ ParamAngleX: 30 });
+    // −scale·weight, less one sub-step, then back to rest.
+    expectNear(t.step.peak, -5, 0.3);
+    expect(Math.abs(t.step.final)).toBeLessThan(0.05);
+    expectNear(t.step.displacementPx, 1.5 * Math.abs(t.step.peak), 1e-3);
+  });
+
+  it("reads a pin in the follow input's run as unstable, naming that run", () => {
+    // The lever's held share settles at 1.25, past a max of 1; the lag run
+    // only overshoots it briefly on its way back to rest.
+    const t = only(mixedModel({ output: { ...SWAY_X, max: 1 } }));
+    expect(t.kind).toBe("unstable");
+    expect(t.why).toMatch(
+      /^pinned at ParamHairSwayX max 1 for \d+ frames of the step ParamLever=30$/,
+    );
+    // The step reported is the run that is not unstable.
+    expect(t.step.values).toEqual({ ParamAngleX: 30 });
+  });
+
+  it("reads a spring none of whose inputs has a range as frozen, naming them", () => {
+    const flat = { min: 0, max: 0 };
+    const t = only(
+      mixedModel({
+        inputs: [
+          { ...ANGLE_X, ...flat },
+          { ...LEVER, ...flat },
+        ],
+      }),
+    );
+    expect(t.kind).toBe("frozen");
+    expect(t.why).toBe("ParamAngleX, ParamLever have no range");
+    expect(t.input).toEqual(["ParamAngleX", "ParamLever"]);
+    expect(t.step.values).toEqual({});
+  });
+});
+
 // --- chains -------------------------------------------------------------------
 
 const LOCK_0: IkiParameter = {
