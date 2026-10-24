@@ -1,4 +1,10 @@
-import type { IkiModel, IkiParameter, IkiPhysics } from "@ikijs/format";
+import type {
+  IkiDeformer,
+  IkiModel,
+  IkiParameter,
+  IkiPart,
+  IkiPhysics,
+} from "@ikijs/format";
 import { resolveDeformers } from "./deform";
 import { FIXED_DT_S } from "./frame-clock";
 import { landPart, landedPart, staticDeformers } from "./land";
@@ -50,7 +56,7 @@ export interface PhysicsTarget {
    * every value the run emitted, `final` the output at the window's end.
    */
   step: PhysicsResponse & { values: Record<string, number>; final: number };
-  /** Every rig and chain together behind the procedural idle, displaced at its two extremes. */
+  /** Every rig and chain together behind the procedural idle, displaced at every value it emitted. */
   idle: PhysicsResponse;
 }
 
@@ -98,9 +104,8 @@ interface StepExcitation extends Excitation {
  * every rig and chain together behind `IdleMotion` (seeded) for 30 s.
  *
  * `displacementPx` is the largest vertex move of any part with the output
- * alone at every distinct value the step emitted (the idle's: its two
- * extremes), against the parts landed at rest. `frozen` when nothing reads
- * the output, the input has no range, nothing turns a chain's anchor, or the
+ * alone at every distinct value the run emitted, step or idle, against the
+ * parts landed at rest. `frozen` when nothing reads the output, the input has no range, nothing turns a chain's anchor, or the
  * step moves the parts under 1 model px. `unstable`, before frozen, when a
  * spring's one-sub-step map has a spectral radius over 1 or sits on its
  * undamped boundary (springs only: a chain's update is nonlinear), when a
@@ -117,7 +122,7 @@ export function checkPhysics(model: IkiModel): PhysicsReport {
     return {
       name: "the idle",
       reading,
-      displacementPx: displace(output, [reading.lo, reading.hi]),
+      displacementPx: displace(output, reading.values),
     };
   };
   const param = (id: string) => model.parameters.find((p) => p.id === id)!;
@@ -371,10 +376,12 @@ function displacer(
   );
   return (output, values) => {
     let most = 0;
+    const affected = affectedParts(model, output.id);
     for (const value of values) {
       store.set(output.id, value);
       const resolved = resolveDeformers(deformers, store);
       landings.forEach((landing, i) => {
+        if (!affected.has(landing.part)) return;
         const landed = landPart(landing, store, resolved);
         const base = baselines[i];
         for (let j = 0; j < landed.length; j += 2) {
@@ -387,4 +394,41 @@ function displacer(
     store.reset();
     return Math.sqrt(most);
   };
+}
+
+/**
+ * The parts whose geometry can depend on `output`: those that read it
+ * themselves, or hang from a deformer that reads it or has an ancestor that
+ * does. The rest land exactly at rest, so landing them adds nothing.
+ */
+function affectedParts(model: IkiModel, output: string): Set<IkiPart> {
+  const deformers = new Map((model.deformers ?? []).map((d) => [d.id, d]));
+  const reads = (d: IkiDeformer) =>
+    (d.kind === "warp"
+      ? [
+          ...(d.warps ?? []).map((w) => w.parameter),
+          d.warp2d?.parameter,
+          d.warp2d?.parameterY,
+        ]
+      : (d.bindings ?? []).map((b) => b.parameter)
+    ).includes(output);
+  const hung = (id: string | undefined): boolean => {
+    for (
+      let d = id && deformers.get(id);
+      d;
+      d = d.parent && deformers.get(d.parent)
+    ) {
+      if (reads(d)) return true;
+    }
+    return false;
+  };
+  return new Set(
+    model.parts.filter(
+      (p) =>
+        [
+          ...(p.bindings ?? []).map((b) => b.parameter),
+          ...(p.warps ?? []).map((w) => w.parameter),
+        ].includes(output) || hung(p.deformer),
+    ),
+  );
 }

@@ -127,7 +127,14 @@ function readTrace(
       outside = 0;
       return;
     }
-    if (outside++ === 0) end = value < param.min ? "min" : "max";
+    const side = value < param.min ? "min" : "max";
+    // Crossing to the other bound ends the run: a swing between the two is
+    // not pinning.
+    if (outside === 0 || side !== end) {
+      outside = 0;
+      end = side;
+    }
+    outside++;
     if (outside > reading.pinned.frames) {
       reading.pinned = { frames: outside, end };
     }
