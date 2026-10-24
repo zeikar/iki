@@ -629,6 +629,9 @@ describe("autoRigFromLayers", () => {
     expect(result.folds.poses).toBeGreaterThan(0);
     expect(result.folds.targets.length).toBeGreaterThan(0);
     expect(Array.isArray(result.folds.offenders)).toBe(true);
+    // No hair_front, so no rigs: nothing to flag.
+    expect(Array.isArray(result.physics.targets)).toBe(true);
+    expect(result.physics.offenders).toEqual([]);
 
     // The written file re-validates and carries a base64 PNG data-URI texture.
     const written = JSON.parse(fs.readFileSync(outPath, "utf8"));
@@ -1188,6 +1191,16 @@ describe("autoRigFromLayers", () => {
       outputPath: path.join(dir, "model.iki"),
     });
     expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // hair_front brings the two sway rigs, and both move it.
+    expect(result.physics.targets.map((t) => t.rig.id)).toEqual([
+      "hairSway",
+      "hairTilt",
+    ]);
+    for (const t of result.physics.targets) {
+      expect(t.kind).toBe("ok");
+      expect(t.drives).toContainEqual({ kind: "part", id: "hair_front" });
+    }
   });
 
   it("rigs a layer set whose atlas page is exactly 4096 px wide", async () => {

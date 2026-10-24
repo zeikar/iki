@@ -261,11 +261,15 @@ describe("MCP server integration", () => {
     const texts = (result.content as { type: string; text: string }[]).filter(
       (c) => c.type === "text",
     );
-    // The path, then the fold report.
-    const [first, ...folds] = texts[0].text.split("\n");
+    // The path, then the fold report, then the physics report.
+    const [first, ...tail] = texts[0].text.split("\n");
     expect(first).toBe(outPath);
+    const folds = tail.filter((line) => /^FOLDS?[ :]/.test(line));
+    const physics = tail.filter((line) => /^PHYSICS[ :]/.test(line));
+    expect(tail).toEqual([...folds, ...physics]);
     expect(folds.length).toBeGreaterThan(0);
-    for (const line of folds) expect(line).toMatch(/^FOLDS?[ :]/);
+    // The required layers have no hair_front, so the rig has no physics.
+    expect(physics).toEqual(["PHYSICS: no rigs"]);
     expect(fs.existsSync(outPath)).toBe(true);
   });
 
@@ -353,7 +357,7 @@ describe("MCP server integration", () => {
     const texts = (result.content as { type: string; text: string }[]).filter(
       (c) => c.type === "text",
     );
-    const [first, grid, part, ...folds] = texts[0].text.split("\n");
+    const [first, grid, part, ...tail] = texts[0].text.split("\n");
     expect(first).toBe(outPath);
     // `at` sorted by parameter id, whatever order it was passed in; the
     // moves are face widths of the 62 px face crop (the 60 px rect and the
@@ -364,8 +368,11 @@ describe("MCP server integration", () => {
     expect(part).toMatch(
       /^PATCH 1 face at ParamAngleX=-30: [1-9]\d* of \d+ points \(vertices\), largest move 0\.6 model px$/,
     );
+    const folds = tail.filter((line) => /^FOLDS?[ :]/.test(line));
+    const physics = tail.filter((line) => /^PHYSICS[ :]/.test(line));
+    expect(tail).toEqual([...folds, ...physics]);
     expect(folds.length).toBeGreaterThan(0);
-    for (const line of folds) expect(line).toMatch(/^FOLDS?[ :]/);
+    expect(physics.length).toBeGreaterThan(0);
   });
 
   it("auto_rig_from_layers lets an unknown patch key through the tool schema to the rig, which refuses it as INVALID: patches[0].<key> (not isError)", async () => {

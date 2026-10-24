@@ -6,6 +6,7 @@ import sharp from "sharp";
 import { parseIkiModel, type IkiModel } from "@ikijs/format";
 import { composeLayersFromParts } from "../src/compose";
 import { checkModelFolds, formatFoldReport } from "../src/fold-report";
+import { formatPhysicsReport } from "../src/physics-report";
 import { findBrowser } from "../src/render-browser";
 import {
   planRenders,
@@ -516,6 +517,9 @@ describe.skipIf(findBrowser() === undefined)("renderPoses in a browser", () => {
     expect(r.failedTextures).toEqual([]);
     expect(r.modelCanvas).toEqual({ width: 1100, height: TALL });
     expect(r.folds.poses).toBeGreaterThan(0);
+    // The composer requires hair_front, which brings the two sway rigs.
+    expect(r.physics.targets).toHaveLength(2);
+    for (const t of r.physics.targets) expect(t.kind, t.rig.id).toBe("ok");
     // The engine ignores an unknown parameter id, so a pose that never took
     // would still write a picture: each of these must differ from its rest.
     const png = (name: string) =>
@@ -586,5 +590,7 @@ describe.skipIf(findBrowser() === undefined)("renderPoses in a browser", () => {
     expect(r.folds.poses).toBe(checkModelFolds(m).poses + 2);
     const [line] = formatFoldReport(r.folds, r.modelCanvas);
     expect(line).toMatch(/^FOLD flip part face .* pose \[ParamAngleX=-15\] /);
+    // The model's own rigs, which the poses do not add to: it has none.
+    expect(formatPhysicsReport(r.physics)).toEqual(["PHYSICS: no rigs"]);
   }, 60_000);
 });
