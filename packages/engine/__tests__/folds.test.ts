@@ -870,7 +870,7 @@ describe("checkFolds — examples/playground/public/hero.iki", () => {
     }
   });
 
-  it("folds only where the eyes close", () => {
+  it("folds only where the eyes or the mouth close", () => {
     // Without a predicate the closures read as offenders; the predicate that
     // classes them as by design lives in @ikijs/mcp.
     expect(report.offenders.map((t) => t.target.id).sort()).toEqual([
@@ -878,18 +878,29 @@ describe("checkFolds — examples/playground/public/hero.iki", () => {
       "eye_R",
       "lash_lower_L",
       "lash_lower_R",
+      "lip_upper",
+      "mouth_inner",
     ]);
     for (const t of report.offenders) {
       expect(t.kind).not.toBe("ok");
-      expect(t.worst!.pose.values.ParamEyeLOpen).toBe(0);
-      expect(t.worst!.pose.values.ParamEyeROpen).toBe(0);
-      expect(Math.abs(t.worst!.ratio)).toBeLessThan(1e-3);
+      const values = t.worst!.pose.values;
+      if (t.target.id.startsWith("eye_") || t.target.id.startsWith("lash_")) {
+        expect(values.ParamEyeLOpen).toBe(0);
+        expect(values.ParamEyeROpen).toBe(0);
+        expect(Math.abs(t.worst!.ratio)).toBeLessThan(1e-3);
+      } else {
+        // The lip set shut: MouthOpenY at its rest, 0.
+        expect(values.ParamMouthOpenY ?? 0).toBe(0);
+        expect(t.worst!.ratio).toBeLessThan(0.1);
+      }
     }
   });
 
-  it("keeps the mouth clear of the collapse threshold", () => {
-    const mouth = report.targets.find((t) => t.target.id === "mouth_open")!;
-    expect(mouth.kind).toBe("ok");
-    expect(mouth.worst!.ratio).toBeGreaterThan(0.1);
+  it("keeps the rest of the lip set clear of the collapse threshold", () => {
+    for (const id of ["lip_lower", "mouth_teeth", "mouth_tongue"]) {
+      const part = report.targets.find((t) => t.target.id === id)!;
+      expect(part.kind).toBe("ok");
+      expect(part.worst!.ratio).toBeGreaterThan(0.1);
+    }
   });
 });

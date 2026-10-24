@@ -136,9 +136,9 @@ idleLabel.append(idleLabelText, idleCheckbox);
 idleRow.append(idleLabel);
 panel.insertBefore(idleRow, controls);
 
-// Model picker for the generated hero in public/, the regression corpus models
-// beside it (bob, a lip-set bust; mint and silver-hood, full bodies that declare
-// a Wave), the vector sample, and a local .iki file. Hero leads so the select's
+// Model picker for the regression corpus models in public/ (the hero, bob's
+// lip-set bust; mint and silver-hood, full bodies that declare a Wave), the
+// vector sample, and a local .iki file. Hero leads so the select's
 // default already names the model the page starts on. Built once, like the Idle
 // row, so it survives the per-model control rebuilds.
 const modelRow = document.createElement("div");
@@ -151,7 +151,6 @@ const modelSelect = document.createElement("select");
 const modelEntries: readonly { value: string; text: string; file?: string }[] =
   [
     { value: "hero", text: "Hero character", file: "hero.iki" },
-    { value: "bob", text: "Bob — lip set", file: "bob.iki" },
     { value: "mint", text: "Mint — full body", file: "mint.iki" },
     {
       value: "silver-hood",

@@ -19,10 +19,10 @@ function expectNear(actual: number, expected: number, within: number): void {
 
 // --- the shipped hero ---------------------------------------------------------
 
-describe("checkPhysics — examples/playground/public/bob.iki", () => {
+describe("checkPhysics — examples/playground/public/hero.iki", () => {
   const bob = loadIkiModel(
     fs.readFileSync(
-      new URL("../../../examples/playground/public/bob.iki", import.meta.url),
+      new URL("../../../examples/playground/public/hero.iki", import.meta.url),
       "utf8",
     ),
   );

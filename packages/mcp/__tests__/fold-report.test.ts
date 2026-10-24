@@ -385,7 +385,7 @@ describe("checkModelFolds", () => {
     }
   });
 
-  it("finds no offender on the playground hero: its eye closures are all expected", () => {
+  it("finds no offender on the playground hero: its eye and mouth closures are all expected", () => {
     const hero = loadIkiModel(
       fs.readFileSync(
         new URL(
@@ -406,6 +406,8 @@ describe("checkModelFolds", () => {
       "eye_R",
       "lash_lower_L",
       "lash_lower_R",
+      "lip_upper",
+      "mouth_inner",
     ]);
   });
 });

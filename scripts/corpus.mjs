@@ -6,7 +6,8 @@
  * rigged with the options the plugin's character artist rigs with:
  * `quantizeColors` 256, `style.json` verbatim, the whole `patches.json` list
  * and no `turnTargets`. Update mode writes the model to
- * `examples/playground/public/<name>.iki` and its metrics to
+ * `examples/playground/public/<name>.iki` (bob's to `hero.iki`: it is the
+ * site's hero) and its metrics to
  * `corpus/<name>/metrics.json`; check mode rigs into `.corpus-check/` and
  * compares against those committed files. The rig is deterministic (two
  * processes give the same bytes), so the comparison is exact: the model by
@@ -34,6 +35,9 @@ process.chdir(rootDir);
 
 const corpusDir = "corpus";
 const demoDir = path.join("examples", "playground", "public");
+// A character whose playground model goes by another name: bob is the hero
+// the landing page and the README GIF show.
+const demoFiles = { bob: "hero.iki" };
 const checkDir = ".corpus-check";
 
 const mode = process.argv[2];
@@ -50,9 +54,10 @@ if (mode === "check") {
 let failed = false;
 
 for (const name of names) {
+  const demoName = demoFiles[name] ?? `${name}.iki`;
   const outputPath = path.join(
     mode === "update" ? demoDir : checkDir,
-    `${name}.iki`,
+    demoName,
   );
   const { metrics, modelFile } = await rig(name, outputPath);
   const metricsPath = path.join(corpusDir, name, "metrics.json");
@@ -73,7 +78,7 @@ for (const name of names) {
   // Compared as update mode would write it, so an absent field and an
   // undefined one read the same.
   const now = JSON.parse(JSON.stringify(metrics));
-  const demoFile = await readIfExists(path.join(demoDir, `${name}.iki`));
+  const demoFile = await readIfExists(path.join(demoDir, demoName));
   const demoCurrent =
     demoFile !== null && sha256(demoFile) === baseline.modelSha256;
 
@@ -89,7 +94,7 @@ for (const name of names) {
   }
   if (!demoCurrent) {
     notes.push(
-      `${demoDir}/${name}.iki is ${demoFile === null ? "missing" : "stale"}, run pnpm corpus`,
+      `${demoDir}/${demoName} is ${demoFile === null ? "missing" : "stale"}, run pnpm corpus`,
     );
   }
 
