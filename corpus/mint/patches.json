@@ -1,0 +1,36 @@
+{
+  "patches": [
+    {
+      "target": "eyeWarp_R",
+      "at": { "ParamAngleX": -30, "ParamAngleY": -30 },
+      "region": { "role": "eye_R", "x": [-1.0, 2.0], "y": [-1.0, 2.0] },
+      "by": { "dx": 0.03, "dy": 0.0 },
+      "falloff": 0.02,
+      "why": "user finding r3: corner pose — slide the whole far eye ~6 px toward the nose, off the ear"
+    },
+    {
+      "target": "eyeWarp_R",
+      "at": { "ParamAngleX": -30, "ParamAngleY": -30 },
+      "region": { "role": "eye_R", "x": [-1.0, 0.1], "y": [-1.0, 2.0] },
+      "by": { "dx": 0.017, "dy": 0.0 },
+      "falloff": 0.08,
+      "why": "user finding r3: corner pose — pull the outer tail a further ~3.5 px in, fading out before the iris"
+    },
+    {
+      "target": "eyeWarp_R",
+      "at": { "ParamAngleX": -30, "ParamAngleY": 0 },
+      "region": { "role": "eye_R", "x": [-1.0, 2.0], "y": [-1.0, 2.0] },
+      "by": { "dx": 0.008, "dy": 0.0 },
+      "falloff": 0.02,
+      "why": "user finding r3: turn-m30 — slide the far eye ~1.6 px in so the just-touching tail gets a gap"
+    },
+    {
+      "target": "eyeWarp_R",
+      "at": { "ParamAngleX": -30, "ParamAngleY": 0 },
+      "region": { "role": "eye_R", "x": [-1.0, 0.1], "y": [-1.0, 2.0] },
+      "by": { "dx": 0.008, "dy": 0.0 },
+      "falloff": 0.08,
+      "why": "user finding r3: turn-m30 — pull the outer tail a further ~1.6 px in"
+    }
+  ]
+}
