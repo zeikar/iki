@@ -16,3 +16,6 @@ iki-char/
 
 # Scratch model the playground loads while a rig is judged against the shipped hero (never committed)
 examples/playground/public/hero-candidate.iki
+
+# corpus:check's scratch rigs (the rig tool only writes under the working directory, so not os.tmpdir())
+.corpus-check/
