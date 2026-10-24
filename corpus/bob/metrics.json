@@ -22,6 +22,60 @@
     "poses": 617,
     "offenders": []
   },
+  "physics": [
+    {
+      "id": "hairSway",
+      "input": [
+        "ParamAngleX"
+      ],
+      "output": "ParamHairSwayX",
+      "kind": "ok",
+      "why": null,
+      "drives": [
+        "hair_back",
+        "hair_front"
+      ],
+      "step": {
+        "values": {
+          "ParamAngleX": 30
+        },
+        "peak": 7.021,
+        "at": 0.583,
+        "final": 4.999,
+        "displacementPx": 5.084
+      },
+      "idle": {
+        "peak": 0.595,
+        "displacementPx": 0.431
+      }
+    },
+    {
+      "id": "hairTilt",
+      "input": [
+        "ParamAngleZ"
+      ],
+      "output": "ParamHairSwayZ",
+      "kind": "ok",
+      "why": null,
+      "drives": [
+        "hair_back",
+        "hair_front"
+      ],
+      "step": {
+        "values": {
+          "ParamAngleZ": 30
+        },
+        "peak": 11.526,
+        "at": 0.633,
+        "final": 7.991,
+        "displacementPx": 8.346
+      },
+      "idle": {
+        "peak": 0.296,
+        "displacementPx": 0.215
+      }
+    }
+  ],
   "motions": [
     "Nod",
     "Shake",

@@ -180,6 +180,31 @@ async function rig(name, outputPath) {
         pose: offender.worst.pose.name,
       })),
     },
+    // Rounded so a last-ulp drift in the simulated runs cannot fail a check.
+    // The idle's `at` is left out: a symmetric sway peaks equally both ways,
+    // so which extreme it names is float noise.
+    physics: result.physics.targets.map((target) => ({
+      id:
+        target.rig.kind === "chain"
+          ? `${target.rig.id}/${target.rig.segment}`
+          : target.rig.id,
+      input: target.input,
+      output: target.output,
+      kind: target.kind,
+      why: target.why ?? null,
+      drives: target.drives.map((drive) => drive.id),
+      step: {
+        values: target.step.values,
+        peak: round3(target.step.peak),
+        at: round3(target.step.at),
+        final: round3(target.step.final),
+        displacementPx: round3(target.step.displacementPx),
+      },
+      idle: {
+        peak: round3(target.idle.peak),
+        displacementPx: round3(target.idle.displacementPx),
+      },
+    })),
     motions: Object.keys(model.motions ?? {}),
     expressions: (model.expressions ?? []).map((expression) => expression.id),
   };
@@ -199,7 +224,12 @@ function summary(name, metrics) {
     turn,
     `${metrics.patches?.length ?? 0} patches`,
     `${metrics.folds.offenders.length} fold offenders over ${metrics.folds.poses} poses`,
+    `${metrics.physics.filter((target) => target.kind !== "ok").length} physics offenders of ${metrics.physics.length}`,
   ].join(", ");
+}
+
+function round3(value) {
+  return Math.round(value * 1000) / 1000;
 }
 
 /** Every leaf that differs between `a` and `b`, as `<path>: <a> → <b>`. */
