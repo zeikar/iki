@@ -12,7 +12,11 @@ import {
   loadIkiModel,
   type IkiModel,
 } from "@ikijs/format";
-import type { FoldReport } from "@ikijs/engine";
+import {
+  checkPhysics,
+  type FoldReport,
+  type PhysicsReport,
+} from "@ikijs/engine";
 import { checkModelFolds } from "./fold-report";
 import {
   AutoRigInputError,
@@ -340,6 +344,10 @@ export type RenderPosesResult =
       /** The model's folds, as `auto_rig_from_layers` reports them.
        *  Report-only: a fold never fails the render. */
       folds: FoldReport;
+      /** The model's own physics rigs (`poses` do not enter it), as
+       *  `auto_rig_from_layers` reports them. Report-only: it never fails
+       *  the render. */
+      physics: PhysicsReport;
     }
   | { ok: false; error: string };
 
@@ -387,6 +395,7 @@ export async function renderPoses(
       model,
       input.poses?.map((p) => p.values),
     );
+    const physics = checkPhysics(model);
 
     const { failedTextures, poses } = await withBrowser(
       browser,
@@ -425,6 +434,7 @@ export async function renderPoses(
       poses,
       modelCanvas: model.canvas,
       folds,
+      physics,
     };
   } catch (error) {
     if (error instanceof AutoRigInputError || error instanceof IkiFormatError) {

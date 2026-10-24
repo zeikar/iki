@@ -29,7 +29,11 @@ import {
   type TurnTargets,
   type TurnSolveReport,
 } from "@ikijs/editor";
-import type { FoldReport } from "@ikijs/engine";
+import {
+  checkPhysics,
+  type FoldReport,
+  type PhysicsReport,
+} from "@ikijs/engine";
 import { checkModelFolds } from "./fold-report";
 import { BUST_SIZE, bustPadY } from "./render-poses";
 import {
@@ -484,6 +488,11 @@ export type AutoRigResult =
        *  mouth shutting on purpose set apart as `expected`. Report-only: a
        *  fold never refuses the rig. */
       folds: FoldReport;
+      /** The written model's physics rigs, each output excited through the
+       *  engine's real drivers — a step held at the input's far end and the
+       *  procedural idle — and read as ok, frozen or unstable with both
+       *  windows' amplitudes. Report-only: it never refuses the rig. */
+      physics: PhysicsReport;
       /** What each of `input.patches` moved on this rig, in order — present
        *  whenever `patches` was passed, `[]` included, so a caller can tell
        *  this server from one that drops the field. */
@@ -830,6 +839,7 @@ export async function autoRigFromLayers(
     // Report-only, and after the write so a throw here — an engine bug,
     // surfacing as a tool error, never an input refusal — keeps the rig.
     const folds = checkModelFolds(finalModel);
+    const physics = checkPhysics(finalModel);
 
     return {
       ok: true,
@@ -844,6 +854,7 @@ export async function autoRigFromLayers(
       ...(noseCore === undefined ? {} : { noseCore }),
       ...(turn === undefined ? {} : { turn }),
       folds,
+      physics,
       ...(patches === undefined ? {} : { patches }),
     };
   } catch (err) {

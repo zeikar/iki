@@ -29,6 +29,7 @@ export {
   type MeasureResult,
 } from "./measure";
 export { checkModelFolds, formatFoldReport } from "./fold-report";
+export { formatPhysicsReport } from "./physics-report";
 export {
   measureTurnReference,
   formatTurnReport,
