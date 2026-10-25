@@ -200,8 +200,8 @@ and how a new character's round-1 compose corrects the provisional
    host shows one; Claude Code shows the JSON. Read either: an
    `INVALID: <message>` below is `ok: false` with that `error` in the JSON,
    the `PATCH` lines are its `patches` entries (`index`, `target`, `at`,
-   `moved`, `of`, `cols` / `rows`, `maxPx`), and the `FOLD` lines are its
-   `folds.offenders`.
+   `moved`, `of`, `cols` / `rows`, `maxPx`), the `FOLD` lines are its
+   `folds.offenders`, and the `PHYSICS` lines its `physics.targets`.
 
    Pass `style` as well when it is not empty — the knobs verbatim — and never
    `turnTargets`: the rig's default profile is every character's
@@ -212,9 +212,9 @@ and how a new character's round-1 compose corrects the provisional
    leaves the far eye, and a `noseShift` / `mouthShift` past its own), and
    how much of a far iris the bangs still cover (`turn.strandOverlap`); quote
    all three in your report. A clamp is not a refusal — the rig still built,
-   so keep it. Nor is the result's `folds` (the `FOLD` lines after the path):
-   it is a report, never a refusal, so keep the model; the orchestrator reads
-   the folds off `render_poses`.
+   so keep it. Nor are the result's `folds` and `physics` (the `FOLD` and
+   `PHYSICS` lines after the path): they are reports, never refusals, so keep
+   the model; the orchestrator reads both off `render_poses`.
 
    Read `<workdir>/patches.json` (after this round's drops) as the accepted
    array and pass it as `patches` when it is not empty — the whole list on

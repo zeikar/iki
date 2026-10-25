@@ -139,6 +139,22 @@ artist agent applies your findings; the orchestrator arbitrates.
   are `FOLDS: none over <folds.poses> poses`; and the `folds.targets`
   entries passed with an `expected.ratio` under 0.1 are the `FOLDS expected:`
   closures.
+- `physics` — the physics report `render_poses` printed, verbatim and
+  complete: the engine's check of every physics rig (the auto-rig's hair-sway
+  springs, which a `hair_front` layer brings) driven by its real drivers.
+  One `PHYSICS` line per spring and per chain segment reads `ok`, `frozen` or
+  `unstable`, the rig and `input -> output`; then `step` (an input held at its
+  far end for 5 s, the run that moves the parts most: that setting, the
+  output's peak and when, its final value, and the largest move of any part
+  in model px, with what the output drives) and
+  `idle` (30 s of the idle: its peak, when and move); and ` — <why>` when it
+  is not `ok`. `frozen` is an output that drives nothing, has no input with a
+  range, or moves the parts under 1 model px; `unstable` is one that grows
+  without bound, trips the engine's finiteness guard or stays outside its
+  range for a second. `PHYSICS: no rigs` means the model has none. A host that
+  shows the JSON passes `physics.targets` instead, each target a `PHYSICS`
+  line (`rig`, `input`, `output`, `drives`, `kind`, `why`, `step`, `idle`),
+  empty for no rigs. `unavailable` means the server predates the report.
 - `rig-view` — the `describe_iki` summary of this round's model: each part's
   rest `box` in model px from the canvas's top-left (y down) and the same box
   as `bustBox` in `renders`' px (`bustScale` of them per model px),
@@ -335,6 +351,13 @@ out, a seam, or a region pinched to a line, and on the zoom crops (Step 1)
 for a part sliding over its neighbour. Every `FOLD` line in `folds` is a
 `rig` finding (Step 3); the `FOLDS expected:` line is none. When `folds` is
 `unavailable`, judge `rig` from the renders alone and name no fold finding.
+`rig` also covers the hair's swing, which no render shows (the renders are
+still poses, and physics moves only in a running idle), so `physics` is its
+only evidence: every `PHYSICS` line reading `frozen` or `unstable` is a `rig`
+finding (Step 3). An `ok` line and `PHYSICS: no rigs` are none, and neither
+are the step and idle amounts: a swing that reads small is the rig's tuning,
+the same on every character. When `physics` is `unavailable`, name no physics
+finding.
 
 `eyes` judges the eyes' ABSOLUTE size: the iris's share of the head span at the
 eye row, the render's measured (Step 1) against the reference's read, and the
@@ -603,8 +626,8 @@ Every finding carries a `type`, and the type decides who acts:
   `patches`. **Free** — it re-rigs and spends no generation, but the
   orchestrator keeps it only when a blind judge prefers it and nothing new
   folds. What a patch cannot fix stays `escalate`: a seam from draw order,
-  ghosting, a texture sliding on its UVs, a `FOLD` line, anything across the
-  whole head. With `rig-view` `unavailable`, name no `patch`.
+  ghosting, a texture sliding on its UVs, a `FOLD` line, a `PHYSICS` line,
+  anything across the whole head. With `rig-view` `unavailable`, name no `patch`.
 - **`escalate`** — the fix lies outside the parts dir, `layout.json`,
   `mirror-parts.json`, `style.json`, `canvas.json` and a `patch`:
   `packages/editor/src/auto-rig/`, the engine, the format. The artist is not allowed to touch
@@ -619,6 +642,12 @@ A `FOLD` line is an `escalate` on `packages/editor/src/auto-rig/` that quotes
 the line verbatim — the deformer or part, its cell or triangle, the ratio and
 the pose — unless a `measure_layers` warning this round already names that
 part: then it routes as that warning does.
+
+A `frozen` or `unstable` `PHYSICS` line is an `escalate` on
+`packages/editor/src/auto-rig/` that quotes the line verbatim — its kind, the
+rig, `input -> output`, the step's move and the ` — <why>`. Unlike a `FOLD`
+line, it never routes as a `measure_layers` warning on a part it drives: the
+swing comes from the rig's constants, not the drawing.
 
 Before writing a `regenerate`, ask whether a `retune` would do. Historically
 most defects that _looked_ like bad art were placement constants. Ask it of a

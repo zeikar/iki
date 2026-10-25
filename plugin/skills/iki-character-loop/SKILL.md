@@ -382,8 +382,12 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    that flips or collapses at some pose, or `FOLDS: none over N poses`, and a
    `FOLDS expected:` line for the closures the rig draws on purpose (an eye or
    the mouth shut). A fold never stops the round: it is the critic's input
-   (Step 3). From 0.27.0 the physics report follows it (`PHYSICS` lines, the
-   JSON's `physics`): report-only, and not part of `folds`.
+   (Step 3). The physics report follows it: a `PHYSICS` line per spring and
+   chain segment reading `ok`, `frozen` or `unstable`, or `PHYSICS: no rigs`.
+   It too is the critic's input and never stops the round. It needs 0.27.0+: a
+   result with the fold report but no `PHYSICS` line (no `physics` field in
+   the JSON) predates it, and the round goes on with `physics` passed as
+   `unavailable`.
 
    **Two result forms.** The server returns every result both as text and as
    structured JSON, and a host shows one — Claude Code shows the JSON, where
@@ -402,7 +406,9 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    are, or from the JSON `modelCanvas`, `folds.poses`, `folds.offenders` and
    those `expected` entries (`target`, `expected`) copied as they are — the
    rest of `folds.targets` is one entry per deformer and part, mostly `ok`,
-   and stays out. A non-empty `failedTextures` means atlas pages did not load and
+   and stays out. The `PHYSICS` lines are `physics.targets`, one per line in
+   model order (`PHYSICS: no rigs` is an empty one), passed whole and as they
+   are: there are few, and an `ok` one says the hair moves. A non-empty `failedTextures` means atlas pages did not load and
    their parts are missing: render once more; if pages still fail, escalate,
    because the critic does not score renders with parts missing.
    The rest shot is untouched by construction, which matters because every
@@ -432,7 +438,10 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    (item 4's fold report, complete and in the form it came: every `FOLD` line
    or the one `FOLDS: none …` line, and the `FOLDS expected:` line when there
    is one — or their JSON fields, as item 4 lists them; or `unavailable` from
-   a server before 0.25.0), `rig-view` (item 2's summary, or
+   a server before 0.25.0), `physics` (item 4's physics report, complete and
+   in the form it came: every `PHYSICS` line or the `PHYSICS: no rigs` line,
+   or `physics.targets`; or `unavailable` from a server before 0.27.0),
+   `rig-view` (item 2's summary, or
    `unavailable`), `patches` (the accepted array, `<workdir>/patches.json`
    as item 3 left it) and `rejected` (`<workdir>/patches-rejected.json`'s,
    so it names no patch the log rules out). It returns
