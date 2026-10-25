@@ -378,11 +378,12 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    standard set, so after every call with `poses` compare the returned pose
    names with the ones passed: a mismatch means an old server, and the patch
    gate is unavailable. The result lists the written paths, then
-   ends with the model's fold report: a `FOLD` line per warp grid or mesh part
+   the model's fold report: a `FOLD` line per warp grid or mesh part
    that flips or collapses at some pose, or `FOLDS: none over N poses`, and a
    `FOLDS expected:` line for the closures the rig draws on purpose (an eye or
    the mouth shut). A fold never stops the round: it is the critic's input
-   (Step 3).
+   (Step 3). From 0.27.0 the physics report follows it (`PHYSICS` lines, the
+   JSON's `physics`): report-only, and not part of `folds`.
 
    **Two result forms.** The server returns every result both as text and as
    structured JSON, and a host shows one — Claude Code shows the JSON, where
