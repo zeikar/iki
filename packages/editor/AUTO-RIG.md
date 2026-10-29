@@ -624,8 +624,9 @@ layout or `style`, re-rig, and the patch lands on the new rig.
   through the Shake, the Tilt, a 100 ms turn-and-tilt to the full range and
   200 ms head sweeps from one end of the range to the other (both
   directions, each axis alone and together) from every ambient phase, and
-  the raw peaks stay under 19.5 (back 18.9 in the sweep of both axes; the
-  front's turn sweep reaches 19.8, under the range of 20). A
+  every raw peak stays under the range of 20 (the front's turn sweep reaches
+  19.8), the back's with a margin, under 19.5 (18.9 in the sweep of both
+  axes). A
   one-frame jump of `AmbientSway` (a slider) snaps the back by its bound, as
   `AngleX` already does. `style.sway` scales the tip travel per sway unit on
   both layers, so it scales the turn's swing and the idle drift alike; no
