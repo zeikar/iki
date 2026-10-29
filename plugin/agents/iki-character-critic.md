@@ -114,8 +114,9 @@ artist agent applies your findings; the orchestrator arbitrates.
 - `rig-plan-report` — the kept model's `RIGPLAN:` line (or its `rigPlan` echo),
   verbatim, in the form it came: the candidate's after an accepted plan gate,
   the base's after a rejected one; `unavailable` from a server before 0.30.0.
-  Its `clamped` and `overriddenBy` entries are the fields the plan rules below
-  may not move.
+  A field it lists as `overriddenBy` is not retuned, and a `clamped` one is
+  not increased past its clamp (a reduction inside the recommended span is
+  allowed).
 - `turn-clamped` — the kept model's turn line, verbatim (this round's artist's
   own `TURN:`, or its `TURN-CANDIDATE:` when a gate kept the
   candidate): its `turn.achieved`, `turn.clamped` and `turn.strandOverlap`,
@@ -545,15 +546,15 @@ and the far eye narrowing too much or too little against the near one (your
 `rigPlan.turn.eyeForeshorten`; both one catalog step at a time, inside the
 recommended span. Name at most ONE plan field of any kind per round (a gated
 one is judged alone, never on top of another plan change), never a field the
-`rig-plan-report` lists as `clamped` or `overriddenBy`, and never a move
+`rig-plan-report` lists as `overriddenBy`, never an increase of one it lists as
+`clamped` past its clamp (a reduction inside the recommended span is allowed),
+and never a move
 `planRejected` rules out. Both go through the orchestrator's blind gate, so
 name the pose where the change should read. A `rigPlan` retune always names
 its new value, never one outside the field's recommended span, and how far
 `reference-30.png` turns, leads or follows neither moves a field nor lowers the
 `turn` score. At the span's end the field has gone as far as is recommended:
-name no further retune of it, and no increase of a field `rig-plan-report`
-lists as `clamped` past its clamp (a reduction inside the recommended span is
-allowed). Blink depth — how far the lid comes down at
+name no further retune of it. Blink depth — how far the lid comes down at
 `ParamEyeLOpen` 0 — maps to `rigPlan.eyes.blink` the same way, and the hair's sway
 amplitude, where a render shows it, to `rigPlan.hair.sway`.
 

@@ -426,6 +426,7 @@ MODEL: <path to the rigged .iki (with PATCHES or RIGPLAN proposed, the candidate
 TURN: <the result's turn.achieved, turn.clamped and turn.strandOverlap ("none" when absent), or "none" when no turn was solved; with PATCHES or RIGPLAN proposed, the baseline's>
 TURN-CANDIDATE: <with PATCHES or RIGPLAN proposed, the candidate's, as TURN: — a patch or a gated plan field moves turn.achieved, so the two differ; otherwise "none">
 RIGPLAN: <the result's RIGPLAN: line — effective values, with clamped and overriddenBy — or "unavailable"; with a gated plan field, "proposed (<field> <from> -> <to>; base <path>; candidate <path>)" before the baseline's line>
+RIGPLAN-CANDIDATE: <with a gated plan field, the candidate's RIGPLAN: line as RIGPLAN: gives it (effective values, with clamped and overriddenBy) — a plan field moves what the rig clamps, so the two differ; otherwise "none">
 PATCHES: <unchanged | dropped <n> for <files> | proposed (ops N -> M; base <path>; candidate <path>) | unavailable; a drop and a proposal both read "dropped …; proposed …"; "proposed" only with a candidate model written — a dropped candidate reads unchanged (or dropped …), its refusals under ESCALATED>
 <the result's PATCH lines verbatim (from a JSON result, its patches entries as they are), the baseline's then the candidate's>
 ESCALATED: <critic findings you did not act on, and any refusal you escalated, verbatim — each patch op you gave up as "refused patch: <the op> — <the message>"; on a full body, a final canvas height over 4096, with H — or "none">

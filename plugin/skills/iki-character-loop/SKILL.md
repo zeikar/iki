@@ -396,7 +396,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    has no new offender: `mv rig-plan-candidate.json rig-plan.json`,
    `mv iki-character-candidate.iki iki-character.iki`, delete
    `iki-character-base.iki`, and the artist's `TURN-CANDIDATE:` becomes this
-   round's `TURN:`. Otherwise reject: append the move to `plan-rejected.json`
+   round's `TURN:` and its `RIGPLAN-CANDIDATE:` this round's `RIGPLAN:`.
+   Otherwise reject: append the move to `plan-rejected.json`
    (`judged:` with the decoded answers when its own pairs sank it, `batch:`
    when the candidate's fold did), discard the candidate, and the artist's
    `TURN:` (the baseline's) stands; `rig-plan.json` was never touched. Say
@@ -478,7 +479,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    crops), `round`, `plan-catalog`, `rig-plan` (the accepted `rig-plan.json`, `{}` when
    none), `rig-plan-report` (the KEPT model's `RIGPLAN:` line or `rigPlan`
    echo, verbatim, in the form it came: the candidate's after an accepted plan
-   gate, the base's after a rejected one; `unavailable` from an old server),
+   gate (the artist's `RIGPLAN-CANDIDATE:` line), the base's after a rejected one
+   (its `RIGPLAN:` line); `unavailable` from an old server),
    `scores` (the previous rounds' `SCORES:` lines),
    and `turn-clamped` (the KEPT model's turn line, verbatim: the artist's
    `TURN:`, or its `TURN-CANDIDATE:` when item 3 accepted — its
