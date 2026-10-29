@@ -218,7 +218,10 @@ export function sweepSpec(model: IkiModel, crop?: RenderCrop): SweepSpec {
     physicsOutputs: physicsOutputIds(model),
     sheet: {
       frames,
-      cell: { w: Math.floor(dw * scale), h: Math.floor(dh * scale) },
+      cell: {
+        w: Math.max(1, Math.floor(dw * scale)),
+        h: Math.max(1, Math.floor(dh * scale)),
+      },
       margin: m,
       labelBand: b,
       labels: frames.map((k) =>
@@ -304,9 +307,7 @@ img { max-width: 48vw; height: auto; background: #444; }
 /**
  * Makes `<outDir>/<name>/` (an existing directory is fine), refuses a symbolic
  * link or a non-directory planted there — it would redirect every frame write
- * and the stale-frame delete — confines it to the working directory, and
- * removes the earlier run's `fNNN.png` (a shorter run must not leave stale
- * tails). `outDir` is the realpath'd dir `resolveOutputDir` returned and `name`
+ * — confines it to the working directory. `outDir` is the realpath'd dir `resolveOutputDir` returned and `name`
  * is already checked by `planRenders`. Call only once the browser was found.
  * Returns the real directory.
  */
@@ -327,8 +328,5 @@ export function prepareSweepDir(outDir: string, name: string): string {
     throw new AutoRigInputError(`sweep.name names ${dir}, not a directory`);
   }
   const real = confineToWorkingDirectory(process.cwd(), dir, "sweep dir", name);
-  for (const entry of fs.readdirSync(real)) {
-    if (/^f\d{3}\.png$/.test(entry)) fs.rmSync(path.join(real, entry));
-  }
   return real;
 }

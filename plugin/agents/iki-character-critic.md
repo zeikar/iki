@@ -175,8 +175,9 @@ artist agent applies your findings; the orchestrator arbitrates.
   (nine frames of the eased −30 → +30 leg of `ParamAngleX`, chronological, left
   to right then top to bottom, each labelled with its θ and t), the
   `renders/turn/kymograph.png` (the eye row of every frame stacked over the 3 s
-  turn: a straight edge is constant speed, a bend at the centre row is the
-  centre kink, a trailing curve is the hair's lag) and the `SWEEP` lines, verbatim —
+  turn: a rigid feature traces a smooth S; a corner or step where the S crosses
+  the centre row is the centre kink; the hair's trace lagging the face's S is
+  the lag) and the `SWEEP` lines, verbatim —
   per landmark (the eyes, the nose when there is one) `amplitude` in face
   widths, `x kink` and `width kink` (the slope change through θ = 0), `lead`
   over the local face plate at −30 and +30, and `pop`, then the plate's own
@@ -535,9 +536,12 @@ shoulder to the shoulder point and down to the armpit, never a `retune` of
 `turn` asks whether the motion reads right, not whether it survives — judged
 by eye on the rig's own renders, the movement first: with `sweep`, read the
 sheet as one motion and the kymograph for its speed, then the stills below.
-A `width kink` or `x kink` on the eyes far above the nose's, with the amplitude
-normal, is the far eye narrowing while the near one widens half as much:
-evidence for the `rigPlan.turn.eyeForeshorten` retune below. A nose `lead` out
+An `x kink` on the eyes far above the nose's, with the amplitude normal, is
+evidence for the `rigPlan.turn.eyeForeshorten` retune below. The nose's
+`width kink` is always n/a, so judge the eyes' `width kink` on its own (the two
+eyes against each other, or against the previous round), never against the
+nose; a non-zero eye width kink is normal for the default rig, since the far
+eye narrows twice as fast as the near one widens. A nose `lead` out
 of proportion to the eyes' is evidence for `rigPlan.turn.noseLead`. An
 `amplitude` near 0 is a frozen turn and scores low however smooth. These
 numbers are evidence quoted under MEASUREMENTS, never thresholds: no `SWEEP`

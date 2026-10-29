@@ -316,7 +316,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `render_poses` calls with that list: `iki-character-base.iki` into
    `renders/patch/before/` and `iki-character-candidate.iki` into
    `renders/patch/after/`. Check each result's pose names (`poses[].name`
-   in the JSON form, the listed paths' file names in the text) against the
+   in the JSON form, the file names of the listed `<outDir>/<name>.png` paths directly in
+   outDir in the text, never the sweep's) against the
    ones passed; a mismatch is an old server, so the gate cannot run: discard
    the candidate, log nothing and tell the user.
 
@@ -501,7 +502,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `full-pose-r-half`.
 
 5. Dispatch **the critic** (see Host dispatch) with `reference`, `reference-30`, `layers`,
-   `renders` (the returned paths other than `mouth-*` and `full-*`; each input
+   `renders` (the returned paths other than `mouth-*` and `full-*` and the
+   sweep's (`renders/turn` and every file in it); each input
    below is a subset of the returned paths, so a stale file from an earlier
    round is never picked up), `turn-pair` (`<workdir>/renders/rest.png`,
    `turn-m30.png` and `turn-p30.png`), `mouth-renders` (the 15 `mouth-*.png`

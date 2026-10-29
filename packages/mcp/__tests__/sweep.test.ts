@@ -105,6 +105,13 @@ describe("sweepSpec", () => {
     expect(sheet.cell.w / sheet.cell.h).toBeCloseTo(720 / 780, 2);
   });
 
+  it("never floors a sheet cell side to 0 for a 1-px-tall crop", () => {
+    const crop = { sx: 0, sy: 0, sw: 3000, sh: 1, dw: 3000, dh: 1 };
+    const { sheet } = sweepSpec(model(1120, 1120), crop);
+    expect(sheet.cell.w).toBeGreaterThanOrEqual(1);
+    expect(sheet.cell.h).toBeGreaterThanOrEqual(1);
+  });
+
   it("lists a spring's output and a chain's segment outputs", () => {
     const m = {
       ...model(1120, 1120),
@@ -227,14 +234,12 @@ afterAll(() => {
 });
 
 describe("prepareSweepDir", () => {
-  it("creates the directory, tolerates it existing and drops only stale frames", () => {
+  it("creates the directory and tolerates it existing", () => {
     const out = fs.realpathSync(tmpDir());
     const dir = prepareSweepDir(out, "turn");
     expect(dir).toBe(path.join(out, "turn"));
-    fs.writeFileSync(path.join(dir, "f123.png"), "x");
     fs.writeFileSync(path.join(dir, "notes.txt"), "keep");
     expect(prepareSweepDir(out, "turn")).toBe(dir);
-    expect(fs.existsSync(path.join(dir, "f123.png"))).toBe(false);
     expect(fs.readFileSync(path.join(dir, "notes.txt"), "utf8")).toBe("keep");
   });
 
