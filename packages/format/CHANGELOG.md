@@ -1,5 +1,11 @@
 # @ikijs/format
 
+## 0.10.0
+
+### Minor Changes
+
+- 3eac58d: Add the standard id `ParamHairBackSway` (`StandardParameter.HairBackSway`), the back hair's physics output; `HairSwayX` / `HairSwayZ` are now documented as the front hair's.
+
 ## 0.9.0
 
 ### Minor Changes
