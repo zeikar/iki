@@ -1,5 +1,21 @@
 # @ikijs/mcp
 
+## 0.29.0
+
+### Minor Changes
+
+- 3eac58d: `list_standard_parameters` gains `ParamHairBackSway`. Models rigged with both hair layers declare it and a third `hairBack` spring, so `auto_rig_from_layers` and `render_poses` print three `PHYSICS` lines, and the front springs drive the front hair only.
+
+  Rigged models swing the hair wider (tip travel 0.08 → 0.24 hh) with firmer springs (ζ 0.40), so `render_poses` and `auto_rig_from_layers` report larger `PHYSICS` displacements.
+
+### Patch Changes
+
+- 568139e: `render_poses` and the physics report bundle the engine fix that makes a lag output follow the frame's time instead of saw-toothing with the number of fixed sub-steps due that frame.
+- Updated dependencies [3eac58d]
+- Updated dependencies [3eac58d]
+  - @ikijs/editor@0.27.0
+  - @ikijs/format@0.10.0
+
 ## 0.28.0
 
 ### Minor Changes
