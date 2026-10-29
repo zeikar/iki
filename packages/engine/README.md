@@ -64,6 +64,7 @@ values, `setView` throws on a non-finite centre or a non-positive size.
 | `checkFolds`                                     | A report-only `FoldReport`: per warp grid and mesh part, flip / collapse / ok and its least area ratio and pose     |
 | `foldPoses`                                      | The `FoldPose[]` `checkFolds` checks by default: rest, every parameter's extremes, angle corners × eyes/mouth/arms  |
 | `checkPhysics`                                   | A report-only `PhysicsReport`: per rig and chain segment, ok / frozen / unstable, step and idle amplitude, px moved |
+| `landParts`                                      | Where named parts land at a pose, model space, by the renderer's own path (for a host's geometry readouts)          |
 | `translate` `rotate` `scale` `multiply` `toMat3` | The 2D affine helpers the engine itself uses                                                                        |
 
 ## Motion drivers

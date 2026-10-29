@@ -28,3 +28,4 @@ export {
   type PhysicsResponse,
   type PhysicsTarget,
 } from "./physics-check";
+export { landParts } from "./land";

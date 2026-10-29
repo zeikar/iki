@@ -8,7 +8,7 @@ import {
 } from "@ikijs/format";
 import { resolveDeformers } from "./deform";
 import { FIXED_DT_S } from "./frame-clock";
-import { landPart, landedPart, staticDeformers } from "./land";
+import { UNIT_QUAD, landPart, landedPart, staticDeformers } from "./land";
 import { ParameterStore } from "./parameter-store";
 import {
   type Reading,
@@ -78,8 +78,6 @@ const DISPLACEMENT_PX = 1;
 const PINNED_FRAMES = 60;
 /** Slack on the spring's stability limits. */
 const TOLERANCE = 1e-9;
-/** The corners `createUnitQuad` uploads, which a part without a mesh draws. */
-const UNIT_QUAD = [-0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5];
 
 /** A run's reading of one output, the window `why` names it by, and how far it moves the parts. */
 interface Excitation {

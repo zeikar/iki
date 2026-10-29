@@ -9,10 +9,14 @@ import {
   type ResolvedDeformers,
   type ResolvedTransform,
   evaluateTransform,
+  resolveDeformers,
 } from "./deform";
-import type { ParameterStore } from "./parameter-store";
+import { ParameterStore } from "./parameter-store";
 import { applyWarps } from "./warp";
 import { applyWarpToChild, transformGridPoints } from "./warp-grid";
+
+/** The corners `createUnitQuad` uploads, which a part without a mesh draws. */
+export const UNIT_QUAD = [-0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5];
 
 /**
  * The model's deformers with every binding and keyform removed: the rig no
@@ -121,4 +125,39 @@ export function landPart(
     transformGridPoints(local, placed, landed);
   }
   return landed;
+}
+
+/**
+ * Where the named parts land with `values` set (every other parameter at its
+ * default), model space (x right, y up): the points as drawPart lands them,
+ * the path `checkFolds` and `checkPhysics` read. A part without a mesh lands
+ * the unit quad's four corners. Each result is a copy, so two poses can be
+ * held at once. An id the model lacks is absent from the map, and a value for
+ * a parameter it lacks is dropped, as the store does.
+ */
+export function landParts(
+  model: IkiModel,
+  values: Record<string, number>,
+  partIds: readonly string[],
+): Map<string, Float32Array> {
+  const deformers = model.deformers ?? [];
+  const restStore = new ParameterStore(model.parameters);
+  const store = new ParameterStore(model.parameters);
+  for (const [id, value] of Object.entries(values)) store.set(id, value);
+  const { worlds } = resolveDeformers(staticDeformers(model), restStore);
+  const resolved = resolveDeformers(deformers, store);
+  const out = new Map<string, Float32Array>();
+  for (const id of partIds) {
+    const part = model.parts.find((p) => p.id === id);
+    if (!part) continue;
+    const landing = landedPart(
+      part,
+      part.mesh?.vertices ?? UNIT_QUAD,
+      deformers,
+      worlds,
+      restStore,
+    );
+    out.set(id, Float32Array.from(landPart(landing, store, resolved)));
+  }
+  return out;
 }
