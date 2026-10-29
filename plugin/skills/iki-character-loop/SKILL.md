@@ -475,7 +475,11 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    below is a subset of the returned paths, so a stale file from an earlier
    round is never picked up), `turn-pair` (`<workdir>/renders/rest.png`,
    `turn-m30.png` and `turn-p30.png`), `mouth-renders` (the 15 `mouth-*.png`
-   crops), `round`, `plan-catalog`, `scores` (the previous rounds' `SCORES:` lines),
+   crops), `round`, `plan-catalog`, `rig-plan` (the accepted `rig-plan.json`, `{}` when
+   none), `rig-plan-report` (the KEPT model's `RIGPLAN:` line or `rigPlan`
+   echo, verbatim, in the form it came: the candidate's after an accepted plan
+   gate, the base's after a rejected one; `unavailable` from an old server),
+   `scores` (the previous rounds' `SCORES:` lines),
    and `turn-clamped` (the KEPT model's turn line, verbatim: the artist's
    `TURN:`, or its `TURN-CANDIDATE:` when item 3 accepted — its
    `turn.achieved`, `turn.clamped` and `turn.strandOverlap`, or "none" when no

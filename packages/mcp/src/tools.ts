@@ -420,9 +420,10 @@ export function formatRigPlanReport(r: RigPlanReport): string {
     const value = `${f.path}=${r.effective[f.path]}`;
     const clamp = r.clamped.find((c) => c.field === f.path);
     if (clamp !== undefined) {
-      const asked = (r.requested as Record<string, Record<string, number>>)[
-        f.group
-      ]?.[f.key];
+      const asked =
+        (r.requested as Record<string, Record<string, number>>)[f.group]?.[
+          f.key
+        ] ?? f.default;
       return `${value} (requested ${asked}, clamped at ${clamp.bound})`;
     }
     const cue = r.overriddenBy[f.path];

@@ -109,6 +109,13 @@ artist agent applies your findings; the orchestrator arbitrates.
 - `plan-catalog` — the text of `describe_rig_plan`: every `rigPlan` path with
   its default, range, recommended span and step, or `unavailable` on a server
   before 0.30.0.
+- `rig-plan` — the accepted `rig-plan.json` (the plan the kept model was built
+  with; `{}` when none).
+- `rig-plan-report` — the kept model's `RIGPLAN:` line (or its `rigPlan` echo),
+  verbatim, in the form it came: the candidate's after an accepted plan gate,
+  the base's after a rejected one; `unavailable` from a server before 0.30.0.
+  Its `clamped` and `overriddenBy` entries are the fields the plan rules below
+  may not move.
 - `turn-clamped` — the kept model's turn line, verbatim (this round's artist's
   own `TURN:`, or its `TURN-CANDIDATE:` when a gate kept the
   candidate): its `turn.achieved`, `turn.clamped` and `turn.strandOverlap`,
@@ -520,8 +527,9 @@ itself turned. The rig starts every character on the profile,
 and how far the face turns, the features lead it and the front hair follows it
 are what differs between characters. So a turn amount that reads wrong on the
 renders is a `retune` of a `rigPlan.<path>` that names its new value, with
-the evidence from the renders, a value on `plan-catalog`'s step grid inside
-that field's recommended span: a turn too weak or
+the evidence from the renders, a value one `plan-catalog` step from the field's
+current value in `rig-plan-report` (its effective value) and inside that
+field's recommended span: a turn too weak or
 too strong is `rigPlan.turn.amount`; features leading too much or too little,
 `rigPlan.turn.featureLead`; the front hair following too much or too little,
 `rigPlan.hair.follow` (where the front hair draws the head's outline,
@@ -537,14 +545,15 @@ and the far eye narrowing too much or too little against the near one (your
 `rigPlan.turn.eyeForeshorten`; both one catalog step at a time, inside the
 recommended span. Name at most ONE plan field of any kind per round (a gated
 one is judged alone, never on top of another plan change), never a field the
-artist's `RIGPLAN:` lists as `clamped` or `overriddenBy`, and never a move
+`rig-plan-report` lists as `clamped` or `overriddenBy`, and never a move
 `planRejected` rules out. Both go through the orchestrator's blind gate, so
 name the pose where the change should read. A `rigPlan` retune always names
 its new value, never one outside the field's recommended span, and how far
 `reference-30.png` turns, leads or follows neither moves a field nor lowers the
 `turn` score. At the span's end the field has gone as far as is recommended:
-name no further retune of it, and none of a field the artist's `RIGPLAN:` line
-lists as `clamped`. Blink depth — how far the lid comes down at
+name no further retune of it, and no increase of a field `rig-plan-report`
+lists as `clamped` past its clamp (a reduction inside the recommended span is
+allowed). Blink depth — how far the lid comes down at
 `ParamEyeLOpen` 0 — maps to `rigPlan.eyes.blink` the same way, and the hair's sway
 amplitude, where a render shows it, to `rigPlan.hair.sway`.
 

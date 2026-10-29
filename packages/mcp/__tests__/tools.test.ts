@@ -16,6 +16,7 @@ import {
   describeIkiAt,
   listStandardParameters,
   describeRigPlan,
+  formatRigPlanReport,
   autoRigFromLayers,
   type AutoRigTurnTargets,
 } from "../src/tools";
@@ -1775,6 +1776,21 @@ describe("autoRigFromLayers", () => {
     expect(describeRigPlan().fields).toEqual(RIG_PLAN_FIELDS);
     expect(RIG_PLAN_FIELDS).toHaveLength(8);
     expect(RIG_PLAN_FIELDS.filter((f) => f.provisional)).toHaveLength(2);
+  });
+
+  it("prints the catalog default as requested when a clamped field was omitted", () => {
+    const f = RIG_PLAN_FIELDS[0]!;
+    const effective = Object.fromEntries(
+      RIG_PLAN_FIELDS.map((x) => [x.path, x.default]),
+    );
+    const line = formatRigPlanReport({
+      requested: {},
+      effective,
+      clamped: [{ field: f.path, bound: 0.5 }],
+      overriddenBy: {},
+    });
+    expect(line).toContain(`(requested ${f.default}, clamped at 0.5)`);
+    expect(line).not.toContain("undefined");
   });
 
   it("reports turn.noseLead and leaves the eye shift where the default rig has it", async () => {
