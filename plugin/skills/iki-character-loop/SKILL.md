@@ -120,14 +120,16 @@ it to `.gitignore` before the first run, or the generated art lands in a commit.
 
 ```bash
 mkdir -p iki-char/parts iki-char/layers iki-char/renders/debug \
-  iki-char/renders/patch/before iki-char/renders/patch/after iki-char/renders/judge
+  iki-char/renders/patch/before iki-char/renders/patch/after \
+  iki-char/renders/plan/before iki-char/renders/plan/after iki-char/renders/judge
 [ -f iki-char/layout.json ] || echo '{}' > iki-char/layout.json
 [ -f iki-char/rig-plan.json ] || echo '{}' > iki-char/rig-plan.json
 [ -f iki-char/patches.json ] || echo '{"patches":[]}' > iki-char/patches.json
 [ -f iki-char/patches-rejected.json ] || echo '{"rejected":[]}' > iki-char/patches-rejected.json
+[ -f iki-char/plan-rejected.json ] || echo '{"rejected":[]}' > iki-char/plan-rejected.json
 [ -f iki-char/canvas.json ] || echo '{}' > iki-char/canvas.json
 [ -f iki-char/appeal-declined.json ] || echo '{"declined":[]}' > iki-char/appeal-declined.json
-rm -f iki-char/patches-candidate.json iki-char/iki-character-candidate.iki
+rm -f iki-char/patches-candidate.json iki-char/rig-plan-candidate.json iki-char/iki-character-candidate.iki
 ```
 
 The seed lines only write a file that is missing, so re-entering or
@@ -153,7 +155,12 @@ or the rig refused (`refused:`), each entry
 entry rules out the same op in any amount — the same `target`, `at` and
 `region.role` with `by` pointing the same way — and any other entry only
 that exact op; neither the critic nor the artist proposes a ruled-out op
-again. The `rm` line clears a proposal an
+again. `plan-rejected.json` is the same log for the plan gate (Step 1, item
+3): each entry `{ "field": "turn.noseLead", "from": 1, "to": 1.5, "round": N,
+"verdict": "judged: …" }` under `rejected`. A `judged:` entry rules out moving
+that field in that direction from that value again (the other direction stays
+open); a `batch:`, `stale:` or `refused:` entry only that exact move; neither
+the critic nor the artist proposes a ruled-out move. The `rm` line clears a proposal an
 interrupted run left unjudged; `patches.json` and `iki-character.iki` only
 ever hold accepted ops, so nothing else needs undoing. The `renders/patch/`
 and `renders/judge/` dirs are the gate's, since `render_poses` never creates
@@ -224,7 +231,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `rigPlan` (the contents of `<workdir>/rig-plan.json`, which its rig step
    passes to `auto_rig_from_layers` when it is not empty), `plan-catalog`, `patches` (the
    `patches` array of `<workdir>/patches.json`, read at dispatch) with
-   `rejected` (`<workdir>/patches-rejected.json`'s), both critics' findings
+   `rejected` (`<workdir>/patches-rejected.json`'s), `planRejected`
+   (`<workdir>/plan-rejected.json`'s), both critics' findings
    (none on round 1 but, restarting, the user's carried ones), and on a
    restart's round 1 `restart: true` (Step 0). A full body
    also passes `reference-full` (`<workdir>/reference-full.png`, which its
@@ -262,10 +270,11 @@ changing any of them mid-loop or on a restart invalidates every prior score.
 
 2. **Read the rig's view** once the artist returns a model: call the `iki`
    server's `describe_iki { modelPath }` on `<workdir>/iki-character-base.iki`
-   when the artist's `PATCHES:` reads `proposed`, else on
+   when the artist's `PATCHES:` or `RIGPLAN:` reads `proposed`, else on
    `<workdir>/iki-character.iki` — this round's layers either way, and a patch
-   moves no box, stop or `faceWidth`, so it serves whichever model item 3
-   keeps. Keep its summary (the text, or the JSON result's `summary` — item
+   or a plan change moves no box, stop or `faceWidth`, so it serves whichever
+   model item 3 keeps (in a gated round there is no fresh
+   `iki-character.iki`). Keep its summary (the text, or the JSON result's `summary` — item
    4 says when a host shows which) as `rig-view` for the gate and the critic:
    each part's
    rest `box` in model px from the top-left and `bustBox` in the bust renders'
@@ -273,7 +282,12 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    with their defaults. Any `INVALID:` (`ok: false` in the JSON) or error
    makes `rig-view` `unavailable` — a server before 0.26.0 strips `modelPath`
    and complains about the model instead.
-3. **The patch gate** — only when the artist's `PATCHES:` reads `proposed`.
+3. **The gates** — the patch gate, then the plan gate. A dispatch carries at
+   most one of {a patch batch, a gated plan retune} (item 7 enforces it), so
+   the two gates never share a round and never both write
+   `iki-character-base.iki` / `iki-character-candidate.iki`.
+
+   **The patch gate** — only when the artist's `PATCHES:` reads `proposed`.
    Paths here are in `<workdir>`. To _discard the candidate_ is to delete
    `patches-candidate.json` and `iki-character-candidate.iki` and
    `mv iki-character-base.iki iki-character.iki`.
@@ -361,6 +375,32 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    decoded answers, in item 6's message. Neither `patches.json` nor
    `iki-character.iki` ever holds an unjudged proposal, so an interrupted
    gate leaves both accepted.
+
+   **The plan gate** — only when the artist's `RIGPLAN:` reads `proposed`: a
+   critic `retune` of `turn.eyeForeshorten` or `turn.noseLead`, the two
+   provisional fields; the six others are applied directly and never gated. To
+   _discard the candidate_ is to delete `rig-plan-candidate.json` and
+   `iki-character-candidate.iki` and
+   `mv iki-character-base.iki iki-character.iki`. The pose list is the
+   field's catalog `poses` from `plan-catalog` (`{ParamAngleX: -30}` …), each
+   cropped to the `face` box in `rig-view` grown by half `faceWidth` a side
+   and named `<field>-AngleX-30` and so on. Then exactly two `render_poses`
+   calls: `iki-character-base.iki` into `renders/plan/before/` and
+   `iki-character-candidate.iki` into `renders/plan/after/`. Everything else
+   is the patch gate's: the old-server check on the returned pose names, the
+   baseline's fold report (a folding baseline discards the candidate and logs
+   nothing), the blind judge with the same prompt (`<feature>` is "the eyes"
+   for `eyeForeshorten`, "the nose" for `noseLead`) and the same key kept in
+   this conversation only. Accept when the judge prefers the candidate on at
+   least one pair and the baseline on none, AND the candidate's fold report
+   has no new offender: `mv rig-plan-candidate.json rig-plan.json`,
+   `mv iki-character-candidate.iki iki-character.iki`, delete
+   `iki-character-base.iki`, and the artist's `TURN-CANDIDATE:` becomes this
+   round's `TURN:`. Otherwise reject: append the move to `plan-rejected.json`
+   (`judged:` with the decoded answers when its own pairs sank it, `batch:`
+   when the candidate's fold did), discard the candidate, and the artist's
+   `TURN:` (the baseline's) stands; `rig-plan.json` was never touched. Say
+   which, with the decoded answers, in item 6's message.
 
 4. **Render it** with the `iki` server's `render_poses` tool:
    `render_poses { modelPath: <workdir>/iki-character.iki, outDir: <workdir>/renders }`
@@ -450,7 +490,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `rig-view` (item 2's summary, or
    `unavailable`), `patches` (the accepted array, `<workdir>/patches.json`
    as item 3 left it) and `rejected` (`<workdir>/patches-rejected.json`'s,
-   so it names no patch the log rules out). It returns
+   so it names no patch the log rules out) and `planRejected`
+   (`<workdir>/plan-rejected.json`'s, likewise for a plan move). It returns
    scores and typed findings. A full body also passes `reference-full`, `figure` (the
    contents of `<workdir>/figure.json`) and `body-renders` (the whole-canvas `full-*.png` poses) and, with a pose forearm,
    `reference-wave`; its `renders` and
@@ -526,6 +567,21 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    so the critic wins there where the two disagree; on proportions,
    placement and expression within that look the appeal critic wins; the
    user's reaction (item 6) overrides both.
+   One gated change per round: when the critic's findings hold both a `patch`
+   and a gated plan `retune` (`turn.eyeForeshorten`, `turn.noseLead`), the
+   plan retune goes to the artist and the `patch` findings are DROPPED and
+   named in item 6's message (the plan retune is global and cheaper to judge;
+   an op sized against this round's renders would land on a rig the gate may
+   have just changed, so nothing is carried — the next round's critic
+   re-raises whatever still shows). At most one plan field of ANY kind per
+   round: the critic's first plan `retune` goes, later ones are dropped and
+   named the same way, so a gated field is never judged on top of same-round
+   plan changes. A gated `retune` whose move `plan-rejected.json` rules out is
+   dropped and named in item 6's message too. On a server that returned no
+   `rigPlan` echo or has no `describe_rig_plan` (the artist's
+   `RIGPLAN: unavailable`, `plan-catalog` `unavailable`), route every plan
+   `retune` as `escalate`, naming the cause: the plugin's pinned `@ikijs/mcp`
+   predates 0.30.0 (the adopt commit moves the pin).
    The critic's `patch` findings go to the artist too, free like a `retune`:
    a patch round spends no generation, so it counts toward no billed cap.
    Once patches prove unavailable in a run — an artist's
@@ -596,7 +652,10 @@ at ±30 or a bangs band shearing, which no knob reaches — is first a `patch`,
 kept only through the gate (Step 1, item 3). A defect of the whole rig is the
 package escalation: a seam, a fold, a part detaching from the one it sits on
 across the whole head, or a nod that slides instead of tipping (no plan
-field reaches `ParamAngleY`). A render that disagrees with the rig's own report even on a
+field reaches `ParamAngleY`). The far eye too wide or too narrow at ±30 is a
+`turn.eyeForeshorten` retune, and the nose leading too much or too little on
+the turn renders a `turn.noseLead` one — both through the plan gate (Step 1,
+item 3). A render that disagrees with the rig's own report even on a
 lossless pair (the critic's render-vs-report delta, re-measured as in Step 1)
 is a package escalation too, but a discrepancy to diagnose — the rig's
 landing or the tool's detection — not a rig defect on sight. Treat a repeated `rig` escalation as a signal to fix

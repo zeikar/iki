@@ -50,7 +50,7 @@ You own the character assets. You do not own the packages.
   back drawn facing the other way.
 - `<workdir>/rig-plan.json` — the `rigPlan` you hand to `auto_rig_from_layers`,
   tuning the rig from the profile (`{}` is the profile itself), in three
-  groups: `turn` (`amount`, `featureLead`), `hair` (`follow`, `outlineFollow`,
+  groups: `turn` (`amount`, `featureLead`, `eyeForeshorten`, `noseLead`), `hair` (`follow`, `outlineFollow`,
   `sway`) and `eyes` (`blink`). Each path's default, range, recommended span and
   step are in `plan-catalog`. Change it only on a critic `retune` that names a
   path.
@@ -100,6 +100,10 @@ You own the character assets. You do not own the packages.
 - `plan-catalog` — the text of `describe_rig_plan` (every `rigPlan` path with
   its default, range, recommended span and step), or `unavailable` on a server
   before 0.30.0.
+- `planRejected` — the contents of `<workdir>/plan-rejected.json`: the plan
+  moves its gate rejected, each `{ field, from, to, round, verdict }`. A
+  `judged:` entry rules out moving that field in that direction from that
+  value; any other only that exact move.
 - `patches` — the accepted ops, `<workdir>/patches.json` as the orchestrator
   read it at dispatch (`[]` until its gate accepts one).
 - `rejected` — the contents of `<workdir>/patches-rejected.json`: the ops its
@@ -251,6 +255,25 @@ and how a new character's round-1 compose corrects the provisional
    time, as `refused patch: <the op> — <the message>`, so the orchestrator
    logs it.
 
+   A `retune` of `turn.eyeForeshorten` or `turn.noseLead` is gated like a
+   patch: do NOT edit `rig-plan.json`. Write `<workdir>/rig-plan-candidate.json`
+   (the accepted plan with that one field changed) and rig twice, as the patch
+   flow does, both on this round's layers, `patches` and `quantizeColors`: the
+   baseline `<workdir>/iki-character-base.iki` with `rig-plan.json`, then the
+   candidate `<workdir>/iki-character-candidate.iki` with the candidate plan.
+   Report `RIGPLAN: proposed (turn.noseLead 1 -> 1.5; base <path>; candidate
+<path>)` and `TURN-CANDIDATE:`. The dispatch carries at most one gated
+   change (a patch batch or one gated plan field — the orchestrator's routing
+   drops the rest and tells the user), so you build at most one candidate pair
+   a round. An `INVALID: rigPlan.turn…` on the candidate alone is yours: fix
+   the field to the catalog's step grid inside its range, or give it up
+   (delete the candidate plan and any candidate model, `mv` the baseline to
+   `<workdir>/iki-character.iki`) and say so under `ESCALATED`. A move
+   `planRejected` rules out is not applied: say so under `ESCALATED`. A
+   `RIGPLAN:` line whose `clamped` names a field means that field has no room:
+   report it so the critic stops asking. The other six fields are edited
+   directly in `rig-plan.json` and reported under `RETUNED:` as before.
+
    Passed `patches` but the result has neither a `PATCH` line nor a
    `patches` field: the server predates 0.26.0 and rigged without them. Keep the model (with a candidate this
    round, the baseline: drop the candidate as above), report
@@ -268,7 +291,9 @@ and how a new character's round-1 compose corrects the provisional
 - **`retune`** — change the value in `layout.json` (or the entry in
   `mirror-parts.json`), recompose, re-read the report. That includes a pose
   forearm's `layout.forearm_pose_*` (`cx` / `cy` / `w`). A `retune` of
-  `rigPlan.<path>` edits that key in `rig-plan.json` and re-rigs. A `retune` of
+  `rigPlan.<path>` edits that key in `rig-plan.json` and re-rigs — except
+  `turn.eyeForeshorten` and `turn.noseLead`, which go through the plan gate
+  (the pipeline, above). A `retune` of
   `canvasHeight` edits `canvas.json` and recomposes. On a full body, a new
   `layout.body.w` also re-sets its `cy` as `full-body.md` Step 2 does, so the
   neck's top stays ~200 px above the composed chin. A finding quoting `unset`
@@ -397,10 +422,10 @@ ROUND: N
 GENERATED: <parts re-drawn this round, or "none">
 RETUNED: <layout.json keys, mirror-parts.json entries, rig-plan.json fields and canvas.json's canvasHeight changed, old -> new>
 MEASURE: <"all geometry checks passed", or the remaining warnings and why>
-MODEL: <path to the rigged .iki (with PATCHES proposed, the candidate), or "none" — see BLOCKED>
-TURN: <the result's turn.achieved, turn.clamped and turn.strandOverlap ("none" when absent), or "none" when no turn was solved; with PATCHES proposed, the baseline's>
-TURN-CANDIDATE: <with PATCHES proposed, the candidate's, as TURN: — a patch moves turn.achieved, so the two differ; otherwise "none">
-RIGPLAN: <the result's RIGPLAN: line — effective values, with clamped and overriddenBy — or "unavailable">
+MODEL: <path to the rigged .iki (with PATCHES or RIGPLAN proposed, the candidate), or "none" — see BLOCKED>
+TURN: <the result's turn.achieved, turn.clamped and turn.strandOverlap ("none" when absent), or "none" when no turn was solved; with PATCHES or RIGPLAN proposed, the baseline's>
+TURN-CANDIDATE: <with PATCHES or RIGPLAN proposed, the candidate's, as TURN: — a patch or a gated plan field moves turn.achieved, so the two differ; otherwise "none">
+RIGPLAN: <the result's RIGPLAN: line — effective values, with clamped and overriddenBy — or "unavailable"; with a gated plan field, "proposed (<field> <from> -> <to>; base <path>; candidate <path>)" before the baseline's line>
 PATCHES: <unchanged | dropped <n> for <files> | proposed (ops N -> M; base <path>; candidate <path>) | unavailable; a drop and a proposal both read "dropped …; proposed …"; "proposed" only with a candidate model written — a dropped candidate reads unchanged (or dropped …), its refusals under ESCALATED>
 <the result's PATCH lines verbatim (from a JSON result, its patches entries as they are), the baseline's then the candidate's>
 ESCALATED: <critic findings you did not act on, and any refusal you escalated, verbatim — each patch op you gave up as "refused patch: <the op> — <the message>"; on a full body, a final canvas height over 4096, with H — or "none">

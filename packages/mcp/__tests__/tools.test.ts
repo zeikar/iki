@@ -1773,6 +1773,30 @@ describe("autoRigFromLayers", () => {
 
   it("lists the rig plan's fields", () => {
     expect(describeRigPlan().fields).toEqual(RIG_PLAN_FIELDS);
+    expect(RIG_PLAN_FIELDS).toHaveLength(8);
+    expect(RIG_PLAN_FIELDS.filter((f) => f.provisional)).toHaveLength(2);
+  });
+
+  it("reports turn.noseLead and leaves the eye shift where the default rig has it", async () => {
+    const dir = tmpDir();
+    const layers = (await writeTurnLayers(dir)).map((p) => ({ path: p }));
+    const base = await autoRigFromLayers({
+      layers,
+      outputPath: path.join(dir, "base.iki"),
+    });
+    const lead = await autoRigFromLayers({
+      layers,
+      outputPath: path.join(dir, "lead.iki"),
+      rigPlan: { turn: { noseLead: 2 } },
+    });
+    expect(base.ok && lead.ok).toBe(true);
+    if (!base.ok || !lead.ok) return;
+    expect(lead.rigPlan.requested).toEqual({ turn: { noseLead: 2 } });
+    expect(Number.isFinite(lead.rigPlan.effective["turn.noseLead"])).toBe(true);
+    expect(lead.turn!.achieved.eyeShift).toBeCloseTo(
+      base.turn!.achieved.eyeShift,
+      3,
+    );
   });
 
   // ── patches ──────────────────────────────────────────────────────────────

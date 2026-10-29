@@ -514,6 +514,8 @@ describe("MCP server integration", () => {
     expect(sc.fields.map((f) => f.path)).toEqual([
       "turn.amount",
       "turn.featureLead",
+      "turn.eyeForeshorten",
+      "turn.noseLead",
       "hair.follow",
       "hair.outlineFollow",
       "hair.sway",

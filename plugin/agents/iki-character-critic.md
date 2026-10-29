@@ -102,11 +102,15 @@ artist agent applies your findings; the orchestrator arbitrates.
 - `round` — which iteration this is.
 - `scores` — the previous rounds' `SCORES:` lines, so you can compare each axis
   against its best so far (none on round 1).
+- `planRejected` — the contents of `<workdir>/plan-rejected.json`: the plan
+  moves its gate rejected, each `{ field, from, to, round, verdict }`; a
+  `judged:` entry rules out that field in that direction from that value, any
+  other only that exact move.
 - `plan-catalog` — the text of `describe_rig_plan`: every `rigPlan` path with
   its default, range, recommended span and step, or `unavailable` on a server
   before 0.30.0.
 - `turn-clamped` — the kept model's turn line, verbatim (this round's artist's
-  own `TURN:`, or its `TURN-CANDIDATE:` when the patch gate kept the
+  own `TURN:`, or its `TURN-CANDIDATE:` when a gate kept the
   candidate): its `turn.achieved`, `turn.clamped` and `turn.strandOverlap`,
   or "none" when no turn was solved. `turn.achieved` is what the rig reports it renders at full
   turn, as the mean of its −30 and +30 cues (`eyeShift` as a magnitude) —
@@ -524,9 +528,18 @@ too strong is `rigPlan.turn.amount`; features leading too much or too little,
 `rigPlan.hair.outlineFollow` stays at 0 — the outline holds — so a
 retune only returns it there; back hair painted behind that edge may add
 motion on top of it). Judge `featureLead` by the eye pair's lead over the face
-plate, not the nose's: the nose's lead over the eyes' is the profile's own
-(`noseDepth`, which no plan field tunes), so the nose's own lead, on the renders or in
-`reference-30.png`, is no `featureLead` finding. A `rigPlan` retune always names
+plate, not the nose's: the nose's lead over the plate is its own field, so
+the nose's lead on the renders or in `reference-30.png` is no `featureLead`
+finding. The nose leading too much or too little over the eyes on the TURN
+renders (±30 and +15, never the nod) is a `retune` of `rigPlan.turn.noseLead`,
+and the far eye narrowing too much or too little against the near one (your
+`TURN:` `far` reading against the report) is a `retune` of
+`rigPlan.turn.eyeForeshorten`; both one catalog step at a time, inside the
+recommended span. Name at most ONE plan field of any kind per round (a gated
+one is judged alone, never on top of another plan change), never a field the
+artist's `RIGPLAN:` lists as `clamped` or `overriddenBy`, and never a move
+`planRejected` rules out. Both go through the orchestrator's blind gate, so
+name the pose where the change should read. A `rigPlan` retune always names
 its new value, never one outside the field's recommended span, and how far
 `reference-30.png` turns, leads or follows neither moves a field nor lowers the
 `turn` score. At the span's end the field has gone as far as is recommended:
@@ -558,7 +571,7 @@ At the `ParamAngleY` midpoint (15°) the question is whether the face reads as
 tipping — the features moving further than the plate, the face shortening a
 little looking down — or the whole head slides up and down unchanged. No
 plan field reaches the nod: its keyforms are the profile's own vertical
-displacements, which `rigPlan.turn.amount`, `turn.featureLead`, `hair.follow` and
+displacements, which `rigPlan.turn.amount`, `turn.featureLead`, `turn.eyeForeshorten`, `turn.noseLead`, `hair.follow` and
 `hair.outlineFollow` (the turn's) and `eyes.blink` and `hair.sway` (their own
 parameters) all leave as measured. A nod defect local to one feature (one
 feature sliding against its neighbour, say) is therefore a `patch` at the

@@ -7,6 +7,7 @@
 
 import { PROFILE_VALUES, deriveProfile, type Profile } from "./profile";
 import {
+  FORE_PRODUCT_MAX,
   checkedKeys,
   checkedNumber,
   type ResolvedTargets,
@@ -21,6 +22,11 @@ export interface RigPlan {
     amount?: number;
     /** How far the features lead the plate. */
     featureLead?: number;
+    /** How far the eyes foreshorten as the head turns (turn only). */
+    eyeForeshorten?: number;
+    /** How far the nose leads the plate (turn only — the nod keeps the
+     *  profile's nose depth). */
+    noseLead?: number;
   };
   hair?: {
     /** The front hair's share of the face's turn. */
@@ -126,6 +132,40 @@ export const RIG_PLAN_FIELDS: readonly RigPlanField[] = [
     what: "how far the features lead the face plate",
   },
   {
+    path: "turn.eyeForeshorten",
+    group: "turn",
+    key: "eyeForeshorten",
+    kind: "multiplier",
+    unit: "× the profile's eye foreshortening per turn",
+    default: 1,
+    range: [0, 2],
+    recommended: [0.5, 1.5],
+    step: 0.25,
+    poses: TURN_POSES,
+    cue: "turn.achieved.farEyeRatio",
+    fitBy: "turnTargets.farEyeRatio",
+    provisional: true,
+    migratedFrom: null,
+    what: "how much the far eye narrows (and the near one widens) as the head turns; amount × eyeForeshorten must stay ≤ 4",
+  },
+  {
+    path: "turn.noseLead",
+    group: "turn",
+    key: "noseLead",
+    kind: "multiplier",
+    unit: "× the profile's nose lead over the plate",
+    default: 1,
+    range: [0, 3],
+    recommended: [0.5, 1.5],
+    step: 0.25,
+    poses: TURN_POSES,
+    cue: "turn.depths.nose",
+    fitBy: "turnTargets.noseShift",
+    provisional: true,
+    migratedFrom: null,
+    what: "how far the nose leads the face plate on the turn — turn only, the nod keeps the profile's nose depth",
+  },
+  {
     path: "hair.follow",
     group: "hair",
     key: "follow",
@@ -196,7 +236,12 @@ export const RIG_PLAN_FIELDS: readonly RigPlanField[] = [
 ];
 
 export interface ResolvedRigPlan {
-  turn: { amount: number; featureLead: number };
+  turn: {
+    amount: number;
+    featureLead: number;
+    eyeForeshorten: number;
+    noseLead: number;
+  };
   hair: { follow: number; outlineFollow: number; sway: number };
   eyes: { blink: number };
   /** The profile, derived once per rig. Its `TURN` reaches `buildTurn` and
@@ -215,7 +260,10 @@ const span = ([lo, hi]: [number, number]) =>
   lo === hi ? `${lo}` : `${lo}–${hi}`;
 
 /** The plan resolved against the catalog: an absent or empty plan is the
- *  catalog's defaults; anything malformed throws `RigPlanError`. */
+ *  catalog's defaults; anything malformed throws `RigPlanError`. The product
+ *  rule `amount × eyeForeshorten ≤ 4` is checked on the plan's structure
+ *  before any target is read, so it also refuses a plan whose `amount` an
+ *  `eyeShift` target would then override. */
 export function resolveRigPlan(plan: unknown): ResolvedRigPlan {
   checkedKeys("rigPlan", plan, GROUPS, RigPlanError);
   const given = (plan ?? {}) as Record<string, unknown>;
@@ -239,6 +287,12 @@ export function resolveRigPlan(plan: unknown): ResolvedRigPlan {
               ` (recommended ${span(f.recommended)})`,
             );
     }
+  }
+  const { amount, eyeForeshorten } = out.turn;
+  if (amount * eyeForeshorten > FORE_PRODUCT_MAX) {
+    throw new RigPlanError(
+      `rigPlan.turn.eyeForeshorten ${eyeForeshorten} with turn.amount ${amount}: amount × eyeForeshorten must stay ≤ ${FORE_PRODUCT_MAX} (the fit's foreshortening bound)`,
+    );
   }
   return {
     ...out,
@@ -279,13 +333,40 @@ export function rigPlanReport(
       plan as unknown as Record<string, Record<string, number>>
     )[f.group][f.key];
   }
-  effective["turn.amount"] = fit.params.turn;
+  const { params } = fit;
+  effective["turn.amount"] = params.turn;
+  // The fit and the room clamp rescale `fore` to keep the eyes' own
+  // narrowing, so the final `fore` is not the field's value: it is the
+  // requested one unless farEyeRatio fitted it.
+  if (targets.given.has("farEyeRatio")) {
+    const start = targets.given.has("eyeShift") ? 1 : plan.turn.amount;
+    if (start !== 0) {
+      effective["turn.eyeForeshorten"] = (params.fore * params.turn) / start;
+    }
+  }
+  if (params.nose === undefined) {
+    effective["turn.noseLead"] = params.noseLead ?? 1;
+  } else {
+    const { TURN } = plan.profile;
+    const lead =
+      params.turn * params.lead * fit.model.frame.hh * (TURN.nose - TURN.face);
+    if (lead !== 0) {
+      effective["turn.noseLead"] = (params.nose - fit.model.face) / lead;
+    }
+  }
   const clamped: RigPlanReport["clamped"] = [];
   const overriddenBy: Record<string, string> = {};
-  if (targets.given.has("eyeShift")) {
-    overriddenBy["turn.amount"] = "turnTargets.eyeShift";
-  } else if (fit.clamped.includes("eyeShift")) {
-    clamped.push({ field: "turn.amount", bound: fit.params.turn });
+  const owned = [
+    ["eyeShift", "turn.amount"],
+    ["farEyeRatio", "turn.eyeForeshorten"],
+    ["noseShift", "turn.noseLead"],
+  ] as const;
+  for (const [cue, path] of owned) {
+    if (targets.given.has(cue)) {
+      overriddenBy[path] = `turnTargets.${cue}`;
+    } else if ((fit.clamped as string[]).includes(cue)) {
+      clamped.push({ field: path, bound: effective[path] });
+    }
   }
   return { requested, effective, clamped, overriddenBy };
 }

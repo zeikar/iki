@@ -313,6 +313,9 @@ export interface TurnParams {
   fore: number;
   /** The hair's width at full turn (the silhouette). */
   shell: number;
+  /** The nose's lead over the plate (1 = the profile's); unset is the
+   *  default path. The nod keeps the profile's nose. */
+  noseLead?: number;
   /** A nose or mouth shift fitted or capped on its own, px. */
   nose?: number;
   mouth?: number;
@@ -359,6 +362,9 @@ const fmt = (v: number) => v.toFixed(5);
 /** The most the turn and the foreshortening may be scaled while fitting. */
 const TURN_MAX = 3;
 const FORE_RANGE: [number, number] = [-1, 4];
+/** The most `fore × turn` the fit may reach: the far eye's width is
+ *  `1 − 0.2 · fore · A`, so this keeps it at a fifth. */
+export const FORE_PRODUCT_MAX = FORE_RANGE[1];
 const SHELL_RANGE: [number, number] = [0.8, 1.2];
 
 export function fitTurn(
@@ -368,16 +374,21 @@ export function fitTurn(
   build: Build,
 ): TurnFit {
   const clamped: (keyof TurnTargets)[] = [];
-  // A given eyeShift fits the turn's amount, so the plan's own amount has
-  // no say: the fit starts from the profile, the eyes' foreshortening with it.
+  // A given cue owns the field it fits, so the plan's value for that field
+  // has no say: eyeShift owns the amount, farEyeRatio the foreshortening,
+  // noseShift the nose's lead. The fit starts from the profile's 1 (unset).
   const startTurn = targets.eyeShift === undefined ? plan.turn.amount : 1;
   const p: TurnParams = {
     turn: startTurn,
     lead: plan.turn.featureLead,
     follow: plan.hair.follow,
     outline: plan.hair.outlineFollow,
-    fore: 1,
+    fore: targets.farEyeRatio === undefined ? plan.turn.eyeForeshorten : 1,
     shell: 1,
+    noseLead:
+      targets.noseShift !== undefined || plan.turn.noseLead === 1
+        ? undefined
+        : plan.turn.noseLead,
   };
   const cues = (q: TurnParams) => meanCues(ctx, analyticLander(build(q)));
 
@@ -692,7 +703,11 @@ export function buildTurn(
       near: 1 + q.fore * A * (turn.eyeNearScale - 1),
     },
     brow: { far: lead(turn.browFar), near: lead(turn.browNear) },
-    nose: q.nose ?? lead(turn.nose),
+    nose:
+      q.nose ??
+      (q.noseLead === undefined
+        ? lead(turn.nose)
+        : face + q.noseLead * (lead(turn.nose) - face)),
     mouth: q.mouth ?? lead(turn.mouth),
     mouthWidth: 1 + A * (turn.mouthWidth - 1),
     tilt: A,

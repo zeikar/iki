@@ -211,6 +211,8 @@ export function createIkiMcpServer(): McpServer {
               .object({
                 amount: z.number().optional(),
                 featureLead: z.number().optional(),
+                eyeForeshorten: z.number().optional(),
+                noseLead: z.number().optional(),
               })
               .passthrough()
               .optional(),
@@ -230,7 +232,7 @@ export function createIkiMcpServer(): McpServer {
           .passthrough()
           .optional()
           .describe(
-            "Per-character tuning from the profile the rig defaults to, in three groups: `turn` (`amount`, `featureLead`), `hair` (`follow`, `outlineFollow`, `sway`) and `eyes` (`blink`). `describe_rig_plan` lists every field's default, range, recommended span, step and poses. A value out of range, or a group or key not named there, comes back as `INVALID: rigPlan.<path> …`; an object left out or `{}` is the profile. The result reports what the rig built with as `rigPlan` and a `RIGPLAN:` line.",
+            "Per-character tuning from the profile the rig defaults to, in three groups: `turn` (`amount`, `featureLead`, `eyeForeshorten`, `noseLead`: the last two turn only, the nod untouched, and fitted by `turnTargets.farEyeRatio` / `turnTargets.noseShift` when those are given, which the `RIGPLAN:` line then reports as overridden), `hair` (`follow`, `outlineFollow`, `sway`) and `eyes` (`blink`). `describe_rig_plan` lists every field's default, range, recommended span, step and poses. A value out of range, or a group or key not named there, comes back as `INVALID: rigPlan.<path> …`; an object left out or `{}` is the profile. The result reports what the rig built with as `rigPlan` and a `RIGPLAN:` line.",
           ),
         patches: z
           .array(
