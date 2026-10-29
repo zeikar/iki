@@ -6,95 +6,18 @@
   "partCount": 30,
   "parameterCount": 30,
   "atlasBytes": 1451688,
-  "modelBytes": 1843975,
-  "modelSha256": "3a50841db83f26bed05d8d1ddf779abe517eaec2075b95aa4668055e86f312ad",
+  "modelBytes": 1844000,
+  "modelSha256": "222918182abd0ea93108e2c95544b8a1c91c81936fbdbfdc70783064bf439c00",
   "turn": {
     "achieved": {
-      "eyeShift": 0.1561,
-      "farEyeRatio": 0.7273,
+      "eyeShift": 0.1589,
+      "farEyeRatio": 0.7281,
       "silhouetteRatio": 1
     },
     "clamped": [],
     "strandOverlap": null
   },
-  "patches": [
-    {
-      "index": 0,
-      "target": "eyeWarp_R",
-      "at": {
-        "ParamAngleX": -30,
-        "ParamAngleY": -30
-      },
-      "moved": 30,
-      "of": 30,
-      "maxPx": 12.1,
-      "cols": [
-        0,
-        5
-      ],
-      "rows": [
-        0,
-        4
-      ]
-    },
-    {
-      "index": 1,
-      "target": "eyeWarp_R",
-      "at": {
-        "ParamAngleX": -30,
-        "ParamAngleY": -30
-      },
-      "moved": 15,
-      "of": 30,
-      "maxPx": 6.8,
-      "cols": [
-        0,
-        2
-      ],
-      "rows": [
-        0,
-        4
-      ]
-    },
-    {
-      "index": 2,
-      "target": "eyeWarp_R",
-      "at": {
-        "ParamAngleX": -30,
-        "ParamAngleY": 0
-      },
-      "moved": 30,
-      "of": 30,
-      "maxPx": 3.2,
-      "cols": [
-        0,
-        5
-      ],
-      "rows": [
-        0,
-        4
-      ]
-    },
-    {
-      "index": 3,
-      "target": "eyeWarp_R",
-      "at": {
-        "ParamAngleX": -30,
-        "ParamAngleY": 0
-      },
-      "moved": 15,
-      "of": 30,
-      "maxPx": 3.2,
-      "cols": [
-        0,
-        2
-      ],
-      "rows": [
-        0,
-        4
-      ]
-    }
-  ],
+  "patches": null,
   "folds": {
     "poses": 2173,
     "offenders": []
