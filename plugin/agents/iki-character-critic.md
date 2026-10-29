@@ -140,8 +140,9 @@ artist agent applies your findings; the orchestrator arbitrates.
   entries passed with an `expected.ratio` under 0.1 are the `FOLDS expected:`
   closures.
 - `physics` — the physics report `render_poses` printed, verbatim and
-  complete: the engine's check of every physics rig (the auto-rig's hair-sway
-  springs, which a `hair_front` layer brings) driven by its real drivers.
+  complete: the engine's check of every physics rig (the auto-rig's hair
+  springs, which a `hair_front` layer brings — two for the front hair and,
+  with `hair_back`, one for the back) driven by its real drivers.
   One `PHYSICS` line per spring and per chain segment reads `ok`, `frozen` or
   `unstable`, the rig and `input -> output`; then `step` (an input held at its
   far end for 5 s, the run that moves the parts most: that setting, the

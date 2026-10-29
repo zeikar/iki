@@ -401,7 +401,7 @@ export function generateIkiFromLayerSet(
     parameters,
     parts,
     deformers: deformers(frame, grids, bodyWarp?.deformer, arms, byRole),
-    ...(has("hair_front") ? { physics: hairPhysics() } : {}),
+    ...(has("hair_front") ? { physics: hairPhysics(has("hair_back")) } : {}),
     expressions: defaultExpressions(new Set(parameters.map((p) => p.id))),
     motions: defaultMotions(new Set(parameters.map((p) => p.id))),
   };
@@ -642,10 +642,14 @@ function buildPart(
     case "hair_back":
       if (byRole.has("hair_front")) {
         const amp = style.sway * AMPLITUDE.sway * hh;
-        warps.push(
-          hairSway(P.HairSwayX, mesh!, b, amp),
-          hairSway(P.HairSwayZ, mesh!, b, amp),
-        );
+        if (spec.role === "hair_front") {
+          warps.push(
+            hairSway(P.HairSwayX, mesh!, b, amp),
+            hairSway(P.HairSwayZ, mesh!, b, amp),
+          );
+        } else {
+          warps.push(hairSway(P.HairBackSway, mesh!, b, amp));
+        }
       }
       warps.push(tiltHang(mesh!, b, pivot, hairHangWeight(frame.chinY, b.y0)));
       break;
@@ -791,7 +795,8 @@ function deformers(
   return out;
 }
 
-/** Two pendulum springs, one per head axis the hair swings behind. Both
+/** Two pendulum springs for `hair_front`, one per head axis the hair swings
+ *  behind, and with `hasBack` a third for `hair_back` (below). Both front
  *  inputs lag: the hair trails a turn or tilt, overshoots and settles back to
  *  rest while the head holds, since a held pose is the rig's job, not the
  *  spring's (`tiltHang` alone hangs the hair under a roll). An instant step
@@ -800,10 +805,21 @@ function deformers(
  *  lagging spring barely stirs under the idle's slow head sway, so this is
  *  the hair's visible drift in idle. f₀ 1.4 Hz and ζ 0.25 give a few visible
  *  swings; scale 14 is picked so the Shake clip with the ambient at its peak
- *  stays inside the ±20 sway range. */
-function hairPhysics(): IkiPhysics[] {
+ *  stays inside the ±20 sway range.
+ *
+ *  `hairBack` is one merged rig on its own output, a slower pendulum (k 32,
+ *  c 2.8: f₀ 0.90 Hz, ζ 0.25, the back layer being the longer one). Its
+ *  ambient is a LAG input at 1.1: a follow input at any weight stays in step
+ *  with the front, while both springs sit far above the ambient's slow
+ *  components, so only lag mode puts the back a beat behind (0.47 s). The one
+ *  output adds the turn, the tilt and the ambient, so the three bounds (scale
+ *  × weight: 11, 4.4, 12.1) are what hair-motion.test.ts holds under 20
+ *  together on the real driver (Shake, Tilt and a full turn-and-tilt, every
+ *  ambient phase). A one-frame jump of `AmbientSway` (a slider) snaps the
+ *  back by its bound, as `AngleX` already does. */
+function hairPhysics(hasBack: boolean): IkiPhysics[] {
   const spring = { mass: 1, stiffness: 77, damping: 4.4 };
-  return [
+  const rigs: IkiPhysics[] = [
     {
       id: "hairSway",
       inputs: [
@@ -820,6 +836,21 @@ function hairPhysics(): IkiPhysics[] {
       ...spring,
     },
   ];
+  if (hasBack) {
+    rigs.push({
+      id: "hairBack",
+      inputs: [
+        { parameter: P.AngleX, weight: 1, mode: "lag" },
+        { parameter: P.AngleZ, weight: 0.4, mode: "lag" },
+        { parameter: P.AmbientSway, weight: 1.1, mode: "lag" },
+      ],
+      output: { parameter: P.HairBackSway, scale: 11 },
+      mass: 1,
+      stiffness: 32,
+      damping: 2.8,
+    });
+  }
+  return rigs;
 }
 
 function declareParameters(roles: Set<string>): IkiParameter[] {
@@ -880,6 +911,9 @@ function declareParameters(roles: Set<string>): IkiParameter[] {
   if (roles.has("hair_front")) {
     add(P.HairSwayX, "Hair Sway X", -SWAY_RANGE, SWAY_RANGE, 0);
     add(P.HairSwayZ, "Hair Sway Z", -SWAY_RANGE, SWAY_RANGE, 0);
+    if (roles.has("hair_back")) {
+      add(P.HairBackSway, "Hair Back Sway", -SWAY_RANGE, SWAY_RANGE, 0);
+    }
     add(P.AmbientSway, "Ambient Sway", -1, 1, 0);
   }
   return out;

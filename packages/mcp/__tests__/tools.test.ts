@@ -357,8 +357,8 @@ describe("describeIkiAt", () => {
 });
 
 describe("listStandardParameters", () => {
-  it("returns exactly 29 entries", () => {
-    expect(listStandardParameters()).toHaveLength(29);
+  it("returns exactly 30 entries", () => {
+    expect(listStandardParameters()).toHaveLength(30);
   });
 
   it("ids match the full set of StandardParameter values", () => {
@@ -1192,14 +1192,21 @@ describe("autoRigFromLayers", () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // hair_front brings the two sway rigs, and both move it.
+    // hair_front brings the two front sway rigs, hair_back its own: each
+    // drives exactly its own layer.
     expect(result.physics.targets.map((t) => t.rig.id)).toEqual([
       "hairSway",
       "hairTilt",
+      "hairBack",
     ]);
     for (const t of result.physics.targets) {
       expect(t.kind).toBe("ok");
-      expect(t.drives).toContainEqual({ kind: "part", id: "hair_front" });
+      expect(t.drives).toEqual([
+        {
+          kind: "part",
+          id: t.rig.id === "hairBack" ? "hair_back" : "hair_front",
+        },
+      ]);
     }
   });
 

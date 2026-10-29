@@ -25,6 +25,7 @@ describe("StandardParameter", () => {
       Cheek: "ParamCheek",
       HairSwayX: "ParamHairSwayX",
       HairSwayZ: "ParamHairSwayZ",
+      HairBackSway: "ParamHairBackSway",
       ArmLeft: "ParamArmL",
       ArmRight: "ParamArmR",
       ElbowLeft: "ParamElbowL",

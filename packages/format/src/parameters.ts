@@ -60,10 +60,12 @@ export const StandardParameter = {
   BrowRightAngle: "ParamBrowRAngle",
   /** Cheek blush strength (0 .. 1), raised by an expression. */
   Cheek: "ParamCheek",
-  /** Horizontal hair sway. Physics OUTPUT — driven by the spring, not set by the host. */
+  /** The front hair's horizontal sway. Physics OUTPUT — driven by the spring, not set by the host. */
   HairSwayX: "ParamHairSwayX",
-  /** Hair sway behind a head tilt. Physics OUTPUT — driven by the spring, not set by the host. */
+  /** The front hair's sway behind a head tilt. Physics OUTPUT — driven by the spring, not set by the host. */
   HairSwayZ: "ParamHairSwayZ",
+  /** The back hair's sway behind the head turn, tilt and the ambient drift, one spring slower than the front hair's so the two layers swing out of phase. Physics OUTPUT — driven by the spring, not set by the host. */
+  HairBackSway: "ParamHairBackSway",
   /** Left shoulder, degrees. Positive raises the arm outward (mirrored on the right). */
   ArmLeft: "ParamArmL",
   /** Right shoulder, degrees. Positive raises the arm outward (mirrored on the left). */

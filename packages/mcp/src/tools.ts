@@ -344,12 +344,17 @@ const STANDARD_PARAMETER_INFO: StandardParameterInfo[] = [
   {
     id: StandardParameter.HairSwayX,
     description:
-      "Horizontal hair-sway driver. Physics OUTPUT — driven by the spring, hosts should not set it directly.",
+      "Front hair's horizontal sway driver. Physics OUTPUT — driven by the spring, hosts should not set it directly.",
   },
   {
     id: StandardParameter.HairSwayZ,
     description:
-      "Hair-sway driver behind a head tilt. Physics OUTPUT — driven by the spring, hosts should not set it directly.",
+      "Front hair's sway driver behind a head tilt. Physics OUTPUT — driven by the spring, hosts should not set it directly.",
+  },
+  {
+    id: StandardParameter.HairBackSway,
+    description:
+      "Back hair's sway driver behind the head turn, tilt and ambient drift, one spring slower than the front hair's so the two swing out of phase. Physics OUTPUT — driven by the spring, hosts should not set it directly.",
   },
   {
     id: StandardParameter.ArmLeft,

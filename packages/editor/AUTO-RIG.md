@@ -601,15 +601,28 @@ layout or `style`, re-rig, and the patch lands on the new rig.
   Keyed at AngleZ 0 and ±30. On BodyAngleZ the head and its hair roll with
   the body, unhung.
 - **Hair sway** — with `hair_front`, two springs (`AngleX → HairSwayX`,
-  `AngleZ → HairSwayZ`) drive root-pinned swings of both hair layers, their
-  ends travelling 0.08 hh at full sway (±20), growing down the layer as
-  `t^1.4`. Both lag the head like a pendulum: the hair trails a turn or
-  tilt, overshoots and settles back to rest while the head holds (the roll's
-  own hang stays the static hang above). An instant step of the head to its
-  end swings the sway at most 14 (the tilt, 9). `HairSwayX` also follows the
-  idle's `AmbientSway` (declared with the hair) at a quarter weight, the
-  hair's slow drift in idle, peaking near 3.7 (about 0.015 hh). `style.sway`
-  scales the tip travel per sway unit, so it scales the turn's swing and the
+  `AngleZ → HairSwayZ`) drive root-pinned swings of `hair_front`, and with
+  `hair_back` a third, `hairBack`, drives `hair_back` on its own output
+  `HairBackSway` (k 32, c 2.8: f₀ 0.9 Hz, ζ 0.25, a slower pendulum for the
+  longer layer), the tips travelling 0.08 hh at full sway (±20), growing
+  down the layer as `t^1.4`. All lag the head like a pendulum: the hair
+  trails a turn or tilt, overshoots and settles back to rest while the head
+  holds (the roll's own hang stays the static hang above). An instant step of
+  the head to its end swings the front sway at most 14 (the tilt, 9).
+  `HairSwayX` also follows the idle's `AmbientSway` (declared with the hair)
+  at a quarter weight, the hair's slow drift in idle, peaking near 3.7
+  (about 0.015 hh). The back's `AmbientSway` is a lag input at weight 1.1
+  (a follow input at any weight would stay in step with the front), which
+  puts the back's idle about 0.47 s behind the front's (r 0.96) and peaking
+  near 2.4. The back's one output adds the turn (`AngleX`, 11 × 1), the tilt
+  (`AngleZ`, 11 × 0.4) and the ambient (11 × 1.1), so those three bounds are
+  held together under 20: `packages/mcp/__tests__/hair-motion.test.ts`
+  drives the real `IkiMotion` through the Shake, the Tilt and a 100 ms
+  turn-and-tilt to the full range from every ambient phase, and the raw
+  peaks stay under 19.5 (front 18.7 in the Shake, back 17.6 in the
+  turn-and-tilt). A one-frame jump of `AmbientSway` (a slider) snaps the
+  back by its bound, as `AngleX` already does. `style.sway` scales the tip
+  travel per sway unit on both layers, so it scales the turn's swing and the
   idle drift alike; no spring constant is styled.
 - **Breath** — the shoulders (and the neck) lift 0.03 hh, the head 0.02 hh.
   On a body, the body warp lifts the chin's cell with the shoulders, so the
@@ -759,8 +772,8 @@ model with a pose forearm adds `Wave` (below the table).
   takes the ramp too).
 - A cap row that the local cut cannot bring inside its back hair blends
   toward the back hair's motion, the bangs over the face on it included.
-- The hair sway springs move the two hair layers by different amounts, which
-  nothing bounds.
+- The hair sway springs move the two hair layers by different amounts, and
+  the two layers now also swing out of phase, which nothing bounds.
 - A back hair that falls short of the cap's top near the crown's peak, where
   the crown takes little of the bangs' own nod — at a parting dip, say —
   holds the whole cap's top near the back hair's own 0.018 looking down,

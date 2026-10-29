@@ -416,6 +416,7 @@ describe("generateIkiFromLayerSet: the model", () => {
       P.Breath,
       P.HairSwayX,
       P.HairSwayZ,
+      P.HairBackSway,
       P.AmbientSway,
     ]) {
       expect(ids).toContain(id);
@@ -446,11 +447,50 @@ describe("generateIkiFromLayerSet: the model", () => {
         output: { parameter: P.HairSwayZ, scale: 9 },
         ...spring,
       },
+      // The back hair's one merged spring, slower than the front's: the ambient
+      // is a lag input so the back idles a beat behind the front. The three
+      // bounds (11 × 1, 11 × 0.4, 11 × 1.1) are held under 20 together by
+      // hair-motion.test.ts on the real driver.
+      {
+        id: "hairBack",
+        inputs: [
+          { parameter: P.AngleX, weight: 1, mode: "lag" },
+          { parameter: P.AngleZ, weight: 0.4, mode: "lag" },
+          { parameter: P.AmbientSway, weight: 1.1, mode: "lag" },
+        ],
+        output: { parameter: P.HairBackSway, scale: 11 },
+        mass: 1,
+        stiffness: 32,
+        damping: 2.8,
+      },
     ]);
+    // Front hair without a back layer: the two front springs only.
+    const noBack = character();
+    const frontOnly = generateIkiFromLayerSet(
+      noBack.layers.filter((l) => l.role !== "hair_back"),
+      CANVAS,
+      {
+        ...noBack.options,
+        headEdges: {
+          left: noBack.options.headEdges!.left.filter(
+            (e) => e.role !== "hair_back",
+          ),
+          right: noBack.options.headEdges!.right.filter(
+            (e) => e.role !== "hair_back",
+          ),
+        },
+      },
+    );
+    expect(frontOnly.physics!.map((r) => r.id)).toEqual([
+      "hairSway",
+      "hairTilt",
+    ]);
+    expect(frontOnly.parameters.map((p) => p.id)).not.toContain(P.HairBackSway);
     const bald = rig({ hair: false }).model;
     expect(bald.physics).toBeUndefined();
     const baldIds = bald.parameters.map((p) => p.id);
     expect(baldIds).not.toContain(P.HairSwayX);
+    expect(baldIds).not.toContain(P.HairBackSway);
     expect(baldIds).not.toContain(P.AmbientSway);
   });
 
@@ -1864,6 +1904,7 @@ describe("the head turn", () => {
         [P.AngleZ]: 30,
         [P.HairSwayX]: 20,
         [P.HairSwayZ]: 20,
+        [P.HairBackSway]: 20,
       },
       {
         [P.AngleX]: -30,
@@ -1871,6 +1912,7 @@ describe("the head turn", () => {
         [P.AngleZ]: -30,
         [P.HairSwayX]: -20,
         [P.HairSwayZ]: -20,
+        [P.HairBackSway]: -20,
       },
       {
         [P.AngleX]: -30,
@@ -2452,6 +2494,7 @@ describe("extreme combined poses", () => {
                   [P.AngleY]: y,
                   [P.AngleZ]: z,
                   [P.HairSwayX]: s,
+                  [P.HairBackSway]: s,
                 };
                 const areas = signedAreas(
                   landVertices(model, id, pose),
@@ -2602,7 +2645,7 @@ describe("turn targets", () => {
       0,
     );
     const hairEnd = (model: IkiModel) =>
-      landedXAt(model, "hair_back", 0, -470, { [P.HairSwayX]: 20 });
+      landedXAt(model, "hair_back", 0, -470, { [P.HairBackSway]: 20 });
     expect(hairEnd(m) / hairEnd(hero.model)).toBeCloseTo(2, 1);
     expect(() =>
       generateIkiFromLayerSet(layers, CANVAS, { style: { turn: -1 } }),
@@ -2908,7 +2951,9 @@ describe("the other drivers", () => {
       const top = model.parts.find((p) => p.id === id)!;
       const rootY = top.transform.y + top.height / 2;
       const endY = top.transform.y - top.height / 2;
-      const sway = { [P.HairSwayX]: 20 };
+      const sway = {
+        [id === "hair_front" ? P.HairSwayX : P.HairBackSway]: 20,
+      };
       expect(landedXAt(model, id, top.transform.x, rootY, sway)).toBeCloseTo(
         top.transform.x,
         3,

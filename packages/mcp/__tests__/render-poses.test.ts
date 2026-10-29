@@ -517,8 +517,9 @@ describe.skipIf(findBrowser() === undefined)("renderPoses in a browser", () => {
     expect(r.failedTextures).toEqual([]);
     expect(r.modelCanvas).toEqual({ width: 1100, height: TALL });
     expect(r.folds.poses).toBeGreaterThan(0);
-    // The composer requires hair_front, which brings the two sway rigs.
-    expect(r.physics.targets).toHaveLength(2);
+    // The composer requires hair_front and adds hair_back: the two front
+    // sway rigs and the back's own.
+    expect(r.physics.targets).toHaveLength(3);
     for (const t of r.physics.targets) expect(t.kind, t.rig.id).toBe("ok");
     // The engine ignores an unknown parameter id, so a pose that never took
     // would still write a picture: each of these must differ from its rest.
