@@ -165,8 +165,10 @@ function sheetFrames(thetas: number[]): number[] {
 }
 
 function sheetLabel(theta: number, t: number): string {
-  const deg = theta.toFixed(1);
-  const signed = theta > 0 ? `+${deg}` : deg.replace("-", "−");
+  // Rounded first, so a hair under zero never prints as "−0.0".
+  const rounded = Math.round(theta * 10) / 10 + 0;
+  const deg = rounded.toFixed(1);
+  const signed = rounded > 0 ? `+${deg}` : deg.replace("-", "−");
   return `θ ${signed}°  t ${t.toFixed(2)} s`;
 }
 

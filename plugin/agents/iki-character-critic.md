@@ -171,6 +171,18 @@ artist agent applies your findings; the orchestrator arbitrates.
   shows the JSON passes `physics.targets` instead, each target a `PHYSICS`
   line (`rig`, `input`, `output`, `drives`, `kind`, `why`, `step`, `idle`),
   empty for no rigs. `unavailable` means the server predates the report.
+- `sweep` — the turn sweep `render_poses` rendered: `renders/turn/sheet.png`
+  (nine frames of the eased −30 → +30 leg of `ParamAngleX`, chronological, left
+  to right then top to bottom, each labelled with its θ and t), the
+  `renders/turn/kymograph.png` (the eye row of every frame stacked over the 3 s
+  turn: a straight edge is constant speed, a bend at the centre row is the
+  centre kink, a trailing curve is the hair's lag) and the `SWEEP` lines, verbatim —
+  per landmark (the eyes, the nose when there is one) `amplitude` in face
+  widths, `x kink` and `width kink` (the slope change through θ = 0), `lead`
+  over the local face plate at −30 and +30, and `pop`, then the plate's own
+  amplitude; or `sweep.report` when the host shows the JSON. It is rendered
+  with the hair physics running and no idle. `unavailable` means the server
+  predates it (before 0.31.0).
 - `rig-view` — the `describe_iki` summary of this round's model: each part's
   rest `box` in model px from the canvas's top-left (y down) and the same box
   as `bustBox` in `renders`' px (`bustScale` of them per model px),
@@ -333,16 +345,16 @@ renders, as below — (5 = indistinguishable in that respect). Judge the
 **rendered** character, not the flat preview, except where an axis is about
 the source art.
 
-| Axis      | What you are judging                                         |
-| --------- | ------------------------------------------------------------ |
-| `face`    | head shape, jaw, feature placement and proportion            |
-| `eyes`    | sclera shape, iris size/colour, highlight style, lash weight |
-| `hair`    | silhouette, front/back tone match, strand style              |
-| `body`    | shoulder line, garment, symmetry (full body: the figure)     |
-| `palette` | colour coherence with the reference                          |
-| `line`    | line weight and rendering style consistency ACROSS parts     |
-| `rig`     | survives turn/blink/gaze with no seams, spills or detachment |
-| `turn`    | rotation reads as depth, not sliding, between the stops      |
+| Axis      | What you are judging                                                  |
+| --------- | --------------------------------------------------------------------- |
+| `face`    | head shape, jaw, feature placement and proportion                     |
+| `eyes`    | sclera shape, iris size/colour, highlight style, lash weight          |
+| `hair`    | silhouette, front/back tone match, strand style                       |
+| `body`    | shoulder line, garment, symmetry (full body: the figure)              |
+| `palette` | colour coherence with the reference                                   |
+| `line`    | line weight and rendering style consistency ACROSS parts              |
+| `rig`     | survives turn/blink/gaze with no seams, spills or detachment          |
+| `turn`    | rotation reads as depth, not sliding, in motion and between the stops |
 
 On a full body, `body` judges the figure against `reference-full` on
 `body-renders` and `preview.png`: its proportions, shoulder width, leg length,
@@ -367,9 +379,11 @@ out, a seam, or a region pinched to a line, and on the zoom crops (Step 1)
 for a part sliding over its neighbour. Every `FOLD` line in `folds` is a
 `rig` finding (Step 3); the `FOLDS expected:` line is none. When `folds` is
 `unavailable`, judge `rig` from the renders alone and name no fold finding.
-`rig` also covers the hair's swing, which no render shows (the renders are
-still poses, and physics moves only in a running idle), so `physics` is its
-only evidence: every `PHYSICS` line reading `frozen` or `unstable` is a `rig`
+`rig` also covers the hair's swing, which no still pose shows (the still
+renders are poses, and physics moves only in a running idle), so for the stills
+`physics` is its only evidence; with `sweep`, the sheet, the frames and the
+kymograph show the hair moving under the physics beside the `PHYSICS` lines.
+The finding rule for those lines is unchanged: every `PHYSICS` line reading `frozen` or `unstable` is a `rig`
 finding (Step 3). An `ok` line and `PHYSICS: no rigs` are none, and neither
 are the step and idle amounts: a swing that reads small is the rig's tuning,
 the same on every character. When `physics` is `unavailable`, name no physics
@@ -519,7 +533,18 @@ shoulder to the shoulder point and down to the armpit, never a `retune` of
 `layout.body.w`.
 
 `turn` asks whether the motion reads right, not whether it survives — judged
-by eye on the rig's own renders. At the between-stop `ParamAngleX` pose (15°)
+by eye on the rig's own renders, the movement first: with `sweep`, read the
+sheet as one motion and the kymograph for its speed, then the stills below.
+A `width kink` or `x kink` on the eyes far above the nose's, with the amplitude
+normal, is the far eye narrowing while the near one widens half as much:
+evidence for the `rigPlan.turn.eyeForeshorten` retune below. A nose `lead` out
+of proportion to the eyes' is evidence for `rigPlan.turn.noseLead`. An
+`amplitude` near 0 is a frozen turn and scores low however smooth. These
+numbers are evidence quoted under MEASUREMENTS, never thresholds: no `SWEEP`
+number by itself makes a finding (`pop` included — a small one is the rig's own
+construction), and a jag or a bend you SEE on the sheet or the kymograph is
+judged by eye under the `rig` and `turn` rules that already exist. With `sweep`
+`unavailable`, judge `turn` on the stills as before. At the between-stop `ParamAngleX` pose (15°)
 and at the limit (30°): does the head read as turning in depth — the face
 plate sliding, the features leading it (the nose most), the front hair
 following it, the back hair staying behind it — or as a flat cutout sliding
@@ -714,7 +739,8 @@ EYES: iris/head render <measured> vs reference <by eye>; gap/face render <by eye
 
 MEASUREMENTS
 <the measure_layers check lines, the measure_turn_reference lines quoted
-verbatim, the zoom lines (Step 1), plus any number you quoted from either table>
+verbatim, the zoom lines (Step 1), the `SWEEP` lines quoted verbatim (evidence
+only), plus any number you quoted from either table>
 
 FINDINGS
 1. [regenerate] part=<role>
@@ -730,7 +756,7 @@ FINDINGS
    problem: <what is wrong, with evidence>
 
 PROGRESS
-<per axis: how each score moved against its best so far (round 1: as given); what is blocking>
+<per axis: how each score moved against its best so far (round 1: as given); what is blocking. A `turn` score from a round whose `scores` line came before `sweep` was passed is not comparable with yours: compare `turn` only against sweep rounds, and say so once. With `sweep` `unavailable`, write `turn: stills only`>
 ```
 
 Order findings by impact. If there are none, write `FINDINGS: none`.

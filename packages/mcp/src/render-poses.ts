@@ -25,7 +25,24 @@ import {
   resolveOutputDir,
   writeFileAtomic,
 } from "./limits";
-import { NO_BROWSER_MESSAGE, findBrowser, withBrowser } from "./render-browser";
+import {
+  NO_BROWSER_MESSAGE,
+  findBrowser,
+  withBrowser,
+  type Evaluate,
+} from "./render-browser";
+import { checkSweep, type SweepReport } from "./sweep-report";
+import {
+  SWEEP_CLOCK_HZ,
+  SWEEP_DURATION_S,
+  SWEEP_FPS,
+  SWEEP_WARMUP_S,
+  flipbookHtml,
+  prepareSweepDir,
+  sweepSpec,
+  type RequestedSweep,
+  type SweepManifest,
+} from "./sweep";
 
 export interface RenderCrop {
   sx: number;
@@ -51,6 +68,8 @@ export interface RenderPlan {
   /** The mouth's centre in model px from the top-left. */
   mouth?: { cx: number; cy: number };
   poses: RenderPose[];
+  /** The sweep's fixed framing; absent when no sweep was asked for. */
+  sweepCrop?: RenderCrop;
 }
 
 /** A pose the caller names, rendered in place of the model's own set. */
@@ -72,6 +91,9 @@ const CROP_WIDTH = 720;
 const CROP_MAX_HEIGHT = 8192;
 // The name becomes a file in outDir: no separator can climb out of it.
 const POSE_NAME = /^[A-Za-z0-9_.-]+$/;
+// The name becomes a DIRECTORY in outDir: a leading alphanumeric keeps `.` and
+// `..` out, which POSE_NAME accepts as harmless parts of a file name.
+const SWEEP_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 
 /**
  * Bust-render px of vertical padding above a landscape model: the renderer
@@ -88,6 +110,7 @@ export function bustPadY(width: number, height: number): number {
 export function planRenders(
   model: IkiModel,
   requested?: RequestedPose[],
+  sweep?: RequestedSweep,
 ): RenderPlan {
   const { width: W, height: H } = model.canvas;
   const fullBody = H > W;
@@ -135,43 +158,60 @@ export function planRenders(
     values,
   });
 
+  // Clamped to the canvas first, so a box grown past an edge still renders.
+  const toRenderCrop = (
+    crop: NonNullable<RequestedPose["crop"]>,
+    label: string,
+  ): RenderCrop => {
+    const left = Math.max(crop.x, 0);
+    const top = Math.max(crop.y, 0);
+    const w = Math.min(crop.x + crop.w, W) - left;
+    const h = Math.min(crop.y + crop.h, H) - top;
+    // Negated so a NaN corner is refused too.
+    if (!(w > 0 && h > 0)) {
+      throw new AutoRigInputError(
+        `${label} does not overlap the model's ${W}x${H} canvas`,
+      );
+    }
+    // Refused here, not by the page after earlier poses were written.
+    const dh = Math.round((CROP_WIDTH * h) / w);
+    if (dh < 1 || dh > CROP_MAX_HEIGHT) {
+      throw new AutoRigInputError(
+        `${label} meets the canvas in ${w}x${h} model px, which ${CROP_WIDTH} px wide draws ${dh} px tall, outside 1..${CROP_MAX_HEIGHT}`,
+      );
+    }
+    return {
+      sx: x0 + left * s,
+      sy: y0 + top * s,
+      sw: w * s,
+      sh: h * s,
+      dw: CROP_WIDTH,
+      dh,
+    };
+  };
+  if (sweep && !SWEEP_NAME.test(sweep.name)) {
+    throw new AutoRigInputError(
+      `sweep.name must match ${SWEEP_NAME.source} (it names <outDir>/<name>/): ${JSON.stringify(sweep.name)}`,
+    );
+  }
+  const sweepCrop = sweep
+    ? sweep.crop
+      ? toRenderCrop(sweep.crop, "sweep.crop")
+      : squareCrop
+    : undefined;
+
   if (requested) {
     if (requested.length === 0) throw new AutoRigInputError("poses is empty");
     const poses = requested.map((pose, i): RenderPose => {
       checkRequest(requested, i);
       if (!pose.crop) return square(pose.name, pose.values);
-      // Clamped to the canvas first, so a box grown past an edge still renders.
-      const left = Math.max(pose.crop.x, 0);
-      const top = Math.max(pose.crop.y, 0);
-      const w = Math.min(pose.crop.x + pose.crop.w, W) - left;
-      const h = Math.min(pose.crop.y + pose.crop.h, H) - top;
-      // Negated so a NaN corner is refused too.
-      if (!(w > 0 && h > 0)) {
-        throw new AutoRigInputError(
-          `poses[${i}].crop does not overlap the model's ${W}x${H} canvas`,
-        );
-      }
-      // Refused here, not by the page after earlier poses were written.
-      const dh = Math.round((CROP_WIDTH * h) / w);
-      if (dh < 1 || dh > CROP_MAX_HEIGHT) {
-        throw new AutoRigInputError(
-          `poses[${i}].crop meets the canvas in ${w}x${h} model px, which ${CROP_WIDTH} px wide draws ${dh} px tall, outside 1..${CROP_MAX_HEIGHT}`,
-        );
-      }
       return {
         name: pose.name,
         values: pose.values,
-        crop: {
-          sx: x0 + left * s,
-          sy: y0 + top * s,
-          sw: w * s,
-          sh: h * s,
-          dw: CROP_WIDTH,
-          dh,
-        },
+        crop: toRenderCrop(pose.crop, `poses[${i}].crop`),
       };
     });
-    return { canvas, view, fullBody, mouth, poses };
+    return { canvas, view, fullBody, mouth, poses, sweepCrop };
   }
 
   // The engine ignores an undeclared id, so this only keeps `stress` from
@@ -291,7 +331,7 @@ export function planRenders(
     }
   }
 
-  return { canvas, view, fullBody, mouth, poses };
+  return { canvas, view, fullBody, mouth, poses, sweepCrop };
 }
 
 /** `requested[i]`'s name and values, as `planRenders` takes them. */
@@ -326,6 +366,8 @@ export interface RenderPosesInput {
   outDir: string;
   /** Rendered in place of the model's own set; each is also fold-checked. */
   poses?: RequestedPose[];
+  /** A turn sweep rendered in addition to the poses, into `<outDir>/<name>/`. */
+  sweep?: RequestedSweep;
 }
 
 export type RenderPosesResult =
@@ -348,6 +390,20 @@ export type RenderPosesResult =
        *  `auto_rig_from_layers` reports them. Report-only: it never fails
        *  the render. */
       physics: PhysicsReport;
+      /** Present whenever `sweep` was asked for; absent only from a server
+       *  before 0.31.0, which strips the input. */
+      sweep?: {
+        name: string;
+        preset: "turn";
+        dir: string;
+        fps: number;
+        frames: number;
+        manifest: string;
+        sheet: string;
+        kymograph: string;
+        flipbook: string;
+        report: SweepReport;
+      };
     }
   | { ok: false; error: string };
 
@@ -370,6 +426,98 @@ function readPageScript(): string {
   }
 }
 
+/** Runs the sweep in the loaded page and writes its files into `dir`. */
+async function captureSweep(
+  evaluate: Evaluate,
+  model: IkiModel,
+  plan: RenderPlan,
+  requested: RequestedSweep,
+  dir: string,
+  report: SweepReport,
+): Promise<NonNullable<Extract<RenderPosesResult, { ok: true }>["sweep"]>> {
+  const spec = sweepSpec(model, plan.sweepCrop);
+  await evaluate(
+    `window.__ikiRender.sweepBegin(${JSON.stringify(spec)})`,
+    CAPTURE_MS,
+  );
+  const frames: SweepManifest["frames"] = [];
+  for (let k = 0; k < spec.frames; k++) {
+    const { png, values } = (await evaluate(
+      "window.__ikiRender.sweepFrame()",
+      CAPTURE_MS,
+    )) as { png: string; values: Record<string, number> };
+    if (typeof png !== "string" || !png.startsWith(PNG_PREFIX)) {
+      throw new Error(
+        `sweep ${requested.name} frame ${k}: the page returned no PNG`,
+      );
+    }
+    const file = `f${String(k).padStart(3, "0")}.png`;
+    writeFileAtomic(
+      path.join(dir, file),
+      Buffer.from(png.slice(PNG_PREFIX.length), "base64"),
+    );
+    frames.push({
+      i: k,
+      file,
+      t: k / SWEEP_FPS,
+      theta: spec.thetas[spec.captureEvery * k],
+      values,
+    });
+  }
+  const end = (await evaluate("window.__ikiRender.sweepEnd()", CAPTURE_MS)) as {
+    sheet: string;
+    kymograph: string;
+  };
+  for (const [what, url] of Object.entries(end)) {
+    if (typeof url !== "string" || !url.startsWith(PNG_PREFIX)) {
+      throw new Error(
+        `sweep ${requested.name} ${what}: the page returned no PNG`,
+      );
+    }
+  }
+  const sheet = path.join(dir, "sheet.png");
+  const kymograph = path.join(dir, "kymograph.png");
+  writeFileAtomic(
+    sheet,
+    Buffer.from(end.sheet.slice(PNG_PREFIX.length), "base64"),
+  );
+  writeFileAtomic(
+    kymograph,
+    Buffer.from(end.kymograph.slice(PNG_PREFIX.length), "base64"),
+  );
+  const manifest: SweepManifest = {
+    version: 1,
+    preset: requested.preset,
+    parameter: spec.parameter,
+    fps: SWEEP_FPS,
+    clockHz: SWEEP_CLOCK_HZ,
+    warmupS: SWEEP_WARMUP_S,
+    durationS: SWEEP_DURATION_S,
+    crop: requested.crop ?? null,
+    frame: spec.frame,
+    kymographRow: { row: spec.kymograph.row, at: spec.kymograph.at },
+    sheet: { frames: spec.sheet.frames, cell: spec.sheet.cell },
+    physicsOutputs: spec.physicsOutputs,
+    frames,
+  };
+  const manifestPath = path.join(dir, "manifest.json");
+  const flipbook = path.join(dir, "index.html");
+  writeFileAtomic(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+  writeFileAtomic(flipbook, flipbookHtml(manifest));
+  return {
+    name: requested.name,
+    preset: requested.preset,
+    dir,
+    fps: SWEEP_FPS,
+    frames: spec.frames,
+    manifest: manifestPath,
+    sheet,
+    kymograph,
+    flipbook,
+    report,
+  };
+}
+
 /**
  * Render the model's pose set into `outDir`. Only caller-input failures
  * (`AutoRigInputError`, `IkiFormatError`, and no installed browser) come back as
@@ -387,7 +535,7 @@ export async function renderPoses(
     );
     const outDir = resolveOutputDir(input.outDir);
     const model = loadIkiModel(readFileSync(modelFile, "utf8"));
-    const plan = planRenders(model, input.poses);
+    const plan = planRenders(model, input.poses, input.sweep);
     const browser = findBrowser();
     if (!browser) return { ok: false, error: NO_BROWSER_MESSAGE };
     const pageScript = readPageScript();
@@ -396,8 +544,14 @@ export async function renderPoses(
       input.poses?.map((p) => p.values),
     );
     const physics = checkPhysics(model);
+    // Only now: a call refused for its input or for a missing browser
+    // creates and deletes nothing.
+    const sweepDir = input.sweep
+      ? prepareSweepDir(outDir, input.sweep.name)
+      : undefined;
+    const sweepReport = input.sweep ? checkSweep(model) : undefined;
 
-    const { failedTextures, poses } = await withBrowser(
+    const { failedTextures, poses, sweep } = await withBrowser(
       browser,
       async (evaluate) => {
         await evaluate(pageScript, PAGE_SCRIPT_MS);
@@ -421,7 +575,18 @@ export async function renderPoses(
           );
           written.push({ name: pose.name, path: file });
         }
-        return { failedTextures: loaded.failedTextures, poses: written };
+        const sweep =
+          input.sweep && sweepDir && sweepReport
+            ? await captureSweep(
+                evaluate,
+                model,
+                plan,
+                input.sweep,
+                sweepDir,
+                sweepReport,
+              )
+            : undefined;
+        return { failedTextures: loaded.failedTextures, poses: written, sweep };
       },
     );
     return {
@@ -435,6 +600,7 @@ export async function renderPoses(
       modelCanvas: model.canvas,
       folds,
       physics,
+      sweep,
     };
   } catch (error) {
     if (error instanceof AutoRigInputError || error instanceof IkiFormatError) {

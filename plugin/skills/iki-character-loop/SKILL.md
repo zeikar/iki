@@ -341,6 +341,9 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    ```text
    Open only the image paths listed below, and nothing else.
    Each pair is the same character, in the same pose, rigged two ways.
+   A pair of nine-frame grids is the same motion, its frames in the same
+   order (left to right, top to bottom), rigged two ways: judge how
+   <feature> moves across the frames, not one cell.
    For each pair: which side's <feature> reads more natural (no part
    sliding over another, no seam, no squash)? Answer A, B or same, with
    one phrase why.
@@ -386,12 +389,30 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    cropped to the `face` box in `rig-view` grown by half `faceWidth` a side
    and named `<field>-AngleX-30` and so on. Then exactly two `render_poses`
    calls: `iki-character-base.iki` into `renders/plan/before/` and
-   `iki-character-candidate.iki` into `renders/plan/after/`. Everything else
+   `iki-character-candidate.iki` into `renders/plan/after/`. Each call
+   carries the poses AND
+   `sweep: { name: "turn", preset: "turn", crop: <the same face crop> }`:
+   the eased ±30 turn with the hair physics running, written to
+   `renders/plan/{before,after}/turn/`. The old-server check adds the sweep:
+   the result's `sweep` (JSON) or, in the text, the `<dir>/turn/sheet.png`
+   path and a `SWEEP` line. Missing means a server before 0.31.0, which
+   strips `sweep` and renders the stills alone, so the gate cannot run:
+   discard the candidate, log nothing and tell the user, naming the cause —
+   the plugin's pinned `@ikijs/mcp` predates 0.31.0 (its `.mcp.json` pin
+   until the adopt commit moves it), so the `turn.eyeForeshorten` /
+   `turn.noseLead` gate waits for that commit. Never judge the stills alone.
+   The pairs are the field's three still pairs plus ONE sweep pair:
+   `renders/plan/before/turn/sheet.png` and
+   `renders/plan/after/turn/sheet.png`, MOVED into `renders/judge/` as
+   `pair<k>-A.png` / `pair<k>-B.png` by the same coin flip, the kymographs
+   and frames staying where they are, and moved back by the key into their
+   sweep dirs afterwards. Everything else
    is the patch gate's: the old-server check on the returned pose names, the
    baseline's fold report (a folding baseline discards the candidate and logs
    nothing), the blind judge with the same prompt (`<feature>` is "the eyes"
    for `eyeForeshorten`, "the nose" for `noseLead`) and the same key kept in
-   this conversation only. Accept when the judge prefers the candidate on at
+   this conversation only; the `judged:` verdict reads that field's four
+   pairs. Accept when the judge prefers the candidate on at
    least one pair and the baseline on none, AND the candidate's fold report
    has no new offender: `mv rig-plan-candidate.json rig-plan.json`,
    `mv iki-character-candidate.iki iki-character.iki`, delete
@@ -404,7 +425,7 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    which, with the decoded answers, in item 6's message.
 
 4. **Render it** with the `iki` server's `render_poses` tool:
-   `render_poses { modelPath: <workdir>/iki-character.iki, outDir: <workdir>/renders }`
+   `render_poses { modelPath: <workdir>/iki-character.iki, outDir: <workdir>/renders, sweep: { name: "turn", preset: "turn" } }`
    (`outDir` must already exist and sit under the server's cwd; Step 0 makes
    it). It needs `@ikijs/mcp` 0.24.0+, Node 22+ and an installed Chrome, Edge
    or Chromium (`CHROME_PATH` for a non-standard install); `stress` and the
@@ -424,7 +445,13 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    0.26.0+, and an older server strips the field silently and renders the
    standard set, so after every call with `poses` compare the returned pose
    names with the ones passed: a mismatch means an old server, and the patch
-   gate is unavailable. The result lists the written paths, then
+   gate is unavailable. `sweep` needs 0.31.0+: the call renders the turn sweep
+   in addition (`renders/turn/`: 90 frames `fNNN.png`, `manifest.json`,
+   `sheet.png`, `kymograph.png` and the flipbook `index.html`; the tool
+   creates that dir itself), and a result without `sweep` (no
+   `renders/turn/sheet.png` path, no `SWEEP` line) predates it: the round goes
+   on with `sweep` passed as `unavailable`, never with a still in its place.
+   The result lists the written paths, then
    the model's fold report: a `FOLD` line per warp grid or mesh part
    that flips or collapses at some pose, or `FOLDS: none over N poses`, and a
    `FOLDS expected:` line for the closures the rig draws on purpose (an eye or
@@ -455,7 +482,9 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    rest of `folds.targets` is one entry per deformer and part, mostly `ok`,
    and stays out. The `PHYSICS` lines are `physics.targets`, one per line in
    model order (`PHYSICS: no rigs` is an empty one), passed whole and as they
-   are: there are few, and an `ok` one says the hair moves. A non-empty `failedTextures` means atlas pages did not load and
+   are: there are few, and an `ok` one says the hair moves. The `SWEEP` lines
+   are `sweep.report` (its `landmarks[]` and `plateAmplitude`, or its
+   `unavailable`), passed whole. A non-empty `failedTextures` means atlas pages did not load and
    their parts are missing: render once more; if pages still fail, escalate,
    because the critic does not score renders with parts missing.
    The rest shot is untouched by construction, which matters because every
@@ -493,6 +522,9 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    a server before 0.25.0), `physics` (item 4's physics report, complete and
    in the form it came: every `PHYSICS` line or the `PHYSICS: no rigs` line,
    or `physics.targets`; or `unavailable` from a server before 0.27.0),
+   `sweep` (`<workdir>/renders/turn/sheet.png`, `<workdir>/renders/turn/kymograph.png`
+   and item 4's `SWEEP` lines, in the form they came; or `unavailable` from a
+   server before 0.31.0),
    `rig-view` (item 2's summary, or
    `unavailable`), `patches` (the accepted array, `<workdir>/patches.json`
    as item 3 left it) and `rejected` (`<workdir>/patches-rejected.json`'s,
@@ -540,7 +572,13 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    have returned and the `refer` is typed, before the critic's verdict is acted on and before Step 2: list the
    absolute paths of `<workdir>/renders/rest.png`, `turn-p30.png` and
    `mouth-open-0-form-0.png` (a full body also `full-rest.png`) for the user
-   to open — sent as files too where the host offers a tool for it — with the
+   to open — sent as files too where the host offers a tool for it — and the
+   turn's flipbook as a URL to paste into a browser's address bar (a path with
+   a query cannot be opened by a file tool or `open`):
+   `file://<workdir>/renders/turn/index.html` (play, scrub), and after a plan
+   gate `file://<workdir>/renders/plan/before/turn/index.html?b=../../after/turn`,
+   which shows the base beside the candidate in lockstep (the relative dir is
+   resolved from `before/turn/`) — the flipbook, not a GIF — with the
    critic's `SCORES:` and `VERDICT:` lines and the appeal critic's `IMPRESSION:`
    and `APPEAL:` lines, and ask for a one-line reaction ("fine" if none). When the appeal
    critic named a `regenerate`, or its `refer` was typed as one above, the same
@@ -637,6 +675,12 @@ Stop on the first of:
   high-water mark per axis, because an unweighted total nets a real `rig` 3→4
   against a `palette` 4→3 drift and reads as no progress; each of the nine
   `APPEAL:` scores is its own axis too, never their total
+
+The `turn` axis's high-water mark starts over at the first round whose critic
+had `sweep` (the critic says so under PROGRESS): a stills-only `turn` score is
+never compared with a sweep one, and the round that restarts the mark does not
+count as a new maximum on `turn` — the no-new-maximum streak is neither reset
+nor extended by the transition.
 
 A round run on the user's finding counts like any other: toward the billed cap
 when it spends generation, and a new maximum on any axis resets the

@@ -13,6 +13,7 @@ import {
 import { composeLayersFromParts } from "./compose";
 import { formatFoldReport } from "./fold-report";
 import { formatPhysicsReport } from "./physics-report";
+import { formatSweepReport } from "./sweep-report";
 import { measureLayers, formatMeasureReport } from "./measure";
 import { measureTurnReference, formatTurnReport } from "./measure-turn";
 import { renderPoses } from "./render-poses";
@@ -450,7 +451,7 @@ export function createIkiMcpServer(): McpServer {
     "render_poses",
     {
       description:
-        "Renders a rigged .iki into the character loop's pose PNGs with the real engine, through the installed Chrome, Edge or Chromium run headless (set CHROME_PATH to pick one). The model decides the set: a bust gets 560x560 shots (rest, turns, nod, blinks, gaze, combined — ParamAngleX/Y/Z all at 30 — and stress: ParamAngleX/Y/Z all at -30, ParamMouthOpenY 1, both eyes at 0.5, the brows at opposite extremes (ParamBrowLY -1, ParamBrowRY 1, ParamBrowLAngle 1, ParamBrowRAngle -1) and each body angle the model declares at -10); a mouth adds 720x480 mouth crops; a full body (taller than wide) adds the full-canvas body, arm and elbow poses on a 1400-wide canvas, and a model with a pose forearm adds the full-pose-* shots. Given `poses` (see its field), the standard set is not rendered: only those poses are, each crop clamped to the model's canvas. Writes <pose>.png files into outDir, overwriting same-named files in place; returns the written paths one per line, then the model's fold report (the result's `folds`), checked by the engine over its own pose set plus any `poses`, each of which a `FOLD` line names by its settings, not its PNG name: a `FOLD` line per warp deformer or mesh part that flips (ratio <= 0) or collapses (under 0.1) at some pose — its cell or triangle, the ratio of its area there to at rest, the pose as its parameter settings (`rest` for none) and where it rests, in model space and in model px from the top-left (the layer PNGs' own pixels, not a render's) — or `FOLDS: none over N poses`, then a `FOLDS expected:` line naming the closures the rig draws on purpose (an eye or the mouth shut), each by part id, ratio and the parameter that shuts it. Report-only: a fold never fails the render. The `PHYSICS` lines follow the fold report (the result's `physics`), one per physics rig output of the model's own rigs — `poses` do not enter it — reading ok, frozen or unstable with the step and idle amplitudes, or `PHYSICS: no rigs`; report-only too. Fails with INVALID when no browser is found or an input is refused; a browser that cannot start is a tool error.",
+        "Renders a rigged .iki into the character loop's pose PNGs with the real engine, through the installed Chrome, Edge or Chromium run headless (set CHROME_PATH to pick one). The model decides the set: a bust gets 560x560 shots (rest, turns, nod, blinks, gaze, combined — ParamAngleX/Y/Z all at 30 — and stress: ParamAngleX/Y/Z all at -30, ParamMouthOpenY 1, both eyes at 0.5, the brows at opposite extremes (ParamBrowLY -1, ParamBrowRY 1, ParamBrowLAngle 1, ParamBrowRAngle -1) and each body angle the model declares at -10); a mouth adds 720x480 mouth crops; a full body (taller than wide) adds the full-canvas body, arm and elbow poses on a 1400-wide canvas, and a model with a pose forearm adds the full-pose-* shots. Given `poses` (see its field), the standard set is not rendered: only those poses are, each crop clamped to the model's canvas. Writes <pose>.png files into outDir, overwriting same-named files in place; returns the written paths one per line, then the model's fold report (the result's `folds`), checked by the engine over its own pose set plus any `poses`, each of which a `FOLD` line names by its settings, not its PNG name: a `FOLD` line per warp deformer or mesh part that flips (ratio <= 0) or collapses (under 0.1) at some pose — its cell or triangle, the ratio of its area there to at rest, the pose as its parameter settings (`rest` for none) and where it rests, in model space and in model px from the top-left (the layer PNGs' own pixels, not a render's) — or `FOLDS: none over N poses`, then a `FOLDS expected:` line naming the closures the rig draws on purpose (an eye or the mouth shut), each by part id, ratio and the parameter that shuts it. Report-only: a fold never fails the render. The `PHYSICS` lines follow the fold report (the result's `physics`), one per physics rig output of the model's own rigs — `poses` do not enter it — reading ok, frozen or unstable with the step and idle amplitudes, or `PHYSICS: no rigs`; report-only too. Given `sweep`, also renders an eased turn of the head (see its field) and prints its paths and `SWEEP` lines. Fails with INVALID when no browser is found or an input is refused; a browser that cannot start is a tool error.",
       inputSchema: {
         modelPath: z
           .string()
@@ -481,6 +482,23 @@ export function createIkiMcpServer(): McpServer {
           .describe(
             "Caller-named poses rendered INSTEAD of the standard set, each `{ name, values, crop? }`, in order. `name` becomes `<outDir>/<name>.png` and the result's pose name: letters, digits, `_`, `.` and `-` only, unique in the list ignoring case. `values` are parameter settings (every other parameter at its default; an id the model lacks is ignored). `crop` `{ x, y, w, h }` is a rectangle in model px from the top-left — the frame of describe_iki's boxes and of the `FOLD` lines — clamped to the model's canvas, then drawn 720 px wide at its own aspect; without one a pose is framed as the standard shots (560x560, the middle square on a full body). Each pose is also added to the fold sweep, after the engine's own poses. An empty list, a bad or repeated name, a non-finite value, or a crop that misses the canvas or would draw under 1 or over 8192 px tall comes back as `INVALID: poses…` and nothing is rendered.",
           ),
+        sweep: z
+          .object({
+            name: z.string(),
+            preset: z.literal("turn"),
+            crop: z
+              .object({
+                x: z.number(),
+                y: z.number(),
+                w: z.number(),
+                h: z.number(),
+              })
+              .optional(),
+          })
+          .optional()
+          .describe(
+            "A turn sweep rendered IN ADDITION to the poses, `{ name, preset: \"turn\", crop? }`: an eased `ParamAngleX` turn (0 to -30 to +30 to 0 over 3 s, sinusoidal) at 30 fps on a 60 Hz physics clock, with the hair physics running and the idle off, every other parameter at its default. `crop` is a rectangle in model px as a pose's, fixed for every frame; without one the frames are framed as the standard shots. Written into `<outDir>/<name>/` (created; `name` starts with a letter or digit, then letters, digits, `_`, `.`, `-`; an earlier run's frames there are replaced): `fNNN.png` (90 frames), `manifest.json` (each frame's time, angle and effective values), `sheet.png` (nine frames of the -30 to +30 leg, labelled with angle and time, at most 2000 px a side), `kymograph.png` (the eye row of every frame stacked over time), `index.html` (a flipbook to open from disk; add `?b=<relative dir of another sweep>` for two side by side). The text then lists the paths and, after the `PHYSICS` lines, a `SWEEP turn` line per landmark (eyes, nose) from the engine's geometry: amplitude in face widths, the kink of x and of the eye width through angle 0, the lead over the local face plate at each end, and the pop — report-only, like `FOLD` and `PHYSICS`.",
+          ),
       },
     },
     async (args) => {
@@ -489,8 +507,18 @@ export function createIkiMcpServer(): McpServer {
         const text = r.ok
           ? [
               ...r.poses.map((p) => p.path),
+              ...(r.sweep
+                ? [
+                    r.sweep.dir,
+                    r.sweep.sheet,
+                    r.sweep.kymograph,
+                    r.sweep.flipbook,
+                    r.sweep.manifest,
+                  ]
+                : []),
               ...formatFoldReport(r.folds, r.modelCanvas),
               ...formatPhysicsReport(r.physics),
+              ...(r.sweep ? formatSweepReport(r.sweep.report) : []),
             ].join("\n")
           : `INVALID: ${r.error}`;
         return { content: [{ type: "text", text }], structuredContent: r };

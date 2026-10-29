@@ -598,6 +598,32 @@ describe("MCP server integration", () => {
     expect(error.text).toContain("poses");
   });
 
+  it("render_poses takes a sweep through the tool schema: a well-formed one reaches the handler, a malformed one is the SDK's input validation error", async () => {
+    pair = await createPair();
+    const { client } = pair;
+    const call = (sweep: unknown) =>
+      client.callTool({
+        name: "render_poses",
+        arguments: { modelPath: "package.json", outDir: os.tmpdir(), sweep },
+      });
+
+    const parsed = await call({ name: "turn", preset: "turn" });
+    expect(parsed.isError).toBeFalsy();
+    const [text] = parsed.content as { type: string; text: string }[];
+    expect(text.text).toMatch(/^INVALID: output dir escapes the working/);
+
+    for (const bad of [
+      { name: "turn", preset: "nod" },
+      { name: "turn", preset: "turn", crop: [1, 2, 3, 4] },
+    ]) {
+      const malformed = await call(bad);
+      expect(malformed.isError).toBe(true);
+      const [error] = malformed.content as { type: string; text: string }[];
+      expect(error.text).toMatch(/Input validation error/);
+      expect(error.text).toContain("sweep");
+    }
+  });
+
   it("compose_layers_from_parts composes the parts fixture and returns layers + measure", async () => {
     pair = await createPair();
     const partsDir = tmpDir();

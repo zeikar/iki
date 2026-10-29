@@ -13,8 +13,10 @@ import {
   renderPoses,
   type RenderPosesInput,
 } from "../src/render-poses";
+import { SHEET_MARGIN, turnTheta } from "../src/sweep";
+import { formatSweepReport } from "../src/sweep-report";
 import { autoRigFromLayers } from "../src/tools";
-import { writeFullBodyParts } from "./helpers/parts";
+import { writeFullBodyParts, writePartsSet } from "./helpers/parts";
 
 const part = (id: string, x: number, y: number) => ({
   id,
@@ -471,6 +473,80 @@ describe("renderPoses refuses a custom pose list", () => {
   });
 });
 
+// The same, for the sweep: its name becomes a directory, so more is refused.
+describe("renderPoses refuses a sweep", () => {
+  const refusal = async (sweep: RenderPosesInput["sweep"]) => {
+    const dir = tmpDir();
+    const modelPath = path.join(dir, "m.iki");
+    fs.writeFileSync(modelPath, JSON.stringify(model(1100, 1100)));
+    const r = await renderPoses({ modelPath, outDir: dir, sweep });
+    expect(r.ok).toBe(false);
+    return !r.ok && r.error;
+  };
+
+  it.each(["..", ".", ".hidden", "../up", "a/b", ""])(
+    "refuses the name %j, which would not stay a directory in outDir",
+    async (name) => {
+      expect(await refusal({ name, preset: "turn" })).toMatch(
+        /^sweep\.name must match /,
+      );
+    },
+  );
+
+  it("refuses a crop that misses the canvas", async () => {
+    expect(
+      await refusal({
+        name: "turn",
+        preset: "turn",
+        crop: { x: 2000, y: 0, w: 100, h: 100 },
+      }),
+    ).toBe("sweep.crop does not overlap the model's 1100x1100 canvas");
+  });
+
+  it("converts a sweep crop as a pose's, and frames a sweep without one as the standard shots", () => {
+    const withCrop = planRenders(model(1120, 1120), undefined, {
+      name: "turn",
+      preset: "turn",
+      crop: { x: 100, y: 200, w: 300, h: 101 },
+    });
+    expect(withCrop.sweepCrop).toEqual({
+      sx: 50,
+      sy: 100,
+      sw: 150,
+      sh: 50.5,
+      dw: 720,
+      dh: 242,
+    });
+    expect(
+      planRenders(model(1120, 1120), undefined, {
+        name: "turn",
+        preset: "turn",
+      }).sweepCrop,
+    ).toBeUndefined();
+    expect(planRenders(model(1120, 1120)).sweepCrop).toBeUndefined();
+  });
+
+  it("leaves no directory behind when the browser is not found", async () => {
+    const dir = tmpDir();
+    const modelPath = path.join(dir, "m.iki");
+    fs.writeFileSync(modelPath, JSON.stringify(model(1100, 1100)));
+    const was = process.env.CHROME_PATH;
+    process.env.CHROME_PATH = path.join(dir, "not-a-browser");
+    try {
+      const r = await renderPoses({
+        modelPath,
+        outDir: dir,
+        sweep: { name: "turn", preset: "turn" },
+      });
+      expect(r.ok).toBe(false);
+    } finally {
+      if (was === undefined) delete process.env.CHROME_PATH;
+      else process.env.CHROME_PATH = was;
+    }
+    expect(fs.existsSync(path.join(dir, "turn"))).toBe(false);
+  });
+});
+
 // Renders with the BUILT page bundle (dist): run `pnpm build` after an engine edit.
 describe.skipIf(findBrowser() === undefined)("renderPoses in a browser", () => {
   const TALL = 3650;
@@ -594,4 +670,223 @@ describe.skipIf(findBrowser() === undefined)("renderPoses in a browser", () => {
     // The model's own rigs, which the poses do not add to: it has none.
     expect(formatPhysicsReport(r.physics)).toEqual(["PHYSICS: no rigs"]);
   }, 60_000);
+  describe("the turn sweep", () => {
+    const SWEEP = { name: "turn", preset: "turn" } as const;
+    let fixture: { modelPath: string; model: IkiModel } | undefined;
+
+    async function rigged() {
+      if (fixture) return fixture;
+      const parts = fs.mkdtempSync(path.join(os.tmpdir(), "iki-sweep-parts-"));
+      createdDirs.push(parts);
+      await writePartsSet(parts);
+      const work = tmpDir();
+      const composed = await composeLayersFromParts({
+        partsDir: parts,
+        outDir: work,
+      });
+      if (!composed.ok) throw new Error(composed.error);
+      const modelPath = path.join(work, "bust.iki");
+      const done = await autoRigFromLayers({
+        layers: composed.layers.map((l) => ({ path: l.path })),
+        outputPath: modelPath,
+      });
+      if (!done.ok) throw new Error(done.error);
+      fixture = {
+        modelPath,
+        model: parseIkiModel(JSON.parse(fs.readFileSync(modelPath, "utf8"))),
+      };
+      return fixture;
+    }
+
+    const sweepOk = async (input: RenderPosesInput) => {
+      const r = await renderPoses(input);
+      if (!r.ok) throw new Error(r.error);
+      if (!r.sweep) throw new Error("no sweep in the result");
+      return { r, sweep: r.sweep };
+    };
+
+    it("writes 90 frames, a manifest on the capture rule, the sheet, the kymograph and the flipbook, with the hair moving", async () => {
+      const { modelPath } = await rigged();
+      const out = tmpDir();
+      const { r, sweep } = await sweepOk({
+        modelPath,
+        outDir: out,
+        poses: [{ name: "rest", values: {} }],
+        sweep: SWEEP,
+      });
+
+      expect(sweep.dir).toBe(path.join(fs.realpathSync(out), "turn"));
+      expect(
+        fs.readdirSync(sweep.dir).filter((f) => /^f\d{3}\.png$/.test(f)),
+      ).toHaveLength(90);
+      for (const k of [0, 44, 89]) {
+        const meta = await sharp(
+          path.join(sweep.dir, `f${String(k).padStart(3, "0")}.png`),
+        ).metadata();
+        expect([meta.width, meta.height]).toEqual([560, 560]);
+      }
+      const manifest = JSON.parse(fs.readFileSync(sweep.manifest, "utf8"));
+      expect(manifest.fps).toBe(30);
+      expect(manifest.frames).toHaveLength(90);
+      let hairMoved = false;
+      for (const f of manifest.frames) {
+        expect(f.t).toBeCloseTo(f.i / 30, 12);
+        expect(f.theta).toBeCloseTo(turnTheta(f.t), 9);
+        expect(f.values.ParamAngleX).toBeCloseTo(f.theta, 9);
+        if (Math.abs(f.values.ParamHairSwayX ?? 0) > 1e-6) hairMoved = true;
+      }
+      expect(hairMoved).toBe(true);
+
+      const sheet = await sharp(sweep.sheet).metadata();
+      expect(sheet.width).toBe(3 * 560 + 2 * SHEET_MARGIN);
+      expect(sheet.width).toBeLessThanOrEqual(2000);
+      expect(sheet.height).toBeLessThanOrEqual(2000);
+      const kymo = await sharp(sweep.kymograph).metadata();
+      expect([kymo.width, kymo.height]).toEqual([560, 270]);
+      const html = fs.readFileSync(sweep.flipbook, "utf8");
+      expect(html).toContain("f000.png");
+      expect(html).toContain("f089.png");
+
+      expect(sweep.report).not.toHaveProperty("unavailable");
+      if ("unavailable" in sweep.report) return;
+      expect(sweep.report.landmarks).toHaveLength(3);
+      for (const l of sweep.report.landmarks) {
+        expect(l.amplitude).toBeGreaterThan(0);
+      }
+      expect(
+        formatSweepReport(sweep.report).some((l) =>
+          l.startsWith("SWEEP turn eye_L:"),
+        ),
+      ).toBe(true);
+      // The stills went where they always do.
+      expect(r.poses.map((p) => p.name)).toEqual(["rest"]);
+    }, 120_000);
+
+    it("frames a sweep by a crop, and keeps the sheet within 2000 px on both sides", async () => {
+      const { modelPath, model: m } = await rigged();
+      const face = m.parts.find((p) => p.id === "face")!;
+      const fw = face.width;
+      const { width: W, height: H } = m.canvas;
+      const left = W / 2 + face.transform.x - face.width / 2 - fw / 2;
+      const top = H / 2 - face.transform.y - face.height / 2 - fw / 2;
+      const { sweep } = await sweepOk({
+        modelPath,
+        outDir: tmpDir(),
+        poses: [{ name: "rest", values: {} }],
+        sweep: {
+          ...SWEEP,
+          crop: { x: left, y: top, w: face.width + fw, h: face.height + fw },
+        },
+      });
+      const frame = await sharp(path.join(sweep.dir, "f000.png")).metadata();
+      expect(frame.width).toBe(720);
+      expect(frame.height!).toBeGreaterThan(frame.width!);
+      const sheet = await sharp(sweep.sheet).metadata();
+      expect(sheet.width!).toBeLessThanOrEqual(2000);
+      expect(sheet.height!).toBeLessThanOrEqual(2000);
+    }, 120_000);
+
+    it("renders the same model twice to the same bytes, the unchanged A/B pair", async () => {
+      const { modelPath } = await rigged();
+      const input = {
+        modelPath,
+        poses: [{ name: "rest", values: {} }],
+        sweep: SWEEP,
+      };
+      const a = (await sweepOk({ ...input, outDir: tmpDir() })).sweep.dir;
+      const b = (await sweepOk({ ...input, outDir: tmpDir() })).sweep.dir;
+      const files = fs.readdirSync(a).filter((f) => f.endsWith(".png"));
+      expect(files).toHaveLength(92);
+      for (const f of files) {
+        expect(
+          fs
+            .readFileSync(path.join(a, f))
+            .equals(fs.readFileSync(path.join(b, f))),
+          f,
+        ).toBe(true);
+      }
+    }, 120_000);
+
+    it("reads a kink on one eye and a pop on the other off a hand-built model", async () => {
+      const quad = {
+        vertices: [-0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5],
+        uvs: [0, 0, 1, 0, 0, 1, 1, 1],
+        indices: [0, 1, 2, 1, 3, 2],
+      };
+      const shift = (dx: number) => [dx, 0, dx, 0, dx, 0, dx, 0];
+      const warp = (keyforms: { value: number; offsets: number[] }[]) => [
+        { parameter: "ParamAngleX", keyforms },
+      ];
+      const line = (deg: number) => shift((0.5 * deg) / 30);
+      const quadPart = (
+        id: string,
+        x: number,
+        size: number,
+        warps: ReturnType<typeof warp>,
+      ) => ({
+        id,
+        color: [1, 1, 1, 1] as [number, number, number, number],
+        width: size,
+        height: size,
+        transform: { x, y: id === "face" ? 0 : 20 },
+        order: 0,
+        mesh: quad,
+        warps,
+      });
+      const m = {
+        ...model(400, 400, [], []),
+        parameters: [{ id: "ParamAngleX", min: -30, max: 30, default: 0 }],
+        parts: [
+          quadPart(
+            "face",
+            0,
+            200,
+            warp([
+              { value: -30, offsets: shift(-0.075) },
+              { value: 0, offsets: shift(0) },
+              { value: 30, offsets: shift(0.075) },
+            ]),
+          ),
+          quadPart(
+            "eye_L",
+            -50,
+            60,
+            warp([
+              { value: -30, offsets: shift(-0.25) },
+              { value: 0, offsets: shift(0) },
+              { value: 30, offsets: shift(0.5) },
+            ]),
+          ),
+          quadPart(
+            "eye_R",
+            50,
+            60,
+            warp([
+              { value: -30, offsets: line(-30) },
+              { value: -16, offsets: line(-16) },
+              { value: -15, offsets: shift(-0.25 + 1) },
+              { value: -14, offsets: line(-14) },
+              { value: 0, offsets: shift(0) },
+              { value: 30, offsets: line(30) },
+            ]),
+          ),
+        ],
+      };
+      const dir = tmpDir();
+      const modelPath = path.join(dir, "kink.iki");
+      fs.writeFileSync(modelPath, JSON.stringify(m));
+      const { sweep } = await sweepOk({
+        modelPath,
+        outDir: dir,
+        poses: [{ name: "rest", values: {} }],
+        sweep: SWEEP,
+      });
+      const lines = formatSweepReport(sweep.report);
+      expect(lines.find((l) => l.startsWith("SWEEP turn eye_L:"))).toContain(
+        "x kink 0.50",
+      );
+      const eyeR = lines.find((l) => l.startsWith("SWEEP turn eye_R:"))!;
+      expect(Number(/pop (\d+\.\d+)/.exec(eyeR)![1])).toBeGreaterThan(5);
+    }, 120_000);
+  });
 });
