@@ -48,7 +48,7 @@ interface RigInput {
  * signed-normalizes it around its default × `weight`, sums those into one spring
  * target `T`, integrates a lagging spring position `x` with semi-implicit
  * (symplectic) Euler on a fixed 1/60s sub-step accumulator, and writes
- * `outputDefault + (x − L) * scale` onto the output parameter, `L` being the
+ * `outputDefault + (x − L) * scale` (x carried forward by the clock's leftover time) onto the output parameter, `L` being the
  * lag inputs' share of `T` — so the output lags and overshoots the inputs
  * (hair/accessory sway).
  *
@@ -220,7 +220,13 @@ export class PhysicsMotion {
     const outDefault = outParam
       ? clamp(outParam.default, outParam.min, outParam.max)
       : 0;
-    const value = outDefault + (st.x - st.lag) * rig.output.scale;
+    // `x` only moves in whole sub-steps while `lag` is this frame's, so emit x
+    // carried forward by the time since its last sub-step: the output then
+    // follows the frame's time, not how many sub-steps happened to be due.
+    // Extrapolating (not interpolating from the previous state) adds no lag, and
+    // at rest (v = 0) it changes nothing.
+    const x = st.x + st.v * this.clock.remainderS;
+    const value = outDefault + (x - st.lag) * rig.output.scale;
     // Final guard: even a finite-but-enormous `x` could overflow the product to
     // ±Infinity. Emit the rest pose rather than hand a non-finite value to the
     // sink, which would drop the write and leave the output stuck where it was.

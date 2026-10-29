@@ -372,3 +372,43 @@ describe("PhysicsMotion follows or lags each input", () => {
     expect(last(out)).not.toBe(before);
   });
 });
+
+describe("PhysicsMotion emits a continuous series whatever the frame clock", () => {
+  // A lag rig's output is `(x − L)·scale`; `L` follows the input this frame while
+  // `x` moves in whole 1/60 s sub-steps, so a frame that happened to run one
+  // sub-step more or fewer jumped the output by about ΔL·scale (hair jitter).
+  const lagRig = (): IkiPhysics => ({
+    id: "hairSway",
+    inputs: [{ parameter: INPUT, weight: 1, mode: "lag" }],
+    output: { parameter: OUTPUT, scale: -10 },
+    mass: 1,
+    stiffness: 80,
+    damping: 10,
+  });
+  // 25 units/s: 0 → 30 over 1.2 s, a monotonic ramp inside the parameter range.
+  const ramp = (_id: string, t: number) => (25 * t) / 1000;
+  // `i·1000/fps` ms timestamps: the float rounding makes the per-frame sub-step
+  // count vary (0/1/2 at 60 fps, 3/4/5 at 15 fps) although the clock is even.
+  const run = (fps: number, frames: number) =>
+    drive(
+      [lagRig()],
+      PARAMS,
+      ramp,
+      Array.from({ length: frames }, (_, i) => (i * 1000) / fps),
+    ).get(OUTPUT)!;
+
+  // Largest second difference past the launch: a smooth series has a small one,
+  // a sub-step sawtooth jumps by about ΔL·scale between neighbouring frames.
+  const roughness = (a: number[], from: number) => {
+    let worst = 0;
+    for (let i = from; i < a.length - 1; i++) {
+      worst = Math.max(worst, Math.abs(a[i + 1] - 2 * a[i] + a[i - 1]));
+    }
+    return worst;
+  };
+
+  it("a 60 fps clock with sub-ms timestamp noise and a 120 Hz one track the ramp smoothly", () => {
+    expect(roughness(run(60, 72), 12)).toBeLessThan(0.02);
+    expect(roughness(run(120, 144), 24)).toBeLessThan(0.02);
+  });
+});

@@ -29,6 +29,15 @@ export class FixedStepClock {
   }
 
   /**
+   * Time carried in the accumulator, in seconds: how far the frame's timestamp is
+   * past the last whole sub-step. Drivers extrapolate their state by it so what
+   * they emit is the state at the frame's time, not at the last sub-step.
+   */
+  get remainderS(): number {
+    return this.accumulatorS;
+  }
+
+  /**
    * Fold `nowMs` into the accumulator and return how many {@link FIXED_DT_S}
    * sub-steps to run this frame. On the seed frame it only records the
    * timestamp and returns 0. A non-monotonic `nowMs` floors to 0 — no rewind.
