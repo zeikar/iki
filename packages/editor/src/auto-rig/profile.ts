@@ -251,6 +251,8 @@ export function deriveProfile(v: ProfileValues) {
 export const { TURN, NOD, ROLL_DEG, AMPLITUDE, BODY } =
   deriveProfile(PROFILE_VALUES);
 
+export type Profile = ReturnType<typeof deriveProfile>;
+
 /**
  * Per-character tuning, starting from the profile. `turn`, `featureLead` and
  * `sway` multiply the profile (1 = the profile); `hairFollow`,
@@ -298,6 +300,12 @@ export interface ResolvedStyle {
   outlineFollow: number;
   blink: number;
   sway: number;
+  /** The profile, derived once per rig. Its `TURN` reaches `buildTurn` and
+   *  its `AMPLITUDE` reaches `buildPart` through here; `fields.ts`,
+   *  `drivers.ts`, `body.ts`, `face-mesh.ts` and `types.ts` still read the
+   *  module profile (`TURN.earFar`/`earNear`/`mouthTiltDeg`, every `NOD.*`,
+   *  `AMPLITUDE.hiddenNeck`, `ROLL_DEG`, `BODY`). */
+  profile: Profile;
 }
 
 /** Style knobs resolved against the profile; `check` names a bad one. */
@@ -306,14 +314,16 @@ export function resolveStyle(
   check: (key: string, v: unknown, lo: number, hi: number) => number,
 ): ResolvedStyle {
   const s = style ?? {};
+  const profile = deriveProfile(PROFILE_VALUES);
   const get = (key: keyof RigStyle, def: number, lo: number, hi: number) =>
     s[key] === undefined ? def : check(`style.${key}`, s[key], lo, hi);
   return {
     turn: get("turn", 1, 0, 3),
     featureLead: get("featureLead", 1, 0, 3),
-    hairFollow: get("hairFollow", TURN.hairFollow, 0, 2),
-    outlineFollow: get("outlineFollow", TURN.outlineFollow, 0, 2),
-    blink: get("blink", AMPLITUDE.blink, 0.1, 1),
+    hairFollow: get("hairFollow", profile.TURN.hairFollow, 0, 2),
+    outlineFollow: get("outlineFollow", profile.TURN.outlineFollow, 0, 2),
+    blink: get("blink", profile.AMPLITUDE.blink, 0.1, 1),
     sway: get("sway", 1, 0, 5),
+    profile,
   };
 }

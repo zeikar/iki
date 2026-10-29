@@ -134,12 +134,7 @@ import {
   tiltHang,
   type Reach,
 } from "./drivers";
-import {
-  AMPLITUDE,
-  STYLE_KNOBS,
-  resolveStyle,
-  type ResolvedStyle,
-} from "./profile";
+import { STYLE_KNOBS, resolveStyle, type ResolvedStyle } from "./profile";
 import { type GenerateOptions, type LayerInput } from "./types";
 
 /** Mesh cells per role. The plate's head island carries the chin's lead and
@@ -247,7 +242,7 @@ export function generateIkiFromLayerSet(
       : undefined,
   };
   const build = (q: Parameters<typeof buildTurn>[2]) =>
-    buildTurn(solveFrame, landmarks, q);
+    buildTurn(solveFrame, landmarks, q, style.profile.TURN);
   // Without a nose there are no targets, but the art's room still bounds
   // the profile's turn.
   const fit: TurnFit = fitTurn(ctx, targets, style, build);
@@ -524,7 +519,12 @@ function buildPart(
           ),
           localWarp(P.Breath, mesh!, b, [0, 1], (_p, v, i) =>
             v === 1 && isNeck[i]
-              ? [0, (AMPLITUDE.breathBody - AMPLITUDE.breathHead) * hh]
+              ? [
+                  0,
+                  (style.profile.AMPLITUDE.breathBody -
+                    style.profile.AMPLITUDE.breathHead) *
+                    hh,
+                ]
               : [0, 0],
           ),
         );
@@ -575,13 +575,13 @@ function buildPart(
           { parameter: P.MouthOpen, channel: "opacity", from: 1, to: 0 },
           { parameter: P.MouthOpen, channel: "opacity", from: 1, to: 0 },
         );
-        extra = [(AMPLITUDE.mouthOpenWidth - 1) * (bw(b) / 2), 0];
+        extra = [(style.profile.AMPLITUDE.mouthOpenWidth - 1) * (bw(b) / 2), 0];
       } else {
         // One drawing only: stretch it open downward from its top lip, to
         // the profile's open height, and wider.
         const grow = Math.max(
           0,
-          (AMPLITUDE.mouthOpenHeight * bw(b)) / bh(b) - 1,
+          (style.profile.AMPLITUDE.mouthOpenHeight * bw(b)) / bh(b) - 1,
         );
         bindings.push(
           {
@@ -594,7 +594,7 @@ function buildPart(
             parameter: P.MouthOpen,
             channel: "scaleX",
             from: 0,
-            to: roundTo(AMPLITUDE.mouthOpenWidth - 1, 0.01),
+            to: roundTo(style.profile.AMPLITUDE.mouthOpenWidth - 1, 0.01),
           },
           {
             parameter: P.MouthOpen,
@@ -603,7 +603,10 @@ function buildPart(
             to: -roundTo((grow * bh(b)) / 2, 0.01),
           },
         );
-        extra = [(AMPLITUDE.mouthOpenWidth - 1) * (bw(b) / 2), grow * bh(b)];
+        extra = [
+          (style.profile.AMPLITUDE.mouthOpenWidth - 1) * (bw(b) / 2),
+          grow * bh(b),
+        ];
       }
       break;
     case "mouth_open":
@@ -614,7 +617,7 @@ function buildPart(
         from: 0,
         to: 1,
       });
-      extra = [(AMPLITUDE.mouthOpenWidth - 1) * (bw(b) / 2), 0];
+      extra = [(style.profile.AMPLITUDE.mouthOpenWidth - 1) * (bw(b) / 2), 0];
       break;
     case "mouth_inner":
     case "mouth_tongue":
@@ -634,14 +637,14 @@ function buildPart(
       bindings.push({
         parameter: P.Cheek,
         channel: "opacity",
-        from: AMPLITUDE.blushRest,
+        from: style.profile.AMPLITUDE.blushRest,
         to: 1,
       });
       break;
     case "hair_front":
     case "hair_back":
       if (byRole.has("hair_front")) {
-        const amp = style.sway * AMPLITUDE.sway * hh;
+        const amp = style.sway * style.profile.AMPLITUDE.sway * hh;
         if (spec.role === "hair_front") {
           warps.push(
             hairSway(P.HairSwayX, mesh!, b, amp),

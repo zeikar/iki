@@ -22,7 +22,7 @@ import {
   farEarCovered,
   type TurnModel,
 } from "./fields";
-import { TURN, type ResolvedStyle } from "./profile";
+import { type Profile, type ResolvedStyle } from "./profile";
 import {
   TurnTargetError,
   type IrisStrand,
@@ -657,11 +657,12 @@ export function buildTurn(
     "boxes" | "noseAt" | "noseTopY" | "mouthAt" | "hairTop" | "hairFrontGrid"
   >,
   q: TurnParams,
+  turn: Profile["TURN"],
 ): TurnModel {
   const hh = frame.hh;
   const A = q.turn;
-  const face = A * hh * TURN.face;
-  const lead = (v: number) => face + A * q.lead * hh * (v - TURN.face);
+  const face = A * hh * turn.face;
+  const lead = (v: number) => face + A * q.lead * hh * (v - turn.face);
   // How far the far eye's outer corner goes: its shift, less its own
   // narrowing about its centre.
   const eyes = [landmarks.boxes.eye_L, landmarks.boxes.eye_R].filter(
@@ -670,31 +671,31 @@ export function buildTurn(
   const eyeHalf =
     eyes.reduce((sum, e) => sum + (e.x1 - e.x0) / 2, 0) /
     Math.max(1, eyes.length);
-  const farScale = 1 + q.fore * A * (TURN.eyeFarScale - 1);
-  const farCorner = lead(TURN.eyeFar) - (1 - farScale) * eyeHalf;
+  const farScale = 1 + q.fore * A * (turn.eyeFarScale - 1);
+  const farCorner = lead(turn.eyeFar) - (1 - farScale) * eyeHalf;
   return {
     frame,
     face,
-    chinLead: A * q.lead * hh * TURN.chinLead,
-    widthUpper: 1 + A * (TURN.widthUpper - 1),
-    widthJaw: 1 + A * (TURN.widthJaw - 1),
-    eye: { far: lead(TURN.eyeFar), near: lead(TURN.eyeNear) },
+    chinLead: A * q.lead * hh * turn.chinLead,
+    widthUpper: 1 + A * (turn.widthUpper - 1),
+    widthJaw: 1 + A * (turn.widthJaw - 1),
+    eye: { far: lead(turn.eyeFar), near: lead(turn.eyeNear) },
     // The eyes foreshorten as much as the head turns.
     eyeScale: {
-      far: 1 + q.fore * A * (TURN.eyeFarScale - 1),
-      near: 1 + q.fore * A * (TURN.eyeNearScale - 1),
+      far: 1 + q.fore * A * (turn.eyeFarScale - 1),
+      near: 1 + q.fore * A * (turn.eyeNearScale - 1),
     },
-    brow: { far: lead(TURN.browFar), near: lead(TURN.browNear) },
-    nose: q.nose ?? lead(TURN.nose),
-    mouth: q.mouth ?? lead(TURN.mouth),
-    mouthWidth: 1 + A * (TURN.mouthWidth - 1),
+    brow: { far: lead(turn.browFar), near: lead(turn.browNear) },
+    nose: q.nose ?? lead(turn.nose),
+    mouth: q.mouth ?? lead(turn.mouth),
+    mouthWidth: 1 + A * (turn.mouthWidth - 1),
     tilt: A,
     hairFront: q.follow * face,
     hairFar: Math.max(q.follow * face, farCorner),
     hairOuter: q.outline * face,
-    hairBack: A * hh * TURN.hairBack,
+    hairBack: A * hh * turn.hairBack,
     shellScale: q.shell,
-    earFarScale: 1 + A * (TURN.earFarScale - 1),
+    earFarScale: 1 + A * (turn.earFarScale - 1),
     ...landmarks,
   };
 }
