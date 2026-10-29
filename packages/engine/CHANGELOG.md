@@ -1,5 +1,11 @@
 # @ikijs/engine
 
+## 0.10.0
+
+### Minor Changes
+
+- 71eb734: `landParts(model, values, partIds)`: a host- and role-agnostic readout of where parts land at a pose, by the renderer's own path, for geometry diagnostics. Nothing about rendering or motion changes.
+
 ## 0.9.1
 
 ### Patch Changes
