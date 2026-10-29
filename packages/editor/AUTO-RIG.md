@@ -69,7 +69,7 @@ depth and the eyes' foreshortening) beat both.
 | `mouthWiden` | the mouth widens to this much of its width open                                                                     | 1.2    |
 | `brow`       | a brow raises and lowers this far, hh                                                                               | 0.15   |
 | `breath`     | a breath lifts the shoulders this far, hh, and the head two thirds of it                                            | 0.03   |
-| `sway`       | a hair tip travels this far at full sway (±20), hh                                                                  | 0.08   |
+| `sway`       | a hair tip travels this far at full sway (±20), hh                                                                  | 0.24   |
 | `blushRest`  | at Cheek 0 the blush shows at this opacity, at Cheek 1 as drawn (picked with the expressions, below)                | 0.4    |
 
 The plate keeps its width on the turn, the mouth stays level and the eyes keep
@@ -603,27 +603,31 @@ layout or `style`, re-rig, and the patch lands on the new rig.
 - **Hair sway** — with `hair_front`, two springs (`AngleX → HairSwayX`,
   `AngleZ → HairSwayZ`) drive root-pinned swings of `hair_front`, and with
   `hair_back` a third, `hairBack`, drives `hair_back` on its own output
-  `HairBackSway` (k 32, c 2.8: f₀ 0.9 Hz, ζ 0.25, a slower pendulum for the
-  longer layer), the tips travelling 0.08 hh at full sway (±20), growing
-  down the layer as `t^1.4`. All lag the head like a pendulum: the hair
-  trails a turn or tilt, overshoots and settles back to rest while the head
-  holds (the roll's own hang stays the static hang above). An instant step of
-  the head to its end swings the front sway at most 14 (the tilt, 9).
+  `HairBackSway` (k 32, c 4.5: f₀ 0.90 Hz, ζ 0.40, a slower pendulum for the
+  longer layer; the front springs are k 77, c 7: f₀ 1.40 Hz, ζ 0.40), the
+  tips travelling 0.24 hh at full sway (±20), growing down the layer as
+  `t^1.4`. ζ 0.40 is picked from renders: at ζ 0.25 the hair rang twice for
+  about 0.8 s after the Shake ended, which at this travel read as jitter,
+  while ζ 0.40 settles in about 0.2 s. All lag the head like a pendulum: the
+  hair trails a turn or tilt, overshoots and settles back to rest while the
+  head holds (the roll's own hang stays the static hang above). An instant
+  step of the head to its end swings the front sway at most 14 (the tilt, 9).
   `HairSwayX` also follows the idle's `AmbientSway` (declared with the hair)
   at a quarter weight, the hair's slow drift in idle, peaking near 3.7
-  (about 0.015 hh). The back's `AmbientSway` is a lag input at weight 1.1
+  (about 0.044 hh). The back's `AmbientSway` is a lag input at weight 1.1
   (a follow input at any weight would stay in step with the front), which
-  puts the back's idle about 0.47 s behind the front's (r 0.96) and peaking
-  near 2.4. The back's one output adds the turn (`AngleX`, 11 × 1), the tilt
-  (`AngleZ`, 11 × 0.4) and the ambient (11 × 1.1), so those three bounds are
-  held together under 20: `packages/mcp/__tests__/hair-motion.test.ts`
-  drives the real `IkiMotion` through the Shake, the Tilt and a 100 ms
-  turn-and-tilt to the full range from every ambient phase, and the raw
-  peaks stay under 19.5 (front 18.7 in the Shake, back 17.6 in the
-  turn-and-tilt). A one-frame jump of `AmbientSway` (a slider) snaps the
-  back by its bound, as `AngleX` already does. `style.sway` scales the tip
-  travel per sway unit on both layers, so it scales the turn's swing and the
-  idle drift alike; no spring constant is styled.
+  puts the back's idle about 0.62 s behind the front's (r 0.96) and peaking
+  near 3.4 (about 0.040 hh). The back's one output adds the turn (`AngleX`,
+  11 × 1), the tilt (`AngleZ`, 11 × 0.4) and the ambient (11 × 1.1), so those
+  three bounds are held together under 20:
+  `packages/mcp/__tests__/hair-motion.test.ts` drives the real `IkiMotion`
+  through the Shake, the Tilt and a 100 ms turn-and-tilt to the full range
+  from every ambient phase, and the raw peaks stay under 19.5 (front 15.7 in
+  the Shake and the turn-and-tilt, back 18.1 in the turn-and-tilt). A
+  one-frame jump of `AmbientSway` (a slider) snaps the back by its bound, as
+  `AngleX` already does. `style.sway` scales the tip travel per sway unit on
+  both layers, so it scales the turn's swing and the idle drift alike; no
+  spring constant is styled.
 - **Breath** — the shoulders (and the neck) lift 0.03 hh, the head 0.02 hh.
   On a body, the body warp lifts the chin's cell with the shoulders, so the
   head's own breath is the difference, a 0.01 hh drop; the hips and what lies

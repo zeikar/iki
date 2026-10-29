@@ -430,7 +430,7 @@ describe("generateIkiFromLayerSet: the model", () => {
     });
     // The turn and the tilt lag (a held one returns the hair to rest); the
     // idle's ambient sway is followed.
-    const spring = { mass: 1, stiffness: 77, damping: 4.4 };
+    const spring = { mass: 1, stiffness: 77, damping: 7 };
     expect(model.physics).toEqual([
       {
         id: "hairSway",
@@ -461,7 +461,7 @@ describe("generateIkiFromLayerSet: the model", () => {
         output: { parameter: P.HairBackSway, scale: 11 },
         mass: 1,
         stiffness: 32,
-        damping: 2.8,
+        damping: 4.5,
       },
     ]);
     // Front hair without a back layer: the two front springs only.

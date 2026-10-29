@@ -112,7 +112,7 @@ export const PROFILE_VALUES: ProfileValues = {
   mouthWiden: 1.2,
   brow: 0.15,
   breath: 0.03,
-  sway: 0.08,
+  sway: 0.24,
   blushRest: 0.4,
   bodySlide: 0.1,
   bodyNarrow: 0.05,

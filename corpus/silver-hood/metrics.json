@@ -4,10 +4,10 @@
     "height": 4014
   },
   "partCount": 30,
-  "parameterCount": 29,
+  "parameterCount": 30,
   "atlasBytes": 1493436,
-  "modelBytes": 1866413,
-  "modelSha256": "a463fe66e43ca26b86829fe5765d4591bee2770b09077a578683b727af010b5a",
+  "modelBytes": 1864045,
+  "modelSha256": "721a037cd49a9d37776a6d5832002d81d3bf76f477898de2b529a631bd7d372e",
   "turn": {
     "achieved": {
       "eyeShift": 0.1646,
@@ -19,7 +19,7 @@
   },
   "patches": null,
   "folds": {
-    "poses": 2171,
+    "poses": 2173,
     "offenders": []
   },
   "physics": [
@@ -33,7 +33,6 @@
       "kind": "ok",
       "why": null,
       "drives": [
-        "hair_back",
         "hair_front"
       ],
       "step": {
@@ -43,11 +42,11 @@
         "peak": -13.701,
         "at": 0.017,
         "final": 0,
-        "displacementPx": 10.465
+        "displacementPx": 31.394
       },
       "idle": {
-        "peak": 3.68,
-        "displacementPx": 2.811
+        "peak": 3.668,
+        "displacementPx": 8.405
       }
     },
     {
@@ -59,7 +58,6 @@
       "kind": "ok",
       "why": null,
       "drives": [
-        "hair_back",
         "hair_front"
       ],
       "step": {
@@ -69,11 +67,38 @@
         "peak": -8.807,
         "at": 0.017,
         "final": 0,
-        "displacementPx": 6.727
+        "displacementPx": 20.182
       },
       "idle": {
-        "peak": 0.02,
-        "displacementPx": 0.015
+        "peak": 0.022,
+        "displacementPx": 0.05
+      }
+    },
+    {
+      "id": "hairBack",
+      "input": [
+        "ParamAngleX",
+        "ParamAngleZ",
+        "ParamAmbientSway"
+      ],
+      "output": "ParamHairBackSway",
+      "kind": "ok",
+      "why": null,
+      "drives": [
+        "hair_back"
+      ],
+      "step": {
+        "values": {
+          "ParamAmbientSway": 1
+        },
+        "peak": -11.992,
+        "at": 0.017,
+        "final": 0,
+        "displacementPx": 27.487
+      },
+      "idle": {
+        "peak": 4.256,
+        "displacementPx": 9.755
       }
     }
   ],

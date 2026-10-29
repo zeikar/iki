@@ -803,22 +803,24 @@ function deformers(
  *  of the head to its end swings the output at most scale × weight, 14 and 9.
  *  `hairSway` also follows the idle's ambient sway at a quarter weight: a
  *  lagging spring barely stirs under the idle's slow head sway, so this is
- *  the hair's visible drift in idle. f₀ 1.4 Hz and ζ 0.25 give a few visible
- *  swings; scale 14 is picked so the Shake clip with the ambient at its peak
- *  stays inside the ±20 sway range.
+ *  the hair's visible drift in idle. f₀ 1.40 Hz and ζ 0.40 (damping 7) let the hair
+ *  swing out and settle within about one overshoot; a lighter ζ 0.25 rang
+ *  twice for ~0.8 s after the Shake, and with the wider tip travel that read
+ *  as jitter. Scale 14 is picked so the Shake clip with the ambient at its
+ *  peak stays inside the ±20 sway range.
  *
  *  `hairBack` is one merged rig on its own output, a slower pendulum (k 32,
- *  c 2.8: f₀ 0.90 Hz, ζ 0.25, the back layer being the longer one). Its
+ *  c 4.5: f₀ 0.90 Hz, ζ 0.40, the back layer being the longer one). Its
  *  ambient is a LAG input at 1.1: a follow input at any weight stays in step
  *  with the front, while both springs sit far above the ambient's slow
- *  components, so only lag mode puts the back a beat behind (0.47 s). The one
+ *  components, so only lag mode puts the back a beat behind (0.62 s). The one
  *  output adds the turn, the tilt and the ambient, so the three bounds (scale
  *  × weight: 11, 4.4, 12.1) are what hair-motion.test.ts holds under 20
  *  together on the real driver (Shake, Tilt and a full turn-and-tilt, every
  *  ambient phase). A one-frame jump of `AmbientSway` (a slider) snaps the
  *  back by its bound, as `AngleX` already does. */
 function hairPhysics(hasBack: boolean): IkiPhysics[] {
-  const spring = { mass: 1, stiffness: 77, damping: 4.4 };
+  const spring = { mass: 1, stiffness: 77, damping: 7 };
   const rigs: IkiPhysics[] = [
     {
       id: "hairSway",
@@ -847,7 +849,7 @@ function hairPhysics(hasBack: boolean): IkiPhysics[] {
       output: { parameter: P.HairBackSway, scale: 11 },
       mass: 1,
       stiffness: 32,
-      damping: 2.8,
+      damping: 4.5,
     });
   }
   return rigs;

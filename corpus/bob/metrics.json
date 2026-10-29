@@ -4,10 +4,10 @@
     "height": 1100
   },
   "partCount": 22,
-  "parameterCount": 21,
+  "parameterCount": 22,
   "atlasBytes": 549172,
-  "modelBytes": 809783,
-  "modelSha256": "0e185fe1144953e57092990018e4c920ef69e593fa3d53af26f8dd3cb2f3e1e0",
+  "modelBytes": 807615,
+  "modelSha256": "6684fad1dccf10aa6bf8ae2201118f1dfd2e1a33e3e9dc3717e43d675d90f1df",
   "turn": {
     "achieved": {
       "eyeShift": 0.156,
@@ -19,7 +19,7 @@
   },
   "patches": null,
   "folds": {
-    "poses": 619,
+    "poses": 621,
     "offenders": []
   },
   "physics": [
@@ -33,7 +33,6 @@
       "kind": "ok",
       "why": null,
       "drives": [
-        "hair_back",
         "hair_front"
       ],
       "step": {
@@ -43,11 +42,11 @@
         "peak": -13.701,
         "at": 0.017,
         "final": 0,
-        "displacementPx": 9.921
+        "displacementPx": 29.747
       },
       "idle": {
-        "peak": 3.68,
-        "displacementPx": 2.665
+        "peak": 3.668,
+        "displacementPx": 7.964
       }
     },
     {
@@ -59,7 +58,6 @@
       "kind": "ok",
       "why": null,
       "drives": [
-        "hair_back",
         "hair_front"
       ],
       "step": {
@@ -69,11 +67,38 @@
         "peak": -8.807,
         "at": 0.017,
         "final": 0,
-        "displacementPx": 6.378
+        "displacementPx": 19.123
       },
       "idle": {
-        "peak": 0.02,
-        "displacementPx": 0.015
+        "peak": 0.022,
+        "displacementPx": 0.047
+      }
+    },
+    {
+      "id": "hairBack",
+      "input": [
+        "ParamAngleX",
+        "ParamAngleZ",
+        "ParamAmbientSway"
+      ],
+      "output": "ParamHairBackSway",
+      "kind": "ok",
+      "why": null,
+      "drives": [
+        "hair_back"
+      ],
+      "step": {
+        "values": {
+          "ParamAmbientSway": 1
+        },
+        "peak": -11.992,
+        "at": 0.017,
+        "final": 0,
+        "displacementPx": 26.051
+      },
+      "idle": {
+        "peak": 4.256,
+        "displacementPx": 9.245
       }
     }
   ],

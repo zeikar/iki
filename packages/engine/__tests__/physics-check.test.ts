@@ -30,10 +30,11 @@ describe("checkPhysics — examples/playground/public/hero.iki", () => {
   const target = (id: string): PhysicsTarget =>
     report.targets.find((t) => t.rig.id === id)!;
 
-  it("reads both default hair springs as ok", () => {
+  it("reads the three default hair springs as ok", () => {
     expect(report.targets.map((t) => [t.rig, t.kind])).toEqual([
       [{ kind: "spring", id: "hairSway" }, "ok"],
       [{ kind: "spring", id: "hairTilt" }, "ok"],
+      [{ kind: "spring", id: "hairBack" }, "ok"],
     ]);
     expect(report.offenders).toEqual([]);
   });
@@ -47,7 +48,7 @@ describe("checkPhysics — examples/playground/public/hero.iki", () => {
     expectNear(step.peak, -13.7, 0.05);
     expectNear(step.at, 0.02, 0.03);
     expectNear(step.final, 0, 0.05);
-    expectNear(step.displacementPx, 9.92, 0.1);
+    expectNear(step.displacementPx, 29.75, 0.1);
   });
 
   it("steps hairTilt's head roll, which lags the same way", () => {
@@ -57,23 +58,34 @@ describe("checkPhysics — examples/playground/public/hero.iki", () => {
     expect(step.values).toEqual({ ParamAngleZ: 30 });
     expectNear(step.peak, -8.81, 0.05);
     expectNear(step.final, 0, 0.05);
-    expectNear(step.displacementPx, 6.38, 0.1);
+    expectNear(step.displacementPx, 19.12, 0.1);
   });
 
-  it("finds the two hair parts each spring drives", () => {
-    for (const t of report.targets) {
-      expect(t.drives).toEqual([
-        { kind: "part", id: "hair_back" },
-        { kind: "part", id: "hair_front" },
-      ]);
-    }
+  it("steps hairBack's largest bound, the ambient, which lags the same way", () => {
+    const { input, output, step } = target("hairBack");
+    expect(input).toEqual(["ParamAngleX", "ParamAngleZ", "ParamAmbientSway"]);
+    expect(output).toBe("ParamHairBackSway");
+    expect(step.values).toEqual({ ParamAmbientSway: 1 });
+    // The bound −scale·weight = −12.1, less one sub-step.
+    expectNear(step.peak, -11.99, 0.05);
+    expectNear(step.final, 0, 0.05);
+    expectNear(step.displacementPx, 26.05, 0.1);
+  });
+
+  it("finds the one hair part each spring drives", () => {
+    expect(report.targets.map((t) => t.drives)).toEqual([
+      [{ kind: "part", id: "hair_front" }],
+      [{ kind: "part", id: "hair_front" }],
+      [{ kind: "part", id: "hair_back" }],
+    ]);
   });
 
   it("reads each output's idle peak as a size, the sway going both ways", () => {
     // The ambient sway drives hairSway in idle; hairTilt lags the idle's slow
     // roll alone, so it barely stirs.
-    expectNear(target("hairSway").idle.peak, 3.68, 0.05);
+    expectNear(target("hairSway").idle.peak, 3.67, 0.05);
     expectNear(target("hairTilt").idle.peak, 0.02, 0.05);
+    expectNear(target("hairBack").idle.peak, 4.26, 0.05);
   });
 
   it("is deterministic", () => {
