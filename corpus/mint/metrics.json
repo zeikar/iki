@@ -5,13 +5,13 @@
   },
   "partCount": 30,
   "parameterCount": 30,
-  "atlasBytes": 1466640,
-  "modelBytes": 1859343,
-  "modelSha256": "7a5148bd340af6104836ecbbbf6a5f4c7ae928cb70f8748b507559c70a6d7d8d",
+  "atlasBytes": 1451688,
+  "modelBytes": 1843975,
+  "modelSha256": "3a50841db83f26bed05d8d1ddf779abe517eaec2075b95aa4668055e86f312ad",
   "turn": {
     "achieved": {
-      "eyeShift": 0.1562,
-      "farEyeRatio": 0.7247,
+      "eyeShift": 0.1561,
+      "farEyeRatio": 0.7273,
       "silhouetteRatio": 1
     },
     "clamped": [],
@@ -25,12 +25,12 @@
         "ParamAngleX": -30,
         "ParamAngleY": -30
       },
-      "moved": 35,
-      "of": 35,
+      "moved": 30,
+      "of": 30,
       "maxPx": 12.1,
       "cols": [
         0,
-        6
+        5
       ],
       "rows": [
         0,
@@ -45,7 +45,7 @@
         "ParamAngleY": -30
       },
       "moved": 15,
-      "of": 35,
+      "of": 30,
       "maxPx": 6.8,
       "cols": [
         0,
@@ -63,12 +63,12 @@
         "ParamAngleX": -30,
         "ParamAngleY": 0
       },
-      "moved": 35,
-      "of": 35,
+      "moved": 30,
+      "of": 30,
       "maxPx": 3.2,
       "cols": [
         0,
-        6
+        5
       ],
       "rows": [
         0,
@@ -83,7 +83,7 @@
         "ParamAngleY": 0
       },
       "moved": 15,
-      "of": 35,
+      "of": 30,
       "maxPx": 3.2,
       "cols": [
         0,
