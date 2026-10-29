@@ -112,7 +112,7 @@ after the arrow.
 9. `turn` — what reads off on `turn-p30`: the far eye leaving the face outline,
    the mouth drifting past the jaw line. → a layout key when placement caused
    it, otherwise a note only; the fidelity critic owns the rig and the
-   `style.json` knobs.
+   `rig-plan.json` fields.
 
 An item with no render to judge it (no closed-mouth crop, say) scores `n/a` and
 leaves the total's denominator.
@@ -132,7 +132,7 @@ leaves the total's denominator.
 - **`refer`** — item 5's curve only. Names the mouth and what reads off, with no
   target.
 
-Never `escalate`: rig code and `style.json` are the fidelity critic's. A 4 or 5
+Never `escalate`: rig code and `rig-plan.json` are the fidelity critic's. A 4 or 5
 never needs a finding; an item at 3 or below needs a finding or a `NOTES:`
 reason why not. Minor taste notes are not findings; they go on the one `NOTES:`
 line. The verdict is `stop` only when `FINDINGS` is `none` (no `retune`, no

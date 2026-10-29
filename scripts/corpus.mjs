@@ -4,7 +4,7 @@
  *
  * Each directory under `corpus/` with a `layers/` folder is one character,
  * rigged with the options the plugin's character artist rigs with:
- * `quantizeColors` 256, `style.json` verbatim, the whole `patches.json` list
+ * `quantizeColors` 256, `rig-plan.json` verbatim, the whole `patches.json` list
  * and no `turnTargets`. Update mode writes the model to
  * `examples/playground/public/<name>.iki` (bob's to `hero.iki`: it is the
  * site's hero) and its metrics to
@@ -128,8 +128,8 @@ async function rig(name, outputPath) {
     .filter((file) => file.endsWith(".png"))
     .sort()
     .map((file) => ({ path: path.join(layersDir, file) }));
-  const style = JSON.parse(
-    await readFile(path.join(characterDir, "style.json"), "utf8"),
+  const rigPlan = JSON.parse(
+    await readFile(path.join(characterDir, "rig-plan.json"), "utf8"),
   );
   const patchesFile = await readIfExists(
     path.join(characterDir, "patches.json"),
@@ -150,7 +150,7 @@ async function rig(name, outputPath) {
     layers,
     outputPath,
     quantizeColors: 256,
-    style,
+    rigPlan,
     ...(patches === undefined ? {} : { patches }),
   });
   if (!result.ok) {

@@ -6,6 +6,8 @@ import {
   describeIki,
   describeIkiAt,
   listStandardParameters,
+  describeRigPlan,
+  formatRigPlanReport,
   autoRigFromLayers,
 } from "./tools";
 import { composeLayersFromParts } from "./compose";
@@ -127,10 +129,32 @@ export function createIkiMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "describe_rig_plan",
+    {
+      description:
+        "Lists the fields of the `rigPlan` input of auto_rig_from_layers: each one's path, default, range, recommended span, step, unit, the poses it shows at, the report reading that shows it and the `turnTargets` cue that fits it when given. The one source of those numbers.",
+      inputSchema: {},
+    },
+    async () => {
+      const { fields } = describeRigPlan();
+      const text = fields
+        .map(
+          (f) =>
+            `${f.path} default ${f.default} range ${f.range[0]}..${f.range[1]} recommended ${f.recommended[0]}..${f.recommended[1]} step ${f.step} ${f.unit} — ${f.what}; shows at ${f.poses.map((p) => JSON.stringify(p)).join(" ")}; cue ${f.cue ?? "none"}; fitted by ${f.fitBy ?? "none"}${f.provisional ? "; provisional" : ""}`,
+        )
+        .join("\n");
+      return {
+        content: [{ type: "text", text }],
+        structuredContent: { fields },
+      };
+    },
+  );
+
+  server.registerTool(
     "auto_rig_from_layers",
     {
       description:
-        "Auto-rigs role-named PNG layers (face, eye_L/eye_R and either mouth or the lip set (mouth_inner + lip_lower + lip_upper, a mouth that folds open instead of crossfading) required; iris_L/R, brow_L/R, hair_front, body, arm_L/arm_R, forearm_pose_L/forearm_pose_R, mouth_tongue/mouth_teeth (only with the lip set: drawn under its lips and clipped to mouth_inner), etc. optional; an arm needs the body, a pose forearm needs its arm, and a partial lip set, one mixed with mouth/mouth_open, or mouth_tongue/mouth_teeth without it is refused) into a renderable .iki written to disk. Pass full-canvas PNG file paths; returns the output path + summary (the model is NOT inlined). Filenames map to roles unless `fileName` is given. The result's `folds` is the written rig's fold report, printed after the path the way render_poses prints it, and report-only: a fold never refuses the rig. The `PHYSICS` lines follow the fold report (the result's `physics`), one per physics rig output — a spring's, or each chain segment's — reading ok, frozen or unstable with the step and idle amplitudes, or `PHYSICS: no rigs`; report-only too. `patches` (see its field) adds displacements to existing keyform stops of the freshly generated rig; each op then prints one line between the path and the fold report — `PATCH <i> <target> at <Param=v …>: <moved> of <of> points (cols a-b, rows c-d), largest move <maxPx> model px`, with `(vertices)` in place of the columns and rows for a mesh part — and the result's `patches` carries the same reports (`index`, `target`, `at`, `moved`, `of`, `cols`/`rows` for a grid, `maxPx`), present whenever `patches` was passed, `[]` included. An op the input schema accepts but the rig refuses comes back as `INVALID: patches[i]…` and nothing is written; an op with a missing field or a field of the wrong type is the SDK's input validation error.",
+        "Auto-rigs role-named PNG layers (face, eye_L/eye_R and either mouth or the lip set (mouth_inner + lip_lower + lip_upper, a mouth that folds open instead of crossfading) required; iris_L/R, brow_L/R, hair_front, body, arm_L/arm_R, forearm_pose_L/forearm_pose_R, mouth_tongue/mouth_teeth (only with the lip set: drawn under its lips and clipped to mouth_inner), etc. optional; an arm needs the body, a pose forearm needs its arm, and a partial lip set, one mixed with mouth/mouth_open, or mouth_tongue/mouth_teeth without it is refused) into a renderable .iki written to disk. Pass full-canvas PNG file paths; returns the output path + summary (the model is NOT inlined). Filenames map to roles unless `fileName` is given. The result's `folds` is the written rig's fold report, printed after the path the way render_poses prints it, and report-only: a fold never refuses the rig. The `RIGPLAN:` line (the result's `rigPlan`: `effective`, `clamped`, `overriddenBy`) follows the path and precedes the `PATCH` lines. The `PHYSICS` lines follow the fold report (the result's `physics`), one per physics rig output — a spring's, or each chain segment's — reading ok, frozen or unstable with the step and idle amplitudes, or `PHYSICS: no rigs`; report-only too. `patches` (see its field) adds displacements to existing keyform stops of the freshly generated rig; each op then prints one line between the path and the fold report — `PATCH <i> <target> at <Param=v …>: <moved> of <of> points (cols a-b, rows c-d), largest move <maxPx> model px`, with `(vertices)` in place of the columns and rows for a mesh part — and the result's `patches` carries the same reports (`index`, `target`, `at`, `moved`, `of`, `cols`/`rows` for a grid, `maxPx`), present whenever `patches` was passed, `[]` included. An op the input schema accepts but the rig refuses comes back as `INVALID: patches[i]…` and nothing is written; an op with a missing field or a field of the wrong type is the SDK's input validation error.",
       inputSchema: {
         layers: z
           .array(
@@ -176,18 +200,37 @@ export function createIkiMcpServer(): McpServer {
             "What the head turn is fitted to, as `measure_turn_reference` reports it off a front/turned reference pair. `eyeShift` (and the optional `noseShift`/`mouthShift`) is how far that feature slides across the head at full turn, as a fraction of the head's half-width — a MAGNITUDE: the rig turns both ways, so the sign is ignored. `farEyeRatio` is the far/near eye width at full turn over that same ratio at rest, `silhouetteRatio` the head's half-width turned over at rest. The half-width the shifts are fractions of is measured off the layers themselves, so it is not an input. An omitted field leaves that part of the turn at the profile the rig defaults to. A passed `eyeShift` is fitted by the turn's amount and clamped to the room the art leaves the far eye — the face plate's edge, or the bangs' side strand over the far iris (the result's `turn.clamped` lists every clamped field, `turn.achieved` what the rig reaches, and `turn.strandOverlap` how much of a far iris the bangs still cover). A passed `silhouetteRatio` is clamped too, only on a face drawn without hair and with ear islands, where narrowing the head that far would no longer cover the far ear's slide. Any other passed target this layer set cannot reach comes back as `INVALID: …` naming the field and the attainable range, since it is a measurement rather than a preference. A field not named here is refused the same way.",
           ),
         style: z
+          .unknown()
+          .optional()
+          .describe(
+            "Removed in @ikijs/mcp 0.30.0: pass `rigPlan`. Any value here is refused with the field map.",
+          ),
+        rigPlan: z
           .object({
-            turn: z.number().optional(),
-            featureLead: z.number().optional(),
-            hairFollow: z.number().optional(),
-            outlineFollow: z.number().optional(),
-            blink: z.number().optional(),
-            sway: z.number().optional(),
+            turn: z
+              .object({
+                amount: z.number().optional(),
+                featureLead: z.number().optional(),
+              })
+              .passthrough()
+              .optional(),
+            hair: z
+              .object({
+                follow: z.number().optional(),
+                outlineFollow: z.number().optional(),
+                sway: z.number().optional(),
+              })
+              .passthrough()
+              .optional(),
+            eyes: z
+              .object({ blink: z.number().optional() })
+              .passthrough()
+              .optional(),
           })
           .passthrough()
           .optional()
           .describe(
-            "Per-character tuning from the profile the rig defaults to: `turn` scales the whole head turn (plate, features, hair and the eyes' foreshortening; 0..3, 1 = the profile; ignored when `turnTargets.eyeShift` is given), `featureLead` how far the features lead the face plate (0..3, 1 = the profile), `hairFollow` the front hair's share of the face's turn (0..2, profile 1), `outlineFollow` its outer edge's share where the front hair draws the head's outline (0..2, profile 0: the outline holds), `blink` how far the upper lid comes down over the eye's height (0.1..1, profile 0.6), `sway` the hair sway amplitude (0..5, 1 = the profile). A value out of range, or a knob not named here, comes back as `INVALID: …`.",
+            "Per-character tuning from the profile the rig defaults to, in three groups: `turn` (`amount`, `featureLead`), `hair` (`follow`, `outlineFollow`, `sway`) and `eyes` (`blink`). `describe_rig_plan` lists every field's default, range, recommended span, step and poses. A value out of range, or a group or key not named there, comes back as `INVALID: rigPlan.<path> …`; an object left out or `{}` is the profile. The result reports what the rig built with as `rigPlan` and a `RIGPLAN:` line.",
           ),
         patches: z
           .array(
@@ -212,7 +255,7 @@ export function createIkiMcpServer(): McpServer {
           )
           .optional()
           .describe(
-            "Displacements ADDED to EXISTING keyform stops of the freshly generated rig, each op `{ target, at, region, by, falloff?, why? }`. They are replayed on every rig of these inputs, over whatever the rig now bakes, so they hold through a layout or `style` retune; ops on one stop add up, whatever their order. `target` is a feature grid — `eyeWarp_L`, `eyeWarp_R`, `browWarp_L`, `browWarp_R`, `noseWarp`, `mouthWarp`, whose `at` names both `ParamAngleX` and `ParamAngleY`, each -30, 0 or 30, never both 0 — or a mesh part with warps (`face`, `hair_front`, …), whose `at` names exactly one parameter at one of that part's warp keyform values, never the parameter's default nor the stop where the rig shuts the part on purpose (`eye_*` and `lash_lower_*` at their `ParamEye*Open` 0, the lip set and its tongue and teeth at `ParamMouthOpenY` 0), which the fold check exempts, nor a `ParamAngleZ` or `ParamBodyAngleZ` stop (they roll the deformers the part hangs under, so a displacement there is turned off the screen axes). The rest pose is the drawn art and no patch changes it. `bodyWarp` and the matrix deformers are not targets, and a patch adds no stop and changes no parameter range. `region` `{ role, x: [from, to], y: [from, to] }` is a rectangle in fractions of the REST layer box (the opaque crop) of `role`, origin top-left, x right, y DOWN, and may reach past the box: the target's points whose REST position lies inside take the whole of `by`, those within `falloff` of it a smooth share, the rest nothing. `by` `{ dx, dy }` and `falloff` are in face widths (the `face` layer's crop width), on screen axes: +dx toward the viewer's right (a character's `_L` side), +dy DOWN. Between stops the engine blends linearly, so a fix at ParamAngleX -30 shows at half strength at -15 and none at rest. `why` is a note the rig ignores. An op this schema accepts but the rig refuses — an unknown key, target, role or stop, the rest stop or a shut stop, a region running backwards or catching none of the target's points — comes back as `INVALID: patches[i]…`, listing the keys, targets, stops or roles there are, or where the target's points lie in the role's box, and nothing is written; a missing field or one of the wrong type is refused by the schema itself, as the SDK's input validation error.",
+            "Displacements ADDED to EXISTING keyform stops of the freshly generated rig, each op `{ target, at, region, by, falloff?, why? }`. They are replayed on every rig of these inputs, over whatever the rig now bakes, so they hold through a layout or `rigPlan` retune; ops on one stop add up, whatever their order. `target` is a feature grid — `eyeWarp_L`, `eyeWarp_R`, `browWarp_L`, `browWarp_R`, `noseWarp`, `mouthWarp`, whose `at` names both `ParamAngleX` and `ParamAngleY`, each -30, 0 or 30, never both 0 — or a mesh part with warps (`face`, `hair_front`, …), whose `at` names exactly one parameter at one of that part's warp keyform values, never the parameter's default nor the stop where the rig shuts the part on purpose (`eye_*` and `lash_lower_*` at their `ParamEye*Open` 0, the lip set and its tongue and teeth at `ParamMouthOpenY` 0), which the fold check exempts, nor a `ParamAngleZ` or `ParamBodyAngleZ` stop (they roll the deformers the part hangs under, so a displacement there is turned off the screen axes). The rest pose is the drawn art and no patch changes it. `bodyWarp` and the matrix deformers are not targets, and a patch adds no stop and changes no parameter range. `region` `{ role, x: [from, to], y: [from, to] }` is a rectangle in fractions of the REST layer box (the opaque crop) of `role`, origin top-left, x right, y DOWN, and may reach past the box: the target's points whose REST position lies inside take the whole of `by`, those within `falloff` of it a smooth share, the rest nothing. `by` `{ dx, dy }` and `falloff` are in face widths (the `face` layer's crop width), on screen axes: +dx toward the viewer's right (a character's `_L` side), +dy DOWN. Between stops the engine blends linearly, so a fix at ParamAngleX -30 shows at half strength at -15 and none at rest. `why` is a note the rig ignores. An op this schema accepts but the rig refuses — an unknown key, target, role or stop, the rest stop or a shut stop, a region running backwards or catching none of the target's points — comes back as `INVALID: patches[i]…`, listing the keys, targets, stops or roles there are, or where the target's points lie in the role's box, and nothing is written; a missing field or one of the wrong type is refused by the schema itself, as the SDK's input validation error.",
           ),
       },
     },
@@ -227,6 +270,7 @@ export function createIkiMcpServer(): McpServer {
         const text = r.ok
           ? [
               r.path,
+              formatRigPlanReport(r.rigPlan),
               ...formatPatchReports(r.patches ?? []),
               ...formatFoldReport(r.folds, r.canvas),
               ...formatPhysicsReport(r.physics),
@@ -404,7 +448,7 @@ export function createIkiMcpServer(): McpServer {
     "render_poses",
     {
       description:
-        "Renders a rigged .iki into the character loop's pose PNGs with the real engine, through the installed Chrome, Edge or Chromium run headless (set CHROME_PATH to pick one). The model decides the set: a bust gets 560x560 shots (rest, turns, nod, blinks, gaze, combined — ParamAngleX/Y/Z all at 30 — and stress: ParamAngleX/Y/Z all at -30, ParamMouthOpenY 1, both eyes at 0.5, the brows at opposite extremes (ParamBrowLY -1, ParamBrowRY 1, ParamBrowLAngle 1, ParamBrowRAngle -1) and each body angle the model declares at -10); a mouth adds 720x480 mouth crops; a full body (taller than wide) adds the full-canvas body, arm and elbow poses on a 1400-wide canvas, and a model with a pose forearm adds the full-pose-* shots. Given `poses` (see its field), the standard set is not rendered: only those poses are, each crop clamped to the model's canvas. Writes <pose>.png files into outDir, overwriting same-named files in place; returns the written paths one per line, then the model's fold report (the result's `folds`), checked by the engine over its own pose set plus any `poses`, each of which a `FOLD` line names by its settings, not its PNG name: a `FOLD` line per warp deformer or mesh part that flips (ratio <= 0) or collapses (under 0.1) at some pose — its cell or triangle, the ratio of its area there to at rest, the pose as its parameter settings (`rest` for none) and where it rests, in model space and in model px from the top-left (the layer PNGs' own pixels, not a render's) — or `FOLDS: none over N poses`, then a `FOLDS expected:` line naming the closures the rig draws on purpose (an eye or the mouth shut), each by part id, ratio and the parameter that shuts it. Report-only: a fold never fails the render. The `PHYSICS` lines follow the fold report (the result's `physics`), one per physics rig output of the model's own rigs — `poses` do not enter it — reading ok, frozen or unstable with the step and idle amplitudes, or `PHYSICS: no rigs`; report-only too. Fails with INVALID when no browser is found or an input is refused; a browser that cannot start is a tool error.",
+        "Renders a rigged .iki into the character loop's pose PNGs with the real engine, through the installed Chrome, Edge or Chromium run headless (set CHROME_PATH to pick one). The model decides the set: a bust gets 560x560 shots (rest, turns, nod, blinks, gaze, combined — ParamAngleX/Y/Z all at 30 — and stress: ParamAngleX/Y/Z all at -30, ParamMouthOpenY 1, both eyes at 0.5, the brows at opposite extremes (ParamBrowLY -1, ParamBrowRY 1, ParamBrowLAngle 1, ParamBrowRAngle -1) and each body angle the model declares at -10); a mouth adds 720x480 mouth crops; a full body (taller than wide) adds the full-canvas body, arm and elbow poses on a 1400-wide canvas, and a model with a pose forearm adds the full-pose-* shots. Given `poses` (see its field), the standard set is not rendered: only those poses are, each crop clamped to the model's canvas. Writes <pose>.png files into outDir, overwriting same-named files in place; returns the written paths one per line, then the model's fold report (the result's `folds`), checked by the engine over its own pose set plus any `poses`, each of which a `FOLD` line names by its settings, not its PNG name: a `FOLD` line per warp deformer or mesh part that flips (ratio <= 0) or collapses (under 0.1) at some pose — its cell or triangle, the ratio of its area there to at rest, the pose as its parameter settings (`rest` for none) and where it rests, in model space and in model px from the top-left (the layer PNGs' own pixels, not a render's) — or `FOLDS: none over N poses`, then a `FOLDS expected:` line naming the closures the rig draws on purpose (an eye or the mouth shut), each by part id, ratio and the parameter that shuts it. Report-only: a fold never fails the render. The `RIGPLAN:` line (the result's `rigPlan`: `effective`, `clamped`, `overriddenBy`) follows the path and precedes the `PATCH` lines. The `PHYSICS` lines follow the fold report (the result's `physics`), one per physics rig output of the model's own rigs — `poses` do not enter it — reading ok, frozen or unstable with the step and idle amplitudes, or `PHYSICS: no rigs`; report-only too. Fails with INVALID when no browser is found or an input is refused; a browser that cannot start is a tool error.",
       inputSchema: {
         modelPath: z
           .string()

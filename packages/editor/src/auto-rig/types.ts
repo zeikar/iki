@@ -4,7 +4,8 @@
  * lives in `layer-measure.ts`; everything here is already-decoded geometry.
  */
 
-import { TURN, type RigStyle } from "./profile";
+import { TURN } from "./profile";
+import { type RigPlan, type RigPlanReport } from "./rig-plan";
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
@@ -225,8 +226,14 @@ export interface HeadEdges {
 
 export interface GenerateOptions {
   turnTargets?: TurnTargets;
-  /** Per-character tuning from the profile's defaults (`profile.ts`). */
-  style?: RigStyle;
+  /** Per-character tuning from the profile's defaults, validated against
+   *  `RIG_PLAN_FIELDS`; a bad field throws `RigPlanError`. */
+  rigPlan?: RigPlan;
+  /** Removed: pass `rigPlan`. A value here throws `RigPlanError`. */
+  style?: never;
+  /** What the rig built with, next to what `rigPlan` asked — called for every
+   *  model that validates, with or without a nose. */
+  onRigPlanResolved?: (report: RigPlanReport) => void;
   onTurnSolved?: (report: TurnSolveReport) => void;
   /** Displacements added to the generated rig's stops (`RigPatch`), replayed
    *  on every rig; a refused op throws `PatchError` and rigs nothing. */

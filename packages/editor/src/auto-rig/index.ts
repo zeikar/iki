@@ -12,7 +12,14 @@ export {
   type TurnSolveReport,
   type TurnTargets,
 } from "./types";
-export { type RigStyle } from "./profile";
+export {
+  RigPlanError,
+  RIG_PLAN_FIELDS,
+  styleRemovedMessage,
+  type RigPlan,
+  type RigPlanField,
+  type RigPlanReport,
+} from "./rig-plan";
 export { armGeometry, type ArmGeometry } from "./arms";
 export { forearmPoseGeometry, type ForearmPoseGeometry } from "./forearm-pose";
 export {

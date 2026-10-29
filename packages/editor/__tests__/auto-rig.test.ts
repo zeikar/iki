@@ -6,6 +6,7 @@ import {
 } from "@ikijs/format";
 import {
   DEFAULT_TURN_TARGETS,
+  RigPlanError,
   TurnTargetError,
   generateIkiFromLayerSet,
   parseLayerRoles,
@@ -126,10 +127,10 @@ function rig(
   opts: CharacterOptions = {},
   targets: TurnTargets = {},
   {
-    style,
+    rigPlan,
     drop = () => false,
   }: {
-    style?: GenerateOptions["style"];
+    rigPlan?: GenerateOptions["rigPlan"];
     /** The roles whose `rowRuns` to leave out. */
     drop?: (role: string) => boolean;
   } = {},
@@ -141,7 +142,7 @@ function rig(
     CANVAS,
     {
       ...options,
-      style,
+      rigPlan,
       turnTargets: { ...targets, ...options.turnTargets },
       onTurnSolved: (r) => {
         report = r;
@@ -1087,15 +1088,15 @@ describe("the head turn", () => {
       for (const ax of [-30, -15, 15, 30])
         for (const ay of [-30, -15, 0, 15, 30])
           for (const az of [-30, 0, 30]) poses.push([ax, ay, az]);
-      for (const style of [
+      for (const plan of [
         {},
-        { hairFollow: 2 },
-        { hairFollow: 2, turn: 1.25 },
+        { hair: { follow: 2 } },
+        { hair: { follow: 2 }, turn: { amount: 1.25 } },
       ]) {
-        const { model: m } = rig(opts, {}, { style });
+        const { model: m } = rig(opts, {}, { rigPlan: plan });
         expect(capBottom(m)).toBe(330);
         const { edges, sides } = expectCapBound(
-          `narrowCap ${JSON.stringify(style)}`,
+          `narrowCap ${JSON.stringify(plan)}`,
           opts,
           m,
           poses,
@@ -1117,17 +1118,17 @@ describe("the head turn", () => {
       const opts = { narrowCap: true };
       const back = layerOf(opts, "hair_back");
       const front = layerOf(opts, "hair_front");
-      for (const style of [
+      for (const plan of [
         {},
-        { hairFollow: 2 },
-        { hairFollow: 2, turn: 1.25 },
+        { hair: { follow: 2 } },
+        { hair: { follow: 2 }, turn: { amount: 1.25 } },
       ]) {
-        const { model: m } = rig(opts, {}, { style });
-        const held = rig(opts, {}, { style, drop: ALL_RUNS }).model;
-        const turn = style.turn ?? 1;
-        const binds = style.hairFollow !== undefined;
+        const { model: m } = rig(opts, {}, { rigPlan: plan });
+        const held = rig(opts, {}, { rigPlan: plan, drop: ALL_RUNS }).model;
+        const turn = plan.turn?.amount ?? 1;
+        const binds = plan.hair?.follow !== undefined;
         for (const ax of [-30, 30]) {
-          const label = `${JSON.stringify(style)}, AngleX ${ax}`;
+          const label = `${JSON.stringify(plan)}, AngleX ${ax}`;
           // A dome row's bangs at the axis (canvas row 130).
           const y = 370;
           expect(shift(m, 0, y, ax), label).toBeGreaterThan(
@@ -1167,9 +1168,9 @@ describe("the head turn", () => {
       // the eyes' outer corners today's follow is the same in every column,
       // so a cell's width at a full turn is its rest width there.
       const opts = { narrowCap: true };
-      const style = { hairFollow: 2 };
-      const { model: m } = rig(opts, {}, { style });
-      const held = rig(opts, {}, { style, drop: ALL_RUNS }).model;
+      const rigPlan = { hair: { follow: 2 } };
+      const { model: m } = rig(opts, {}, { rigPlan });
+      const held = rig(opts, {}, { rigPlan, drop: ALL_RUNS }).model;
       const part = m.parts.find((p) => p.id === "hair_front")!;
       const columns = new Set(part.mesh!.vertices.filter((_, i) => i % 2 === 0))
         .size;
@@ -1232,7 +1233,11 @@ describe("the head turn", () => {
      *  as silver-hood's cap row at y 0.333 did. The cap rows under it pass
      *  over the tucked rows looking down and blend wholly. */
     const tucked = (drop?: typeof ALL_RUNS) =>
-      rig({ tuckedTemple: true }, {}, { style: { hairFollow: 2 }, drop }).model;
+      rig(
+        { tuckedTemple: true },
+        {},
+        { rigPlan: { hair: { follow: 2 } }, drop },
+      ).model;
     const tuckedModel = tucked();
     const tuckedHeld = tucked(ALL_RUNS);
 
@@ -1331,10 +1336,10 @@ describe("the head turn", () => {
       // mesh refined to three rows there, no adjacent pair of vertex rows at
       // the axis steps over 0.45 of that (the widest is 27 px).
       const JUMP = 0.45 * 65;
-      for (const [name, opts, style] of [
-        ["tuckedTemple", { tuckedTemple: true }, { hairFollow: 2 }],
+      for (const [name, opts, rigPlan] of [
+        ["tuckedTemple", { tuckedTemple: true }, { hair: { follow: 2 } }],
       ] as const) {
-        const { model } = rig(opts, {}, { style });
+        const { model } = rig(opts, {}, { rigPlan });
         const { ys, last } = capRows(model);
         const irisTop = Math.max(
           ...["iris_L", "iris_R"].map((id) => {
@@ -1363,10 +1368,10 @@ describe("the head turn", () => {
       // pack its fall into the narrow cells. The step per px of height over
       // the cells from the cap's last row to the ramp's end stays within 1.5×
       // of its mean.
-      for (const [name, opts, style] of [
-        ["tuckedTemple", { tuckedTemple: true }, { hairFollow: 2 }],
+      for (const [name, opts, rigPlan] of [
+        ["tuckedTemple", { tuckedTemple: true }, { hair: { follow: 2 } }],
       ] as const) {
-        const { model } = rig(opts, {}, { style });
+        const { model } = rig(opts, {}, { rigPlan });
         const { ys, last, zero } = capRows(model);
         expect(zero - last, name).toBeGreaterThanOrEqual(3);
         for (const ax of [-30, 30]) {
@@ -1628,9 +1633,9 @@ describe("the head turn", () => {
       });
 
       it("holds when the front hair barely moves and only the face's turn meets the gap", () => {
-        const style = { hairFollow: 0 };
-        const m = rig(opts, {}, { style }).model;
-        const held = rig(opts, {}, { style, drop: ALL_RUNS }).model;
+        const rigPlan = { hair: { follow: 0 } };
+        const m = rig(opts, {}, { rigPlan }).model;
+        const held = rig(opts, {}, { rigPlan, drop: ALL_RUNS }).model;
         for (const ax of [15, 30]) expectHeld(m, held, ax);
       });
 
@@ -1638,16 +1643,16 @@ describe("the head turn", () => {
         // Turning toward −x the front hair keeps pace with the face; the
         // shell term pulls the gap's left end 20 px in, and it meets the face
         // late in the turn.
-        const style = { hairFollow: 1 };
+        const rigPlan = { hair: { follow: 1 } };
         const targets = { silhouetteRatio: 0.85 };
-        const { model: m, report } = rig(opts, targets, { style });
+        const { model: m, report } = rig(opts, targets, { rigPlan });
         expect(report!.achieved.silhouetteRatio).toBeCloseTo(0.85, 2);
-        const held = rig(opts, targets, { style, drop: ALL_RUNS }).model;
+        const held = rig(opts, targets, { rigPlan, drop: ALL_RUNS }).model;
         for (const ax of [-15, -30]) expectHeld(m, held, ax);
       });
 
       it("rides when the front hair keeps pace with the face and no shell term brings them together", () => {
-        const m = rig(opts, {}, { style: { hairFollow: 1 } }).model;
+        const m = rig(opts, {}, { rigPlan: { hair: { follow: 1 } } }).model;
         expect(shift(m, 0, 400, -30)).toBeCloseTo(TURN.face, 2);
       });
     });
@@ -1864,7 +1869,7 @@ describe("the head turn", () => {
     let riding: TurnSolveReport | undefined;
     generateIkiFromLayerSet(layers, CANVAS, {
       ...options,
-      style: { outlineFollow: 1.1 },
+      rigPlan: { hair: { outlineFollow: 1.1 } },
       onTurnSolved: (r) => {
         riding = r;
       },
@@ -2539,13 +2544,13 @@ describe("turn targets", () => {
     );
   });
 
-  it("leaves style.turn out when a caller's eye shift fits the turn", () => {
+  it("leaves rigPlan.turn.amount out when a caller's eye shift fits the turn", () => {
     const e = 0.8 * hero.report!.achieved.eyeShift;
     const { layers, options } = character();
     const styled = generateIkiFromLayerSet(layers, CANVAS, {
       ...options,
       turnTargets: { ...options.turnTargets, eyeShift: e },
-      style: { turn: 0.5 },
+      rigPlan: { turn: { amount: 0.5 } },
     });
     expect(styled).toEqual(rig({}, { eyeShift: e }).model);
   });
@@ -2629,11 +2634,15 @@ describe("turn targets", () => {
     );
   });
 
-  it("tunes a character from the profile with its style knobs", () => {
+  it("tunes a character from the profile with its rig plan", () => {
     const { layers, options } = character();
     const m = generateIkiFromLayerSet(layers, CANVAS, {
       ...options,
-      style: { turn: 0.5, hairFollow: 1, sway: 2, blink: 0.4 },
+      rigPlan: {
+        turn: { amount: 0.5 },
+        hair: { follow: 1, sway: 2 },
+        eyes: { blink: 0.4 },
+      },
     });
     const shift = (model: IkiModel, id: string, x: number, y: number) =>
       landedXAt(model, id, x, y, X30(30)) - x;
@@ -2648,13 +2657,15 @@ describe("turn targets", () => {
       landedXAt(model, "hair_back", 0, -470, { [P.HairBackSway]: 20 });
     expect(hairEnd(m) / hairEnd(hero.model)).toBeCloseTo(2, 1);
     expect(() =>
-      generateIkiFromLayerSet(layers, CANVAS, { style: { turn: -1 } }),
-    ).toThrow(/style\.turn/);
+      generateIkiFromLayerSet(layers, CANVAS, {
+        rigPlan: { turn: { amount: -1 } },
+      }),
+    ).toThrow(/rigPlan\.turn\.amount -1 is outside/);
     // No turn, no foreshortening.
     let still: TurnSolveReport | undefined;
     generateIkiFromLayerSet(layers, CANVAS, {
       ...options,
-      style: { turn: 0 },
+      rigPlan: { turn: { amount: 0 } },
       onTurnSolved: (r) => {
         still = r;
       },
@@ -2742,16 +2753,20 @@ describe("turn targets", () => {
     expect(withLeft({ irisOuter: -140, irisInner: -110 })).not.toThrow();
   });
 
-  it("refuses a style or turnTargets that is not a plain object, or names a field it has not", () => {
+  it("refuses a rigPlan or turnTargets that is not a plain object, or names a field it has not", () => {
     const { layers, options } = character();
     const withOptions = (o: object) => () =>
       generateIkiFromLayerSet(layers, CANVAS, { ...options, ...o });
-    expect(withOptions({ style: { tunr: 2 } })).toThrow(
-      /style\.tunr is not one of turn, featureLead/,
+    expect(withOptions({ rigPlan: { turn: { amuont: 2 } } })).toThrow(
+      /rigPlan\.turn\.amuont is not one of amount, featureLead/,
     );
-    expect(withOptions({ style: "abc" })).toThrow(
-      /style must be a plain object/,
+    expect(withOptions({ rigPlan: "abc" })).toThrow(
+      /rigPlan must be a plain object/,
     );
+    expect(withOptions({ style: { turn: 1 } })).toThrow(
+      /options\.style was removed.*rigPlan\.turn\.amount/,
+    );
+    expect(withOptions({ style: { turn: 1 } })).toThrow(RigPlanError);
     expect(
       withOptions({ turnTargets: { ...options.turnTargets, eyeshift: 0.1 } }),
     ).toThrow(/turnTargets\.eyeshift is not one of eyeShift/);

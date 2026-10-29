@@ -3,6 +3,8 @@ export {
   describeIki,
   describeIkiAt,
   listStandardParameters,
+  describeRigPlan,
+  formatRigPlanReport,
   autoRigFromLayers,
   type ValidateResult,
   type DescribeResult,
@@ -28,6 +30,7 @@ export {
   type MeasureInput,
   type MeasureResult,
 } from "./measure";
+export { type RigPlanReport } from "@ikijs/editor";
 export { checkModelFolds, formatFoldReport } from "./fold-report";
 export { formatPhysicsReport } from "./physics-report";
 export {

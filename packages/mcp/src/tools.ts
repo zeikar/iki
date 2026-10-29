@@ -18,6 +18,9 @@ import {
   partIdsOfRole,
   LayerGeometryError,
   PatchError,
+  RigPlanError,
+  RIG_PLAN_FIELDS,
+  styleRemovedMessage,
   TurnTargetError,
   type IrisStrand,
   type LayerSetMeasurer,
@@ -25,7 +28,9 @@ import {
   type AtlasLayout,
   type PatchReport,
   type RigPatch,
-  type RigStyle,
+  type RigPlan,
+  type RigPlanField,
+  type RigPlanReport,
   type TurnTargets,
   type TurnSolveReport,
 } from "@ikijs/editor";
@@ -402,6 +407,30 @@ export function listStandardParameters(): StandardParameterInfo[] {
   return STANDARD_PARAMETER_INFO.map((p) => ({ ...p }));
 }
 
+/** The rig plan's field catalog: the one source of the fields' defaults,
+ *  ranges, recommended spans, steps and poses. */
+export function describeRigPlan(): { fields: RigPlanField[] } {
+  return { fields: [...RIG_PLAN_FIELDS] };
+}
+
+/** The `RIGPLAN:` line: every field's effective value, with the requested one
+ *  and the bound when the art's room cut it, or the cue that fitted it. */
+export function formatRigPlanReport(r: RigPlanReport): string {
+  const fields = RIG_PLAN_FIELDS.map((f) => {
+    const value = `${f.path}=${r.effective[f.path]}`;
+    const clamp = r.clamped.find((c) => c.field === f.path);
+    if (clamp !== undefined) {
+      const asked = (r.requested as Record<string, Record<string, number>>)[
+        f.group
+      ]?.[f.key];
+      return `${value} (requested ${asked}, clamped at ${clamp.bound})`;
+    }
+    const cue = r.overriddenBy[f.path];
+    return cue === undefined ? value : `${value} (fitted by ${cue})`;
+  });
+  return `RIGPLAN: ${fields.join(" ")}`;
+}
+
 // ── auto_rig_from_layers ──────────────────────────────────────────────────────
 
 /** One role-named PNG layer; role is derived from `fileName ?? basename(path)`. */
@@ -422,9 +451,12 @@ export interface AutoRigInput {
   /** Head-turn cues to fit the rig to, as `measure_turn_reference` reports
    *  them. */
   turnTargets?: AutoRigTurnTargets;
-  /** Per-character tuning from the profile's defaults (see
-   *  @ikijs/editor's `RigStyle`). */
-  style?: RigStyle;
+  /** Per-character tuning from the profile's defaults, validated against
+   *  `RIG_PLAN_FIELDS` (see @ikijs/editor's `RigPlan`; `describe_rig_plan`
+   *  lists the fields). */
+  rigPlan?: RigPlan;
+  /** Removed in 0.30.0: any value is refused with the field map. */
+  style?: unknown;
   /** Displacements added to existing keyform stops of the freshly generated
    *  rig, replayed on every rig of these inputs (see @ikijs/editor's
    *  `RigPatch`). */
@@ -507,6 +539,11 @@ export type AutoRigResult =
        *  whenever `patches` was passed, `[]` included, so a caller can tell
        *  this server from one that drops the field. */
       patches?: PatchReport[];
+      /** What the rig built with next to what `input.rigPlan` asked, and the
+       *  fields the art's room cut or a `turnTargets` cue fitted instead.
+       *  Always present on a rigged model; absent only from a server before
+       *  0.30.0. */
+      rigPlan: RigPlanReport;
     }
   | { ok: false; error: string };
 
@@ -623,6 +660,11 @@ export async function autoRigFromLayers(
         `quantizeColors must be an integer in 2..256, got ${String(quantizeColors)}`,
       );
     }
+    // Removed with no alias: undeclared keys are stripped by the schema, so
+    // the tool keeps a tombstone for it and refuses here, before decoding.
+    if (input.style !== undefined) {
+      throw new AutoRigInputError(styleRemovedMessage("style"));
+    }
     // Checked before the generator call spreads it: a spread turns null or an
     // array into {}, which would rig on the defaults instead of refusing.
     const turnTargets: unknown = input.turnTargets;
@@ -729,16 +771,18 @@ export async function autoRigFromLayers(
 
     // Internal pipeline — direct calls. By here roles + bboxes are validated, so
     // a throw is an invariant break / bug and must propagate to `isError` —
-    // except for the generator's three input errors, each a fact about the
+    // except for the generator's four input errors, each a fact about the
     // request, not a bug: the turn solve, which reads CALLER input, throws
     // TurnTargetError (a field that is not a number, a target this layer set
     // cannot reach); the patch replay, which reads the caller's `patches`,
-    // throws PatchError (a malformed op, or one that misses this rig); and
+    // throws PatchError (a malformed op, or one that misses this rig); the rig
+    // plan, which reads the caller's `rigPlan`, throws RigPlanError; and
     // art geometry the rig cannot build on (a body's hips with no room under
     // its pivots, an arm too short for its pivots, a lip set whose
     // mouth_inner has no opaque pixel) throws LayerGeometryError.
     let turn: TurnSolveReport | undefined;
     let patches: PatchReport[] | undefined;
+    let rigPlan: RigPlanReport | undefined;
     let model: IkiModel;
     try {
       // The caller's fields cross as passed (a headHalfWidth was refused
@@ -755,7 +799,10 @@ export async function autoRigFromLayers(
           onTurnSolved: (report) => {
             turn = report;
           },
-          ...(input.style === undefined ? {} : { style: input.style }),
+          ...(input.rigPlan === undefined ? {} : { rigPlan: input.rigPlan }),
+          onRigPlanResolved: (report) => {
+            rigPlan = report;
+          },
           ...(input.patches === undefined
             ? {}
             : {
@@ -773,7 +820,8 @@ export async function autoRigFromLayers(
         !(
           e instanceof TurnTargetError ||
           e instanceof LayerGeometryError ||
-          e instanceof PatchError
+          e instanceof PatchError ||
+          e instanceof RigPlanError
         )
       ) {
         throw e;
@@ -866,6 +914,7 @@ export async function autoRigFromLayers(
       folds,
       physics,
       ...(patches === undefined ? {} : { patches }),
+      rigPlan: rigPlan!,
     };
   } catch (err) {
     if (err instanceof AutoRigInputError)

@@ -108,7 +108,6 @@ import {
 import {
   buildTurn,
   checkedKeys,
-  checkedNumber,
   fitTurn,
   resolveTurnTargets,
   TURN_TARGET_KEYS,
@@ -134,7 +133,13 @@ import {
   tiltHang,
   type Reach,
 } from "./drivers";
-import { STYLE_KNOBS, resolveStyle, type ResolvedStyle } from "./profile";
+import {
+  RigPlanError,
+  resolveRigPlan,
+  rigPlanReport,
+  styleRemovedMessage,
+  type ResolvedRigPlan,
+} from "./rig-plan";
 import { type GenerateOptions, type LayerInput } from "./types";
 
 /** Mesh cells per role. The plate's head island carries the chin's lead and
@@ -198,10 +203,10 @@ export function generateIkiFromLayerSet(
     sideIrises(byRole),
     has("hair_front") ? box("hair_front") : undefined,
   );
-  checkedKeys("style", options.style, STYLE_KNOBS);
-  const style = resolveStyle(options.style, (name, v, lo, hi) =>
-    checkedNumber(name, v, lo, hi),
-  );
+  if (options.style !== undefined) {
+    throw new RigPlanError(styleRemovedMessage("options.style"));
+  }
+  const plan = resolveRigPlan(options.rigPlan);
 
   // Without a nose there is no turn to fit: the face turns on the profile,
   // inside its own outline. Every turn option — the cues, the measured head,
@@ -242,10 +247,10 @@ export function generateIkiFromLayerSet(
       : undefined,
   };
   const build = (q: Parameters<typeof buildTurn>[2]) =>
-    buildTurn(solveFrame, landmarks, q, style.profile.TURN);
+    buildTurn(solveFrame, landmarks, q, plan.profile.TURN);
   // Without a nose there are no targets, but the art's room still bounds
   // the profile's turn.
-  const fit: TurnFit = fitTurn(ctx, targets, style, build);
+  const fit: TurnFit = fitTurn(ctx, targets, plan, build);
 
   // The jaw's cut takes the chin's shade only as far as the solved turn
   // keeps it inside the neck, so the frame is rebuilt with the chin's slide;
@@ -308,7 +313,7 @@ export function generateIkiFromLayerSet(
       parts.length,
       frame,
       byRole,
-      style,
+      plan,
       landmarks.hairFrontGrid,
       lips,
     );
@@ -404,6 +409,9 @@ export function generateIkiFromLayerSet(
   // Reported only for a model that validates.
   const valid = parseIkiModel(model);
   if (reports !== undefined) options.onPatchesApplied?.(reports);
+  options.onRigPlanResolved?.(
+    rigPlanReport(options.rigPlan ?? {}, plan, targets, fit),
+  );
   if (hasNose && options.onTurnSolved) {
     options.onTurnSolved(
       turnReport(
@@ -455,7 +463,7 @@ function buildPart(
   order: number,
   frame: HeadFrame,
   byRole: Map<string, LayerInput>,
-  style: ResolvedStyle,
+  plan: ResolvedRigPlan,
   frontGrid: HairFrontGrid | undefined,
   lips: MouthRig | undefined,
 ): { part: IkiPart; reach: Reach; region?: Region[]; headStart: number } {
@@ -521,8 +529,8 @@ function buildPart(
             v === 1 && isNeck[i]
               ? [
                   0,
-                  (style.profile.AMPLITUDE.breathBody -
-                    style.profile.AMPLITUDE.breathHead) *
+                  (plan.profile.AMPLITUDE.breathBody -
+                    plan.profile.AMPLITUDE.breathHead) *
                     hh,
                 ]
               : [0, 0],
@@ -532,15 +540,19 @@ function buildPart(
       break;
     case "eye_L":
     case "eye_R":
-      warps.push(blinkFold(eyeOpen, mesh!, b, style.blink));
+      warps.push(blinkFold(eyeOpen, mesh!, b, plan.eyes.blink));
       break;
     case "lash_lower_L":
     case "lash_lower_R":
-      warps.push(blinkFold(eyeOpen, mesh!, b, style.blink, box(`eye_${side}`)));
+      warps.push(
+        blinkFold(eyeOpen, mesh!, b, plan.eyes.blink, box(`eye_${side}`)),
+      );
       break;
     case "lash_L":
     case "lash_R":
-      warps.push(lashFold(eyeOpen, mesh!, b, box(`eye_${side}`), style.blink));
+      warps.push(
+        lashFold(eyeOpen, mesh!, b, box(`eye_${side}`), plan.eyes.blink),
+      );
       break;
     case "iris_L":
     case "iris_R":
@@ -575,13 +587,13 @@ function buildPart(
           { parameter: P.MouthOpen, channel: "opacity", from: 1, to: 0 },
           { parameter: P.MouthOpen, channel: "opacity", from: 1, to: 0 },
         );
-        extra = [(style.profile.AMPLITUDE.mouthOpenWidth - 1) * (bw(b) / 2), 0];
+        extra = [(plan.profile.AMPLITUDE.mouthOpenWidth - 1) * (bw(b) / 2), 0];
       } else {
         // One drawing only: stretch it open downward from its top lip, to
         // the profile's open height, and wider.
         const grow = Math.max(
           0,
-          (style.profile.AMPLITUDE.mouthOpenHeight * bw(b)) / bh(b) - 1,
+          (plan.profile.AMPLITUDE.mouthOpenHeight * bw(b)) / bh(b) - 1,
         );
         bindings.push(
           {
@@ -594,7 +606,7 @@ function buildPart(
             parameter: P.MouthOpen,
             channel: "scaleX",
             from: 0,
-            to: roundTo(style.profile.AMPLITUDE.mouthOpenWidth - 1, 0.01),
+            to: roundTo(plan.profile.AMPLITUDE.mouthOpenWidth - 1, 0.01),
           },
           {
             parameter: P.MouthOpen,
@@ -604,7 +616,7 @@ function buildPart(
           },
         );
         extra = [
-          (style.profile.AMPLITUDE.mouthOpenWidth - 1) * (bw(b) / 2),
+          (plan.profile.AMPLITUDE.mouthOpenWidth - 1) * (bw(b) / 2),
           grow * bh(b),
         ];
       }
@@ -617,7 +629,7 @@ function buildPart(
         from: 0,
         to: 1,
       });
-      extra = [(style.profile.AMPLITUDE.mouthOpenWidth - 1) * (bw(b) / 2), 0];
+      extra = [(plan.profile.AMPLITUDE.mouthOpenWidth - 1) * (bw(b) / 2), 0];
       break;
     case "mouth_inner":
     case "mouth_tongue":
@@ -637,14 +649,14 @@ function buildPart(
       bindings.push({
         parameter: P.Cheek,
         channel: "opacity",
-        from: style.profile.AMPLITUDE.blushRest,
+        from: plan.profile.AMPLITUDE.blushRest,
         to: 1,
       });
       break;
     case "hair_front":
     case "hair_back":
       if (byRole.has("hair_front")) {
-        const amp = style.sway * style.profile.AMPLITUDE.sway * hh;
+        const amp = plan.hair.sway * plan.profile.AMPLITUDE.sway * hh;
         if (spec.role === "hair_front") {
           warps.push(
             hairSway(P.HairSwayX, mesh!, b, amp),

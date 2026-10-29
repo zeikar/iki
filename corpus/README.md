@@ -1,11 +1,11 @@
 # Corpus
 
-Committed part layers for three characters, used as a regression baseline for the auto-rig. Each character has `layers/*.png` (the role-named parts), `style.json` and, for mint, `patches.json`.
+Committed part layers for three characters, used as a regression baseline for the auto-rig. Each character has `layers/*.png` (the role-named parts), `rig-plan.json` and, for mint, `patches.json`.
 
 - `pnpm corpus` re-rigs every character, rewrites `examples/playground/public/<name>.iki` (bob's is `hero.iki`, the site's hero) and `corpus/<name>/metrics.json`.
 - `pnpm corpus:check` re-rigs into `.corpus-check/` and diffs against the committed files.
 
-The rig options are the ones the character loop rigs with: `quantizeColors` 256, `style` from `style.json` (`{}` for all three, the profile's defaults), `patches` from `patches.json`, through the same `autoRigFromLayers` path as the MCP `auto_rig_from_layers` tool. All three draw the lip-set mouth, the blush (`shy`, `ParamCheek`), lower lashes and both hair layers (hair physics).
+The rig options are the ones the character loop rigs with: `quantizeColors` 256, `rigPlan` from `rig-plan.json` (`{}` for all three, the profile's defaults), `patches` from `patches.json`, through the same `autoRigFromLayers` path as the MCP `auto_rig_from_layers` tool. All three draw the lip-set mouth, the blush (`shy`, `ParamCheek`), lower lashes and both hair layers (hair physics).
 
 | Character   | Provenance                                                                           | Canvas              | Covers                                  |
 | ----------- | ------------------------------------------------------------------------------------ | ------------------- | --------------------------------------- |

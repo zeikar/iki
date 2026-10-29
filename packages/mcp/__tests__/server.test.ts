@@ -261,9 +261,10 @@ describe("MCP server integration", () => {
     const texts = (result.content as { type: string; text: string }[]).filter(
       (c) => c.type === "text",
     );
-    // The path, then the fold report, then the physics report.
-    const [first, ...tail] = texts[0].text.split("\n");
+    // The path, the rig plan, then the fold report, then the physics report.
+    const [first, plan, ...tail] = texts[0].text.split("\n");
     expect(first).toBe(outPath);
+    expect(plan).toMatch(/^RIGPLAN: turn\.amount=/);
     const folds = tail.filter((line) => /^FOLDS?[ :]/.test(line));
     const physics = tail.filter((line) => /^PHYSICS[ :]/.test(line));
     expect(tail).toEqual([...folds, ...physics]);
@@ -357,8 +358,9 @@ describe("MCP server integration", () => {
     const texts = (result.content as { type: string; text: string }[]).filter(
       (c) => c.type === "text",
     );
-    const [first, grid, part, ...tail] = texts[0].text.split("\n");
+    const [first, plan, grid, part, ...tail] = texts[0].text.split("\n");
     expect(first).toBe(outPath);
+    expect(plan).toMatch(/^RIGPLAN: /);
     // `at` sorted by parameter id, whatever order it was passed in; the
     // moves are face widths of the 62 px face crop (the 60 px rect and the
     // alpha bbox's 1 px margin each side).
@@ -435,7 +437,7 @@ describe("MCP server integration", () => {
     expect(texts[0].text).toMatch(/^INVALID:/);
   });
 
-  it("auto_rig_from_layers leaves a malformed turnTargets, style or patches op to the tool schema, which the SDK answers with isError", async () => {
+  it("auto_rig_from_layers leaves a malformed turnTargets, rigPlan or patches op to the tool schema, which the SDK answers with isError", async () => {
     pair = await createPair();
     const dir = tmpDir();
     const layers = (await writeTurnLayers(dir)).map((p) => ({ path: p }));
@@ -444,9 +446,9 @@ describe("MCP server integration", () => {
       ["turnTargets", null],
       ["turnTargets", []],
       ["turnTargets", { eyeShift: "0.1" }],
-      ["style", null],
-      ["style", []],
-      ["style", { turn: "1" }],
+      ["rigPlan", null],
+      ["rigPlan", []],
+      ["rigPlan", { turn: { amount: "1" } }],
       [
         "patches",
         [
@@ -499,6 +501,56 @@ describe("MCP server integration", () => {
     expect(names).toContain("measure_layers");
     expect(names).toContain("measure_turn_reference");
     expect(names).toContain("render_poses");
+    expect(names).toContain("describe_rig_plan");
+  });
+
+  it("describe_rig_plan lists the rig plan's fields", async () => {
+    pair = await createPair();
+    const result = await pair.client.callTool({
+      name: "describe_rig_plan",
+      arguments: {},
+    });
+    const sc = result.structuredContent as { fields: { path: string }[] };
+    expect(sc.fields.map((f) => f.path)).toEqual([
+      "turn.amount",
+      "turn.featureLead",
+      "hair.follow",
+      "hair.outlineFollow",
+      "hair.sway",
+      "eyes.blink",
+    ]);
+  });
+
+  it("auto_rig_from_layers refuses the removed style as INVALID, not drops it, and prints a RIGPLAN line for a rig", async () => {
+    pair = await createPair();
+    const dir = tmpDir();
+    const layers = (await writeTurnLayers(dir)).map((p) => ({ path: p }));
+    const text = (r: { content: unknown }) =>
+      (r.content as { type: string; text: string }[])[0].text;
+
+    const refused = await pair.client.callTool({
+      name: "auto_rig_from_layers",
+      arguments: {
+        layers,
+        outputPath: path.join(dir, "style.iki"),
+        style: { turn: 1 },
+      },
+    });
+    expect(refused.isError).toBeFalsy();
+    expect(text(refused)).toMatch(
+      /^INVALID: style was removed: pass rigPlan — style\.turn is rigPlan\.turn\.amount/,
+    );
+    expect(fs.existsSync(path.join(dir, "style.iki"))).toBe(false);
+
+    const rigged = await pair.client.callTool({
+      name: "auto_rig_from_layers",
+      arguments: { layers, outputPath: path.join(dir, "plan.iki") },
+    });
+    expect(text(rigged).split("\n")[1]).toMatch(/^RIGPLAN: turn\.amount=/);
+    const sc = rigged.structuredContent as {
+      rigPlan: { effective: Record<string, number> };
+    };
+    expect(sc.rigPlan.effective["turn.amount"]).toBeGreaterThan(0);
   });
 
   it("render_poses refuses an outDir outside the working directory", async () => {

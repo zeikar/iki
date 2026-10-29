@@ -8,6 +8,7 @@ Read [README.md](./README.md) first for what Iki is, the package map, and the ro
 - Preserve the layering: `@ikijs/format` (schema/types/validator) -> `@ikijs/engine` (runtime) -> examples / host adapters. Do not collapse these boundaries.
 - `@ikijs/format` is the single source of truth for the `.iki` model contract. Engine code reads the format types; it does not redefine them.
 - Validate external/model input in `@ikijs/format` and throw `IkiFormatError` with a path-qualified message. Never let unchecked data reach the renderer, and do not fail silently.
+- Generator inputs — `rigPlan`, `turnTargets`, `patches` — are not part of the `.iki` contract; `@ikijs/editor` validates them and throws its own path-qualified errors (`RigPlanError`, `TurnTargetError`, `PatchError`).
 - Match the surrounding style. Keep changes surgical — every changed line should trace to the request.
 
 ## Format versioning
@@ -19,7 +20,7 @@ Read [README.md](./README.md) first for what Iki is, the package map, and the ro
 ## Claude Code and Codex plugin
 
 - `plugin/` is shared by Claude Code and Codex — the character-generation skills, their two agent role files, and `.mcp.json`. Claude Code uses `plugin/.claude-plugin/plugin.json`, the root `.claude-plugin/marketplace.json`, and `.claude/settings.json`. Codex uses `plugin/.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, and `.codex/config.toml`. Keep shared skills and MCP configuration in `plugin/`; do not duplicate them per host. `.claude/` keeps only what is meaningless outside a checkout (`iki-visual-test`, also readable from Codex).
-- Those skills document the auto-rig contract: the role table, the `compose_layers_from_parts`, `measure_layers` and `auto_rig_from_layers` schemas, the parameter ids, and the `@ikijs/mcp` range pinned in `.mcp.json`. Change one of those in `packages/` and update `plugin/` in the SAME commit — that co-location is why the plugin lives here instead of its own repo.
+- Those skills document the auto-rig contract: the role table, the `compose_layers_from_parts`, `measure_layers` and `auto_rig_from_layers` schemas, the parameter ids, and the rig-plan field catalog (`RIG_PLAN_FIELDS`, `describe_rig_plan`), the `@ikijs/mcp` range pinned in `.mcp.json`. Change one of those in `packages/` and update `plugin/` in the SAME commit — that co-location is why the plugin lives here instead of its own repo.
 - Bump both plugin manifests' `version` together by hand. Keep their identity metadata aligned. The plugin is not an npm package, so it takes no changeset.
 
 ## Validation

@@ -122,7 +122,7 @@ it to `.gitignore` before the first run, or the generated art lands in a commit.
 mkdir -p iki-char/parts iki-char/layers iki-char/renders/debug \
   iki-char/renders/patch/before iki-char/renders/patch/after iki-char/renders/judge
 [ -f iki-char/layout.json ] || echo '{}' > iki-char/layout.json
-[ -f iki-char/style.json ] || echo '{}' > iki-char/style.json
+[ -f iki-char/rig-plan.json ] || echo '{}' > iki-char/rig-plan.json
 [ -f iki-char/patches.json ] || echo '{"patches":[]}' > iki-char/patches.json
 [ -f iki-char/patches-rejected.json ] || echo '{"rejected":[]}' > iki-char/patches-rejected.json
 [ -f iki-char/canvas.json ] || echo '{}' > iki-char/canvas.json
@@ -133,11 +133,17 @@ rm -f iki-char/patches-candidate.json iki-char/iki-character-candidate.iki
 The seed lines only write a file that is missing, so re-entering or
 restarting the loop keeps the tuning you already paid for — the workdir is
 gitignored, so an overwrite here has no repository copy to recover it from.
-`style.json` is the per-character rig tuning surface: the `style` knobs of
-`auto_rig_from_layers` (their defaults, and the recommended ranges a retune
-stays inside, are in the **iki-character** skill, Step 3), where `{}` is the
-profile every character starts from. Only the artist
-edits it, and only on a critic `retune`. `patches.json` holds the accepted
+`rig-plan.json` is the per-character rig tuning surface: the `rigPlan` of
+`auto_rig_from_layers` (its paths, and the recommended spans a retune stays
+inside, are in `plan-catalog`, below), where `{}` is the profile every
+character starts from. Only the artist edits it, and only on a critic
+`retune`. A `style.json` left by an earlier plugin is not read: move its knobs
+into `rig-plan.json` by the field map in the **iki-character** skill (Step 3)
+and delete it. Step 0 also calls `describe_rig_plan` once and keeps its text as
+`plan-catalog` for every dispatch; a server without the tool predates 0.30.0
+(the plugin's own `.mcp.json` pin, until the adopt commit moves it):
+`plan-catalog` is then `unavailable`, the loop runs on, and item 7 routes every
+plan `retune` as `escalate`, naming that cause. `patches.json` holds the accepted
 patch ops (that skill's Step 3 `patches`), which only the patch gate (Step 1)
 adds to; the artist only drops from it, for a part it redraws.
 `patches-rejected.json` is your log of what the gate turned down on its own
@@ -172,8 +178,8 @@ target style. Then run that skill's
 `ParamAngleX` limit (30°). It is a style check, nothing more — the
 critic reads it by eye for whether the character still looks like itself
 turned, and nothing measures it. Nothing fits the rig to it or picks a knob's
-value from it: every turn amount stays inside the recommended ranges in the
-**iki-character** skill's knob table (Step 3). Drawn at 30° so the
+value from it: every turn amount stays inside the recommended spans in
+`plan-catalog` (`describe_rig_plan`). Drawn at 30° so the
 comparison is like for like: a drawing at 45° over-asks a 30° rig by ~1.7×
 (measured, not derived). Redo the generation if both eyes are not fully
 visible, the torso turned with the head, or any attribute drifted from the
@@ -196,13 +202,13 @@ with the **iki-create-image** skill's `gen-wave-reference.sh` (the
 and frozen like the other references. The `canvas.json` written there is
 provisional until the round-1 measuring compose that places `layout.body`
 corrects it (`full-body.md` Step 2); after that the artist edits its
-`canvasHeight` only on a critic `retune`, as it does `style.json`.
+`canvasHeight` only on a critic `retune`, as it does `rig-plan.json`.
 
 **Restarting on picked parts.** When `parts/` already holds a picked set —
 the plain `<role>.png` files, not only `_a` / `_b` variants — round 1 re-rigs
 what is there: dispatch the artist with `restart: true` (Step 1, item 1). It
 draws no part unless a finding carried into the round (the user's) names one,
-keeps the workdir's tuning (`layout.json`, `style.json`, `patches.json`, and
+keeps the workdir's tuning (`layout.json`, `rig-plan.json`, `patches.json`, and
 on a full body whose `layout.body` is set, that placement and `canvas.json`),
 and composes, measures and rigs. A full set is 20-odd billed jobs, so a round
 1 that redraws it on a restart throws away the set the user already picked.
@@ -215,8 +221,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
 
 1. Dispatch **the artist** (see Host dispatch) with `reference` (the front view
    only — `gen-images.sh --ref` attaches it to every job), `workdir`, `round`,
-   `style` (the contents of `<workdir>/style.json`, which its rig step passes
-   to `auto_rig_from_layers` when it is not empty), `patches` (the
+   `rigPlan` (the contents of `<workdir>/rig-plan.json`, which its rig step
+   passes to `auto_rig_from_layers` when it is not empty), `plan-catalog`, `patches` (the
    `patches` array of `<workdir>/patches.json`, read at dispatch) with
    `rejected` (`<workdir>/patches-rejected.json`'s), both critics' findings
    (none on round 1 but, restarting, the user's carried ones), and on a
@@ -429,7 +435,7 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    below is a subset of the returned paths, so a stale file from an earlier
    round is never picked up), `turn-pair` (`<workdir>/renders/rest.png`,
    `turn-m30.png` and `turn-p30.png`), `mouth-renders` (the 15 `mouth-*.png`
-   crops), `round`, `scores` (the previous rounds' `SCORES:` lines),
+   crops), `round`, `plan-catalog`, `scores` (the previous rounds' `SCORES:` lines),
    and `turn-clamped` (the KEPT model's turn line, verbatim: the artist's
    `TURN:`, or its `TURN-CANDIDATE:` when item 3 accepted — its
    `turn.achieved`, `turn.clamped` and `turn.strandOverlap`, or "none" when no
@@ -511,7 +517,7 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    passes and a `ship` or `stop` verdict: the loop runs another round, within
    Step 2's caps. "fine" adds nothing.
 7. Route: `regenerate` and `retune` go back to the artist — a `retune` names a
-   `layout.json` key, a `mirror-parts.json` entry or a `style.json` knob, or on
+   `layout.json` key, a `mirror-parts.json` entry or a `rig-plan.json` field, or on
    a full body `canvas.json`'s `canvasHeight`. The appeal critic's `retune`s go
    with them, marked as its own — one on a `locked` key is dropped — and so
    does a `regenerate` item 6 approved; a
@@ -532,7 +538,7 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    changeset. A render-vs-report `escalate` (the critic's Δ beyond ±0.05)
    comes off the palette-quantized model, so confirm it losslessly before
    deciding: call `auto_rig_from_layers` yourself on the same layers (every
-   `<workdir>/layers/*.png` but the previews, `preview.png` and `preview-pose.png`) with the same `style` and
+   `<workdir>/layers/*.png` but the previews, `preview.png` and `preview-pose.png`) with the same `rigPlan` and
    `patches` (the accepted array, which moves `turn.achieved`), no
    `quantizeColors`, and `outputPath: <workdir>/iki-character-lossless.iki`;
    call `render_poses` on that file into `<workdir>/renders/lossless/` (`mkdir -p` first);
@@ -583,18 +589,18 @@ The rig's defaults are constants picked by eye on our own characters
 (`packages/editor/AUTO-RIG.md`). So a turn
 whose amounts read wrong on the rig's own renders — too weak or too strong,
 the features leading the face too much or too little, the hair following it
-too much or too little — is first a `style` retune, free and per character,
-inside the recommended ranges and never toward what `reference-30.png` shows. A
+too much or too little — is first a `rigPlan` retune (`rig-plan.json`), free and per character,
+inside the recommended spans and never toward what `reference-30.png` shows. A
 local keyform defect — one feature wrong at one stop, the far eye over the ear
 at ±30 or a bangs band shearing, which no knob reaches — is first a `patch`,
 kept only through the gate (Step 1, item 3). A defect of the whole rig is the
 package escalation: a seam, a fold, a part detaching from the one it sits on
-across the whole head, or a nod that slides instead of tipping (no `style`
-knob reaches `ParamAngleY`). A render that disagrees with the rig's own report even on a
+across the whole head, or a nod that slides instead of tipping (no plan
+field reaches `ParamAngleY`). A render that disagrees with the rig's own report even on a
 lossless pair (the critic's render-vs-report delta, re-measured as in Step 1)
 is a package escalation too, but a discrepancy to diagnose — the rig's
 landing or the tool's detection — not a rig defect on sight. Treat a repeated `rig` escalation as a signal to fix
-the package, not to keep re-rolling art or retuning style.
+the package, not to keep re-rolling art or retuning the plan.
 
 ## Do not
 

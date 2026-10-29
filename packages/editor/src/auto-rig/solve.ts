@@ -3,7 +3,7 @@
  * measured, keeping the features inside the art's room, and reporting what
  * the rig then renders.
  *
- * With no target the turn is the profile's (times the style's knobs). A given
+ * With no target the turn is the profile's (times the rig plan's fields). A given
  * cue is fitted by the one knob it reads: eyeShift by the turn's amount,
  * farEyeRatio by the eyes' foreshortening, silhouetteRatio by the hair's
  * width, noseShift and mouthShift by those features' own shift. The room the
@@ -22,7 +22,8 @@ import {
   farEarCovered,
   type TurnModel,
 } from "./fields";
-import { type Profile, type ResolvedStyle } from "./profile";
+import { type Profile } from "./profile";
+import { type ResolvedRigPlan } from "./rig-plan";
 import {
   TurnTargetError,
   type IrisStrand,
@@ -59,21 +60,25 @@ const SHIFTS: ReadonlySet<keyof TurnTargets> = new Set([
   "mouthShift",
 ]);
 
+/** The error a failed check throws, built from its message. */
+type ErrorOf = new (message: string) => Error;
+
 export function checkedNumber(
   name: string,
   v: unknown,
   lo: number,
   hi: number,
   open = false,
+  Err: ErrorOf = TurnTargetError,
+  /** Appended to the range message (the rig plan's recommended span). */
+  hint = "",
 ): number {
   if (typeof v !== "number" || !Number.isFinite(v)) {
-    throw new TurnTargetError(
-      `${name} must be a finite number, got ${String(v)}`,
-    );
+    throw new Err(`${name} must be a finite number, got ${String(v)}`);
   }
   if ((open ? v <= lo : v < lo) || v > hi) {
-    throw new TurnTargetError(
-      `${name} ${v} is outside ${open ? "(" : "["}${lo}, ${hi}]`,
+    throw new Err(
+      `${name} ${v} is outside ${open ? "(" : "["}${lo}, ${hi}]${hint}`,
     );
   }
   return v;
@@ -85,16 +90,15 @@ export function checkedKeys(
   name: string,
   v: unknown,
   known: readonly string[],
+  Err: ErrorOf = TurnTargetError,
 ): void {
   if (v === undefined) return;
   if (typeof v !== "object" || v === null || Array.isArray(v)) {
-    throw new TurnTargetError(`${name} must be a plain object`);
+    throw new Err(`${name} must be a plain object`);
   }
   for (const key of Object.keys(v)) {
     if (!known.includes(key)) {
-      throw new TurnTargetError(
-        `${name}.${key} is not one of ${known.join(", ")}`,
-      );
+      throw new Err(`${name}.${key} is not one of ${known.join(", ")}`);
     }
   }
 }
@@ -318,6 +322,8 @@ export type Build = (p: TurnParams) => TurnModel;
 
 export interface TurnFit {
   model: TurnModel;
+  /** The knobs the model was built with. */
+  params: TurnParams;
   clamped: (keyof TurnTargets)[];
 }
 
@@ -358,18 +364,18 @@ const SHELL_RANGE: [number, number] = [0.8, 1.2];
 export function fitTurn(
   ctx: SolveContext,
   targets: ResolvedTargets,
-  style: ResolvedStyle,
+  plan: ResolvedRigPlan,
   build: Build,
 ): TurnFit {
   const clamped: (keyof TurnTargets)[] = [];
-  // A given eyeShift fits the turn's amount, so the style's own amount has
+  // A given eyeShift fits the turn's amount, so the plan's own amount has
   // no say: the fit starts from the profile, the eyes' foreshortening with it.
-  const styleTurn = targets.eyeShift === undefined ? style.turn : 1;
+  const startTurn = targets.eyeShift === undefined ? plan.turn.amount : 1;
   const p: TurnParams = {
-    turn: styleTurn,
-    lead: style.featureLead,
-    follow: style.hairFollow,
-    outline: style.outlineFollow,
+    turn: startTurn,
+    lead: plan.turn.featureLead,
+    follow: plan.hair.follow,
+    outline: plan.hair.outlineFollow,
     fore: 1,
     shell: 1,
   };
@@ -428,7 +434,7 @@ export function fitTurn(
     p.turn,
   );
   let turn = Math.min(p.turn, plateTurn);
-  if (strandTurn >= 0.5 * Math.min(p.turn, styleTurn))
+  if (strandTurn >= 0.5 * Math.min(p.turn, startTurn))
     turn = Math.min(turn, strandTurn);
   if (turn < p.turn - 1e-6 || short) {
     p.fore = g / Math.max(turn, 1e-9);
@@ -517,7 +523,7 @@ export function fitTurn(
     feature("mouthShift", "mouth", ctx.mouthAt, ctx.mouthBox);
     feature("noseShift", "nose", ctx.noseAt, ctx.noseBox);
   }
-  return { model: build(p), clamped };
+  return { model: build(p), params: p, clamped };
 }
 
 // --- room -------------------------------------------------------------------

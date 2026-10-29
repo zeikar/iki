@@ -48,16 +48,12 @@ You own the character assets. You do not own the packages.
 - `<workdir>/mirror-parts.json` — a JSON array of part files the composer flips
   left-right as it reads them (its `mirrorParts`). Absent until a part comes
   back drawn facing the other way.
-- `<workdir>/style.json` — the `style` knobs you hand to `auto_rig_from_layers`,
-  tuning the rig from the profile (`{}` is the profile itself):
-  `turn` (0–3, default 1: the whole head turn, as a multiple of the
-  profile's), `featureLead` (0–3, default 1: how far the features lead the face
-  plate), `hairFollow` (0–2, default 1: the front hair's share of the face's
-  turn), `outlineFollow` (0–2, default 0: its outer edge's share where it draws
-  the head's outline; back hair painted behind that edge may add motion on
-  top of it), `blink` (0.1–1, default 0.6: how far the upper lid
-  comes down, over the eye's height) and `sway` (0–5, default 1: the hair sway
-  amplitude). Change it only on a critic `retune` that names a knob.
+- `<workdir>/rig-plan.json` — the `rigPlan` you hand to `auto_rig_from_layers`,
+  tuning the rig from the profile (`{}` is the profile itself), in three
+  groups: `turn` (`amount`, `featureLead`), `hair` (`follow`, `outlineFollow`,
+  `sway`) and `eyes` (`blink`). Each path's default, range, recommended span and
+  step are in `plan-catalog`. Change it only on a critic `retune` that names a
+  path.
 - `<workdir>/patches.json` — the ACCEPTED patch ops, `{ "patches": [ … ] }`
   (each op as the **iki-character** skill's Step 3 `patches`), which you edit
   for one reason only: dropping the ops anchored to a part you regenerate this
@@ -95,12 +91,15 @@ You own the character assets. You do not own the packages.
   with the right hand raised in a wave. `forearm_pose.png` is drawn against it.
 - `workdir` — scratch dir **under the project cwd** (MCP output is confined
   there), created by the orchestrator with `parts/`, `layers/`, `layout.json`
-  and `style.json` (both `{}` on a new character's round 1; a restart keeps
+  and `rig-plan.json` (both `{}` on a new character's round 1; a restart keeps
   what earlier runs tuned), `patches.json` and
   `patches-rejected.json` (both empty lists until its gate rules) already
   there, and `canvas.json` (`{}` for a bust). The rigged `.iki` goes in it too.
-- `style` — the contents of `<workdir>/style.json` (`{}` until a critic
-  `retune` names a knob). You pass it to the rig.
+- `rigPlan` — the contents of `<workdir>/rig-plan.json` (`{}` until a critic
+  `retune` names a path). You pass it to the rig.
+- `plan-catalog` — the text of `describe_rig_plan` (every `rigPlan` path with
+  its default, range, recommended span and step), or `unavailable` on a server
+  before 0.30.0.
 - `patches` — the accepted ops, `<workdir>/patches.json` as the orchestrator
   read it at dispatch (`[]` until its gate accepts one).
 - `rejected` — the contents of `<workdir>/patches-rejected.json`: the ops its
@@ -203,18 +202,27 @@ and how a new character's round-1 compose corrects the provisional
    `moved`, `of`, `cols` / `rows`, `maxPx`), the `FOLD` lines are its
    `folds.offenders`, and the `PHYSICS` lines its `physics.targets`.
 
-   Pass `style` as well when it is not empty — the knobs verbatim — and never
+   Pass `rigPlan` as well when it is not empty — verbatim — and never
    `turnTargets`: the rig's default profile is every character's
-   starting point, and `style` is how it is tuned. The result's `turn` block
+   starting point, and `rigPlan` is how it is tuned. The result's `turn` block
    reports what the turn reaches (`turn.achieved`), what this layer set cut
    down to what it can do (`turn.clamped`, which can name an `eyeShift` — the
-   turn, yours under a `style.turn` or the profile's — past the room the art
+   turn, yours under a `rigPlan.turn.amount` or the profile's — past the room the art
    leaves the far eye, and a `noseShift` / `mouthShift` past its own), and
    how much of a far iris the bangs still cover (`turn.strandOverlap`); quote
    all three in your report. A clamp is not a refusal — the rig still built,
    so keep it. Nor are the result's `folds` and `physics` (the `FOLD` and
    `PHYSICS` lines after the path): they are reports, never refusals, so keep
    the model; the orchestrator reads both off `render_poses`.
+
+   Quote the result's `RIGPLAN:` line (its `effective`, `clamped` and
+   `overriddenBy`) with the `TURN:` block, under `RIGPLAN:` in your report. A
+   result with no `rigPlan` echo is a server before 0.30.0 (the plugin's pinned
+   `@ikijs/mcp`, until the adopt commit moves the pin). With `rig-plan.json`
+   `{}` the rig is the defaults either way: keep the model and report
+   `RIGPLAN: unavailable`. With a non-empty plan the server rigged without it:
+   rig nothing more, report `RIGPLAN: unavailable` and that cause under
+   `ESCALATED`, and return with no model.
 
    Read `<workdir>/patches.json` (after this round's drops) as the accepted
    array and pass it as `patches` when it is not empty — the whole list on
@@ -228,7 +236,7 @@ and how a new character's round-1 compose corrects the provisional
 
    With a `patches-candidate.json` this round (a `patch` finding, below), do
    NOT write `<workdir>/iki-character.iki`. Rig twice, both on this round's
-   layers, `style` and `quantizeColors`: the baseline
+   layers, `rigPlan` and `quantizeColors`: the baseline
    `<workdir>/iki-character-base.iki` with the accepted array first, then the
    candidate `<workdir>/iki-character-candidate.iki` with the candidate's. The
    orchestrator's gate decides which model is kept. An
@@ -248,8 +256,8 @@ and how a new character's round-1 compose corrects the provisional
    round, the baseline: drop the candidate as above), report
    `PATCHES: unavailable`, and leave `patches.json` as it is.
 
-   A rig refused as `INVALID: … style.<knob> …` means that knob is out of its
-   range. Restore its last accepted value in `style.json` (delete the key if
+   A rig refused as `INVALID: … rigPlan.<path> …` means that field is out of its
+   range. Restore its last accepted value in `rig-plan.json` (delete the key if
    it never had one), re-rig ONCE — same layers, same output path — and report
    the refusal verbatim under `ESCALATED`, since that retune went unapplied.
    If the re-rig is refused too, record both errors, state that the round
@@ -260,7 +268,7 @@ and how a new character's round-1 compose corrects the provisional
 - **`retune`** — change the value in `layout.json` (or the entry in
   `mirror-parts.json`), recompose, re-read the report. That includes a pose
   forearm's `layout.forearm_pose_*` (`cx` / `cy` / `w`). A `retune` of
-  `style.<knob>` edits that key in `style.json` and re-rigs. A `retune` of
+  `rigPlan.<path>` edits that key in `rig-plan.json` and re-rigs. A `retune` of
   `canvasHeight` edits `canvas.json` and recomposes. On a full body, a new
   `layout.body.w` also re-sets its `cy` as `full-body.md` Step 2 does, so the
   neck's top stays ~200 px above the composed chin. A finding quoting `unset`
@@ -387,11 +395,12 @@ elbow`, `… px wide, … % off arm_R's elbow run`) names its own free retune:
 ```
 ROUND: N
 GENERATED: <parts re-drawn this round, or "none">
-RETUNED: <layout.json keys, mirror-parts.json entries, style.json knobs and canvas.json's canvasHeight changed, old -> new>
+RETUNED: <layout.json keys, mirror-parts.json entries, rig-plan.json fields and canvas.json's canvasHeight changed, old -> new>
 MEASURE: <"all geometry checks passed", or the remaining warnings and why>
 MODEL: <path to the rigged .iki (with PATCHES proposed, the candidate), or "none" — see BLOCKED>
 TURN: <the result's turn.achieved, turn.clamped and turn.strandOverlap ("none" when absent), or "none" when no turn was solved; with PATCHES proposed, the baseline's>
 TURN-CANDIDATE: <with PATCHES proposed, the candidate's, as TURN: — a patch moves turn.achieved, so the two differ; otherwise "none">
+RIGPLAN: <the result's RIGPLAN: line — effective values, with clamped and overriddenBy — or "unavailable">
 PATCHES: <unchanged | dropped <n> for <files> | proposed (ops N -> M; base <path>; candidate <path>) | unavailable; a drop and a proposal both read "dropped …; proposed …"; "proposed" only with a candidate model written — a dropped candidate reads unchanged (or dropped …), its refusals under ESCALATED>
 <the result's PATCH lines verbatim (from a JSON result, its patches entries as they are), the baseline's then the candidate's>
 ESCALATED: <critic findings you did not act on, and any refusal you escalated, verbatim — each patch op you gave up as "refused patch: <the op> — <the message>"; on a full body, a final canvas height over 4096, with H — or "none">

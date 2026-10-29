@@ -15,12 +15,14 @@ import {
   describeIki,
   describeIkiAt,
   listStandardParameters,
+  describeRigPlan,
   autoRigFromLayers,
   type AutoRigTurnTargets,
 } from "../src/tools";
 import {
   ATLAS_PADDING,
   UV_INSET_PX,
+  RIG_PLAN_FIELDS,
   detectAlphaBbox,
   packAtlas,
   type IrisStrand,
@@ -1720,7 +1722,7 @@ describe("autoRigFromLayers", () => {
     );
   });
 
-  it("passes the style knobs through: half the turn halves the eye shift, and a bad knob is refused", async () => {
+  it("passes the rig plan through: half the turn halves the eye shift, a bad field is refused, and the removed style is too", async () => {
     const dir = tmpDir();
     const layers = (await writeTurnLayers(dir)).map((p) => ({ path: p }));
     const base = await autoRigFromLayers({
@@ -1730,7 +1732,7 @@ describe("autoRigFromLayers", () => {
     const half = await autoRigFromLayers({
       layers,
       outputPath: path.join(dir, "half.iki"),
-      style: { turn: 0.5 },
+      rigPlan: { turn: { amount: 0.5 } },
     });
     expect(base.ok && half.ok).toBe(true);
     if (!base.ok || !half.ok) return;
@@ -1738,22 +1740,39 @@ describe("autoRigFromLayers", () => {
       base.turn!.achieved.eyeShift / 2,
       2,
     );
+    expect(base.rigPlan.requested).toEqual({});
+    expect(base.rigPlan.effective["turn.amount"]).toBe(1);
+    expect(half.rigPlan.requested).toEqual({ turn: { amount: 0.5 } });
+    expect(half.rigPlan.effective["turn.amount"]).toBe(0.5);
     const bad = await autoRigFromLayers({
       layers,
       outputPath: path.join(dir, "bad.iki"),
-      style: { turn: -1 },
+      rigPlan: { turn: { amount: -1 } },
     });
     expect(bad.ok).toBe(false);
     if (bad.ok) return;
-    expect(bad.error).toMatch(/style\.turn/);
+    expect(bad.error).toMatch(/rigPlan\.turn\.amount/);
     const unknown = await autoRigFromLayers({
       layers,
       outputPath: path.join(dir, "unknown.iki"),
-      style: { turns: 1 } as never,
+      rigPlan: { turn: { amuont: 1 } } as never,
     });
     expect(unknown.ok).toBe(false);
     if (unknown.ok) return;
-    expect(unknown.error).toMatch(/style\.turns/);
+    expect(unknown.error).toMatch(/rigPlan\.turn\.amuont/);
+    const removed = await autoRigFromLayers({
+      layers,
+      outputPath: path.join(dir, "removed.iki"),
+      style: {},
+    });
+    expect(removed.ok).toBe(false);
+    if (removed.ok) return;
+    expect(removed.error).toMatch(/style was removed.*rigPlan\.turn\.amount/);
+    expect(fs.existsSync(path.join(dir, "removed.iki"))).toBe(false);
+  });
+
+  it("lists the rig plan's fields", () => {
+    expect(describeRigPlan().fields).toEqual(RIG_PLAN_FIELDS);
   });
 
   // ── patches ──────────────────────────────────────────────────────────────
@@ -1875,7 +1894,7 @@ describe("autoRigFromLayers", () => {
     expect(r.error).toMatch(/turnTargets\.eyeshift/);
   });
 
-  it("refuses a turnTargets or style that is not a plain object instead of rigging on the defaults", async () => {
+  it("refuses a turnTargets or rigPlan that is not a plain object instead of rigging on the defaults", async () => {
     const dir = tmpDir();
     const layers = (await writeTurnLayers(dir)).map((p) => ({ path: p }));
     // A spread would read null or [] as {}, so these reach the rig only from
@@ -1883,8 +1902,8 @@ describe("autoRigFromLayers", () => {
     for (const [field, value] of [
       ["turnTargets", null],
       ["turnTargets", []],
-      ["style", null],
-      ["style", []],
+      ["rigPlan", null],
+      ["rigPlan", []],
     ] as const) {
       const outPath = path.join(dir, `${field}-${String(value)}.iki`);
       const r = await autoRigFromLayers({

@@ -102,6 +102,9 @@ artist agent applies your findings; the orchestrator arbitrates.
 - `round` — which iteration this is.
 - `scores` — the previous rounds' `SCORES:` lines, so you can compare each axis
   against its best so far (none on round 1).
+- `plan-catalog` — the text of `describe_rig_plan`: every `rigPlan` path with
+  its default, range, recommended span and step, or `unavailable` on a server
+  before 0.30.0.
 - `turn-clamped` — the kept model's turn line, verbatim (this round's artist's
   own `TURN:`, or its `TURN-CANDIDATE:` when the patch gate kept the
   candidate): its `turn.achieved`, `turn.clamped` and `turn.strandOverlap`,
@@ -512,38 +515,39 @@ sideways? `reference-30.png` only checks that the character still looks like
 itself turned. The rig starts every character on the profile,
 and how far the face turns, the features lead it and the front hair follows it
 are what differs between characters. So a turn amount that reads wrong on the
-renders is a `retune` of a `style.json` knob that names its new value, with
-the evidence from the renders, inside that knob's range in the Recommended
-column of the **iki-character** skill's Step 3 knob table: a turn too weak or
-too strong is `style.turn`; features leading too much or too little,
-`style.featureLead`; the front hair following too much or too little,
-`style.hairFollow` (where the front hair draws the head's outline,
-`style.outlineFollow` stays at 0 — the outline holds — so a
+renders is a `retune` of a `rigPlan.<path>` that names its new value, with
+the evidence from the renders, a value on `plan-catalog`'s step grid inside
+that field's recommended span: a turn too weak or
+too strong is `rigPlan.turn.amount`; features leading too much or too little,
+`rigPlan.turn.featureLead`; the front hair following too much or too little,
+`rigPlan.hair.follow` (where the front hair draws the head's outline,
+`rigPlan.hair.outlineFollow` stays at 0 — the outline holds — so a
 retune only returns it there; back hair painted behind that edge may add
 motion on top of it). Judge `featureLead` by the eye pair's lead over the face
 plate, not the nose's: the nose's lead over the eyes' is the profile's own
-(`noseDepth`, which no knob tunes), so the nose's own lead, on the renders or in
-`reference-30.png`, is no `featureLead` finding. A `style` retune always names
-its new value, never one outside the knob's recommended range, and how far
-`reference-30.png` turns, leads or follows neither moves a knob nor lowers the
-`turn` score. At the range's end the knob has gone as far as is recommended:
-name no further retune of it. Blink depth — how far the lid comes down at
-`ParamEyeLOpen` 0 — maps to `style.blink` the same way, and the hair's sway
-amplitude, where a render shows it, to `style.sway`.
+(`noseDepth`, which no plan field tunes), so the nose's own lead, on the renders or in
+`reference-30.png`, is no `featureLead` finding. A `rigPlan` retune always names
+its new value, never one outside the field's recommended span, and how far
+`reference-30.png` turns, leads or follows neither moves a field nor lowers the
+`turn` score. At the span's end the field has gone as far as is recommended:
+name no further retune of it, and none of a field the artist's `RIGPLAN:` line
+lists as `clamped`. Blink depth — how far the lid comes down at
+`ParamEyeLOpen` 0 — maps to `rigPlan.eyes.blink` the same way, and the hair's sway
+amplitude, where a render shows it, to `rigPlan.hair.sway`.
 
 A turn `clamped` names (`eyeShift`) ran out of the art's room, not the knob's:
-raising `style.turn` gains nothing at the face plate's edge or the neck, and at
+raising `rigPlan.turn.amount` gains nothing at the face plate's edge or the neck, and at
 the bangs' side strand only slides the far iris under it. A turn that still
 reads too weak there is a `retune` of the placement that gave out (the eye in
 `layout.json`) or a `regenerate` of `hair_front` with the side strand clear of
 the iris — say which room ran out.
 
 Redrawing a part cannot put depth into a turn, so a head-turn (`ParamAngleX`)
-finding is a `style` retune first. A defect local to one feature at one stop
-that no knob reaches — the far eye riding over the ear at ±30, a bangs band
+finding is a `rigPlan` retune first. A defect local to one feature at one stop
+that no plan field reaches — the far eye riding over the ear at ±30, a bangs band
 shearing — is a `patch` next. An overlap on the zoom crops that no placement
 `retune` fixes is one: name the `patch` even when the same overlap is also why
-you hold a `style` knob where it is — holding the knob keeps the overlap, it
+you hold a plan field where it is — holding the field keeps the overlap, it
 does not fix it. It is an
 `escalate` only as a defect of the
 whole rig — a seam from draw order, a fold, a part detaching from the one it
@@ -553,15 +557,15 @@ Step 1.
 At the `ParamAngleY` midpoint (15°) the question is whether the face reads as
 tipping — the features moving further than the plate, the face shortening a
 little looking down — or the whole head slides up and down unchanged. No
-`style` knob reaches the nod: its keyforms are the profile's own vertical
-displacements, which `style.turn`, `featureLead`, `hairFollow` and
-`outlineFollow` (the turn's) and `style.blink` and `style.sway` (their own
+plan field reaches the nod: its keyforms are the profile's own vertical
+displacements, which `rigPlan.turn.amount`, `turn.featureLead`, `hair.follow` and
+`hair.outlineFollow` (the turn's) and `eyes.blink` and `hair.sway` (their own
 parameters) all leave as measured. A nod defect local to one feature (one
 feature sliding against its neighbour, say) is therefore a `patch` at the
 `ParamAngleY` stop past the 15° render, which shows it at half strength; a
 nod of the whole head that slides instead of tipping is an `escalate` on
 `packages/editor/src/auto-rig/` with the 15° render as evidence. Neither is a
-`style` retune.
+`rigPlan` retune.
 
 The deltas from Step 1 check the render against the rig's report, not whether
 the turn reads right: a delta within ±0.05 clears nothing about the look, and
@@ -592,17 +596,17 @@ Every finding carries a `type`, and the type decides who acts:
   generation, minutes per image. Name only parts that genuinely need it.
 - **`retune`** — the art is fine, its placement, its scale or the rig's
   tuning is wrong. Name the `layout.json` key (e.g. `iris_L.cx`), the
-  `style.json` knob (e.g. `style.turn`; its default and the recommended
-  range a retune stays inside are in the **iki-character** skill's Step 3)
+  `rigPlan` path (e.g. `rigPlan.turn.amount`; its default and the recommended
+  span a retune stays inside are in `plan-catalog`)
   or, on a full body, `canvas.json` `canvasHeight`, the direction (for a
-  `style.json` knob or `canvasHeight`, its new value), and the measured
+  `rigPlan` path or `canvasHeight`, its new value), and the measured
   evidence.
   A part drawn facing the other way (an eye whose lash stops short of its outer
   corner instead of its tear duct) is a retune too: target `mirror-parts.json`,
   naming the part file. On a full body with a pose forearm, `layout.forearm_pose_*`
   is among the retune targets, and on a lip set `layout.mouth_inner`. **Free** — recomposing and re-rigging cost nothing, so
   prefer this whenever it can work.
-- **`patch`** — the art and its placement are right and no `style` knob
+- **`patch`** — the art and its placement are right and no plan field
   reaches the defect, but one displacement at ONE existing keyform stop would:
   a far feature over the ear at ±30, a bangs band shearing at a stop, a nod
   defect local to one feature. Name the target and its stop from `rig-view`
@@ -630,7 +634,7 @@ Every finding carries a `type`, and the type decides who acts:
   ghosting, a texture sliding on its UVs, a `FOLD` line, a `PHYSICS` line,
   anything across the whole head. With `rig-view` `unavailable`, name no `patch`.
 - **`escalate`** — the fix lies outside the parts dir, `layout.json`,
-  `mirror-parts.json`, `style.json`, `canvas.json` and a `patch`:
+  `mirror-parts.json`, `rig-plan.json`, `canvas.json` and a `patch`:
   `packages/editor/src/auto-rig/`, the engine, the format. The artist is not allowed to touch
   these. State the file, the suspected cause and the evidence; the orchestrator
   decides.
@@ -693,7 +697,7 @@ FINDINGS
 1. [regenerate] part=<role>
    problem: <what is wrong, with evidence>
    correction: <the exact prompt directive to use>
-2. [retune] target=<layout.json key, style.json knob, mirror-parts.json, or canvas.json canvasHeight>
+2. [retune] target=<layout.json key, rigPlan.<path>, mirror-parts.json, or canvas.json canvasHeight>
    problem: <what is wrong, with the measured number>
    correction: <the key's new value or a delta on it, in the key's own terms — not a measured span: the lip opening's width is not `mouth_inner.w`, which sizes the whole keyed frame>
 3. [patch] target=<warp2d grid or part, from rig-view> at=<its stop, e.g. ParamAngleX=-30 ParamAngleY=0> region=<role> x=[a, b] y=[c, d] op=<i, only to change or retire accepted op i>
