@@ -7,7 +7,7 @@
   "parameterCount": 30,
   "atlasBytes": 1493436,
   "modelBytes": 1864045,
-  "modelSha256": "721a037cd49a9d37776a6d5832002d81d3bf76f477898de2b529a631bd7d372e",
+  "modelSha256": "f2490fc219254ac159c31d1d1af5a871fd6ab37f35c908d448eb200d70b0e166",
   "turn": {
     "achieved": {
       "eyeShift": 0.1646,
@@ -91,14 +91,14 @@
         "values": {
           "ParamAmbientSway": 1
         },
-        "peak": -11.992,
+        "peak": -12.002,
         "at": 0.017,
         "final": 0,
-        "displacementPx": 27.487
+        "displacementPx": 27.51
       },
       "idle": {
-        "peak": 4.256,
-        "displacementPx": 9.755
+        "peak": 4.174,
+        "displacementPx": 9.568
       }
     }
   ],

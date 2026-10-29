@@ -145,4 +145,58 @@ describe("hair springs on the real driver", () => {
     for (const kind of Object.values(peaks))
       for (const v of Object.values(kind)) expect(v).toBeLessThan(MARGIN);
   }, 600_000);
+
+  it("every output stays inside the range on an endpoint-to-endpoint head sweep, both directions, ambient off and at every phase", () => {
+    const peaks: Record<string, Record<string, number>> = {};
+    const AXES: Record<string, string[]> = {
+      X: [P.AngleX],
+      Z: [P.AngleZ],
+      XZ: [P.AngleX, P.AngleZ],
+    };
+    const sweep = (
+      name: string,
+      axes: string[],
+      from: number,
+      to: number,
+      ms: number,
+      start: number | null, // null: ambient off
+    ) => {
+      const scripted = new Set<string>(axes);
+      if (start === null) scripted.add(P.AmbientSway);
+      const d = driver(scripted);
+      if (start !== null) while (d.time() < start * 1000) d.step();
+      d.setDropping(true);
+      if (start === null) d.values.set(P.AmbientSway, 0);
+      for (const a of axes) d.values.set(a, from);
+      for (let f = 0; f < 2 * 60; f++) d.step(); // settle at the seed
+      const t0 = d.time();
+      for (let f = 0; f < 4 * 60; f++) {
+        const k = Math.min(1, (d.time() - t0) / ms);
+        for (const a of axes) d.values.set(a, from + (to - from) * k);
+        d.step();
+        for (const id of OUTPUTS) {
+          const v = d.values.get(id)!;
+          peaks[name] ??= {};
+          peaks[name][id] = Math.max(peaks[name][id] ?? 0, Math.abs(v));
+        }
+      }
+    };
+    for (const [axis, axes] of Object.entries(AXES))
+      for (const [from, to] of [
+        [-30, 30],
+        [30, -30],
+      ])
+        for (const ms of [200]) {
+          const name = `${axis} ${from}>${to} ${ms}ms`;
+          sweep(name, axes, from, to, ms, null);
+          for (let start = 0; start <= 124; start += 2)
+            sweep(name, axes, from, to, ms, start);
+        }
+    console.log(JSON.stringify(peaks));
+    // The front's ambient (3.5) rides on a 16.3 head swing, so its sweep peak
+    // (19.8) holds the range, not the margin; the back keeps the margin.
+    for (const kind of Object.values(peaks))
+      for (const [id, v] of Object.entries(kind))
+        expect(v).toBeLessThan(id === P.HairBackSway ? MARGIN : RANGE);
+  }, 900_000);
 });

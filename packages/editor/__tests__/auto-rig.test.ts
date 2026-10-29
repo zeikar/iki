@@ -449,16 +449,16 @@ describe("generateIkiFromLayerSet: the model", () => {
       },
       // The back hair's one merged spring, slower than the front's: the ambient
       // is a lag input so the back idles a beat behind the front. The three
-      // bounds (11 × 1, 11 × 0.4, 11 × 1.1) are held under 20 together by
+      // bounds (7 × 1, 7 × 0.4, 7 × 1.73) are held under 20 together by
       // hair-motion.test.ts on the real driver.
       {
         id: "hairBack",
         inputs: [
           { parameter: P.AngleX, weight: 1, mode: "lag" },
           { parameter: P.AngleZ, weight: 0.4, mode: "lag" },
-          { parameter: P.AmbientSway, weight: 1.1, mode: "lag" },
+          { parameter: P.AmbientSway, weight: 1.73, mode: "lag" },
         ],
-        output: { parameter: P.HairBackSway, scale: 11 },
+        output: { parameter: P.HairBackSway, scale: 7 },
         mass: 1,
         stiffness: 32,
         damping: 4.5,

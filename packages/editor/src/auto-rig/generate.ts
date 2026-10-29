@@ -811,13 +811,15 @@ function deformers(
  *
  *  `hairBack` is one merged rig on its own output, a slower pendulum (k 32,
  *  c 4.5: f₀ 0.90 Hz, ζ 0.40, the back layer being the longer one). Its
- *  ambient is a LAG input at 1.1: a follow input at any weight stays in step
+ *  ambient is a LAG input at 1.73: a follow input at any weight stays in step
  *  with the front, while both springs sit far above the ambient's slow
  *  components, so only lag mode puts the back a beat behind (0.62 s). The one
  *  output adds the turn, the tilt and the ambient, so the three bounds (scale
- *  × weight: 11, 4.4, 12.1) are what hair-motion.test.ts holds under 20
- *  together on the real driver (Shake, Tilt and a full turn-and-tilt, every
- *  ambient phase). A one-frame jump of `AmbientSway` (a slider) snaps the
+ *  × weight: 7, 2.8, 12.1) are what hair-motion.test.ts holds under 20
+ *  together on the real driver (Shake, Tilt, a full turn-and-tilt and
+ *  endpoint-to-endpoint head sweeps, every ambient phase). The scale is kept
+ *  low and the ambient weight high so only the head-driven response is cut:
+ *  a -30 to +30 sweep in 200 ms drove a scale-11 back to 23.6. A one-frame jump of `AmbientSway` (a slider) snaps the
  *  back by its bound, as `AngleX` already does. */
 function hairPhysics(hasBack: boolean): IkiPhysics[] {
   const spring = { mass: 1, stiffness: 77, damping: 7 };
@@ -844,9 +846,9 @@ function hairPhysics(hasBack: boolean): IkiPhysics[] {
       inputs: [
         { parameter: P.AngleX, weight: 1, mode: "lag" },
         { parameter: P.AngleZ, weight: 0.4, mode: "lag" },
-        { parameter: P.AmbientSway, weight: 1.1, mode: "lag" },
+        { parameter: P.AmbientSway, weight: 1.73, mode: "lag" },
       ],
-      output: { parameter: P.HairBackSway, scale: 11 },
+      output: { parameter: P.HairBackSway, scale: 7 },
       mass: 1,
       stiffness: 32,
       damping: 4.5,

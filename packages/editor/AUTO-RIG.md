@@ -614,16 +614,18 @@ layout or `style`, re-rig, and the patch lands on the new rig.
   step of the head to its end swings the front sway at most 14 (the tilt, 9).
   `HairSwayX` also follows the idle's `AmbientSway` (declared with the hair)
   at a quarter weight, the hair's slow drift in idle, peaking near 3.7
-  (about 0.044 hh). The back's `AmbientSway` is a lag input at weight 1.1
+  (about 0.044 hh). The back's `AmbientSway` is a lag input at weight 1.73
   (a follow input at any weight would stay in step with the front), which
   puts the back's idle about 0.62 s behind the front's (r 0.96) and peaking
-  near 3.4 (about 0.040 hh). The back's one output adds the turn (`AngleX`,
-  11 × 1), the tilt (`AngleZ`, 11 × 0.4) and the ambient (11 × 1.1), so those
+  near 3.3 (about 0.040 hh). The back's one output adds the turn (`AngleX`,
+  7 × 1), the tilt (`AngleZ`, 7 × 0.4) and the ambient (7 × 1.73), so those
   three bounds are held together under 20:
   `packages/mcp/__tests__/hair-motion.test.ts` drives the real `IkiMotion`
-  through the Shake, the Tilt and a 100 ms turn-and-tilt to the full range
-  from every ambient phase, and the raw peaks stay under 19.5 (front 15.7 in
-  the Shake and the turn-and-tilt, back 18.1 in the turn-and-tilt). A
+  through the Shake, the Tilt, a 100 ms turn-and-tilt to the full range and
+  200 ms head sweeps from one end of the range to the other (both
+  directions, each axis alone and together) from every ambient phase, and
+  the raw peaks stay under 19.5 (back 18.9 in the sweep of both axes; the
+  front's turn sweep reaches 19.8, under the range of 20). A
   one-frame jump of `AmbientSway` (a slider) snaps the back by its bound, as
   `AngleX` already does. `style.sway` scales the tip travel per sway unit on
   both layers, so it scales the turn's swing and the idle drift alike; no

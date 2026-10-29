@@ -67,7 +67,7 @@ describe("checkPhysics — examples/playground/public/hero.iki", () => {
     expect(output).toBe("ParamHairBackSway");
     expect(step.values).toEqual({ ParamAmbientSway: 1 });
     // The bound −scale·weight = −12.1, less one sub-step.
-    expectNear(step.peak, -11.99, 0.05);
+    expectNear(step.peak, -12.0, 0.05);
     expectNear(step.final, 0, 0.05);
     expectNear(step.displacementPx, 26.05, 0.1);
   });
@@ -85,7 +85,7 @@ describe("checkPhysics — examples/playground/public/hero.iki", () => {
     // roll alone, so it barely stirs.
     expectNear(target("hairSway").idle.peak, 3.67, 0.05);
     expectNear(target("hairTilt").idle.peak, 0.02, 0.05);
-    expectNear(target("hairBack").idle.peak, 4.26, 0.05);
+    expectNear(target("hairBack").idle.peak, 4.17, 0.05);
   });
 
   it("is deterministic", () => {
