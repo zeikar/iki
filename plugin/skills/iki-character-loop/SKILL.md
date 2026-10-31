@@ -121,7 +121,8 @@ it to `.gitignore` before the first run, or the generated art lands in a commit.
 ```bash
 mkdir -p iki-char/parts iki-char/layers iki-char/renders/debug \
   iki-char/renders/patch/before iki-char/renders/patch/after \
-  iki-char/renders/plan/before iki-char/renders/plan/after iki-char/renders/judge
+  iki-char/renders/plan/before iki-char/renders/plan/after iki-char/renders/judge \
+  iki-char/renders/face
 [ -f iki-char/layout.json ] || echo '{}' > iki-char/layout.json
 [ -f iki-char/rig-plan.json ] || echo '{}' > iki-char/rig-plan.json
 [ -f iki-char/patches.json ] || echo '{"patches":[]}' > iki-char/patches.json
@@ -488,6 +489,14 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `unavailable`), passed whole. A non-empty `failedTextures` means atlas pages did not load and
    their parts are missing: render once more; if pages still fail, escalate,
    because the critic does not score renders with parts missing.
+   Then render the turn once more, cropped to the face, for the appeal
+   critic's look at the motion (item 5), into `<workdir>/renders/face`:
+   `render_poses` with `poses: [{ name: "rest", values: {}, crop }]` and
+   `sweep: { name: "turn", preset: "turn", crop }`, the `crop` the `face` box
+   in `rig-view` grown by half `faceWidth` a side, as the plan gate's. On the full
+   sheet the face is a fraction of each frame, and a part that slides or
+   stretches against the face reads as a few pixels. With `rig-view` or the
+   sweep `unavailable`, skip it: the appeal critic's `motion` is `unavailable`.
    The rest shot is untouched by construction, which matters because every
    proportion the critic measures is measured against it.
    The poses: `rest`, `turn-m30`, `turn-p30`, `turn-15`, `nod-15`, `blink`,
@@ -540,7 +549,9 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    In parallel (neither needs the other), dispatch **the appeal critic** with
    `renders` (`<workdir>/renders/rest.png`, `turn-p30.png`,
    `mouth-open-0-form-0.png`, `mouth-open-0.6-form-0.png`; a full body also
-   `full-rest.png`), `layout` (the contents of `<workdir>/layout.json`),
+   `full-rest.png`), `motion` (`<workdir>/renders/face/turn/sheet.png` and
+   the dir of its frames, `<workdir>/renders/face/turn/`, or `unavailable`),
+   `layout` (the contents of `<workdir>/layout.json`),
    `round` and `locked` (every key in `<workdir>/appeal-declined.json`, names
    only, `[]` for none) — and nothing else in its prompt: no reference, no
    `layers`, no `preview.png`, nothing of the critic's report, no reason or
@@ -581,8 +592,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    gate `file://<workdir>/renders/plan/before/turn/index.html?b=../../after/turn`,
    which shows the base beside the candidate in lockstep (the relative dir is
    resolved from `before/turn/`) — the flipbook, not a GIF — with the
-   critic's `SCORES:` and `VERDICT:` lines and the appeal critic's `IMPRESSION:`
-   and `APPEAL:` lines, and ask for a one-line reaction ("fine" if none). When the appeal
+   critic's `SCORES:` and `VERDICT:` lines and the appeal critic's `IMPRESSION:`,
+   `APPEAL:` and `MOTION:` lines, and ask for a one-line reaction ("fine" if none). When the appeal
    critic named a `regenerate`, or its `refer` was typed as one above, the same
    question names the part and the billed job once (a `refer` riding on the
    critic's `regenerate` is one combined job); that finding goes to the

@@ -34,6 +34,10 @@ orchestrator arbitrates.
 - `renders` — `rest.png`, `turn-p30.png`, `mouth-open-0-form-0.png` (the closed
   mouth at ×4), `mouth-open-0.6-form-0.png` (a mid-open one), and on a full
   body `full-rest.png`.
+- `motion` — the head turn, cropped to the face: `turn/sheet.png` (nine
+  frames of an eased −30 → +30 `ParamAngleX`, in time order, left to right
+  then top to bottom) and its 90 frames `turn/fNNN.png` at 30 fps; or
+  `unavailable`.
 - `layout` — the contents of `<workdir>/layout.json`. Use it only to name keys
   and quote the values it sets.
 - `round` — which iteration this is.
@@ -67,6 +71,19 @@ first-time viewer and write what reads off — anything, including what the
 checklist does not name — on one `IMPRESSION:` line. It is for the user and
 never a finding by itself: then work the checklist as written, measuring each
 item fresh, and only its bands decide a finding.
+
+## Motion
+
+With `motion`, watch the turn as an animator would, before item 9: read the
+sheet as one motion and open whatever frames you need side by side or zoomed,
+then name what moves unnaturally — a part pinned while the face slides under
+it, a part stretching or shearing where it should travel, a pop or a jump —
+on one `MOTION:` line, each with its frames and roughly how many pixels. Some
+of it is the rig's design, not a fault: the back hair, tails included, and
+the body hold while the head turns, the features lead the face plate, the
+nose most, and the far eye narrows. Leave those out. Like `IMPRESSION:`, it is
+for the user and the orchestrator, never a finding by itself: a placement
+that causes it is item 9's `retune`; the rest stays on the line.
 
 ## Checklist
 
@@ -109,7 +126,8 @@ after the arrow.
    `face.cy`.
 8. `symmetry` — the two eyes', brows' and blush's rows and distances from the
    centre. → the odd side's `cy` / `cx`.
-9. `turn` — what reads off on `turn-p30`: the far eye leaving the face outline,
+9. `turn` — what reads off on `turn-p30`, and with `motion` on the turn
+   itself (above): the far eye leaving the face outline,
    the mouth drifting past the jaw line. → a layout key when placement caused
    it, otherwise a note only; the fidelity critic owns the rig and the
    `rig-plan.json` fields.
@@ -145,6 +163,7 @@ Report exactly this, nothing else:
 
 ```
 IMPRESSION: <what reads off at first sight>
+MOTION: <what moves unnaturally on the turn, with frames and px; `none`; or `unavailable`>
 APPEAL: spacing=N size=N iris=N rhythm=N mouth=N nose=N face=N symmetry=N turn=N (total NN/45) iterate|stop
 
 FINDINGS
