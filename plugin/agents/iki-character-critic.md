@@ -408,6 +408,19 @@ tenth of the reference's or more is a `retune` of the `cx` of `eye_L` /
 step with the size unchanged, and the size is judged again after it. The
 iris's shape counts too: a round iris where the reference draws a taller oval
 is a `retune` of `iris_L` / `iris_R` `h` to the reference's height over width.
+How much white shows, and where, counts apart from both: with every share
+right, a white ring round an iris the reference tucks from lash to lower lid
+still reads as a startled stare. Crop one eye of `rest` and of the reference
+at the same scale, the opening from the lash line to the lower lid and from
+the tear duct to the outer corner (the wing left out), and measure the visible
+white's area over the opening's, the iris's height and width over the
+opening's, and the sides the white shows on (above, below, inner, outer). One
+off by a tenth of the reference's or more is a `retune` of `iris_L` /
+`iris_R` `w` / `h` (`cy` for white above or below the iris alone), or of the
+eye box's `h` (`lash_*` identical) when the opening is the wrong height. When
+the iris already fills the opening as the reference's does and white still
+shows where the reference has none, the drawing is the cause: a `regenerate`
+of `eyewhite.png` for the opening's shape.
 `face` judges the nose against the reference's nose. One drawn in another
 style — a shaded bump where the reference draws only a highlight and a short
 tick, or the reverse — is a `regenerate` of `nose.png`, whose prompt follows
@@ -733,13 +746,15 @@ artist's report (`turn.achieved`) —
 `far` is `farEyeRatio`, `shift` is `|eyeShift|`, `silhouette` is
 `silhouetteRatio` — and reads `TURN: none` when no turn was solved; `EYES:` is
 Step 1's iris share against the reference's, read by eye, then the eye boxes'
-gap over the face's width, both by eye:
+gap over the face's width, both by eye; `EYES-WHITE:` is Step 2's white
+measured on the two eye crops:
 
 ```
 VERDICT: ship | iterate | stop
 SCORES: face=N eyes=N hair=N body=N palette=N line=N rig=N turn=N   (total NN/40)
 TURN: far <render> (report <report>, Δ<d>) shift <render> (report <report>, Δ<d>) silhouette <render> (report <report>, Δ<d>)
 EYES: iris/head render <measured> vs reference <by eye>; gap/face render <by eye> vs reference <by eye>
+EYES-WHITE: white/opening render <r> vs reference <r>; iris h/opening render <r> vs reference <r>; iris w/opening render <r> vs reference <r>; white shows render <sides> vs reference <sides>
 
 MEASUREMENTS
 <the measure_layers check lines, the measure_turn_reference lines quoted
