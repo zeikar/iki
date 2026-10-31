@@ -118,6 +118,12 @@ export interface CharacterOptions {
    *  above the plate's top: looking down, the bangs there drop as far as the
    *  face's top, the gap just above it. */
   plateTopGap?: boolean;
+  /** As `wideBack`, but the bangs step in just under the plate's top: ±262
+   *  (columns 238–762) on rows 200–202, then columns 300–700 down to the
+   *  temple's end (row 329), over a back hair tucked in to columns 243–757
+   *  on rows 240–247. The cap's top row's window reaches rows 200–202, which
+   *  the crown row above renders too. */
+  plateTopStep?: boolean;
   /** As `fullBack`, but on the crown the back hair reaches above the bangs'
    *  top only over a ±15 px band of columns at the axis; elsewhere its top
    *  lies 40 px (0.15 hh) under the bangs' top in each column. */
@@ -170,8 +176,8 @@ const FULL_BACK_ROWS = {
  *  crop holds canvas rows 10–969, the back's rows 0–999. The back's crown is
  *  as `crown` names: `fullBack`'s, or the `tuft`, `dip` or `shoulderDip`
  *  option's; `wide`, `crownGap`, `faceGap`, `besideFaceGap`, `plateTopGap`,
- *  `narrowCap` and `tuckedTemple` are the `wideBack` option's and those
- *  built on it;
+ *  `plateTopStep`, `narrowCap` and `tuckedTemple` are the `wideBack`
+ *  option's and those built on it;
  *  `tightLock` is `fullBack`'s crown over its own solid band. */
 function fullBackRuns(
   crown:
@@ -184,6 +190,7 @@ function fullBackRuns(
     | "faceGap"
     | "besideFaceGap"
     | "plateTopGap"
+    | "plateTopStep"
     | "narrowCap"
     | "tuckedTemple"
     | "tightLock",
@@ -198,6 +205,7 @@ function fullBackRuns(
     crown === "faceGap" ||
     crown === "besideFaceGap" ||
     crown === "plateTopGap" ||
+    crown === "plateTopStep" ||
     crown === "narrowCap" ||
     crown === "tuckedTemple";
   // The bangs' dome: its half-width on row k, from ±200 on its top row (10)
@@ -241,6 +249,11 @@ function fullBackRuns(
       b = [298, 703];
     }
     if (wide && k < temple[1]) b = [180, 820];
+    if (crown === "plateTopStep") {
+      if (k >= 200 && k <= 202) f = [238, 762];
+      else if (k >= 203 && k < temple[1]) f = [300, 700];
+      if (k >= 240 && k <= 247) b = [243, 757];
+    }
     if (crown === "tuckedTemple" && k >= temple[1] - 30 && k < temple[1])
       b = [243, 757];
     if (crown === "narrowCap" && k < temple[0]) {
@@ -287,6 +300,7 @@ export function character(opts: CharacterOptions = {}): {
     faceGap = false,
     besideFaceGap = false,
     plateTopGap = false,
+    plateTopStep = false,
     narrowCap = false,
     tuckedTemple = false,
     tightLock = false,
@@ -303,6 +317,7 @@ export function character(opts: CharacterOptions = {}): {
       ["faceGap", faceGap],
       ["besideFaceGap", besideFaceGap],
       ["plateTopGap", plateTopGap],
+      ["plateTopStep", plateTopStep],
       ["narrowCap", narrowCap],
       ["tuckedTemple", tuckedTemple],
       ["tightLock", tightLock],
