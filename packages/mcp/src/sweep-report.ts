@@ -109,6 +109,124 @@ function pop(v: number[]): number | null {
   return most / mean;
 }
 
+/** A pair gap or a width, face widths: the range along the nod at each turn. */
+export interface NodRange {
+  id: "eyes" | "irises" | "mouth";
+  range: { m30: number; zero: number; p30: number };
+}
+
+/** The additivity residual of a landmark at the four corners; first letter AngleX, second AngleY. */
+export interface CornerResidual {
+  id: string;
+  residual: { mm: number; mp: number; pm: number; pp: number };
+}
+
+export type NodReport =
+  | {
+      unit: "fw";
+      faceWidth: number;
+      nod: NodRange[];
+      corner: CornerResidual[];
+    }
+  | { unavailable: string };
+
+const NOD_TURNS = [-30, 0, 30];
+const NOD_PARTS = [
+  "face",
+  "eye_L",
+  "eye_R",
+  "iris_L",
+  "iris_R",
+  "nose",
+  "lip_upper",
+  "mouth",
+];
+/** The ladder indices of AngleY −30, 0 and +30. */
+const NOD_ENDS = [0, -LADDER_MIN, LADDER_MAX - LADDER_MIN];
+
+/**
+ * The nod at three turns: `ParamAngleY` −30 … +30 in 1° steps at `ParamAngleX`
+ * −30, 0 and +30, no physics. `nod` is how far a pair gap (or the mouth's
+ * width) moves along each ladder; `corner` is the AngleX × AngleY additivity
+ * residual per landmark, the rest term included, so a rig whose parts add the
+ * turn and the nod reads 0. Both are read against each other and against the
+ * corpus's zeros, never against a bound.
+ */
+export function checkNod(model: IkiModel): NodReport {
+  const face = model.parts.find((p) => p.id === "face");
+  if (!face) return { unavailable: "no face part" };
+  const hasEyes = ["eye_L", "eye_R"].every((id) =>
+    model.parts.some((p) => p.id === id),
+  );
+  if (!hasEyes) return { unavailable: "no eye_L and eye_R parts" };
+  const fw = face.width;
+  const ladders = NOD_TURNS.map((x) =>
+    Array.from({ length: LADDER_MAX - LADDER_MIN + 1 }, (_, i) =>
+      landParts(
+        model,
+        { ParamAngleX: x, ParamAngleY: LADDER_MIN + i },
+        NOD_PARTS,
+      ),
+    ),
+  );
+  const has = (id: string) => ladders[0][0].has(id);
+  const boxes = (id: string) =>
+    ladders.map((ladder) => ladder.map((l) => box(l.get(id)!, fw)));
+  const spread = (v: number[]) => Math.max(...v) - Math.min(...v);
+  const ranges = (values: (b: number, i: number) => number) => {
+    const [m30, zero, p30] = NOD_TURNS.map((_, b) =>
+      spread(
+        Array.from({ length: LADDER_MAX - LADDER_MIN + 1 }, (_, i) =>
+          values(b, i),
+        ),
+      ),
+    );
+    return { m30, zero, p30 };
+  };
+
+  const gap = (l: string, r: string): NodRange["range"] => {
+    const bl = boxes(l);
+    const br = boxes(r);
+    return ranges((b, i) => br[b][i].x - bl[b][i].x);
+  };
+  const nod: NodRange[] = [{ id: "eyes", range: gap("eye_L", "eye_R") }];
+  if (has("iris_L") && has("iris_R")) {
+    nod.push({ id: "irises", range: gap("iris_L", "iris_R") });
+  }
+  const mouthId = has("lip_upper")
+    ? "lip_upper"
+    : has("mouth")
+      ? "mouth"
+      : null;
+  if (mouthId) {
+    const bm = boxes(mouthId);
+    nod.push({ id: "mouth", range: ranges((b, i) => bm[b][i].width) });
+  }
+
+  const corner = ["eye_L", "eye_R", "nose"]
+    .filter(has)
+    .map((id): CornerResidual => {
+      const b = boxes(id);
+      // The ladder of turn t, the pose at AngleY index j.
+      const at = (t: number, j: number) => b[t][NOD_ENDS[j]];
+      const residual = (t: number, j: number) => {
+        const r = (axis: "x" | "y") =>
+          at(t, j)[axis] - at(t, 1)[axis] - at(1, j)[axis] + at(1, 1)[axis];
+        return Math.max(Math.abs(r("x")), Math.abs(r("y")));
+      };
+      return {
+        id,
+        residual: {
+          mm: residual(0, 0),
+          mp: residual(0, 2),
+          pm: residual(2, 0),
+          pp: residual(2, 2),
+        },
+      };
+    });
+  return { unit: "fw", faceWidth: fw, nod, corner };
+}
+
 export function checkSweep(model: IkiModel): SweepReport {
   const face = model.parts.find((p) => p.id === "face");
   if (!face) return { preset: "turn", unavailable: "no face part" };
@@ -181,5 +299,22 @@ export function formatSweepReport(report: SweepReport): string[] {
         `SWEEP turn ${l.id}: amplitude ${fw3(l.amplitude)} fw, x kink ${two(l.xKink)}, width kink ${two(l.widthKink)}, lead -30 ${signed(l.lead.m30)} fw / +30 ${signed(l.lead.p30)} fw, pop ${two(l.pop)}`,
     ),
     `SWEEP turn plate: amplitude ${fw3(report.plateAmplitude)} fw`,
+  ];
+}
+
+/** The `SWEEP nod` and `SWEEP corner` lines, or the one `unavailable` line. */
+export function formatNodReport(report: NodReport): string[] {
+  if ("unavailable" in report) {
+    return [`SWEEP nod: unavailable — ${report.unavailable}`];
+  }
+  return [
+    ...report.nod.map(
+      ({ id, range: r }) =>
+        `SWEEP nod ${id}: ${id === "mouth" ? "width" : "gap"} range X -30 ${fw3(r.m30)} / 0 ${fw3(r.zero)} / +30 ${fw3(r.p30)} fw`,
+    ),
+    ...report.corner.map(
+      ({ id, residual: r }) =>
+        `SWEEP corner ${id}: residual (-30,-30) ${fw3(r.mm)} / (-30,+30) ${fw3(r.mp)} / (+30,-30) ${fw3(r.pm)} / (+30,+30) ${fw3(r.pp)} fw`,
+    ),
   ];
 }
