@@ -11,6 +11,7 @@ import {
   boxAngles,
   eyeRowModelPx,
   flipbookHtml,
+  clearSweepDir,
   prepareSweepDir,
   sweepSpec,
   turnTheta,
@@ -322,16 +323,16 @@ afterAll(() => {
 describe("prepareSweepDir", () => {
   it("creates the directory and tolerates it existing", () => {
     const out = fs.realpathSync(tmpDir());
-    const dir = prepareSweepDir(out, "turn");
+    const dir = prepareSweepDir(out, "turn", "sweep");
     expect(dir).toBe(path.join(out, "turn"));
     fs.writeFileSync(path.join(dir, "notes.txt"), "keep");
-    expect(prepareSweepDir(out, "turn")).toBe(dir);
+    expect(prepareSweepDir(out, "turn", "sweep")).toBe(dir);
     expect(fs.readFileSync(path.join(dir, "notes.txt"), "utf8")).toBe("keep");
   });
 
   it("clears the frames, sheet, kymograph, manifest and flipbook an earlier run left, and only those", () => {
     const out = fs.realpathSync(tmpDir());
-    const dir = prepareSweepDir(out, "turn");
+    const dir = prepareSweepDir(out, "turn", "sweep");
     const stale = [
       "f123.png",
       "kymograph.png",
@@ -342,7 +343,7 @@ describe("prepareSweepDir", () => {
     for (const f of [...stale, "notes.txt", "f12.png"]) {
       fs.writeFileSync(path.join(dir, f), "x");
     }
-    prepareSweepDir(out, "turn");
+    clearSweepDir(prepareSweepDir(out, "turn", "sweep"));
     expect(fs.readdirSync(dir).sort()).toEqual(["f12.png", "notes.txt"]);
   });
 
@@ -351,14 +352,20 @@ describe("prepareSweepDir", () => {
     const target = tmpDir(os.tmpdir());
     fs.writeFileSync(path.join(target, "f000.png"), "mine");
     fs.symlinkSync(target, path.join(out, "turn"));
-    expect(() => prepareSweepDir(out, "turn")).toThrow(/symbolic link/);
-    expect(() => prepareSweepDir(out, "turn")).toThrow(path.join(out, "turn"));
+    expect(() => prepareSweepDir(out, "turn", "sweeps[1]")).toThrow(
+      /^sweeps\[1\]\.name names .*, a symbolic link/,
+    );
+    expect(() => prepareSweepDir(out, "turn", "sweep")).toThrow(
+      path.join(out, "turn"),
+    );
     expect(fs.readFileSync(path.join(target, "f000.png"), "utf8")).toBe("mine");
   });
 
   it("refuses a file named like the directory", () => {
     const out = fs.realpathSync(tmpDir());
     fs.writeFileSync(path.join(out, "turn"), "x");
-    expect(() => prepareSweepDir(out, "turn")).toThrow(/not a directory/);
+    expect(() => prepareSweepDir(out, "turn", "sweep")).toThrow(
+      /^sweep\.name names .*, not a directory/,
+    );
   });
 });

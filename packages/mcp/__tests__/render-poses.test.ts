@@ -615,6 +615,34 @@ describe("renderPoses refuses a sweep", () => {
 });
 
 // Renders with the BUILT page bundle (dist): run `pnpm build` after an engine edit.
+describe.skipIf(findBrowser() === undefined)(
+  "renderPoses refuses before it clears",
+  () => {
+    it("leaves an earlier sweep dir's files when a later entry's dir is a planted symlink", async () => {
+      const dir = tmpDir();
+      const modelPath = path.join(dir, "m.iki");
+      fs.writeFileSync(modelPath, JSON.stringify(model(1100, 1100)));
+      const out = fs.realpathSync(dir);
+      fs.mkdirSync(path.join(out, "turn"));
+      fs.writeFileSync(path.join(out, "turn", "f000.png"), "last good");
+      const target = fs.mkdtempSync(path.join(os.tmpdir(), "iki-render-link-"));
+      createdDirs.push(target);
+      fs.symlinkSync(target, path.join(out, "turn-nod"));
+      const r = await renderPoses({
+        modelPath,
+        outDir: dir,
+        sweep: { name: "turn", preset: "turn" },
+        sweeps: [{ name: "turn-nod", preset: "turn-nod" }],
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.error).toMatch(/^sweeps\[0\]\.name names .*symbolic/);
+      expect(fs.readFileSync(path.join(out, "turn", "f000.png"), "utf8")).toBe(
+        "last good",
+      );
+    });
+  },
+);
+
 describe.skipIf(findBrowser() === undefined)("renderPoses in a browser", () => {
   const TALL = 3650;
 

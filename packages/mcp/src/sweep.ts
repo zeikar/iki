@@ -422,10 +422,16 @@ const STALE_NAMES = [
  * link or a non-directory planted there — it would redirect every frame write
  * — confines it to the working directory, and removes the frames, sheet,
  * kymograph, manifest and flipbook an earlier run left there. `outDir` is the realpath'd dir `resolveOutputDir` returned and `name`
- * is already checked by `planRenders`. Call only once the browser was found.
- * Returns the real directory.
+ * is already checked by `planRenders`; `label` names the input in a refusal
+ * ("sweep" or `sweeps[i]`). Call only once the browser was found. Returns the
+ * real directory; it clears nothing — call `clearSweepDir` once every dir has
+ * passed, so a refusal on a later one deletes nothing.
  */
-export function prepareSweepDir(outDir: string, name: string): string {
+export function prepareSweepDir(
+  outDir: string,
+  name: string,
+  label: string,
+): string {
   const dir = path.join(outDir, name);
   try {
     fs.mkdirSync(dir);
@@ -436,12 +442,16 @@ export function prepareSweepDir(outDir: string, name: string): string {
   }
   const stat = fs.lstatSync(dir);
   if (stat.isSymbolicLink()) {
-    throw new AutoRigInputError(`sweep.name names ${dir}, a symbolic link`);
+    throw new AutoRigInputError(`${label}.name names ${dir}, a symbolic link`);
   }
   if (!stat.isDirectory()) {
-    throw new AutoRigInputError(`sweep.name names ${dir}, not a directory`);
+    throw new AutoRigInputError(`${label}.name names ${dir}, not a directory`);
   }
-  const real = confineToWorkingDirectory(process.cwd(), dir, "sweep dir", name);
+  return confineToWorkingDirectory(process.cwd(), dir, "sweep dir", name);
+}
+
+/** Removes the earlier run's files from a dir `prepareSweepDir` returned. */
+export function clearSweepDir(real: string): void {
   // A re-run under the same name must leave nothing of another run for a reader
   // of the whole dir, even when this one throws midway.
   for (const entry of fs.readdirSync(real)) {
@@ -449,5 +459,4 @@ export function prepareSweepDir(outDir: string, name: string): string {
       fs.rmSync(path.join(real, entry));
     }
   }
-  return real;
 }

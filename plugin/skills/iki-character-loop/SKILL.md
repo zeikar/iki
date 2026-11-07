@@ -348,7 +348,11 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    there by an interrupted gate is deleted by name). Per pair flip a coin and
    MOVE its before and after renders there as `pair<k>-A.png` and
    `pair<k>-B.png` — move, not copy, so no file left on disk matches either
-   side. Keep the key in this conversation only, never in a file until the
+   side. The nod pair, when rendered, is ONE more pair:
+   `renders/patch/{before,after}/turn-nod/sheet.png` moved into
+   `renders/judge/` the same way as `pair<k>-A.png` / `pair<k>-B.png`, the
+   frames staying put; its `<feature>` is the roles of those ops in plain
+   words. Keep the key in this conversation only, never in a file until the
    verdict is decoded: a subagent can share your scratchpad (Claude Code's
    do) and the workdir, so a key on disk sits where the judge works. Dispatch ONE judge for every pair,
    fresh, with nothing but those paths and this prompt (`<feature>` in plain
@@ -379,13 +383,10 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    back by the key — its before render to `renders/patch/before/` and its
    after render to `renders/patch/after/`, under its pose name — which leaves
    `renders/judge/` empty for the next gate without a wildcard `rm` (Claude
-   Code's safety check refuses `rm renders/judge/*`). The nod pair, when
-   rendered, is ONE more pair: `renders/patch/{before,after}/turn-nod/sheet.png`
-   moved into `renders/judge/` as `pair<k>-A.png` / `pair<k>-B.png` by the
-   coin flip, the frames staying put, and moved back by the key into
-   `renders/patch/before/turn-nod/sheet.png` and
+   Code's safety check refuses `rm renders/judge/*`). The nod pair moves back
+   into `renders/patch/before/turn-nod/sheet.png` and
    `renders/patch/after/turn-nod/sheet.png` (the sweep dirs, not under a pose
-   name); its `<feature>` is the roles of those ops in plain words. Accept when the judge
+   name). Accept when the judge
    prefers the candidate on at least one pair and the baseline on none, AND the
    candidate's fold report has no offender (the accept rule is unchanged in
    words; one more pair makes it stricter):
@@ -543,7 +544,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    the adopt commit moves it). On the full
    sheet the face is a fraction of each frame, and a part that slides or
    stretches against the face reads as a few pixels. With `rig-view` or the
-   sweep `unavailable`, skip it: the appeal critic's `motion` is `unavailable`.
+   sweep `unavailable`, skip it: the appeal critic's `motion` and the critic's
+   `nod` are `unavailable`.
    The rest shot is untouched by construction, which matters because every
    proportion the critic measures is measured against it.
    The poses: `rest`, `turn-m30`, `turn-p30`, `turn-15`, `nod-15`, `blink`,
@@ -585,7 +587,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    server before 0.31.0; the lines include the `SWEEP nod` and `SWEEP corner`
    ones, or `sweep.nod`), `nod` (`<workdir>/renders/face/turn-nod/sheet.png`
    and the dir of its frames, `<workdir>/renders/face/turn-nod/`; or
-   `unavailable` from a server before 0.32.0),
+   `unavailable` from a server before 0.32.0, or when item 4 skipped the face
+   call),
    `rig-view` (item 2's summary, or
    `unavailable`), `patches` (the accepted array, `<workdir>/patches.json`
    as item 3 left it) and `rejected` (`<workdir>/patches-rejected.json`'s,

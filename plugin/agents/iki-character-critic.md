@@ -183,9 +183,10 @@ artist agent applies your findings; the orchestrator arbitrates.
   over the local face plate at −30 and +30, and `pop`, then the plate's own
   amplitude; or `sweep.report` when the host shows the JSON. The `SWEEP nod`
   lines (`eyes`, `irises`, `mouth`: the range of the pair gap or the width
-  along a nod at `ParamAngleX` −30, 0 and +30, in face widths; 0.000 on an
-  additive rig) and the `SWEEP corner` lines (per landmark, the additivity
-  residual at each corner, rest term included) follow them, as `sweep.nod`
+  along a nod at `ParamAngleX` −30, 0 and +30, in face widths; on an additive
+  rig the three are equal, 0.000 on the corpus) and the `SWEEP corner` lines
+  (per landmark, the additivity residual at each corner, rest term included;
+  0 on an additive rig) follow them, as `sweep.nod`
   when the host shows the JSON, beside `sweep.report`; they are absent before
   0.32.0. It is rendered with the hair physics running and no idle.
   `unavailable` means the server predates it (before 0.31.0).
@@ -570,8 +571,9 @@ face holds is sliding on the nod, and the `SWEEP nod` range at that turn and
 the `SWEEP corner` residuals are its evidence. The hair's drift down the outer
 columns is the turn's swing settling, judged under `rig`'s physics rules,
 never a nod finding. The numbers are quoted under MEASUREMENTS, never
-thresholds: a non-zero one says a corner keyform or a stop-local patch departs
-from the edges — where to look, not a finding.
+thresholds: a `nod` range that differs between the three turns, or a non-zero
+`corner` residual, says a corner keyform or a stop-local patch departs from the
+edges — where to look, not a finding.
 An `x kink` on the eyes far above the nose's, with the amplitude normal, is
 evidence for the `rigPlan.turn.eyeForeshorten` retune below. The nose's
 `width kink` is always n/a, so judge the eyes' `width kink` on its own (the two
@@ -716,7 +718,8 @@ Every finding carries a `type`, and the type decides who acts:
   `ParamAngleY` 0, and `stress` / `combined` at the corner, `ParamAngleX` and
   `ParamAngleY` both −30 / both 30, since the tilt and the body they add carry
   the eye and the ear together — one finding per stop it shows at on that
-  side (its mirror at the opposite stop stays in the same finding, as
+  side, except a defect that holds down a whole `nod` column, which is one
+  finding naming its three stops (its mirror at the opposite stop stays in the same finding, as
   above). The `nod` sheet's cells are the same stops without the roll:
   `turn-m30` / `turn-p30` are its middle row's outer cells, `stress` /
   `combined` its (−30,−30) / (+30,+30) corners, so an overlap seen on a still

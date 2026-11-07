@@ -42,6 +42,7 @@ import {
   SWEEP_FPS,
   SWEEP_WARMUP_S,
   flipbookHtml,
+  clearSweepDir,
   prepareSweepDir,
   sweepDurationS,
   sweepSpec,
@@ -597,11 +598,15 @@ export async function renderPoses(
     // Only now: a call refused for its input or for a missing browser
     // creates and deletes nothing.
     const sweepDir = input.sweep
-      ? prepareSweepDir(outDir, input.sweep.name)
+      ? prepareSweepDir(outDir, input.sweep.name, "sweep")
       : undefined;
-    const sweepsDirs = input.sweeps?.map((s) =>
-      prepareSweepDir(outDir, s.name),
+    const sweepsDirs = input.sweeps?.map((s, i) =>
+      prepareSweepDir(outDir, s.name, `sweeps[${i}]`),
     );
+    // Only once every dir passed: a refusal above deletes nothing.
+    for (const d of [sweepDir, ...(sweepsDirs ?? [])]) {
+      if (d) clearSweepDir(d);
+    }
     const sweepReport =
       input.sweep || input.sweeps ? checkSweep(model) : undefined;
     const nodReport = input.sweep || input.sweeps ? checkNod(model) : undefined;
