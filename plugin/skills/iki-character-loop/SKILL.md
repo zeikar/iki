@@ -322,6 +322,21 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    ones passed; a mismatch is an old server, so the gate cannot run: discard
    the candidate, log nothing and tell the user.
 
+   When any gated op's `at` names `ParamAngleX` or `ParamAngleY` (a grid stop
+   names both; a part-warp stop names one), render the box too: two more
+   `render_poses` calls, `poses: [{ name: "rest", values: {}, crop }]` with
+   `crop` the `face` box in `rig-view` grown by half `faceWidth` a side (the
+   plan gate's) and `sweeps: [{ name: "turn-nod", preset: "turn-nod", crop }]`:
+   the base into `renders/patch/before/`, the candidate into
+   `renders/patch/after/` (the tool creates `turn-nod/` under each). The pose
+   list's calls never change. The box crosses the nod while turned, where a
+   stop-local patch shows and the stills do not. `sweeps` needs 0.32.0+: a
+   result without `sweeps` (JSON) or without the
+   `renders/patch/{before,after}/turn-nod/sheet.png` path (text) predates it
+   and skips the nod pair; the gate runs on the still pairs as it does today,
+   and item 6 says the nod pair was unavailable and why. A mismatch in the
+   returned pose name (`rest`) is the existing old-server discard.
+
    Read both fold reports (the engine's set plus these poses; item 4 says how
    in either form). The baseline's must have no offender: a `FOLD` there is
    the critic's escalation before any patch, so discard the candidate and log
@@ -346,6 +361,8 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    A pair of nine-frame grids is the same motion, its frames in the same
    order (left to right, top to bottom), rigged two ways: judge how
    <feature> moves across the frames, not one cell.
+   A grid whose cells are labelled X and Y is laid out by angle, not by time:
+   judge how <feature> changes along each row and down each column.
    For each pair: which side's <feature> reads more natural (no part
    sliding over another, no seam, no squash)? Answer A, B or same, with
    one phrase why.
@@ -362,16 +379,29 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    back by the key — its before render to `renders/patch/before/` and its
    after render to `renders/patch/after/`, under its pose name — which leaves
    `renders/judge/` empty for the next gate without a wildcard `rm` (Claude
-   Code's safety check refuses `rm renders/judge/*`). Accept when the judge
+   Code's safety check refuses `rm renders/judge/*`). The nod pair, when
+   rendered, is ONE more pair: `renders/patch/{before,after}/turn-nod/sheet.png`
+   moved into `renders/judge/` as `pair<k>-A.png` / `pair<k>-B.png` by the
+   coin flip, the frames staying put, and moved back by the key into
+   `renders/patch/before/turn-nod/sheet.png` and
+   `renders/patch/after/turn-nod/sheet.png` (the sweep dirs, not under a pose
+   name); its `<feature>` is the roles of those ops in plain words. Accept when the judge
    prefers the candidate on at least one pair and the baseline on none, AND the
-   candidate's fold report has no offender:
+   candidate's fold report has no offender (the accept rule is unchanged in
+   words; one more pair makes it stricter):
    `mv patches-candidate.json patches.json`,
    `mv iki-character-candidate.iki iki-character.iki`, delete
    `iki-character-base.iki`, and the artist's `TURN-CANDIDATE:` becomes this
    round's `TURN:`. Otherwise reject: append each gated op to
    `patches-rejected.json` with the round and a verdict read off ITS OWN
    pairs — the stop and midpoint of its `target` + `at` + `region.role`, as
-   decoded answers, never raw A/B. Own pairs with any `baseline`, or all
+   decoded answers, never raw A/B. The nod pair is one of an op's OWN pairs
+   only when that op is the only gated op whose `at` names `ParamAngleX` or
+   `ParamAngleY`; with two or more such ops it is nobody's own pair, each
+   op's verdict reads its own still pairs as above, and a `baseline` on the
+   nod pair is named (`batch:`) as what sank the batch for any op whose own
+   pairs favour it, so an innocent op is never logged `judged:` off a pair it
+   shares. Own pairs with any `baseline`, or all
    `same`, give `judged:` and those answers; otherwise (they favour it) the
    verdict is `batch:` and what sank the batch (another op's pair, or the
    candidate's `FOLD` line). Discard the candidate, and the artist's `TURN:`
@@ -486,14 +516,31 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    model order (`PHYSICS: no rigs` is an empty one), passed whole and as they
    are: there are few, and an `ok` one says the hair moves. The `SWEEP` lines
    are `sweep.report` (its `landmarks[]` and `plateAmplitude`, or its
-   `unavailable`), passed whole. A non-empty `failedTextures` means atlas pages did not load and
+   `unavailable`) and `sweep.nod` (its `nod[]` and `corner[]`, or its
+   `unavailable`; absent before 0.32.0, where it is `unavailable`), passed
+   whole; the text's `SWEEP nod` and `SWEEP corner` lines follow the
+   `SWEEP turn` ones. A non-empty `failedTextures` means atlas pages did not load and
    their parts are missing: render once more; if pages still fail, escalate,
    because the critic does not score renders with parts missing.
    Then render the turn once more, cropped to the face, for the appeal
    critic's look at the motion (item 5), into `<workdir>/renders/face`:
    `render_poses` with `poses: [{ name: "rest", values: {}, crop }]` and
-   `sweep: { name: "turn", preset: "turn", crop }`, the `crop` the `face` box
-   in `rig-view` grown by half `faceWidth` a side, as the plan gate's. On the full
+   `sweep: { name: "turn", preset: "turn", crop }` AND
+   `sweeps: [{ name: "turn-nod", preset: "turn-nod", crop }]`, the `crop` the
+   `face` box in `rig-view` grown by half `faceWidth` a side, as the plan
+   gate's: the face-cropped turn goes into `renders/face/turn/`, and the box
+   into `renders/face/turn-nod/` (180 frames, `manifest.json`, `sheet.png` —
+   the 3 × 3 grid by angle —, `index.html`; no kymograph). The box crosses
+   the nod while turned, where a stop-local patch or a corner keyform shows
+   and a still or the pure turn does not; the level turn stays because the
+   box never turns at AngleY 0. `sweeps` needs 0.32.0+: an older server
+   strips it and renders the rest, so a result without `sweeps` (JSON) or
+   without the `renders/face/turn-nod/sheet.png` path (text) predates it:
+   the critic's `nod` and the `turn-nod` half of the appeal critic's
+   `motion` are `unavailable`, the `turn` half is what it was (a server
+   before 0.31.0 strips `sweep` too and `motion` is `unavailable` as today).
+   The round goes on; item 6 names the cause (the pin predates 0.32.0 until
+   the adopt commit moves it). On the full
    sheet the face is a fraction of each frame, and a part that slides or
    stretches against the face reads as a few pixels. With `rig-view` or the
    sweep `unavailable`, skip it: the appeal critic's `motion` is `unavailable`.
@@ -535,7 +582,10 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    or `physics.targets`; or `unavailable` from a server before 0.27.0),
    `sweep` (`<workdir>/renders/turn/sheet.png`, `<workdir>/renders/turn/kymograph.png`
    and item 4's `SWEEP` lines, in the form they came; or `unavailable` from a
-   server before 0.31.0),
+   server before 0.31.0; the lines include the `SWEEP nod` and `SWEEP corner`
+   ones, or `sweep.nod`), `nod` (`<workdir>/renders/face/turn-nod/sheet.png`
+   and the dir of its frames, `<workdir>/renders/face/turn-nod/`; or
+   `unavailable` from a server before 0.32.0),
    `rig-view` (item 2's summary, or
    `unavailable`), `patches` (the accepted array, `<workdir>/patches.json`
    as item 3 left it) and `rejected` (`<workdir>/patches-rejected.json`'s,
@@ -550,7 +600,9 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `renders` (`<workdir>/renders/rest.png`, `turn-p30.png`,
    `mouth-open-0-form-0.png`, `mouth-open-0.6-form-0.png`; a full body also
    `full-rest.png`), `motion` (`<workdir>/renders/face/turn/sheet.png` and
-   the dir of its frames, `<workdir>/renders/face/turn/`, or `unavailable`),
+   the dir of its frames, `<workdir>/renders/face/turn/`, plus
+   `<workdir>/renders/face/turn-nod/sheet.png` and the dir of its frames,
+   `<workdir>/renders/face/turn-nod/`, either half `unavailable` on its own),
    `layout` (the contents of `<workdir>/layout.json`),
    `round` and `locked` (every key in `<workdir>/appeal-declined.json`, names
    only, `[]` for none) — and nothing else in its prompt: no reference, no
@@ -591,7 +643,12 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `file://<workdir>/renders/turn/index.html` (play, scrub), and after a plan
    gate `file://<workdir>/renders/plan/before/turn/index.html?b=../../after/turn`,
    which shows the base beside the candidate in lockstep (the relative dir is
-   resolved from `before/turn/`) — the flipbook, not a GIF — with the
+   resolved from `before/turn/`), `file://<workdir>/renders/face/turn-nod/index.html`
+   and, after a patch gate that rendered the nod pair,
+   `file://<workdir>/renders/patch/before/turn-nod/index.html?b=../../after/turn-nod`
+   (resolved from `before/turn-nod/`) — the flipbook, not a GIF. When the nod view
+   was unavailable the message says the box needs `@ikijs/mcp` 0.32.0 and the
+   pin has not moved yet (the face-cropped turn is still there) — with the
    critic's `SCORES:` and `VERDICT:` lines and the appeal critic's `IMPRESSION:`,
    `APPEAL:` and `MOTION:` lines, and ask for a one-line reaction ("fine" if none). When the appeal
    critic named a `regenerate`, or its `refer` was typed as one above, the same

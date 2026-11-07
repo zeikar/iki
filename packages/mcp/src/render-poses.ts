@@ -31,7 +31,12 @@ import {
   withBrowser,
   type Evaluate,
 } from "./render-browser";
-import { checkSweep, type SweepReport } from "./sweep-report";
+import {
+  checkNod,
+  checkSweep,
+  type NodReport,
+  type SweepReport,
+} from "./sweep-report";
 import {
   SWEEP_CLOCK_HZ,
   SWEEP_FPS,
@@ -412,6 +417,7 @@ export interface SweepOutput {
   kymograph?: string;
   flipbook: string;
   report: SweepReport;
+  nod: NodReport;
 }
 
 export type RenderPosesResult =
@@ -470,6 +476,7 @@ async function captureSweep(
   crop: RenderCrop | undefined,
   dir: string,
   report: SweepReport,
+  nod: NodReport,
 ): Promise<SweepOutput> {
   const spec = sweepSpec(model, requested.preset, crop);
   await evaluate(
@@ -557,6 +564,7 @@ async function captureSweep(
     ...(kymograph ? { kymograph } : {}),
     flipbook,
     report,
+    nod,
   };
 }
 
@@ -596,6 +604,7 @@ export async function renderPoses(
     );
     const sweepReport =
       input.sweep || input.sweeps ? checkSweep(model) : undefined;
+    const nodReport = input.sweep || input.sweeps ? checkNod(model) : undefined;
 
     const { failedTextures, poses, sweep, sweeps } = await withBrowser(
       browser,
@@ -622,7 +631,7 @@ export async function renderPoses(
           written.push({ name: pose.name, path: file });
         }
         const sweep =
-          input.sweep && sweepDir && sweepReport
+          input.sweep && sweepDir && sweepReport && nodReport
             ? await captureSweep(
                 evaluate,
                 model,
@@ -630,10 +639,11 @@ export async function renderPoses(
                 plan.sweepCrop,
                 sweepDir,
                 sweepReport,
+                nodReport,
               )
             : undefined;
         let sweeps: SweepOutput[] | undefined;
-        if (input.sweeps && sweepsDirs && sweepReport) {
+        if (input.sweeps && sweepsDirs && sweepReport && nodReport) {
           sweeps = [];
           for (const [i, requested] of input.sweeps.entries()) {
             sweeps.push(
@@ -644,6 +654,7 @@ export async function renderPoses(
                 plan.sweepsCrops?.[i],
                 sweepsDirs[i],
                 sweepReport,
+                nodReport,
               ),
             );
           }

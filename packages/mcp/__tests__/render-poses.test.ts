@@ -14,7 +14,7 @@ import {
   type RenderPosesInput,
 } from "../src/render-poses";
 import { SHEET_MARGIN, boxAngles, turnTheta } from "../src/sweep";
-import { formatSweepReport } from "../src/sweep-report";
+import { formatNodReport, formatSweepReport } from "../src/sweep-report";
 import { autoRigFromLayers } from "../src/tools";
 import { writeFullBodyParts, writePartsSet } from "./helpers/parts";
 
@@ -828,6 +828,14 @@ describe.skipIf(findBrowser() === undefined)("renderPoses in a browser", () => {
           l.startsWith("SWEEP turn eye_L:"),
         ),
       ).toBe(true);
+      expect(sweep.nod).not.toHaveProperty("unavailable");
+      if ("unavailable" in sweep.nod) return;
+      expect(sweep.nod.nod[0].id).toBe("eyes");
+      const nodLines = formatNodReport(sweep.nod);
+      expect(nodLines.some((l) => l.startsWith("SWEEP nod eyes:"))).toBe(true);
+      expect(nodLines.some((l) => l.startsWith("SWEEP corner eye_L:"))).toBe(
+        true,
+      );
       // The stills went where they always do.
       expect(r.poses.map((p) => p.name)).toEqual(["rest"]);
     }, 120_000);

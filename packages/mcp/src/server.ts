@@ -13,7 +13,8 @@ import {
 import { composeLayersFromParts } from "./compose";
 import { formatFoldReport } from "./fold-report";
 import { formatPhysicsReport } from "./physics-report";
-import { formatSweepReport } from "./sweep-report";
+import { formatNodReport, formatSweepReport } from "./sweep-report";
+import { SWEEP_PRESETS } from "./sweep";
 import { measureLayers, formatMeasureReport } from "./measure";
 import { measureTurnReference, formatTurnReport } from "./measure-turn";
 import { renderPoses } from "./render-poses";
@@ -451,7 +452,7 @@ export function createIkiMcpServer(): McpServer {
     "render_poses",
     {
       description:
-        "Renders a rigged .iki into the character loop's pose PNGs with the real engine, through the installed Chrome, Edge or Chromium run headless (set CHROME_PATH to pick one). The model decides the set: a bust gets 560x560 shots (rest, turns, nod, blinks, gaze, combined — ParamAngleX/Y/Z all at 30 — and stress: ParamAngleX/Y/Z all at -30, ParamMouthOpenY 1, both eyes at 0.5, the brows at opposite extremes (ParamBrowLY -1, ParamBrowRY 1, ParamBrowLAngle 1, ParamBrowRAngle -1) and each body angle the model declares at -10); a mouth adds 720x480 mouth crops; a full body (taller than wide) adds the full-canvas body, arm and elbow poses on a 1400-wide canvas, and a model with a pose forearm adds the full-pose-* shots. Given `poses` (see its field), the standard set is not rendered: only those poses are, each crop clamped to the model's canvas. Writes <pose>.png files into outDir, overwriting same-named files in place; returns the written paths one per line, then the model's fold report (the result's `folds`), checked by the engine over its own pose set plus any `poses`, each of which a `FOLD` line names by its settings, not its PNG name: a `FOLD` line per warp deformer or mesh part that flips (ratio <= 0) or collapses (under 0.1) at some pose — its cell or triangle, the ratio of its area there to at rest, the pose as its parameter settings (`rest` for none) and where it rests, in model space and in model px from the top-left (the layer PNGs' own pixels, not a render's) — or `FOLDS: none over N poses`, then a `FOLDS expected:` line naming the closures the rig draws on purpose (an eye or the mouth shut), each by part id, ratio and the parameter that shuts it. Report-only: a fold never fails the render. The `PHYSICS` lines follow the fold report (the result's `physics`), one per physics rig output of the model's own rigs — `poses` do not enter it — reading ok, frozen or unstable with the step and idle amplitudes, or `PHYSICS: no rigs`; report-only too. Given `sweep`, also renders an eased turn of the head (see its field) and prints its paths and `SWEEP` lines. Fails with INVALID when no browser is found or an input is refused; a browser that cannot start is a tool error.",
+        "Renders a rigged .iki into the character loop's pose PNGs with the real engine, through the installed Chrome, Edge or Chromium run headless (set CHROME_PATH to pick one). The model decides the set: a bust gets 560x560 shots (rest, turns, nod, blinks, gaze, combined — ParamAngleX/Y/Z all at 30 — and stress: ParamAngleX/Y/Z all at -30, ParamMouthOpenY 1, both eyes at 0.5, the brows at opposite extremes (ParamBrowLY -1, ParamBrowRY 1, ParamBrowLAngle 1, ParamBrowRAngle -1) and each body angle the model declares at -10); a mouth adds 720x480 mouth crops; a full body (taller than wide) adds the full-canvas body, arm and elbow poses on a 1400-wide canvas, and a model with a pose forearm adds the full-pose-* shots. Given `poses` (see its field), the standard set is not rendered: only those poses are, each crop clamped to the model's canvas. Writes <pose>.png files into outDir, overwriting same-named files in place; returns the written paths one per line, then the model's fold report (the result's `folds`), checked by the engine over its own pose set plus any `poses`, each of which a `FOLD` line names by its settings, not its PNG name: a `FOLD` line per warp deformer or mesh part that flips (ratio <= 0) or collapses (under 0.1) at some pose — its cell or triangle, the ratio of its area there to at rest, the pose as its parameter settings (`rest` for none) and where it rests, in model space and in model px from the top-left (the layer PNGs' own pixels, not a render's) — or `FOLDS: none over N poses`, then a `FOLDS expected:` line naming the closures the rig draws on purpose (an eye or the mouth shut), each by part id, ratio and the parameter that shuts it. Report-only: a fold never fails the render. The `PHYSICS` lines follow the fold report (the result's `physics`), one per physics rig output of the model's own rigs — `poses` do not enter it — reading ok, frozen or unstable with the step and idle amplitudes, or `PHYSICS: no rigs`; report-only too. Given `sweep`, also renders an eased turn of the head (see its field) and prints its paths and `SWEEP` lines (and, with `sweeps`, the turn-and-nod box). Fails with INVALID when no browser is found or an input is refused; a browser that cannot start is a tool error.",
       inputSchema: {
         modelPath: z
           .string()
@@ -497,7 +498,26 @@ export function createIkiMcpServer(): McpServer {
           })
           .optional()
           .describe(
-            "A turn sweep rendered IN ADDITION to the poses, `{ name, preset: \"turn\", crop? }`: an eased `ParamAngleX` turn (0 to -30 to +30 to 0 over 3 s, sinusoidal) at 30 fps on a 60 Hz physics clock, with the hair physics running and the idle off, every other parameter at its default. `crop` is a rectangle in model px as a pose's, fixed for every frame; without one the frames are framed as the standard shots. Written into `<outDir>/<name>/` (created; `name` starts with a letter or digit, then letters, digits, `_`, `.`, `-`): `fNNN.png` (90 frames), `manifest.json` (each frame's time, angle and effective values), `sheet.png` (nine frames of the -30 to +30 leg, labelled with angle and time, at most 2000 px a side), `kymograph.png` (the eye row of every frame stacked over time), `index.html` (a flipbook to open from disk; add `?b=<relative dir of another sweep>` for two side by side). The text then lists the paths and, after the `PHYSICS` lines, a `SWEEP turn` line per landmark (eyes, nose) from the engine's geometry: amplitude in face widths, the kink of x and of the eye width through angle 0, the lead over the local face plate at each end, and the pop — report-only, like `FOLD` and `PHYSICS`.",
+            "A turn sweep rendered IN ADDITION to the poses, `{ name, preset: \"turn\", crop? }`: an eased `ParamAngleX` turn (0 to -30 to +30 to 0 over 3 s, sinusoidal) at 30 fps on a 60 Hz physics clock, with the hair physics running and the idle off, every other parameter at its default. `crop` is a rectangle in model px as a pose's, fixed for every frame; without one the frames are framed as the standard shots. Written into `<outDir>/<name>/` (created; `name` starts with a letter or digit, then letters, digits, `_`, `.`, `-`): `fNNN.png` (90 frames), `manifest.json` (each frame's time, angle and effective values), `sheet.png` (nine frames of the -30 to +30 leg, labelled with angle and time, at most 2000 px a side), `kymograph.png` (the eye row of every frame stacked over time), `index.html` (a flipbook to open from disk; add `?b=<relative dir of another sweep>` for two side by side). The text then lists the paths and, after the `PHYSICS` lines, a `SWEEP turn` line per landmark (eyes, nose) from the engine's geometry: amplitude in face widths, the kink of x and of the eye width through angle 0, the lead over the local face plate at each end, and the pop — report-only, like `FOLD` and `PHYSICS`. `sweeps` renders more sweeps beside this one. The `SWEEP nod` and `SWEEP corner` lines follow the `SWEEP turn` ones.",
+          ),
+        sweeps: z
+          .array(
+            z.object({
+              name: z.string(),
+              preset: z.enum(SWEEP_PRESETS),
+              crop: z
+                .object({
+                  x: z.number(),
+                  y: z.number(),
+                  w: z.number(),
+                  h: z.number(),
+                })
+                .optional(),
+            }),
+          )
+          .optional()
+          .describe(
+            "More sweeps rendered after `sweep`, each `{ name, preset, crop? }` into its own `<outDir>/<name>/` (files and `crop` as `sweep`'s). Names are distinct from `sweep`'s and from each other's ignoring case, and presets are distinct (at most one of each). `turn` is `sweep`'s. `turn-nod` is the box (0,0) -> (0,-30) -> (-30,-30) -> (-30,+30) -> (+30,+30) -> (+30,-30) -> (0,-30) -> (0,0) of `ParamAngleX` x `ParamAngleY`, each leg eased, 6 s, 180 frames; its `sheet.png` is a 3 x 3 grid BY ANGLE (columns AngleX -30/0/+30, rows AngleY +30/0/-30, rest in the centre, cells labelled X, Y and t) and it has no kymograph. `manifest.json` is version 2 (`parameters`, and per frame `t` and `values`). A sweep dir's earlier frames, sheet, kymograph, manifest and flipbook are cleared first. An empty list, a repeated name or preset, or a bad crop comes back as `INVALID: sweeps...`. A server before 0.32.0 strips `sweeps` and renders the rest. The `SWEEP nod` lines (the eye-pair and iris-pair gap range and the mouth width range along the nod at each turn, in face widths) and `SWEEP corner` lines (the additivity residual per landmark at the four corners, the rest term included; 0 on an additive rig) print once per call whenever `sweep` or `sweeps` was asked for, report-only like `FOLD` and `PHYSICS`.",
           ),
       },
     },
@@ -519,7 +539,10 @@ export function createIkiMcpServer(): McpServer {
               ...formatFoldReport(r.folds, r.modelCanvas),
               ...formatPhysicsReport(r.physics),
               ...((r.sweep ?? r.sweeps?.[0])
-                ? formatSweepReport((r.sweep ?? r.sweeps![0]).report)
+                ? [
+                    ...formatSweepReport((r.sweep ?? r.sweeps![0]).report),
+                    ...formatNodReport((r.sweep ?? r.sweeps![0]).nod),
+                  ]
                 : []),
             ].join("\n")
           : `INVALID: ${r.error}`;

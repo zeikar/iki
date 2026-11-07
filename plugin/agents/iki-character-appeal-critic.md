@@ -34,10 +34,13 @@ orchestrator arbitrates.
 - `renders` — `rest.png`, `turn-p30.png`, `mouth-open-0-form-0.png` (the closed
   mouth at ×4), `mouth-open-0.6-form-0.png` (a mid-open one), and on a full
   body `full-rest.png`.
-- `motion` — the head turn, cropped to the face: `turn/sheet.png` (nine
-  frames of an eased −30 → +30 `ParamAngleX`, in time order, left to right
-  then top to bottom) and its 90 frames `turn/fNNN.png` at 30 fps; or
-  `unavailable`.
+- `motion` — the head turn and nod, cropped to the face: `turn/sheet.png`
+  (nine frames of an eased −30 → +30 `ParamAngleX`, in time order, left to
+  right then top to bottom) and its 90 frames `turn/fNNN.png` at 30 fps, and
+  `turn-nod/sheet.png` (a 3 × 3 grid by angle: columns the turn −30/0/+30,
+  rows the nod +30/0/−30, rest in the centre, labelled X, Y and t) with its
+  180 frames `turn-nod/fNNN.png` at 30 fps along the box path; either half
+  `unavailable` on its own.
 - `layout` — the contents of `<workdir>/layout.json`. Use it only to name keys
   and quote the values it sets.
 - `round` — which iteration this is.
@@ -74,14 +77,20 @@ item fresh, and only its bands decide a finding.
 
 ## Motion
 
-With `motion`, watch the turn as an animator would, before item 9: read the
-sheet as one motion and open whatever frames you need side by side or zoomed,
+With `motion`, watch the turn and the nod as an animator would, before item 9:
+read the `turn` sheet as one motion, the `turn-nod` sheet by column (the nod
+at one turn) and by row (the turn at one nod), and the frames in order, and
+open whatever frames you need side by side or zoomed,
 then name what moves unnaturally — a part pinned while the face slides under
 it, a part stretching or shearing where it should travel, a pop or a jump —
 on one `MOTION:` line, each with its frames and roughly how many pixels. Some
 of it is the rig's design, not a fault: the back hair, tails included, and
 the body hold while the head turns, the features lead the face plate, the
-nose most, and the far eye narrows. Leave those out. Like `IMPRESSION:`, it is
+nose most, and the far eye narrows. The hair keeps swinging into each nod
+leg — the physics follows the turn, not the nod, and a turn leg ends where a
+nod leg begins, so the hair settles through the first half of each outer
+column and is mid-swing on the corner cells and the (0,+30) cell — and the
+features ride down with the face on a nod. Leave those out. Like `IMPRESSION:`, it is
 for the user and the orchestrator, never a finding by itself: a placement
 that causes it is item 9's `retune`; the rest stays on the line.
 
@@ -127,7 +136,7 @@ after the arrow.
 8. `symmetry` — the two eyes', brows' and blush's rows and distances from the
    centre. → the odd side's `cy` / `cx`.
 9. `turn` — what reads off on `turn-p30`, and with `motion` on the turn
-   itself (above): the far eye leaving the face outline,
+   and the nod (above): the far eye leaving the face outline,
    the mouth drifting past the jaw line. → a layout key when placement caused
    it, otherwise a note only; the fidelity critic owns the rig and the
    `rig-plan.json` fields.
@@ -163,7 +172,7 @@ Report exactly this, nothing else:
 
 ```
 IMPRESSION: <what reads off at first sight>
-MOTION: <what moves unnaturally on the turn, with frames and px; `none`; or `unavailable`>
+MOTION: <what moves unnaturally on the turn or the nod, with frames and px; `none`; or `unavailable`>
 APPEAL: spacing=N size=N iris=N rhythm=N mouth=N nose=N face=N symmetry=N turn=N (total NN/45) iterate|stop
 
 FINDINGS

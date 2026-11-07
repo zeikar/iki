@@ -44,11 +44,19 @@ export {
   type IrisColor,
 } from "./measure-turn";
 export {
+  checkNod,
   checkSweep,
+  formatNodReport,
   formatSweepReport,
+  type NodReport,
   type SweepReport,
 } from "./sweep-report";
-export { type RequestedSweep, type SweepManifest } from "./sweep";
+export {
+  SWEEP_PRESETS,
+  type RequestedSweep,
+  type SweepManifest,
+  type SweepPreset,
+} from "./sweep";
 export {
   renderPoses,
   type RenderPosesInput,

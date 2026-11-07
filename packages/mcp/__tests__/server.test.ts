@@ -624,6 +624,38 @@ describe("MCP server integration", () => {
     }
   });
 
+  it("render_poses takes sweeps through the tool schema: a turn-nod entry reaches the handler, a bad preset or shape is the SDK's input validation error, and sweep keeps its own literal", async () => {
+    pair = await createPair();
+    const { client } = pair;
+    const call = (extra: Record<string, unknown>) =>
+      client.callTool({
+        name: "render_poses",
+        arguments: { modelPath: "package.json", outDir: os.tmpdir(), ...extra },
+      });
+
+    const parsed = await call({
+      sweeps: [{ name: "turn-nod", preset: "turn-nod" }],
+    });
+    expect(parsed.isError).toBeFalsy();
+    const [text] = parsed.content as { type: string; text: string }[];
+    expect(text.text).toMatch(/^INVALID: output dir escapes the working/);
+
+    for (const bad of [
+      { sweeps: [{ name: "x", preset: "nod" }] },
+      { sweeps: {} },
+      { sweep: { name: "x", preset: "turn-nod" } },
+    ]) {
+      const malformed = await call(bad);
+      expect(malformed.isError).toBe(true);
+      const [error] = malformed.content as { type: string; text: string }[];
+      expect(error.text).toMatch(/Input validation error/);
+      expect(error.text).toContain("sweep");
+    }
+    const named = await call({ sweeps: [{ name: "x", preset: "nod" }] });
+    const [namedError] = named.content as { type: string; text: string }[];
+    expect(namedError.text).toContain("sweeps");
+  });
+
   it("compose_layers_from_parts composes the parts fixture and returns layers + measure", async () => {
     pair = await createPair();
     const partsDir = tmpDir();

@@ -181,9 +181,24 @@ artist agent applies your findings; the orchestrator arbitrates.
   per landmark (the eyes, the nose when there is one) `amplitude` in face
   widths, `x kink` and `width kink` (the slope change through θ = 0), `lead`
   over the local face plate at −30 and +30, and `pop`, then the plate's own
-  amplitude; or `sweep.report` when the host shows the JSON. It is rendered
-  with the hair physics running and no idle. `unavailable` means the server
-  predates it (before 0.31.0).
+  amplitude; or `sweep.report` when the host shows the JSON. The `SWEEP nod`
+  lines (`eyes`, `irises`, `mouth`: the range of the pair gap or the width
+  along a nod at `ParamAngleX` −30, 0 and +30, in face widths; 0.000 on an
+  additive rig) and the `SWEEP corner` lines (per landmark, the additivity
+  residual at each corner, rest term included) follow them, as `sweep.nod`
+  when the host shows the JSON, beside `sweep.report`; they are absent before
+  0.32.0. It is rendered with the hair physics running and no idle.
+  `unavailable` means the server predates it (before 0.31.0).
+- `nod` — the face-cropped `turn-nod` sweep: `renders/face/turn-nod/sheet.png`,
+  a 3 × 3 grid BY ANGLE (columns `ParamAngleX` −30/0/+30, rows `ParamAngleY`
+  +30/0/−30, rest in the centre, labelled X, Y and t), each cell at a grid
+  stop's angles with no tilt and no body angle, and its 180 frames
+  `renders/face/turn-nod/fNNN.png` at 30 fps along the box (0,0) → (0,−30) →
+  (−30,−30) → (−30,+30) → (+30,+30) → (+30,−30) → (0,−30) → (0,0). The hair
+  physics runs through it, so the corner cells (f036, f108) and the (0,+30)
+  cell (f090, mid-leg at top speed) catch the hair mid-swing, and each nod leg
+  starts as the turn's swing settles. Or `unavailable` (a server before
+  0.32.0).
 - `rig-view` — the `describe_iki` summary of this round's model: each part's
   rest `box` in model px from the canvas's top-left (y down) and the same box
   as `bustBox` in `renders`' px (`bustScale` of them per model px),
@@ -346,16 +361,16 @@ renders, as below — (5 = indistinguishable in that respect). Judge the
 **rendered** character, not the flat preview, except where an axis is about
 the source art.
 
-| Axis      | What you are judging                                                  |
-| --------- | --------------------------------------------------------------------- |
-| `face`    | head shape, jaw, feature placement and proportion                     |
-| `eyes`    | sclera shape, iris size/colour, highlight style, lash weight          |
-| `hair`    | silhouette, front/back tone match, strand style                       |
-| `body`    | shoulder line, garment, symmetry (full body: the figure)              |
-| `palette` | colour coherence with the reference                                   |
-| `line`    | line weight and rendering style consistency ACROSS parts              |
-| `rig`     | survives turn/blink/gaze with no seams, spills or detachment          |
-| `turn`    | rotation reads as depth, not sliding, in motion and between the stops |
+| Axis      | What you are judging                                                                                |
+| --------- | --------------------------------------------------------------------------------------------------- |
+| `face`    | head shape, jaw, feature placement and proportion                                                   |
+| `eyes`    | sclera shape, iris size/colour, highlight style, lash weight                                        |
+| `hair`    | silhouette, front/back tone match, strand style                                                     |
+| `body`    | shoulder line, garment, symmetry (full body: the figure)                                            |
+| `palette` | colour coherence with the reference                                                                 |
+| `line`    | line weight and rendering style consistency ACROSS parts                                            |
+| `rig`     | survives turn/blink/gaze with no seams, spills or detachment                                        |
+| `turn`    | rotation reads as depth, not sliding, in motion, across the nod while turned, and between the stops |
 
 On a full body, `body` judges the figure against `reference-full` on
 `body-renders` and `preview.png`: its proportions, shoulder width, leg length,
@@ -549,6 +564,14 @@ shoulder to the shoulder point and down to the armpit, never a `retune` of
 `turn` asks whether the motion reads right, not whether it survives — judged
 by eye on the rig's own renders, the movement first: with `sweep`, read the
 sheet as one motion and the kymograph for its speed, then the stills below.
+With `nod`, read each column as the nod at that turn, for the FEATURES — eyes,
+irises, nose, mouth, brows: one that drifts sideways down a column while the
+face holds is sliding on the nod, and the `SWEEP nod` range at that turn and
+the `SWEEP corner` residuals are its evidence. The hair's drift down the outer
+columns is the turn's swing settling, judged under `rig`'s physics rules,
+never a nod finding. The numbers are quoted under MEASUREMENTS, never
+thresholds: a non-zero one says a corner keyform or a stop-local patch departs
+from the edges — where to look, not a finding.
 An `x kink` on the eyes far above the nose's, with the amplitude normal, is
 evidence for the `rigPlan.turn.eyeForeshorten` retune below. The nose's
 `width kink` is always n/a, so judge the eyes' `width kink` on its own (the two
@@ -679,7 +702,14 @@ Every finding carries a `type`, and the type decides who acts:
   role's rest box (origin top-left, y down; read off its `box`, or its
   `bustBox` against a render), the direction on screen axes and a first
   amount in face widths (render px ÷ `bustScale` ÷ `faceWidth`), with the
-  render as evidence; a defect mirrored at the opposite stop is one finding
+  render as evidence (the formula is the bust's `bustScale`; the `nod` sheet is
+  a face crop scaled into a cell, so locate on the sheet but measure on a
+  full-resolution frame `turn-nod/fNNN.png` of that stop — f036, f054, f072,
+  f090, f108, f126, f144 for the eight stops, f018 for (0,−30) — with that
+  view's own scale: the frame is 720 px across the crop's model-px width, the
+  `face` box plus half `faceWidth` a side, clamped to the canvas, so the
+  amount is frame px ÷ (720 / that width) ÷ `faceWidth`; or size on the still
+  as above); a defect mirrored at the opposite stop is one finding
   that says so. An overlap on a zoom crop (Step 1) names the grid its role
   rides (its `deformer` in `rig-view`, e.g. `eyeWarp_R` for `eye_R`) at its
   render's stop: `turn-m30` / `turn-p30` at `ParamAngleX` −30 / 30 with
@@ -687,7 +717,12 @@ Every finding carries a `type`, and the type decides who acts:
   `ParamAngleY` both −30 / both 30, since the tilt and the body they add carry
   the eye and the ear together — one finding per stop it shows at on that
   side (its mirror at the opposite stop stays in the same finding, as
-  above). Its direction carries the paint away from what it crosses, on
+  above). The `nod` sheet's cells are the same stops without the roll:
+  `turn-m30` / `turn-p30` are its middle row's outer cells, `stress` /
+  `combined` its (−30,−30) / (+30,+30) corners, so an overlap seen on a still
+  is checked at the other two stops of that side in the same column, and a
+  defect that holds down the whole column is one finding naming all three
+  stops with one amount. Its direction carries the paint away from what it crosses, on
   screen axes (a far eye off the ear: toward the face's centre, +dx for
   `eye_R`, −dx for `eye_L`), by the crossing plus a render px or two of
   clearance. A region reaching past [0, 1] on both axes moves the whole
