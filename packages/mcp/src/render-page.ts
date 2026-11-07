@@ -21,7 +21,7 @@ interface IkiRenderApi {
   capture(values: Record<string, number>, crop?: RenderCrop): Promise<string>;
   sweepBegin(spec: SweepSpec): Promise<void>;
   sweepFrame(): Promise<{ png: string; values: Record<string, number> }>;
-  sweepEnd(): Promise<{ sheet: string; kymograph: string }>;
+  sweepEnd(): Promise<{ sheet: string; kymograph?: string }>;
 }
 
 declare global {
@@ -48,7 +48,7 @@ interface Sweep {
   spec: SweepSpec;
   motion: IkiMotion;
   cells: Map<number, HTMLCanvasElement>;
-  kymograph: HTMLCanvasElement;
+  kymograph?: HTMLCanvasElement;
   /** The next clock step to run. */
   nextStep: number;
   frame: number;
@@ -130,7 +130,8 @@ window.__ikiRender = {
       },
     );
     for (let step = 0; step < spec.warmup; step++) {
-      p.setParameter(spec.parameter, spec.thetas[0]);
+      for (const [id, v] of Object.entries(spec.steps[0]))
+        p.setParameter(id, v);
       motion.update(step * spec.frameMs);
     }
     const cells = new Map<number, HTMLCanvasElement>();
@@ -141,7 +142,9 @@ window.__ikiRender = {
       spec,
       motion,
       cells,
-      kymograph: newCanvas(spec.frame.width, spec.frames * spec.kymograph.band),
+      kymograph: spec.kymograph
+        ? newCanvas(spec.frame.width, spec.frames * spec.kymograph.band)
+        : undefined,
       nextStep: 0,
       frame: 0,
     };
@@ -155,7 +158,9 @@ window.__ikiRender = {
     // Frame k shows the pose after clock step captureEvery · k: one step on
     // the first call, captureEvery on every later one.
     while (sweep.nextStep <= spec.captureEvery * sweep.frame) {
-      player.setParameter(spec.parameter, spec.thetas[sweep.nextStep]);
+      for (const [id, v] of Object.entries(spec.steps[sweep.nextStep])) {
+        player.setParameter(id, v);
+      }
       motion.update((spec.warmup + sweep.nextStep) * spec.frameMs);
       sweep.nextStep++;
     }
@@ -165,24 +170,25 @@ window.__ikiRender = {
     if (cell) {
       cell.getContext("2d")!.drawImage(shot, 0, 0, cell.width, cell.height);
     }
-    const { row, band } = spec.kymograph;
-    kymograph
-      .getContext("2d")!
-      .drawImage(
-        shot,
-        0,
-        row - Math.floor(band / 2),
-        shot.width,
-        band,
-        0,
-        sweep.frame * band,
-        shot.width,
-        band,
-      );
+    if (spec.kymograph && kymograph) {
+      const { row, band } = spec.kymograph;
+      kymograph
+        .getContext("2d")!
+        .drawImage(
+          shot,
+          0,
+          row - Math.floor(band / 2),
+          shot.width,
+          band,
+          0,
+          sweep.frame * band,
+          shot.width,
+          band,
+        );
+    }
     sweep.frame++;
-    const values: Record<string, number> = {
-      [spec.parameter]: player.getParameter(spec.parameter),
-    };
+    const values: Record<string, number> = {};
+    for (const id of spec.parameters) values[id] = player.getParameter(id);
     for (const id of spec.physicsOutputs) values[id] = player.getParameter(id);
     return { png: shot.toDataURL("image/png"), values };
   },
@@ -211,7 +217,7 @@ window.__ikiRender = {
     });
     const out = {
       sheet: sheet.toDataURL("image/png"),
-      kymograph: sweep.kymograph.toDataURL("image/png"),
+      kymograph: sweep.kymograph?.toDataURL("image/png"),
     };
     resetParameters(player);
     sweep = undefined;

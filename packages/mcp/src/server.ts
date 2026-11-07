@@ -507,18 +507,20 @@ export function createIkiMcpServer(): McpServer {
         const text = r.ok
           ? [
               ...r.poses.map((p) => p.path),
-              ...(r.sweep
-                ? [
-                    r.sweep.dir,
-                    r.sweep.sheet,
-                    r.sweep.kymograph,
-                    r.sweep.flipbook,
-                    r.sweep.manifest,
-                  ]
-                : []),
+              ...[...(r.sweep ? [r.sweep] : []), ...(r.sweeps ?? [])].flatMap(
+                (w) => [
+                  w.dir,
+                  w.sheet,
+                  ...(w.kymograph ? [w.kymograph] : []),
+                  w.flipbook,
+                  w.manifest,
+                ],
+              ),
               ...formatFoldReport(r.folds, r.modelCanvas),
               ...formatPhysicsReport(r.physics),
-              ...(r.sweep ? formatSweepReport(r.sweep.report) : []),
+              ...((r.sweep ?? r.sweeps?.[0])
+                ? formatSweepReport((r.sweep ?? r.sweeps![0]).report)
+                : []),
             ].join("\n")
           : `INVALID: ${r.error}`;
         return { content: [{ type: "text", text }], structuredContent: r };

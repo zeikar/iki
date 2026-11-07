@@ -1,7 +1,8 @@
 /**
- * The turn sweep `render_poses` renders on request: an eased ±30 `ParamAngleX`
- * turn with the hair physics running. This file is its pure pieces — the
- * schedule, the sheet picks, the kymograph row, the flipbook template and the
+ * The sweeps `render_poses` renders on request: an eased ±30 `ParamAngleX`
+ * turn, or the `turn-nod` box through every `ParamAngleX` × `ParamAngleY`
+ * stop, with the hair physics running. This file is their pure pieces — the
+ * schedules, the sheet picks, the kymograph row, the flipbook template and the
  * output directory — all decided in Node; the page only draws what the
  * {@link SweepSpec} says. The page script imports this file for TYPES only (it
  * is bundled as a browser IIFE and must never pull in `node:fs`).
@@ -18,6 +19,9 @@ import { BUST_SIZE, bustPadY, type RenderCrop } from "./render-poses";
 export const SWEEP_CLOCK_HZ = 60;
 export const SWEEP_FPS = 30;
 export const SWEEP_DURATION_S = 3;
+export const BOX_DURATION_S = 6;
+export const SWEEP_PRESETS = ["turn", "turn-nod"] as const;
+export type SweepPreset = (typeof SWEEP_PRESETS)[number];
 /** Steps at θ = 0 before step 0, so the hair starts settled. A choice of this sweep. */
 export const SWEEP_WARMUP_S = 0.5;
 /**
@@ -36,56 +40,77 @@ export const SHEET_LABEL_BAND = 24;
 /** Rows of the eye row's neighbourhood each frame contributes to the kymograph. */
 export const KYMOGRAPH_BAND = 3;
 
-const SWEEP_PARAMETER = "ParamAngleX";
-const STEPS = SWEEP_CLOCK_HZ * SWEEP_DURATION_S;
 const CAPTURE_EVERY = SWEEP_CLOCK_HZ / SWEEP_FPS;
-const FRAMES = STEPS / CAPTURE_EVERY;
 /** The sheet's leg: 0.75 s is θ = −30, 2.25 s is +30. */
 const LEG_FROM_S = 0.75;
 const LEG_TO_S = 2.25;
 const AMPLITUDE_DEG = 30;
+/** The box's corners, in order; each leg runs at BOX_SPEED_DEG_S over its longer axis. */
+const BOX_CORNERS: [number, number][] = [
+  [0, 0],
+  [0, -30],
+  [-30, -30],
+  [-30, 30],
+  [30, 30],
+  [30, -30],
+  [0, -30],
+  [0, 0],
+];
+const BOX_SPEED_DEG_S = 50;
+/** The box sheet's cells, row-major by angle: columns X −30/0/+30, rows Y +30/0/−30. */
+const BOX_SHEET_STOPS: [number, number][] = [
+  [-30, 30],
+  [0, 30],
+  [30, 30],
+  [-30, 0],
+  [0, 0],
+  [30, 0],
+  [-30, -30],
+  [0, -30],
+  [30, -30],
+];
 
 /** What the caller asks for. */
 export interface RequestedSweep {
   /** Becomes the directory `<outDir>/<name>/`. */
   name: string;
-  preset: "turn";
+  preset: SweepPreset;
   /** Model px from the top-left, as a pose's crop; absent = the standard shot. */
   crop?: { x: number; y: number; w: number; h: number };
 }
 
 /** `manifest.json`. */
 export interface SweepManifest {
-  version: 1;
-  preset: "turn";
-  parameter: string;
+  version: 2;
+  preset: SweepPreset;
+  parameters: string[];
   fps: number;
   clockHz: number;
   warmupS: number;
   durationS: number;
   crop: { x: number; y: number; w: number; h: number } | null;
   frame: { width: number; height: number };
-  kymographRow: { row: number; at: "eye row" | "middle" };
+  kymographRow: { row: number; at: "eye row" | "middle" } | null;
   sheet: { frames: number[]; cell: { w: number; h: number } };
   physicsOutputs: string[];
   frames: {
     i: number;
     file: string;
     t: number;
-    theta: number;
-    /** The effective `parameter` and every physics output, read off the player after step 2i. */
+    /** Every scripted id and every physics output, read off the player after step 2i. */
     values: Record<string, number>;
   }[];
 }
 
 /** Everything the page needs, as values: it defines no sweep constant of its own. */
 export interface SweepSpec {
-  parameter: string;
+  /** The ids `steps` script. */
+  parameters: string[];
   frameMs: number;
-  /** Clock steps run at `thetas[0]` before step 0. */
+  /** Clock steps run holding `steps[0]` before step 0. */
   warmup: number;
-  /** One per clock step. */
-  thetas: number[];
+  /** One record per clock step, the ids in `parameters`. */
+  steps: Record<string, number>[];
   /** Frame k shows the pose after clock step `captureEvery · k`. */
   captureEvery: number;
   /** Frames captured. */
@@ -94,20 +119,69 @@ export interface SweepSpec {
   /** The only ids the page lets the motion write. */
   physicsOutputs: string[];
   sheet: {
-    /** Frame indices, chronological. */
+    /** Frame indices in cell order, row-major. */
     frames: number[];
     cell: { w: number; h: number };
     margin: number;
     labelBand: number;
     labels: string[];
   };
-  kymograph: { row: number; band: number; at: "eye row" | "middle" };
+  /** Absent when the preset has none. */
+  kymograph?: { row: number; band: number; at: "eye row" | "middle" };
   crop?: RenderCrop;
 }
 
 /** The turn: 0 → −30 at 0.75 s → 0 at 1.5 s → +30 at 2.25 s → 0 at 3 s. */
 export function turnTheta(t: number): number {
   return -AMPLITUDE_DEG * Math.sin((2 * Math.PI * t) / SWEEP_DURATION_S);
+}
+
+/** The box: each leg eased by a half-cosine; a stop is approached and left at rest. */
+export function boxAngles(t: number): { x: number; y: number } {
+  let start = 0;
+  for (let i = 0; i + 1 < BOX_CORNERS.length; i++) {
+    const [fx, fy] = BOX_CORNERS[i];
+    const [tx, ty] = BOX_CORNERS[i + 1];
+    const len = Math.max(Math.abs(tx - fx), Math.abs(ty - fy));
+    const dur = len / BOX_SPEED_DEG_S;
+    if (t < start + dur) {
+      const u = (t - start) / dur;
+      const e = (1 - Math.cos(Math.PI * u)) / 2;
+      return { x: fx + (tx - fx) * e, y: fy + (ty - fy) * e };
+    }
+    start += dur;
+  }
+  return { x: 0, y: 0 };
+}
+
+export function sweepDurationS(preset: SweepPreset): number {
+  return preset === "turn" ? SWEEP_DURATION_S : BOX_DURATION_S;
+}
+
+function schedule(preset: SweepPreset): {
+  parameters: string[];
+  steps: Record<string, number>[];
+  durationS: number;
+} {
+  const durationS = sweepDurationS(preset);
+  const n = SWEEP_CLOCK_HZ * durationS;
+  if (preset === "turn") {
+    return {
+      parameters: ["ParamAngleX"],
+      steps: Array.from({ length: n }, (_, j) => ({
+        ParamAngleX: turnTheta(j / SWEEP_CLOCK_HZ),
+      })),
+      durationS,
+    };
+  }
+  return {
+    parameters: ["ParamAngleX", "ParamAngleY"],
+    steps: Array.from({ length: n }, (_, j) => {
+      const { x, y } = boxAngles(j / SWEEP_CLOCK_HZ);
+      return { ParamAngleX: x, ParamAngleY: y };
+    }),
+    durationS,
+  };
 }
 
 /**
@@ -141,42 +215,56 @@ function physicsOutputIds(model: IkiModel): string[] {
 }
 
 /** Captured frames on the −30 → +30 leg, the one nearest each of SHEET_THETAS, chronological. */
-function sheetFrames(thetas: number[]): number[] {
+function turnSheetFrames(steps: Record<string, number>[], frames: number) {
   const onLeg: number[] = [];
-  for (let k = 0; k < FRAMES; k++) {
+  for (let k = 0; k < frames; k++) {
     const t = k / SWEEP_FPS;
     if (t >= LEG_FROM_S && t <= LEG_TO_S) onLeg.push(k);
   }
+  const x = (k: number) => steps[CAPTURE_EVERY * k].ParamAngleX;
   const picked: number[] = [];
   for (const target of SHEET_THETAS) {
     let best = onLeg[0];
     for (const k of onLeg) {
       // Strict, so a tie keeps the earlier frame.
-      if (
-        Math.abs(thetas[CAPTURE_EVERY * k] - target) <
-        Math.abs(thetas[CAPTURE_EVERY * best] - target)
-      ) {
-        best = k;
-      }
+      if (Math.abs(x(k) - target) < Math.abs(x(best) - target)) best = k;
     }
     if (!picked.includes(best)) picked.push(best);
   }
   return picked.sort((a, b) => a - b);
 }
 
-function sheetLabel(theta: number, t: number): string {
+/** One captured frame per box stop, in BOX_SHEET_STOPS order (not sorted). */
+function boxSheetFrames(steps: Record<string, number>[], frames: number) {
+  return BOX_SHEET_STOPS.map(([sx, sy]) => {
+    const miss = (k: number) => {
+      const s = steps[CAPTURE_EVERY * k];
+      return Math.abs(s.ParamAngleX - sx) + Math.abs(s.ParamAngleY - sy);
+    };
+    let best = 0;
+    for (let k = 1; k < frames; k++) {
+      // Strict, so a tie keeps the earlier frame.
+      if (miss(k) < miss(best)) best = k;
+    }
+    return best;
+  });
+}
+
+function signedDeg(angle: number): string {
   // Rounded first, so a hair under zero never prints as "−0.0".
-  const rounded = Math.round(theta * 10) / 10 + 0;
+  const rounded = Math.round(angle * 10) / 10 + 0;
   const deg = rounded.toFixed(1);
-  const signed = rounded > 0 ? `+${deg}` : deg.replace("-", "−");
-  return `θ ${signed}°  t ${t.toFixed(2)} s`;
+  return rounded > 0 ? `+${deg}` : deg.replace("-", "−");
 }
 
 /** The schedule and layout the page draws, from the model and the framing. */
-export function sweepSpec(model: IkiModel, crop?: RenderCrop): SweepSpec {
-  const thetas = Array.from({ length: STEPS }, (_, j) =>
-    turnTheta(j / SWEEP_CLOCK_HZ),
-  );
+export function sweepSpec(
+  model: IkiModel,
+  preset: SweepPreset,
+  crop?: RenderCrop,
+): SweepSpec {
+  const { parameters, steps, durationS } = schedule(preset);
+  const frameCount = durationS * SWEEP_FPS;
   const dw = crop ? crop.dw : BUST_SIZE;
   const dh = crop ? crop.dh : BUST_SIZE;
 
@@ -187,33 +275,47 @@ export function sweepSpec(model: IkiModel, crop?: RenderCrop): SweepSpec {
     (SHEET_MAX_SIDE - 2 * m) / (3 * dw),
     (SHEET_MAX_SIDE - 2 * m - 3 * b) / (3 * dh),
   );
-  const frames = sheetFrames(thetas);
+  const frames =
+    preset === "turn"
+      ? turnSheetFrames(steps, frameCount)
+      : boxSheetFrames(steps, frameCount);
+  const labelOf = (k: number): string => {
+    const s = steps[CAPTURE_EVERY * k];
+    const t = (k / SWEEP_FPS).toFixed(2);
+    return preset === "turn"
+      ? `θ ${signedDeg(s.ParamAngleX)}°  t ${t} s`
+      : `X ${signedDeg(s.ParamAngleX)}°  Y ${signedDeg(s.ParamAngleY)}°  t ${t} s`;
+  };
 
   const { width: W, height: H } = model.canvas;
-  const yModel = eyeRowModelPx(model);
-  let row = Math.round(dh / 2);
-  let at: "eye row" | "middle" = "middle";
-  if (yModel !== undefined) {
-    const y0 = bustPadY(W, H);
-    const s = BUST_SIZE / W;
-    const eyeRow = Math.round(
-      crop
-        ? ((y0 + yModel * s - crop.sy) * crop.dh) / crop.sh
-        : y0 + yModel * s,
-    );
-    if (eyeRow >= 1 && eyeRow <= dh - 2) {
-      row = eyeRow;
-      at = "eye row";
+  let kymograph: SweepSpec["kymograph"];
+  if (preset === "turn") {
+    const yModel = eyeRowModelPx(model);
+    let row = Math.round(dh / 2);
+    let at: "eye row" | "middle" = "middle";
+    if (yModel !== undefined) {
+      const y0 = bustPadY(W, H);
+      const s = BUST_SIZE / W;
+      const eyeRow = Math.round(
+        crop
+          ? ((y0 + yModel * s - crop.sy) * crop.dh) / crop.sh
+          : y0 + yModel * s,
+      );
+      if (eyeRow >= 1 && eyeRow <= dh - 2) {
+        row = eyeRow;
+        at = "eye row";
+      }
     }
+    kymograph = { row, band: KYMOGRAPH_BAND, at };
   }
 
   return {
-    parameter: SWEEP_PARAMETER,
+    parameters,
     frameMs: SWEEP_FRAME_MS,
     warmup: SWEEP_WARMUP_S * SWEEP_CLOCK_HZ,
-    thetas,
+    steps,
     captureEvery: CAPTURE_EVERY,
-    frames: FRAMES,
+    frames: frameCount,
     frame: { width: dw, height: dh },
     physicsOutputs: physicsOutputIds(model),
     sheet: {
@@ -224,11 +326,9 @@ export function sweepSpec(model: IkiModel, crop?: RenderCrop): SweepSpec {
       },
       margin: m,
       labelBand: b,
-      labels: frames.map((k) =>
-        sheetLabel(thetas[CAPTURE_EVERY * k], k / SWEEP_FPS),
-      ),
+      labels: frames.map(labelOf),
     },
-    kymograph: { row, band: KYMOGRAPH_BAND, at },
+    kymograph,
     crop,
   };
 }
@@ -245,7 +345,7 @@ export function flipbookHtml(manifest: SweepManifest): string {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>turn sweep</title>
+<title>${manifest.preset} sweep</title>
 <style>
 body { font: 14px system-ui, sans-serif; margin: 16px; background: #222; color: #eee; }
 .row { display: flex; gap: 16px; align-items: flex-start; }
@@ -278,13 +378,18 @@ img { max-width: 48vw; height: auto; background: #444; }
   var playing = true;
   scrub.max = String(n - 1);
   if (b) { bi.style.display = "block"; }
+  function short(id) {
+    return id === "ParamAngleX" ? "X" : id === "ParamAngleY" ? "Y" : id;
+  }
   function show(k) {
     i = k;
     var f = m.frames[k];
     a.src = f.file;
     if (b) { bi.src = b.replace(/\\/$/, "") + "/" + f.file; }
     scrub.value = String(k);
-    readout.textContent = "frame " + k + "  \\u03b8 " + f.theta.toFixed(1) + "\\u00b0  t " + f.t.toFixed(2) + " s";
+    readout.textContent = "frame " + k + m.parameters.map(function (id) {
+      return "  " + short(id) + " " + f.values[id].toFixed(1) + "\\u00b0";
+    }).join("") + "  t " + f.t.toFixed(2) + " s";
   }
   play.addEventListener("click", function () {
     playing = !playing;
@@ -304,10 +409,19 @@ img { max-width: 48vw; height: auto; background: #444; }
 `;
 }
 
+const STALE_FILE = /^f\d{3}\.png$/;
+const STALE_NAMES = [
+  "kymograph.png",
+  "sheet.png",
+  "manifest.json",
+  "index.html",
+];
+
 /**
  * Makes `<outDir>/<name>/` (an existing directory is fine), refuses a symbolic
  * link or a non-directory planted there — it would redirect every frame write
- * — confines it to the working directory. `outDir` is the realpath'd dir `resolveOutputDir` returned and `name`
+ * — confines it to the working directory, and removes the frames, sheet,
+ * kymograph, manifest and flipbook an earlier run left there. `outDir` is the realpath'd dir `resolveOutputDir` returned and `name`
  * is already checked by `planRenders`. Call only once the browser was found.
  * Returns the real directory.
  */
@@ -328,5 +442,12 @@ export function prepareSweepDir(outDir: string, name: string): string {
     throw new AutoRigInputError(`sweep.name names ${dir}, not a directory`);
   }
   const real = confineToWorkingDirectory(process.cwd(), dir, "sweep dir", name);
+  // A re-run under the same name must leave nothing of another run for a reader
+  // of the whole dir, even when this one throws midway.
+  for (const entry of fs.readdirSync(real)) {
+    if (STALE_FILE.test(entry) || STALE_NAMES.includes(entry)) {
+      fs.rmSync(path.join(real, entry));
+    }
+  }
   return real;
 }

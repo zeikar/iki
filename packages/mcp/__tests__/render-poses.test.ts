@@ -13,7 +13,7 @@ import {
   renderPoses,
   type RenderPosesInput,
 } from "../src/render-poses";
-import { SHEET_MARGIN, turnTheta } from "../src/sweep";
+import { SHEET_MARGIN, boxAngles, turnTheta } from "../src/sweep";
 import { formatSweepReport } from "../src/sweep-report";
 import { autoRigFromLayers } from "../src/tools";
 import { writeFullBodyParts, writePartsSet } from "./helpers/parts";
@@ -475,11 +475,14 @@ describe("renderPoses refuses a custom pose list", () => {
 
 // The same, for the sweep: its name becomes a directory, so more is refused.
 describe("renderPoses refuses a sweep", () => {
-  const refusal = async (sweep: RenderPosesInput["sweep"]) => {
+  const refusal = async (
+    sweep: RenderPosesInput["sweep"],
+    sweeps?: RenderPosesInput["sweeps"],
+  ) => {
     const dir = tmpDir();
     const modelPath = path.join(dir, "m.iki");
     fs.writeFileSync(modelPath, JSON.stringify(model(1100, 1100)));
-    const r = await renderPoses({ modelPath, outDir: dir, sweep });
+    const r = await renderPoses({ modelPath, outDir: dir, sweep, sweeps });
     expect(r.ok).toBe(false);
     return !r.ok && r.error;
   };
@@ -501,6 +504,70 @@ describe("renderPoses refuses a sweep", () => {
         crop: { x: 2000, y: 0, w: 100, h: 100 },
       }),
     ).toBe("sweep.crop does not overlap the model's 1100x1100 canvas");
+  });
+
+  it("refuses a sweeps list that is empty, repeats a preset, or repeats a name ignoring case", async () => {
+    expect(await refusal(undefined, [])).toBe("sweeps is empty");
+    expect(
+      await refusal(undefined, [
+        { name: "a", preset: "turn" },
+        { name: "b", preset: "turn" },
+      ]),
+    ).toMatch(/^sweeps\[1\]\.preset "turn" repeats sweeps\[0\]\.preset/);
+    expect(
+      await refusal({ name: "turn", preset: "turn" }, [
+        { name: "TURN", preset: "turn-nod" },
+      ]),
+    ).toMatch(/^sweeps\[0\]\.name "TURN" repeats sweep\.name "turn"/);
+    expect(
+      await refusal(undefined, [{ name: "../x", preset: "turn-nod" }]),
+    ).toMatch(/^sweeps\[0\]\.name must match /);
+  });
+
+  it("refuses a sweeps crop that misses the canvas", async () => {
+    expect(
+      await refusal(undefined, [
+        {
+          name: "n",
+          preset: "turn-nod",
+          crop: { x: 2000, y: 0, w: 100, h: 100 },
+        },
+      ]),
+    ).toBe("sweeps[0].crop does not overlap the model's 1100x1100 canvas");
+  });
+
+  it("converts a sweeps crop as sweep's, and an uncropped entry on a full body gets the middle square", () => {
+    const cropped = planRenders(model(1120, 1120), undefined, undefined, [
+      {
+        name: "n",
+        preset: "turn-nod",
+        crop: { x: 100, y: 200, w: 300, h: 101 },
+      },
+    ]);
+    expect(cropped.sweepsCrops![0]).toEqual({
+      sx: 50,
+      sy: 100,
+      sw: 150,
+      sh: 50.5,
+      dw: 720,
+      dh: 242,
+    });
+    const tall = planRenders(model(1100, 2200), undefined, undefined, [
+      { name: "n", preset: "turn-nod" },
+    ]);
+    expect(tall.sweepsCrops![0]).toEqual({
+      sx: (1400 - 560) / 2,
+      sy: 0,
+      sw: 560,
+      sh: 560,
+      dw: 560,
+      dh: 560,
+    });
+    expect(
+      planRenders(model(1120, 1120), undefined, undefined, [
+        { name: "n", preset: "turn-nod" },
+      ]).sweepsCrops,
+    ).toEqual([undefined]);
   });
 
   it("converts a sweep crop as a pose's, and frames a sweep without one as the standard shots", () => {
@@ -726,13 +793,16 @@ describe.skipIf(findBrowser() === undefined)("renderPoses in a browser", () => {
         expect([meta.width, meta.height]).toEqual([560, 560]);
       }
       const manifest = JSON.parse(fs.readFileSync(sweep.manifest, "utf8"));
+      expect(manifest.version).toBe(2);
+      expect(manifest.parameters).toEqual(["ParamAngleX"]);
+      expect(manifest.kymographRow.at).toBe("eye row");
       expect(manifest.fps).toBe(30);
       expect(manifest.frames).toHaveLength(90);
       let hairMoved = false;
       for (const f of manifest.frames) {
         expect(f.t).toBeCloseTo(f.i / 30, 12);
-        expect(f.theta).toBeCloseTo(turnTheta(f.t), 9);
-        expect(f.values.ParamAngleX).toBeCloseTo(f.theta, 9);
+        expect(f).not.toHaveProperty("theta");
+        expect(f.values.ParamAngleX).toBeCloseTo(turnTheta(f.t), 9);
         if (Math.abs(f.values.ParamHairSwayX ?? 0) > 1e-6) hairMoved = true;
       }
       expect(hairMoved).toBe(true);
@@ -741,7 +811,7 @@ describe.skipIf(findBrowser() === undefined)("renderPoses in a browser", () => {
       expect(sheet.width).toBe(3 * 560 + 2 * SHEET_MARGIN);
       expect(sheet.width).toBeLessThanOrEqual(2000);
       expect(sheet.height).toBeLessThanOrEqual(2000);
-      const kymo = await sharp(sweep.kymograph).metadata();
+      const kymo = await sharp(sweep.kymograph!).metadata();
       expect([kymo.width, kymo.height]).toEqual([560, 270]);
       const html = fs.readFileSync(sweep.flipbook, "utf8");
       expect(html).toContain("f000.png");
@@ -760,6 +830,122 @@ describe.skipIf(findBrowser() === undefined)("renderPoses in a browser", () => {
       ).toBe(true);
       // The stills went where they always do.
       expect(r.poses.map((p) => p.name)).toEqual(["rest"]);
+    }, 120_000);
+
+    it("renders sweep and sweeps in one call: the turn as before, the box with 180 frames on its stops, no kymograph", async () => {
+      const { modelPath } = await rigged();
+      const out = tmpDir();
+      const r = await renderPoses({
+        modelPath,
+        outDir: out,
+        poses: [{ name: "rest", values: {} }],
+        sweep: SWEEP,
+        sweeps: [{ name: "turn-nod", preset: "turn-nod" }],
+      });
+      if (!r.ok) throw new Error(r.error);
+      expect(r.sweep!.frames).toBe(90);
+      expect(fs.existsSync(path.join(r.sweep!.dir, "kymograph.png"))).toBe(
+        true,
+      );
+      expect(r.sweeps).toHaveLength(1);
+      const nod = r.sweeps![0];
+      expect(nod.dir).toBe(path.join(fs.realpathSync(out), "turn-nod"));
+      expect(nod.preset).toBe("turn-nod");
+      expect(nod).not.toHaveProperty("kymograph");
+      expect(fs.existsSync(path.join(nod.dir, "kymograph.png"))).toBe(false);
+      expect(
+        fs.readdirSync(nod.dir).filter((f) => /^f\d{3}\.png$/.test(f)),
+      ).toHaveLength(180);
+      for (const k of [0, 90, 179]) {
+        const meta = await sharp(
+          path.join(nod.dir, `f${String(k).padStart(3, "0")}.png`),
+        ).metadata();
+        expect([meta.width, meta.height]).toEqual([560, 560]);
+      }
+      const manifest = JSON.parse(fs.readFileSync(nod.manifest, "utf8"));
+      expect(manifest.version).toBe(2);
+      expect(manifest.kymographRow).toBeNull();
+      expect(manifest.durationS).toBe(6);
+      expect(manifest.parameters).toEqual(["ParamAngleX", "ParamAngleY"]);
+      expect(manifest.frames).toHaveLength(180);
+      let hairMoved = false;
+      for (const f of manifest.frames) {
+        const a = boxAngles(f.i / 30);
+        expect(f.values.ParamAngleX).toBeCloseTo(a.x, 9);
+        expect(f.values.ParamAngleY).toBeCloseTo(a.y, 9);
+        if (Math.abs(f.values.ParamHairSwayX ?? 0) > 1e-6) hairMoved = true;
+      }
+      expect(hairMoved).toBe(true);
+      const stops: [number, number, number][] = [
+        [18, 0, -30],
+        [36, -30, -30],
+        [72, -30, 30],
+        [108, 30, 30],
+        [144, 30, -30],
+      ];
+      for (const [k, x, y] of stops) {
+        expect(manifest.frames[k].values.ParamAngleX).toBeCloseTo(x, 9);
+        expect(manifest.frames[k].values.ParamAngleY).toBeCloseTo(y, 9);
+      }
+      const sheet = await sharp(nod.sheet).metadata();
+      expect(sheet.width).toBe(3 * 560 + 2 * SHEET_MARGIN);
+      expect(sheet.width!).toBeLessThanOrEqual(2000);
+      expect(sheet.height!).toBeLessThanOrEqual(2000);
+      const html = fs.readFileSync(nod.flipbook, "utf8");
+      expect(html).toContain("f000.png");
+      expect(html).toContain("f179.png");
+    }, 120_000);
+
+    it("clears a sweep dir's other-preset files when a name is reused", async () => {
+      const { modelPath } = await rigged();
+      const out = tmpDir();
+      await renderPoses({
+        modelPath,
+        outDir: out,
+        poses: [{ name: "rest", values: {} }],
+        sweeps: [{ name: "reuse", preset: "turn-nod" }],
+      });
+      const { sweep } = await sweepOk({
+        modelPath,
+        outDir: out,
+        poses: [{ name: "rest", values: {} }],
+        sweep: { name: "reuse", preset: "turn" },
+      });
+      expect(
+        fs.readdirSync(sweep.dir).filter((f) => /^f\d{3}\.png$/.test(f)),
+      ).toHaveLength(90);
+      expect(JSON.parse(fs.readFileSync(sweep.manifest, "utf8")).preset).toBe(
+        "turn",
+      );
+    }, 120_000);
+
+    it("renders the box twice to the same bytes", async () => {
+      const { modelPath } = await rigged();
+      const input = {
+        modelPath,
+        poses: [{ name: "rest", values: {} }],
+        sweeps: [{ name: "turn-nod", preset: "turn-nod" }] as const,
+      };
+      const dirs: string[] = [];
+      for (let i = 0; i < 2; i++) {
+        const r = await renderPoses({
+          ...input,
+          sweeps: [...input.sweeps],
+          outDir: tmpDir(),
+        });
+        if (!r.ok) throw new Error(r.error);
+        dirs.push(r.sweeps![0].dir);
+      }
+      const files = fs.readdirSync(dirs[0]).filter((f) => f.endsWith(".png"));
+      expect(files).toHaveLength(181);
+      for (const f of files) {
+        expect(
+          fs
+            .readFileSync(path.join(dirs[0], f))
+            .equals(fs.readFileSync(path.join(dirs[1], f))),
+          f,
+        ).toBe(true);
+      }
     }, 120_000);
 
     it("frames a sweep by a crop, and keeps the sheet within 2000 px on both sides", async () => {

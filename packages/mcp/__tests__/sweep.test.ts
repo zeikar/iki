@@ -8,6 +8,7 @@ import {
   SHEET_LABEL_BAND,
   SHEET_MARGIN,
   SWEEP_FRAME_MS,
+  boxAngles,
   eyeRowModelPx,
   flipbookHtml,
   prepareSweepDir,
@@ -60,20 +61,22 @@ describe("turnTheta", () => {
 
 describe("sweepSpec", () => {
   it("lays out 180 clock steps, a 30-step warm-up and a 3 px kymograph band", () => {
-    const spec = sweepSpec(model(1120, 1120));
-    expect(spec.thetas).toHaveLength(180);
+    const spec = sweepSpec(model(1120, 1120), "turn");
+    expect(spec.steps).toHaveLength(180);
+    expect(spec.parameters).toEqual(["ParamAngleX"]);
+    expect(Object.keys(spec.steps[7])).toEqual(["ParamAngleX"]);
     expect(spec.warmup).toBe(30);
     expect(spec.captureEvery).toBe(2);
     expect(spec.frames).toBe(90);
     expect(spec.frameMs).toBe(SWEEP_FRAME_MS);
-    expect(spec.kymograph.band).toBe(KYMOGRAPH_BAND);
-    expect(spec.kymograph.band).toBe(3);
-    expect(spec.thetas[0]).toBeCloseTo(0, 12);
-    expect(spec.thetas[45]).toBeCloseTo(turnTheta(0.75), 9);
+    expect(spec.kymograph!.band).toBe(KYMOGRAPH_BAND);
+    expect(spec.kymograph!.band).toBe(3);
+    expect(spec.steps[0].ParamAngleX).toBeCloseTo(0, 12);
+    expect(spec.steps[45].ParamAngleX).toBeCloseTo(turnTheta(0.75), 9);
   });
 
   it("picks nine chronological frames on the -30 to +30 leg, labelled -30 ... +30", () => {
-    const spec = sweepSpec(model(1120, 1120));
+    const spec = sweepSpec(model(1120, 1120), "turn");
     const { frames, labels } = spec.sheet;
     expect(frames).toHaveLength(9);
     expect(labels).toHaveLength(9);
@@ -82,7 +85,7 @@ describe("sweepSpec", () => {
       expect(k / 30).toBeGreaterThanOrEqual(0.75);
       expect(k / 30).toBeLessThanOrEqual(2.25);
     }
-    const thetas = frames.map((k) => spec.thetas[2 * k]);
+    const thetas = frames.map((k) => spec.steps[2 * k].ParamAngleX);
     [-30, -20, -10, -5, 0, 5, 10, 20, 30].forEach((target, i) => {
       expect(Math.abs(thetas[i] - target)).toBeLessThan(2.5);
     });
@@ -91,10 +94,13 @@ describe("sweepSpec", () => {
   });
 
   it("keeps a 560 square at 560 and shrinks a tall face crop to fit 2000 px a side", () => {
-    expect(sweepSpec(model(1120, 1120)).sheet.cell).toEqual({ w: 560, h: 560 });
+    expect(sweepSpec(model(1120, 1120), "turn").sheet.cell).toEqual({
+      w: 560,
+      h: 560,
+    });
 
     const crop = { sx: 0, sy: 0, sw: 360, sh: 390, dw: 720, dh: 780 };
-    const { sheet, frame } = sweepSpec(model(1120, 1120), crop);
+    const { sheet, frame } = sweepSpec(model(1120, 1120), "turn", crop);
     expect(frame).toEqual({ width: 720, height: 780 });
     const m = SHEET_MARGIN;
     const b = SHEET_LABEL_BAND;
@@ -107,7 +113,7 @@ describe("sweepSpec", () => {
 
   it("never floors a sheet cell side to 0 for a 1-px-tall crop", () => {
     const crop = { sx: 0, sy: 0, sw: 3000, sh: 1, dw: 3000, dh: 1 };
-    const { sheet } = sweepSpec(model(1120, 1120), crop);
+    const { sheet } = sweepSpec(model(1120, 1120), "turn", crop);
     expect(sheet.cell.w).toBeGreaterThanOrEqual(1);
     expect(sheet.cell.h).toBeGreaterThanOrEqual(1);
   });
@@ -126,11 +132,79 @@ describe("sweepSpec", () => {
         },
       ],
     } as unknown as IkiModel;
-    expect(sweepSpec(m).physicsOutputs).toEqual([
+    expect(sweepSpec(m, "turn").physicsOutputs).toEqual([
       "ParamHairSwayX",
       "ParamLockA",
       "ParamLockB",
     ]);
+  });
+});
+
+describe("boxAngles", () => {
+  it("passes every corner at its time", () => {
+    const corners: [number, number, number][] = [
+      [0, 0, 0],
+      [0.6, 0, -30],
+      [1.2, -30, -30],
+      [1.8, -30, 0],
+      [2.4, -30, 30],
+      [3.0, 0, 30],
+      [3.6, 30, 30],
+      [4.2, 30, 0],
+      [4.8, 30, -30],
+      [5.4, 0, -30],
+      [6, 0, 0],
+    ];
+    for (const [t, x, y] of corners) {
+      const a = boxAngles(t);
+      expect(a.x).toBeCloseTo(x, 9);
+      expect(a.y).toBeCloseTo(y, 9);
+    }
+  });
+
+  it("is monotone in each coordinate within every leg", () => {
+    const bounds = [0, 0.6, 1.2, 2.4, 3.6, 4.8, 5.4, 6];
+    for (let i = 0; i + 1 < bounds.length; i++) {
+      const pts = Array.from({ length: 41 }, (_, j) =>
+        boxAngles(bounds[i] + ((bounds[i + 1] - bounds[i]) * j) / 40),
+      );
+      for (const axis of ["x", "y"] as const) {
+        const d = pts[40][axis] - pts[0][axis];
+        for (let j = 1; j < pts.length; j++) {
+          const step = pts[j][axis] - pts[j - 1][axis];
+          if (d === 0) expect(step).toBeCloseTo(0, 9);
+          else expect(step * d).toBeGreaterThanOrEqual(-1e-9);
+        }
+      }
+    }
+  });
+});
+
+describe("sweepSpec turn-nod", () => {
+  const spec = sweepSpec(model(1120, 1120), "turn-nod");
+
+  it("scripts both angles over 360 steps and 180 frames, with no kymograph", () => {
+    expect(spec.steps).toHaveLength(360);
+    expect(spec.parameters).toEqual(["ParamAngleX", "ParamAngleY"]);
+    expect(spec.frames).toBe(180);
+    expect(spec.kymograph).toBeUndefined();
+  });
+
+  it("lays the sheet out by angle, a stop on its own frame, rest in the centre", () => {
+    expect(spec.sheet.frames).toEqual([72, 90, 108, 54, 0, 126, 36, 18, 144]);
+    expect(spec.sheet.labels[0]).toMatch(
+      /^X −30\.0° {2}Y \+30\.0° {2}t 2\.40 s$/,
+    );
+    expect(spec.sheet.labels[4]).toBe("X 0.0°  Y 0.0°  t 0.00 s");
+  });
+
+  it("sizes a 720 x 780 crop's cell within 2000 px both sides", () => {
+    const crop = { sx: 0, sy: 0, sw: 360, sh: 390, dw: 720, dh: 780 };
+    const { sheet } = sweepSpec(model(1120, 1120), "turn-nod", crop);
+    expect(3 * sheet.cell.w + 2 * SHEET_MARGIN).toBeLessThanOrEqual(2000);
+    expect(
+      3 * (sheet.cell.h + SHEET_LABEL_BAND) + 2 * SHEET_MARGIN,
+    ).toBeLessThanOrEqual(2000);
   });
 });
 
@@ -141,12 +215,12 @@ describe("the kymograph row", () => {
     expect(
       eyeRowModelPx(model(1120, 1120, [part("eye_L", 0, 0)])),
     ).toBeUndefined();
-    const spec = sweepSpec(model(1120, 1120));
+    const spec = sweepSpec(model(1120, 1120), "turn");
     expect(spec.kymograph).toEqual({ row: 230, band: 3, at: "eye row" });
   });
 
   it("maps the row through the clamped crop, and falls back to the middle below the eyes", () => {
-    const withEyes = sweepSpec(model(1120, 1120), {
+    const withEyes = sweepSpec(model(1120, 1120), "turn", {
       sx: 0,
       sy: 200,
       sw: 560,
@@ -154,10 +228,10 @@ describe("the kymograph row", () => {
       dw: 720,
       dh: 360,
     });
-    expect(withEyes.kymograph.at).toBe("eye row");
-    expect(withEyes.kymograph.row).toBe(Math.round(((230 - 200) * 360) / 280));
+    expect(withEyes.kymograph!.at).toBe("eye row");
+    expect(withEyes.kymograph!.row).toBe(Math.round(((230 - 200) * 360) / 280));
 
-    const below = sweepSpec(model(1120, 1120), {
+    const below = sweepSpec(model(1120, 1120), "turn", {
       sx: 0,
       sy: 300,
       sw: 560,
@@ -173,32 +247,36 @@ describe("the kymograph row", () => {
   });
 
   it("uses the middle row for a model without an eye pair", () => {
-    const spec = sweepSpec(model(1120, 1120, [part("face", 0, 0)]));
+    const spec = sweepSpec(model(1120, 1120, [part("face", 0, 0)]), "turn");
     expect(spec.kymograph).toEqual({ row: 280, band: 3, at: "middle" });
   });
 });
 
 const manifest: SweepManifest = {
-  version: 1,
-  preset: "turn",
-  parameter: "ParamAngleX",
+  version: 2,
+  preset: "turn-nod",
+  parameters: ["ParamAngleX", "ParamAngleY"],
   fps: 30,
   clockHz: 60,
   warmupS: 0.5,
   durationS: 3,
   crop: null,
   frame: { width: 560, height: 560 },
-  kymographRow: { row: 230, at: "eye row" },
+  kymographRow: null,
   sheet: { frames: [23], cell: { w: 560, h: 560 } },
   physicsOutputs: ["ParamHairSwayX"],
   frames: [
-    { i: 0, file: "f000.png", t: 0, theta: 0, values: { ParamAngleX: 0 } },
+    {
+      i: 0,
+      file: "f000.png",
+      t: 0,
+      values: { ParamAngleX: 0, ParamAngleY: 0 },
+    },
     {
       i: 1,
       file: "f001.png",
       t: 1 / 30,
-      theta: -1,
-      values: { ParamAngleX: -1 },
+      values: { ParamAngleX: -1, ParamAngleY: 0.5 },
     },
   ],
 };
@@ -211,6 +289,14 @@ describe("flipbookHtml", () => {
     expect(html).toContain('type="application/json"');
     expect(html).not.toContain("http");
     expect(html).toContain("?b=");
+  });
+
+  it("reads out every scripted id and no theta", () => {
+    const html = flipbookHtml(manifest);
+    expect(html).toContain('id === "ParamAngleX" ? "X"');
+    expect(html).toContain('"ParamAngleY" ? "Y"');
+    expect(html).toContain("f.values[id]");
+    expect(html).not.toContain("theta");
   });
 
   it("cannot be closed early by an id in the manifest", () => {
@@ -241,6 +327,23 @@ describe("prepareSweepDir", () => {
     fs.writeFileSync(path.join(dir, "notes.txt"), "keep");
     expect(prepareSweepDir(out, "turn")).toBe(dir);
     expect(fs.readFileSync(path.join(dir, "notes.txt"), "utf8")).toBe("keep");
+  });
+
+  it("clears the frames, sheet, kymograph, manifest and flipbook an earlier run left, and only those", () => {
+    const out = fs.realpathSync(tmpDir());
+    const dir = prepareSweepDir(out, "turn");
+    const stale = [
+      "f123.png",
+      "kymograph.png",
+      "sheet.png",
+      "manifest.json",
+      "index.html",
+    ];
+    for (const f of [...stale, "notes.txt", "f12.png"]) {
+      fs.writeFileSync(path.join(dir, f), "x");
+    }
+    prepareSweepDir(out, "turn");
+    expect(fs.readdirSync(dir).sort()).toEqual(["f12.png", "notes.txt"]);
   });
 
   it("refuses a planted symlink and leaves its target alone", () => {

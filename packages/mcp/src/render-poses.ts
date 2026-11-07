@@ -34,14 +34,15 @@ import {
 import { checkSweep, type SweepReport } from "./sweep-report";
 import {
   SWEEP_CLOCK_HZ,
-  SWEEP_DURATION_S,
   SWEEP_FPS,
   SWEEP_WARMUP_S,
   flipbookHtml,
   prepareSweepDir,
+  sweepDurationS,
   sweepSpec,
   type RequestedSweep,
   type SweepManifest,
+  type SweepPreset,
 } from "./sweep";
 
 export interface RenderCrop {
@@ -70,6 +71,8 @@ export interface RenderPlan {
   poses: RenderPose[];
   /** The sweep's fixed framing; absent when no sweep was asked for. */
   sweepCrop?: RenderCrop;
+  /** The same for each `sweeps` entry, aligned with it; absent without `sweeps`. */
+  sweepsCrops?: (RenderCrop | undefined)[];
 }
 
 /** A pose the caller names, rendered in place of the model's own set. */
@@ -111,6 +114,7 @@ export function planRenders(
   model: IkiModel,
   requested?: RequestedPose[],
   sweep?: RequestedSweep,
+  sweeps?: RequestedSweep[],
 ): RenderPlan {
   const { width: W, height: H } = model.canvas;
   const fullBody = H > W;
@@ -189,16 +193,40 @@ export function planRenders(
       dh,
     };
   };
-  if (sweep && !SWEEP_NAME.test(sweep.name)) {
-    throw new AutoRigInputError(
-      `sweep.name must match ${SWEEP_NAME.source} (it names <outDir>/<name>/): ${JSON.stringify(sweep.name)}`,
-    );
+  if (sweeps && sweeps.length === 0) {
+    throw new AutoRigInputError("sweeps is empty");
   }
-  const sweepCrop = sweep
-    ? sweep.crop
-      ? toRenderCrop(sweep.crop, "sweep.crop")
-      : squareCrop
-    : undefined;
+  // `sweep` first, then `sweeps` in order: names are directories, presets are
+  // frames, and neither may repeat across the lot.
+  const asked = [
+    ...(sweep ? [{ label: "sweep", entry: sweep }] : []),
+    ...(sweeps ?? []).map((entry, i) => ({ label: `sweeps[${i}]`, entry })),
+  ];
+  asked.forEach(({ label, entry }, i) => {
+    if (!SWEEP_NAME.test(entry.name)) {
+      throw new AutoRigInputError(
+        `${label}.name must match ${SWEEP_NAME.source} (it names <outDir>/<name>/): ${JSON.stringify(entry.name)}`,
+      );
+    }
+    const sameName = asked.findIndex(
+      (a) => a.entry.name.toLowerCase() === entry.name.toLowerCase(),
+    );
+    if (sameName < i) {
+      throw new AutoRigInputError(
+        `${label}.name ${JSON.stringify(entry.name)} repeats ${asked[sameName].label}.name ${JSON.stringify(asked[sameName].entry.name)} (ignoring case: one directory on a case-insensitive disk)`,
+      );
+    }
+    const samePreset = asked.findIndex((a) => a.entry.preset === entry.preset);
+    if (samePreset < i) {
+      throw new AutoRigInputError(
+        `${label}.preset ${JSON.stringify(entry.preset)} repeats ${asked[samePreset].label}.preset (the same frames twice)`,
+      );
+    }
+  });
+  const cropOf = (entry: RequestedSweep, label: string) =>
+    entry.crop ? toRenderCrop(entry.crop, `${label}.crop`) : squareCrop;
+  const sweepCrop = sweep ? cropOf(sweep, "sweep") : undefined;
+  const sweepsCrops = sweeps?.map((entry, i) => cropOf(entry, `sweeps[${i}]`));
 
   if (requested) {
     if (requested.length === 0) throw new AutoRigInputError("poses is empty");
@@ -211,7 +239,7 @@ export function planRenders(
         crop: toRenderCrop(pose.crop, `poses[${i}].crop`),
       };
     });
-    return { canvas, view, fullBody, mouth, poses, sweepCrop };
+    return { canvas, view, fullBody, mouth, poses, sweepCrop, sweepsCrops };
   }
 
   // The engine ignores an undeclared id, so this only keeps `stress` from
@@ -331,7 +359,7 @@ export function planRenders(
     }
   }
 
-  return { canvas, view, fullBody, mouth, poses, sweepCrop };
+  return { canvas, view, fullBody, mouth, poses, sweepCrop, sweepsCrops };
 }
 
 /** `requested[i]`'s name and values, as `planRenders` takes them. */
@@ -368,6 +396,22 @@ export interface RenderPosesInput {
   poses?: RequestedPose[];
   /** A turn sweep rendered in addition to the poses, into `<outDir>/<name>/`. */
   sweep?: RequestedSweep;
+  /** More sweeps, rendered after `sweep`, each into its own `<outDir>/<name>/`. */
+  sweeps?: RequestedSweep[];
+}
+
+export interface SweepOutput {
+  name: string;
+  preset: SweepPreset;
+  dir: string;
+  fps: number;
+  frames: number;
+  manifest: string;
+  sheet: string;
+  /** Absent for a preset without one (`turn-nod`). */
+  kymograph?: string;
+  flipbook: string;
+  report: SweepReport;
 }
 
 export type RenderPosesResult =
@@ -392,18 +436,10 @@ export type RenderPosesResult =
       physics: PhysicsReport;
       /** Present whenever `sweep` was asked for; absent only from a server
        *  before 0.31.0, which strips the input. */
-      sweep?: {
-        name: string;
-        preset: "turn";
-        dir: string;
-        fps: number;
-        frames: number;
-        manifest: string;
-        sheet: string;
-        kymograph: string;
-        flipbook: string;
-        report: SweepReport;
-      };
+      sweep?: SweepOutput;
+      /** In request order; present whenever `sweeps` was asked for, absent
+       *  from a server before 0.32.0, which strips the input. */
+      sweeps?: SweepOutput[];
     }
   | { ok: false; error: string };
 
@@ -430,12 +466,12 @@ function readPageScript(): string {
 async function captureSweep(
   evaluate: Evaluate,
   model: IkiModel,
-  plan: RenderPlan,
   requested: RequestedSweep,
+  crop: RenderCrop | undefined,
   dir: string,
   report: SweepReport,
-): Promise<NonNullable<Extract<RenderPosesResult, { ok: true }>["sweep"]>> {
-  const spec = sweepSpec(model, plan.sweepCrop);
+): Promise<SweepOutput> {
+  const spec = sweepSpec(model, requested.preset, crop);
   await evaluate(
     `window.__ikiRender.sweepBegin(${JSON.stringify(spec)})`,
     CAPTURE_MS,
@@ -460,15 +496,16 @@ async function captureSweep(
       i: k,
       file,
       t: k / SWEEP_FPS,
-      theta: spec.thetas[spec.captureEvery * k],
       values,
     });
   }
   const end = (await evaluate("window.__ikiRender.sweepEnd()", CAPTURE_MS)) as {
     sheet: string;
-    kymograph: string;
+    kymograph?: string;
   };
   for (const [what, url] of Object.entries(end)) {
+    // Absent for a preset without a kymograph.
+    if (url === undefined) continue;
     if (typeof url !== "string" || !url.startsWith(PNG_PREFIX)) {
       throw new Error(
         `sweep ${requested.name} ${what}: the page returned no PNG`,
@@ -476,26 +513,31 @@ async function captureSweep(
     }
   }
   const sheet = path.join(dir, "sheet.png");
-  const kymograph = path.join(dir, "kymograph.png");
   writeFileAtomic(
     sheet,
     Buffer.from(end.sheet.slice(PNG_PREFIX.length), "base64"),
   );
-  writeFileAtomic(
-    kymograph,
-    Buffer.from(end.kymograph.slice(PNG_PREFIX.length), "base64"),
-  );
+  let kymograph: string | undefined;
+  if (end.kymograph !== undefined) {
+    kymograph = path.join(dir, "kymograph.png");
+    writeFileAtomic(
+      kymograph,
+      Buffer.from(end.kymograph.slice(PNG_PREFIX.length), "base64"),
+    );
+  }
   const manifest: SweepManifest = {
-    version: 1,
+    version: 2,
     preset: requested.preset,
-    parameter: spec.parameter,
+    parameters: spec.parameters,
     fps: SWEEP_FPS,
     clockHz: SWEEP_CLOCK_HZ,
     warmupS: SWEEP_WARMUP_S,
-    durationS: SWEEP_DURATION_S,
+    durationS: sweepDurationS(requested.preset),
     crop: requested.crop ?? null,
     frame: spec.frame,
-    kymographRow: { row: spec.kymograph.row, at: spec.kymograph.at },
+    kymographRow: spec.kymograph
+      ? { row: spec.kymograph.row, at: spec.kymograph.at }
+      : null,
     sheet: { frames: spec.sheet.frames, cell: spec.sheet.cell },
     physicsOutputs: spec.physicsOutputs,
     frames,
@@ -512,7 +554,7 @@ async function captureSweep(
     frames: spec.frames,
     manifest: manifestPath,
     sheet,
-    kymograph,
+    ...(kymograph ? { kymograph } : {}),
     flipbook,
     report,
   };
@@ -535,7 +577,7 @@ export async function renderPoses(
     );
     const outDir = resolveOutputDir(input.outDir);
     const model = loadIkiModel(readFileSync(modelFile, "utf8"));
-    const plan = planRenders(model, input.poses, input.sweep);
+    const plan = planRenders(model, input.poses, input.sweep, input.sweeps);
     const browser = findBrowser();
     if (!browser) return { ok: false, error: NO_BROWSER_MESSAGE };
     const pageScript = readPageScript();
@@ -549,9 +591,13 @@ export async function renderPoses(
     const sweepDir = input.sweep
       ? prepareSweepDir(outDir, input.sweep.name)
       : undefined;
-    const sweepReport = input.sweep ? checkSweep(model) : undefined;
+    const sweepsDirs = input.sweeps?.map((s) =>
+      prepareSweepDir(outDir, s.name),
+    );
+    const sweepReport =
+      input.sweep || input.sweeps ? checkSweep(model) : undefined;
 
-    const { failedTextures, poses, sweep } = await withBrowser(
+    const { failedTextures, poses, sweep, sweeps } = await withBrowser(
       browser,
       async (evaluate) => {
         await evaluate(pageScript, PAGE_SCRIPT_MS);
@@ -580,13 +626,34 @@ export async function renderPoses(
             ? await captureSweep(
                 evaluate,
                 model,
-                plan,
                 input.sweep,
+                plan.sweepCrop,
                 sweepDir,
                 sweepReport,
               )
             : undefined;
-        return { failedTextures: loaded.failedTextures, poses: written, sweep };
+        let sweeps: SweepOutput[] | undefined;
+        if (input.sweeps && sweepsDirs && sweepReport) {
+          sweeps = [];
+          for (const [i, requested] of input.sweeps.entries()) {
+            sweeps.push(
+              await captureSweep(
+                evaluate,
+                model,
+                requested,
+                plan.sweepsCrops?.[i],
+                sweepsDirs[i],
+                sweepReport,
+              ),
+            );
+          }
+        }
+        return {
+          failedTextures: loaded.failedTextures,
+          poses: written,
+          sweep,
+          sweeps,
+        };
       },
     );
     return {
@@ -601,6 +668,7 @@ export async function renderPoses(
       folds,
       physics,
       sweep,
+      sweeps,
     };
   } catch (error) {
     if (error instanceof AutoRigInputError || error instanceof IkiFormatError) {
