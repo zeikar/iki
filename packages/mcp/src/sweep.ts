@@ -420,8 +420,8 @@ const STALE_NAMES = [
 /**
  * Makes `<outDir>/<name>/` (an existing directory is fine), refuses a symbolic
  * link or a non-directory planted there — it would redirect every frame write
- * — confines it to the working directory, and removes the frames, sheet,
- * kymograph, manifest and flipbook an earlier run left there. `outDir` is the realpath'd dir `resolveOutputDir` returned and `name`
+ * — and confines it to the working directory. `outDir` is the realpath'd dir
+ * `resolveOutputDir` returned and `name`
  * is already checked by `planRenders`; `label` names the input in a refusal
  * ("sweep" or `sweeps[i]`). Call only once the browser was found. Returns the
  * real directory; it clears nothing — call `clearSweepDir` once every dir has
