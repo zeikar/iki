@@ -570,7 +570,16 @@ irises, nose, mouth, brows: one that drifts sideways down a column while the
 face holds is sliding on the nod, and the `SWEEP nod` range at that turn and
 the `SWEEP corner` residuals are its evidence. The hair's drift down the outer
 columns is the turn's swing settling, judged under `rig`'s physics rules,
-never a nod finding. The numbers are quoted under MEASUREMENTS, never
+never a nod finding. Looking down (the bottom row; the `stress` still
+without `nod`) the front hair's cap slides below the back hair's rim and
+uncovers the back hair's dome above its crown — that is the rig's nod, not a
+defect. A SECOND outlined arc there is a defect: the front hair's own top
+edge drawn as a stroke, or the crown point inked dark where the strands meet,
+merged at rest into the back hair's rim line a few px outside it and reading
+as a second crown above the first once the cap slides. That edge is drawn
+art — the stroke the `hair_front.png` prompt already forbids — so it is a
+`regenerate` of `hair_front` with its top and outer edges unstroked, never a
+`patch` of the cap's slide nor a `rigPlan` retune. The numbers are quoted under MEASUREMENTS, never
 thresholds: a `nod` range that differs between the three turns, or a non-zero
 `corner` residual, says a corner keyform or a stop-local patch departs from the
 edges — where to look, not a finding.
@@ -652,7 +661,9 @@ displacements, which `rigPlan.turn.amount`, `turn.featureLead`, `turn.eyeForesho
 `hair.outlineFollow` (the turn's) and `eyes.blink` and `hair.sway` (their own
 parameters) all leave as measured. A nod defect local to one feature (one
 feature sliding against its neighbour, say) is therefore a `patch` at the
-`ParamAngleY` stop past the 15° render, which shows it at half strength; a
+`ParamAngleY` stop past the 15° render, which shows it at half strength —
+except the second crown the cap's slide uncovers on the bottom row, which is
+the art (`turn`, above); a
 nod of the whole head that slides instead of tipping is an `escalate` on
 `packages/editor/src/auto-rig/` with the 15° render as evidence. Neither is a
 `rigPlan` retune.

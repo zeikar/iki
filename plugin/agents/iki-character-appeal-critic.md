@@ -89,8 +89,10 @@ the body hold while the head turns, the features lead the face plate, the
 nose most, and the far eye narrows. The hair keeps swinging into each nod
 leg — the physics follows the turn, not the nod, and a turn leg ends where a
 nod leg begins, so the hair settles through the first half of each outer
-column and is mid-swing on the corner cells and the (0,+30) cell — and the
-features ride down with the face on a nod. Leave those out. Like `IMPRESSION:`, it is
+column and is mid-swing on the corner cells and the (0,+30) cell — the
+features ride down with the face on a nod, and looking down the front hair's
+cap slides below the back hair's rim and uncovers its dome above the crown.
+Leave those out. Like `IMPRESSION:`, it is
 for the user and the orchestrator, never a finding by itself: a placement
 that causes it is item 9's `retune`; the rest stays on the line.
 
