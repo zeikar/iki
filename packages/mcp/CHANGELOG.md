@@ -1,5 +1,16 @@
 # @ikijs/mcp
 
+## 0.33.0
+
+### Minor Changes
+
+- b121764: Side locks: `compose_layers_from_parts` composes one optional `hair_side.png` (the front side lock on the screen left, hanging beside the ear, its root at the image's top) into both locks — `hair_side_R` as drawn and `hair_side_L` mirrored — placed by `layout.hair_side_L` / `layout.hair_side_R`, which move and scale with the face like its features; without the file both roles are listed in `skipped`, and `mirrorParts` accepts `hair_side.png`. `measure_layers` checks a lock's placement and drawing: a root showing past `hair_front` at rest, a lock over its eye's outer corner, bare pixels behind the lock's inward lean on the turn away from it, two locks drawn in one image, and a lock without `hair_front`, each naming the free `layout` move, where one exists, before the billed one. `auto_rig_from_layers` accepts the roles (each needs `hair_front`) and, with side locks and a `nose`, prints report-only `HAIRSIDE cover <role>` / `HAIRSIDE tail <role>` lines after the `PHYSICS` lines (the result's `turn.hairSide`); `formatHairSideReport` is exported. A server before this version refuses `hair_side_*` layers and `layout.hair_side_*` keys as unknown roles.
+
+### Patch Changes
+
+- Updated dependencies [b121764]
+  - @ikijs/editor@0.30.0
+
 ## 0.32.0
 
 ### Minor Changes
