@@ -174,10 +174,11 @@ export interface TurnSolveReport {
  */
 export interface HairSideRoom {
   role: "hair_side_L" | "hair_side_R";
-  /** The lock's outer edge against the plate's painted edge: over the lock's
-   *  pixel rows that lie on the plate (`face.y0..y1`) and carry a run, the
-   *  least of (the lock's outer edge landed − the plate's painted edge
-   *  landed), signed outward: positive, the lock covers the plate's edge;
+  /** The lock's outer edge against the head's edge (the plate's painted
+   *  edge, with any ear replaced by the head's edge beneath it, the cheek):
+   *  over the lock's pixel rows that lie on the plate (`face.y0..y1`) and
+   *  carry a run, the least of (the lock's outer edge landed − the head's
+   *  edge landed), signed outward: positive, the lock covers the edge;
    *  negative, skin shows past it. `deg` is the stop and `y` the model row
    *  where it is least. Omitted when no lock row on the plate carries a run. */
   cover?: { deg: number; px: number; y: number };
@@ -188,9 +189,9 @@ export interface HairSideRoom {
    *  negative, the corner is under the lock by that much (intended).
    *  `lashToLock`: the lash box's outer x, landed on the eye's centre row
    *  too, against the same lock edge, when a `lash_*` is present.
-   *  `eyeToPlate`: the plate's painted edge landed minus the eye's corner
-   *  landed, signed toward the face: how far inside the plate the corner
-   *  sits (where the ear begins). Omitted when the lock has
+   *  `eyeToPlate`: the head's edge (as for `cover`: under an ear, the head's
+   *  own) landed minus the eye's corner landed, signed toward the face: how
+   *  far inside the head the corner sits. Omitted when the lock has
    *  no run on the eye's centre row. */
   tail?: {
     deg: number;

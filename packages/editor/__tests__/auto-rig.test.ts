@@ -2259,6 +2259,49 @@ describe("the side locks", () => {
     }
   });
 
+  it("a long lock's coarse cells do not carry the face's blend into its hidden root", () => {
+    // Locks 600 px tall (to row 899): even cells of 25 px would straddle the
+    // row where they first show, and interpolate the face's motion into it.
+    const { layers, options } = character({ sideLocks: true });
+    const long = generateIkiFromLayerSet(
+      layers.map((l) =>
+        l.role.startsWith("hair_side_")
+          ? {
+              ...l,
+              bbox: { ...l.bbox, h: 600 },
+              cropH: 600,
+              rowRuns: Array.from({ length: 600 }, () => l.rowRuns![0]),
+            }
+          : l,
+      ),
+      CANVAS,
+      options,
+    );
+    for (const id of LOCKS) {
+      const part = long.parts.find((p) => p.id === id)!;
+      const x0 = part.transform.x - part.width / 2;
+      for (const [pose, tol] of [
+        [{ [P.AngleX]: 30 }, 1.5],
+        [{ [P.AngleX]: -30 }, 1.5],
+        [{ [P.HairSwayX]: 20 }, 0.5],
+        [{ [P.HairSwayZ]: 20 }, 0.5],
+      ] as [ParamValues, number][]) {
+        const lock = landerFor(long, id, pose);
+        const front = landerFor(long, "hair_front", pose);
+        // Points between the vertices, at and just above the root's end.
+        for (const y of [ROOT_END, ROOT_END + 3, ROOT_END + 11]) {
+          for (const dx of [7, 23, 41, 58]) {
+            const a = lock(x0 + dx, y);
+            const b = front(x0 + dx, y);
+            const at = `${id} (${dx}, ${y}) ${JSON.stringify(pose)}`;
+            expect(Math.abs(a.x - b.x), at).toBeLessThan(tol);
+            expect(Math.abs(a.y - b.y), at).toBeLessThan(tol);
+          }
+        }
+      }
+    }
+  });
+
   it("the body moves with the face and keeps its width", () => {
     // The plate's field is a slide plus a width change about the axis, and
     // on this bust the fit keeps the plate's width: its axis on a row lands
@@ -2276,7 +2319,7 @@ describe("the side locks", () => {
     for (const id of LOCKS) {
       const body = lockRows(id).filter(([[, y]]) => y <= BAND_END);
       expect(body.length, id).toBeGreaterThan(5);
-      for (const pose of [-30, 30].flatMap((v) => [
+      for (const pose of [-30, 30].flatMap((v): ParamValues[] => [
         { [P.AngleX]: v },
         { [P.AngleY]: v },
       ])) {
@@ -2364,6 +2407,49 @@ describe("the side locks", () => {
         expect(room.tail!.eyeToLock).toBeGreaterThan(-1);
         expect(room.tail!.lashToLock).toBeDefined();
         expect(room.tail!.eyeToPlate).toBeGreaterThan(0);
+      }
+    });
+
+    it("measures the cover against the head under an ear, not the ear", () => {
+      // The ears (crop rows 170–260) stand 25 px past the head, whose edge
+      // is 173 px from the axis there. The screen-left lock moved to 185 px
+      // out covers the head and falls 13 px short of the ear.
+      const { report: eared } = withEars({ sideLocks: true }, {}, (l) =>
+        l.role === "hair_side_R"
+          ? {
+              ...l,
+              bbox: { ...l.bbox, x: 315 },
+              rowRuns: l.rowRuns!.map(() => [315, 385]),
+            }
+          : l,
+      );
+      const room = eared.hairSide!.left!;
+      expect(room.cover!.px).toBeGreaterThan(0);
+      // The far eye's corner sits past the head's edge under its ear, not
+      // 14 px inside the ear's.
+      expect(room.tail!.eyeToPlate).toBeLessThan(0);
+    });
+
+    it("keeps the head's edge on the rows just outside the ear band", () => {
+      // A 20 px lock at column 322 covers the cheek; the smoothed plate
+      // profile still carries the ear's width a few rows past the band.
+      const { report: eared, frame } = withEars({ sideLocks: true }, {}, (l) =>
+        l.role === "hair_side_R"
+          ? {
+              ...l,
+              bbox: { ...l.bbox, x: 322, w: 20 },
+              cropW: 20,
+              rowRuns: l.rowRuns!.map(() => [322, 342]),
+            }
+          : l,
+      );
+      const { ears } = frame;
+      expect(ears).toBeDefined();
+      expect(eared.hairSide!.left!.cover!.px).toBeGreaterThan(0);
+      for (const y of [ears!.bottom - 0.5, ears!.top + 0.5]) {
+        expect(frame.headHalfAt(y), `y ${y}`).toBeLessThan(
+          frame.paintedHalfAt(y),
+        );
       }
     });
 
@@ -2608,14 +2694,18 @@ describe("the jaw cut", () => {
 /** The fixture's face narrowed by 25 px but for rows 170…260 of its crop,
  *  which step out to its drawn width: ears. The frame is built as the
  *  generator builds it. */
-function withEars(opts: CharacterOptions = {}, targets: TurnTargets = {}) {
+function withEars(
+  opts: CharacterOptions = {},
+  targets: TurnTargets = {},
+  tweak: (l: LayerInput) => LayerInput = (l) => l,
+) {
   const { layers, options } = character(opts);
   const face = layers.find((l) => l.role === "face")!;
   const rows = face.rowHalfWidths!.map((w, r) =>
     r >= 170 && r <= 260 ? w : Math.max(10, w - 25),
   );
   const eared = layers.map((l) =>
-    l === face ? { ...l, rowHalfWidths: rows } : l,
+    tweak(l === face ? { ...l, rowHalfWidths: rows } : l),
   );
   const turnTargets = { ...options.turnTargets, ...targets };
   let report: TurnSolveReport | undefined;

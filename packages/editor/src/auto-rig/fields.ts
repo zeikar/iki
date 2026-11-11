@@ -486,7 +486,7 @@ function hairFrontField(m: TurnModel): Field {
  *  hh, from where it leaves the bangs: long enough that the lock leans over
  *  it rather than kinking at the bangs' edge, short enough that most of its
  *  length moves as the face beside it. */
-const SIDE_ROOT_BLEND = 0.2;
+export const SIDE_ROOT_BLEND = 0.2;
 
 /**
  * A side lock's root band: `rootEnd`, model y, the first pixel row's top,

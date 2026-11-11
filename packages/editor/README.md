@@ -109,7 +109,7 @@ some far stop, the covered width: how much of the iris's painted row the run
 covers at the stop where that is largest, in px and head half-widths, next to
 how much it covers at rest, and whether the bound held. With
 side locks the report also carries `hairSide` (`left` / `right`): the far
-lock's `cover` of the plate's edge and the far eye's and lash's `tail` against
+lock's `cover` of the head's edge and the far eye's and lash's `tail` against
 the lock, report-only, a metric omitted where it cannot be read and
 `unavailable` for a lock without `rowRuns`.
 [`AUTO-RIG.md`](./AUTO-RIG.md) describes the model, the fit and the limits.

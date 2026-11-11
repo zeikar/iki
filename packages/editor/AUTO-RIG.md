@@ -169,15 +169,16 @@ deferred.
 reports two numbers per lock, px, measured as the far lock at that side's far
 stops (±15, ±30) through the rendered rig, so a later slice can design bounds
 from them. `cover.px` is the least, over the lock's pixel rows that lie on the
-plate and carry a run, of its outer edge landed minus the plate's painted edge
-landed, signed outward (negative: skin shows past the lock), with the stop
+plate and carry a run, of its outer edge landed minus the head's edge
+landed (the plate's painted edge, with any ear replaced by the head's edge beneath it, the
+cheek), signed outward (negative: skin shows past the lock), with the stop
 `deg` and row `y` where it is least. `tail.eyeToLock` is the far eye white's
 outer corner landed on the eye's centre row against the lock's face-side edge
 landed there, signed toward the face (positive: a gap; negative: under the
 lock by that much, as intended); `lashToLock` is the lash box's outer x,
 landed on the eye's centre row too, against the same lock edge, and
-`eyeToPlate` the plate's painted edge landed minus the eye's corner landed,
-signed toward the face (how far inside the plate the corner sits). A number
+`eyeToPlate` the head's edge (as for `cover`) landed minus the eye's corner
+landed, signed toward the face (how far inside the head the corner sits). A number
 that cannot be read is left out: `cover` when no lock row on the plate
 carries a run, `tail` when the lock has no run on the eye's centre row; a lock without
 `rowRuns` reports only `unavailable`. Nothing reads these numbers yet.

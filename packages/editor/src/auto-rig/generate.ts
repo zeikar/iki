@@ -101,6 +101,7 @@ import {
   familyField,
   hairFrontBends,
   neckField,
+  SIDE_ROOT_BLEND,
   sideRootBlend,
   type Field,
   type HairFrontGrid,
@@ -151,8 +152,8 @@ const MESH_CELLS: Record<string, Cells> = {
   face: { px: 28, min: 4, max: 24 },
   // The front hair eases from riding the face to holding the outline.
   hair_front: { px: 32, min: 3, max: 24 },
-  // A side lock bends over its root band (`sideRootBlend`, 0.2 hh), so it
-  // needs rows there for the bend to fall over rather than kink.
+  // A side lock's rows come from `sideLockGrid`: even ones, plus the root
+  // band's (`sideRootBlend`), which a long lock's coarse cells would straddle.
   hair_side_L: { px: 20, min: 3, max: 24 },
   hair_side_R: { px: 20, min: 3, max: 24 },
   hair_back: { px: 56, min: 3, max: 18 },
@@ -512,6 +513,8 @@ function buildPart(
     headStart = fm.headStart;
   } else if (spec.role === "hair_front") {
     mesh = columnMesh(b, frontGrid!);
+  } else if (spec.role === "hair_side_L" || spec.role === "hair_side_R") {
+    mesh = columnMesh(b, sideLockGrid(b, frame, spec.role));
   } else if (
     lips !== undefined &&
     (isLipRole(spec.role) || isLipInsideRole(spec.role))
@@ -775,6 +778,42 @@ function hairFrontGrid(
     }
   }
   return { xs, ys };
+}
+
+/** A side lock's mesh grid over its box `b`: even cells, plus rows at the
+ *  bangs' attachment (`rootEnd`) and the blend's end, with `BLEND_ROWS` more
+ *  between, so no cell straddles the attachment and the smoothstep is sampled
+ *  at any lock length. */
+const BLEND_ROWS = 3;
+function sideLockGrid(
+  b: Box,
+  frame: HeadFrame,
+  role: "hair_side_L" | "hair_side_R",
+): { xs: number[]; ys: number[] } {
+  const cells = MESH_CELLS[role];
+  const px = Math.min(cells.px, meshScale(role, frame));
+  const cols = cellsFor(bw(b), px, cells.min, cells.max);
+  const rows = cellsFor(bh(b), px, cells.min, cells.max);
+  const xs = Array.from(
+    { length: cols + 1 },
+    (_, c) => b.x0 + (bw(b) * c) / cols,
+  );
+  const ys = Array.from(
+    { length: rows + 1 },
+    (_, r) => b.y1 - (bh(b) * r) / rows,
+  );
+  const { rootEnd } = sideRootBlend(frame, role, b);
+  const end = rootEnd - SIDE_ROOT_BLEND * frame.hh;
+  for (let i = 0; i <= BLEND_ROWS + 1; i++) {
+    const y = rootEnd + ((end - rootEnd) * i) / (BLEND_ROWS + 1);
+    if (
+      y > b.y0 + 0.25 &&
+      y < b.y1 - 0.25 &&
+      ys.every((v) => Math.abs(v - y) > 0.25)
+    )
+      ys.push(y);
+  }
+  return { xs, ys: ys.sort((p, q) => q - p) };
 }
 
 function meshScale(role: string, frame: HeadFrame): number {

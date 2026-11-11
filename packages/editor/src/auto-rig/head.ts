@@ -50,6 +50,9 @@ export interface HeadFrame {
   hh: number;
   /** Half the face plate's painted width on row `y`. */
   paintedHalfAt(y: number): number;
+  /** Half the head's own width on row `y`: `paintedHalfAt` with the ears
+   *  replaced by the head's outline under them. */
+  headHalfAt(y: number): number;
   /** The face plate's widest half-width. */
   wMax: number;
   /** The head's own widest half-width, its ears left out. */
@@ -246,6 +249,7 @@ export function buildHeadFrame(
   let paintedHalfAt: (y: number) => number = () => plateHalf;
   let neck: Neck | undefined;
   let ears: Ears | undefined;
+  let headHalfAt: (y: number) => number = (y) => paintedHalfAt(y);
   let headMax = plateHalf;
   let chinY = face.y0;
   let cutAt: (x: number) => number = () => face.y0 - 1;
@@ -264,6 +268,13 @@ export function buildHeadFrame(
       const j = Math.min(i + 1, prof.length - 1);
       const t = clamp(r - i, 0, 1);
       return prof[i] + (prof[j] - prof[i]) * t;
+    };
+
+    const readRows = (rows: number[]) => (y: number) => {
+      const r = canvasH / 2 - y - faceLayer.bbox.y - 0.5;
+      const i = clamp(Math.floor(r), 0, rows.length - 1);
+      const j = Math.min(i + 1, rows.length - 1);
+      return rows[i] + (rows[j] - rows[i]) * clamp(r - i, 0, 1);
     };
 
     // Ears, looked for between the plate's top fifth and the chin: the
@@ -391,6 +402,7 @@ export function buildHeadFrame(
         canvasH / 2 - nk.topY - faceLayer.bbox.y - 0.5,
       );
       const head = earless(chinY);
+      headHalfAt = readRows(head);
       headMax = Math.max(...head);
       const outlineAt = (d: number): number => {
         for (let r = neckRow; r >= 0; r--) {
@@ -461,6 +473,7 @@ export function buildHeadFrame(
     } else {
       // No neck: the plate is all head, save its ears, which it ends beside.
       const head = earless(chinY);
+      headHalfAt = readRows(head);
       headMax = Math.max(...head);
       if (ears !== undefined) {
         const bottomOf = (d: number): number => {
@@ -524,6 +537,7 @@ export function buildHeadFrame(
     chinY,
     hh,
     paintedHalfAt,
+    headHalfAt,
     wMax,
     headMax,
     hasProfile: profile !== null,
