@@ -169,10 +169,15 @@ deferred.
 reports two numbers per lock, px, measured as the far lock at that side's far
 stops (±15, ±30) through the rendered rig, so a later slice can design bounds
 from them. `cover.px` is the least, over the lock's pixel rows that lie on the
-plate and carry a run, of its outer edge landed minus the head's edge
-landed (the plate's painted edge, with any ear replaced by the head's edge beneath it, the
-cheek), signed outward (negative: skin shows past the lock), with the stop
-`deg` and row `y` where it is least. `tail.eyeToLock` is the far eye white's
+plate, carry a run and at rest have its outer edge at or outside the head's
+edge (a root under the bangs, or rows where an ear shows beside the lock, lie
+inside it by design and have no edge to keep covering), and over the far
+stops, of its outer edge landed minus the head's edge landed (the plate's
+painted edge, with any ear replaced by the head's edge beneath it, the
+cheek), signed outward (negative: the turn bares cheek the lock hides at
+rest), with the stop `deg` and row `y` where it is least and `rest`, that
+row's cover at rest (read off the geometry, not landed; ≥ 0, and `px` may
+exceed it: the far lock can gain cover). `tail.eyeToLock` is the far eye white's
 outer corner landed on the eye's centre row against the lock's face-side edge
 landed there, signed toward the face (positive: a gap; negative: under the
 lock by that much, as intended); `lashToLock` is the lash box's outer x,
@@ -180,7 +185,7 @@ landed on the eye's centre row too, against the same lock edge, and
 `eyeToPlate` the head's edge (as for `cover`) landed minus the eye's corner
 landed, signed toward the face (how far inside the head the corner sits). A number
 that cannot be read is left out: `cover` when no lock row on the plate
-carries a run, `tail` when the lock has no run on the eye's centre row; a lock without
+carries a run that covers the head's edge at rest, `tail` when the lock has no run on the eye's centre row; a lock without
 `rowRuns` reports only `unavailable`. Nothing reads these numbers yet.
 
 ## The plate, the neck and the ears

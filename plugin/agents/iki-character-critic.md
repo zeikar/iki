@@ -409,8 +409,9 @@ When `turn-clamped` carries the `HAIRSIDE` lines, or the `turn.hairSide`
 entries a JSON result carries (`@ikijs/mcp` 0.33.0+), quote them under
 MEASUREMENTS beside the zoom lines. Each number is the least over the lock's
 far stops (`ParamAngleX` ±15 and ±30 on its far side), in model px, and its
-line (or entry) names the stop. A negative `cover` is the cheek past the lock
-in numbers; a negative eye or lash `tail` is the intended tuck under the lock.
+line (or entry) names the stop. A negative `cover` is the cheek the turn bares past the far lock where the
+`at rest` figure shows it hides it, in numbers; an absent `cover` line means
+the lock covers no head edge at rest, not a defect; a negative eye or lash `tail` is the intended tuck under the lock.
 The tail line's `corner … (negative: past it)` is not that tuck: it is the
 eye's corner past the face plate's edge. These are evidence, never thresholds.
 

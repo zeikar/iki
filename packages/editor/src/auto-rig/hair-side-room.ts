@@ -1,6 +1,7 @@
 /**
  * What the far side lock leaves of the turn's room, as numbers only: how far
- * it keeps covering the head's edge (the cheek, under any ear), and where the far eye's (and lash's)
+ * it keeps covering the head's edge it covers at rest (the cheek, under any
+ * ear), and where the far eye's (and lash's)
  * outer tail sits against it. Nothing here bounds the turn; the numbers are
  * for a later slice to design bounds from.
  */
@@ -68,22 +69,33 @@ function lockRoom(
   const room: HairSideRoom = { role };
   const stops = farStops(side);
 
-  // The lock's outer edge against the plate's, on each of its pixel rows on
-  // the plate that carries a run.
+  // The lock's outer edge against the head's, on each of its pixel rows on
+  // the plate that carries a run and where, at rest, it covers that edge: the
+  // rows where it lies inside the head by design (its root, beside an ear)
+  // have no edge to keep covering. At rest every part lands where it is
+  // drawn, so the rest cover is read off the geometry.
   let cover: HairSideRoom["cover"];
   for (let i = 0; i < Math.ceil(box.y1 - box.y0); i++) {
     const y = box.y1 - i - 0.5;
     if (y < frame.face.y0 || y > frame.face.y1) continue;
     const outer = outerEdge(frame.hairRuns(role, y) ?? [], frame.axisX, side);
     if (outer === undefined) continue;
+    const rest = side * (outer - frame.axisX) - frame.headHalfAt(y);
+    if (rest < 0) continue;
     for (const ax of stops) {
       const px =
         side * (land(role, outer, y, ax) - headEdge(ctx, land, y, side, ax));
-      if (cover === undefined || px < cover.px) cover = { deg: ax, px, y };
+      if (cover === undefined || px < cover.px)
+        cover = { deg: ax, px, y, rest };
     }
   }
   if (cover !== undefined) {
-    room.cover = { deg: cover.deg, px: signed(cover.px), y: round3(cover.y) };
+    room.cover = {
+      deg: cover.deg,
+      px: signed(cover.px),
+      y: round3(cover.y),
+      rest: signed(cover.rest),
+    };
   }
 
   // The far eye's outer corner against the lock's face-side edge on the

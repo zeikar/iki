@@ -2467,6 +2467,50 @@ describe("the side locks", () => {
       }
     });
 
+    /** The screen-left lock's report with its rows `[0, 200)` running over
+     *  columns `upper` and the rest over columns 250–320 (outside the head). */
+    function twoPart(upper: [number, number]) {
+      const { report: r } = withEars({ sideLocks: true }, {}, (l) =>
+        l.role === "hair_side_R"
+          ? {
+              ...l,
+              bbox: { ...l.bbox, x: 250, w: 200 },
+              cropW: 200,
+              rowRuns: l.rowRuns!.map((_, i) => (i < 200 ? upper : [250, 320])),
+            }
+          : l,
+      );
+      return r.hairSide!.left!;
+    }
+
+    it("reads the cover from the rows the lock covers at rest only", () => {
+      // Its upper rows lie inside the head's edge (the root, the ear beside
+      // it), 125 px from the axis against a head 132 to 160 wide: no edge to keep covering
+      // and must not drag the number negative.
+      const room = twoPart([375, 445]);
+      expect(room.cover!.rest).toBeGreaterThanOrEqual(0);
+      expect(room.cover!.px).toBeGreaterThan(0);
+      // Model y of crop row 200 is 0: the covered rows lie below it.
+      expect(room.cover!.y).toBeLessThan(0);
+    });
+
+    it("has no cover for a lock wholly inside the head's edge, and keeps the tail", () => {
+      const { report: r } = withEars({ sideLocks: true }, {}, (l) =>
+        l.role === "hair_side_R"
+          ? {
+              ...l,
+              bbox: { ...l.bbox, x: 460, w: 40 },
+              cropW: 40,
+              rowRuns: l.rowRuns!.map(() => [460, 500]),
+            }
+          : l,
+      );
+      const room = r.hairSide!.left!;
+      expect(room.cover).toBeUndefined();
+      expect(room.tail).toBeDefined();
+      expect(room.unavailable).toBeUndefined();
+    });
+
     it("omits the tail where a lock stops short of the eye's row", () => {
       // Rows 300–400: on the plate, above the eye's centre row (433.5).
       const r = cut(100);

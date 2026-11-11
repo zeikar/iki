@@ -49,9 +49,9 @@ function roomLines(
     // A model row's centre is half a px off the integer row it lies on.
     const row = Math.floor(canvas.height / 2 - cover.y);
     lines.push(
-      `HAIRSIDE cover ${role}: the lock's outer edge ${signedPx(cover.px)} model px outside the plate's edge ` +
-        `at ParamAngleX=${cover.deg} (least at model y ${cover.y.toFixed(1)}, row ${row} model px from the top; ` +
-        `negative: skin shows past the lock)`,
+      `HAIRSIDE cover ${role}: the lock's outer edge ${signedPx(cover.px)} model px outside the head's edge ` +
+        `at ParamAngleX=${cover.deg}, ${signedPx(cover.rest)} at rest (least over the rows it covers at rest, at model y ${cover.y.toFixed(1)}, row ${row} model px from the top; ` +
+        `negative: the turn bares cheek the lock hides at rest)`,
     );
   }
   if (tail !== undefined) {
@@ -62,7 +62,7 @@ function roomLines(
     lines.push(
       `HAIRSIDE tail ${role}: eye ${signedPx(tail.eyeToLock)} model px${lash} from the lock's face-side edge ` +
         `at ParamAngleX=${tail.deg} (negative: under the lock, intended), ` +
-        `corner ${signedPx(tail.eyeToPlate)} model px inside the plate's edge (negative: past it)`,
+        `corner ${signedPx(tail.eyeToPlate)} model px inside the head's edge (negative: past it)`,
     );
   }
   if (lines.length === 0) lines.push(`HAIRSIDE ${role}: no cover or tail row`);

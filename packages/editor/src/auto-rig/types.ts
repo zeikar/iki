@@ -177,11 +177,16 @@ export interface HairSideRoom {
   /** The lock's outer edge against the head's edge (the plate's painted
    *  edge, with any ear replaced by the head's edge beneath it, the cheek):
    *  over the lock's pixel rows that lie on the plate (`face.y0..y1`) and
-   *  carry a run, the least of (the lock's outer edge landed − the head's
-   *  edge landed), signed outward: positive, the lock covers the edge;
-   *  negative, skin shows past it. `deg` is the stop and `y` the model row
-   *  where it is least. Omitted when no lock row on the plate carries a run. */
-  cover?: { deg: number; px: number; y: number };
+   *  carry a run, and at rest (ParamAngleX 0) have the lock's outer edge at
+   *  or outside the head's edge, the least over those rows and the far stops
+   *  of (the lock's outer edge landed − the head's edge landed), signed
+   *  outward: positive, the lock still covers the edge; negative, the turn
+   *  bares cheek the lock hides at rest. `deg` is the stop and `y` the model
+   *  row where it is least; `rest` is that row's cover at rest (≥ 0; the
+   *  geometry's outer edge − the head's half-width, not a landed value). The
+   *  far lock can gain cover, so `px` may exceed `rest`. Omitted when no
+   *  lock row covers the head's edge at rest. */
+  cover?: { deg: number; px: number; y: number; rest: number };
   /** The far eye's outer tail on the eye's centre row, at the stop where
    *  `eyeToLock` is least. `eyeToLock`: the eye white's outer corner landed
    *  vs the lock's face-side edge landed there (the inner end of the run
