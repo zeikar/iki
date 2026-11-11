@@ -188,8 +188,8 @@ const NOSE_TIP_AT = 0.66;
 // lashes, brows, nose and mouth are the hero bob's own tuning; bob wears his
 // blush at its default placement, picked on his face (below). The features'
 // defaults are proportions of the face: resolveLayout carries them with the
-// face's cx, cy and w; the front side locks are provisional placements carried
-// with the face the same way. The hair and
+// face's cx, cy and w; the front side locks, tuned on the first character
+// to wear them, are carried with the face the same way. The hair and
 // the torso depend on the hairstyle and on how the torso is framed, so they are
 // older defaults every character retunes from the report. If the rendered model is misaligned, tune cx/cy/w through the
 // `layout` override and re-run — composing is cheap and the parts do not need
@@ -302,15 +302,19 @@ const DEFAULT_LAYOUT = {
   brow_R: { src: "brow.png", cx: 455, cy: 405, w: 105, mirror: true },
   // The front side locks, one part for both: hair_side_R (screen left) takes
   // hair_side.png as drawn and hair_side_L mirrors it, like the blush. They
-  // draw over the face, brows and lashes and under the bangs. PROVISIONAL
-  // placeholders, tuned by eye per character through `layout.hair_side_*`: the
-  // lock's root top lies above the brow row (405) so the bangs' temple hides
-  // it (for a 1:5 lock, whose height follows the image's aspect, cy 560 puts
-  // the top at 360), and the lock hangs over the cheek's edge, outside the
-  // eye's outer corner, with the ear showing beside it. OPTIONAL: a parts dir
-  // without it composes.
-  hair_side_L: { src: "hair_side.png", cx: 780, cy: 560, w: 80, optional: true, mirror: true }, // prettier-ignore
-  hair_side_R: { src: "hair_side.png", cx: 320, cy: 560, w: 80, optional: true, mirror: false }, // prettier-ignore
+  // draw over the face, brows and lashes and under the bangs. Mint's tuned
+  // placement (cy 545 at mint's face cy 431, carried to the default face:
+  // 437 + 114 = 551), tuned per character through `layout.hair_side_*`: the
+  // lock's root top lies above the brow row (405) so the bangs' temple hides it
+  // (for a 1:5 lock, whose height follows the image's aspect: w 90 is 450 tall,
+  // so cy 551 puts the top at 326), and the lock runs from the temple over the
+  // front of the ear and down along the cheek's edge, the ear's rim and lobe
+  // showing beside it. Its box overlaps the eye's by about 15 px at the
+  // default face, fine only because a drawn lock's root tapers (the measure's "covers
+  // the eye's outer corner" check catches a lock that does not).
+  // OPTIONAL: a parts dir without it composes.
+  hair_side_L: { src: "hair_side.png", cx: 715, cy: 551, w: 90, optional: true, mirror: true }, // prettier-ignore
+  hair_side_R: { src: "hair_side.png", cx: 385, cy: 551, w: 90, optional: true, mirror: false }, // prettier-ignore
   hair_front: { src: "hair_front.png", cx: 550, cy: 425, w: 660 },
   // The pose forearms, one drawing for both: forearm_pose_R (screen left)
   // takes forearm_pose.png as drawn and forearm_pose_L mirrors it, like the

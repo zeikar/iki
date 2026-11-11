@@ -331,6 +331,7 @@ async function writeBlush(dir: string): Promise<void> {
  * down its left side, so a mirror shows, on a transparent margin (the trim
  * reads the corner pixel as the ground). Elliptical because a rectangle would
  * be opaque along every edge of its frame and trip the cut-off-art warning.
+ * Its face-side edge leans in toward the root (see below).
  */
 async function writeHairSide(dir: string): Promise<void> {
   await writeRgbaPart(dir, "hair_side.png", 24, 108, (set) => {
@@ -338,7 +339,12 @@ async function writeHairSide(dir: string): Promise<void> {
       for (let x = 2; x < 22; x++) {
         const inside =
           ((x + 0.5 - 12) / 10) ** 2 + ((y + 0.5 - 54) / 50) ** 2 <= 1;
-        if (inside) set(x, y, x < 8 ? HAIR_SIDE_MARK : HAIR);
+        // The face-side edge leans in toward the root, keeping every row of
+        // the ellipse: at its default placement the eye's row meets the lock
+        // there, and a root as wide as the lock would cover the eye's outer
+        // corner at rest.
+        const edge = Math.max(13 + 0.12 * (y - 4), 17 + 0.3 * (y - 37));
+        if (inside && x < edge) set(x, y, x < 8 ? HAIR_SIDE_MARK : HAIR);
       }
   });
 }

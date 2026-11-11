@@ -328,11 +328,13 @@ three of its `bustBox` widths wide and three heights tall around it (without
 `rig-view`, size it by eye). Crop the same window around the eye's `bustBox`
 centre on `rest`. A render the server did not write (no `stress` before
 0.25.0) is skipped. Enlarge each ×4, nearest neighbour, onto white, into
-`turn-pair`'s `debug/` dir — with Pillow, e.g., or any image tool there is;
+`<turn-pair dir>/debug/`, creating it if missing — with Pillow, e.g., or any
+image tool there is;
 with none, quote `zoom <pose> <role>: unavailable` and judge the whole render:
 
 ```bash
 python3 - <<'EOF'
+import os
 from PIL import Image
 # w, h: that eye's bustBox w and h in rig-view
 for pose, role, cx, cy, w, h in [("turn-m30", "eye_R", <cx>, <cy>, <w>, <h>), …]:
@@ -340,6 +342,7 @@ for pose, role, cx, cy, w, h in [("turn-m30", "eye_R", <cx>, <cy>, <w>, <h>), �
     im = im.crop((round(cx - 1.5 * w), round(cy - 1.5 * h), round(cx + 1.5 * w), round(cy + 1.5 * h)))
     im = im.resize((im.width * 4, im.height * 4), Image.NEAREST)
     bg = Image.new("RGBA", im.size, "white"); bg.alpha_composite(im)
+    os.makedirs("<turn-pair dir>/debug", exist_ok=True)
     bg.convert("RGB").save(f"<turn-pair dir>/debug/zoom-{pose}-{role}.png")
 EOF
 ```
@@ -367,16 +370,23 @@ locks swinging in phase with the bangs; a short lock rolling nearly rigidly
 with the head. Where only that corner or wing goes under the far lock, quote
 that crop `zoom <pose> <role>: clear` — the overlap lines above count the eye
 over the ear, the outline or hair drawn behind it, not under a lock drawn over
-it.
+it. The same holds for the eye's corner: with a far lock over it, a corner past
+the head's edge but under the lock is `clear` (the lock is what shows there),
+and the tail line's corner figure is evidence only.
 
 For a lock's root, crop `rest`, `nod-15`, `stress` and the four `turn-nod`
 corner stops (f036, f072, f108, f144) around each lock's root. On a still,
-centre a window the eye window's size on the top of the lock's `bustBox` in
-`rig-view` (located the way you located the far eye), so it takes in the bangs'
-edge there. On a `turn-nod` frame, locate the root by eye and size the window
-by that frame's scale, not `bustScale`: frame px ÷ (720 / the crop's model-px
-width, the `face` box plus half `faceWidth` a side, clamped to the canvas)
-gives model px. Enlarge each ×4 like the others, and compare each with `rest`.
+centre a window the eye window's size where the lock comes out from under the
+bangs' hem. `rest` (or `layers/preview.png`) shows which place that is: follow
+the lock up to the bangs' edge. On each still, find that same place by eye, as
+you found the far eye (`stress` tilts and nods the head, `nod-15` drops it). The
+lock's `bustBox` in `rig-view` locates the lock, but its top is the lock's
+tapered tip, which sits inside the bangs, so a window centred there shows only
+bangs. A root crop that shows no lock is misplaced: move or widen it and crop
+again. On a `turn-nod` frame, locate that place by eye and size the window by
+that frame's scale, not `bustScale`: frame px ÷ (720 / the crop's model-px
+width, the `face` box plus half `faceWidth` a side, clamped to the canvas) gives
+model px. Enlarge each ×4 like the others, and compare each with `rest`.
 
 What IS a finding, each judged against `rest` and quoted with its evidence and
 its amount in model px (the crossing in crop px ÷ 4 ÷ `bustScale` on a still;
@@ -391,29 +401,36 @@ shows it.
 - The cheek — the face plate's edge, not the ear, which `face.png` paints and
   shows beside the lock by design — showing past the far lock's outer edge
   where `rest` hides it: a `retune` of that lock's `cx` outward, else a
-  `regenerate` of `hair_side.png` fuller toward the head's outline.
-- A root visible at `rest`, or with no cover to spare there: a `retune`, `cy`
-  up or `cx` toward the face, else a `regenerate` of `hair_side.png` with a
-  longer root.
-- A gap opening at a stop between a root and the bangs, or the root showing
-  past them. A root that `rest` covers by more px than the gap that opens at
-  the stop cannot be a placement fault, since the root is built to move exactly
-  as the bangs do: it is an `escalate` on `packages/editor/src/auto-rig/`,
-  quoting both numbers, the cover at `rest` and the gap at the stop, in model
-  px. A gap at least as large as the cover at `rest` is the placement finding
-  above: more cover hides it.
+  `regenerate` of `hair_side.png` fuller toward the head's outline. Judge it on
+  the ×4 crop: only a strip of cheek the crop shows is a finding. A `cover`
+  within about 2 model px of zero at `rest` is the lock lying flush with the
+  head's edge, not hiding it, and its small negative on the turn is not a
+  finding.
+- A root visible at `rest` (its top or edge showing below or beside the
+  bangs): a `retune`, `cy` up or `cx` toward the face, else a `regenerate` of
+  `hair_side.png` with a longer root.
+- A root that `rest` hides and that shows, or parts from the bangs, at a stop:
+  the root is built to move exactly as the bangs do, so this is the rig's, an
+  `escalate` on `packages/editor/src/auto-rig/`, with the `rest` crop and the
+  stop's crop as evidence and the gap in model px.
 
 Never a `patch` or a `rigPlan` retune for any of these.
+
+Quote each root crop under MEASUREMENTS with the other zoom lines:
+`zoom <pose> root <lock role>: hidden`,
+`zoom <pose> root <lock role>: visible <what> by N model px`, or
+`zoom <pose> root <lock role>: gap to the bangs N model px`.
 
 When `turn-clamped` carries the `HAIRSIDE` lines, or the `turn.hairSide`
 entries a JSON result carries (`@ikijs/mcp` 0.33.0+), quote them under
 MEASUREMENTS beside the zoom lines. Each number is the least over the lock's
 far stops (`ParamAngleX` ±15 and ±30 on its far side), in model px, and its
-line (or entry) names the stop. A negative `cover` is the cheek the turn bares past the far lock where the
-`at rest` figure shows it hides it, in numbers; an absent `cover` line means
-the lock covers no head edge at rest, not a defect; a negative eye or lash `tail` is the intended tuck under the lock.
-The tail line's `corner … (negative: past it)` is not that tuck: it is the
-eye's corner past the face plate's edge. These are evidence, never thresholds.
+line (or entry) names the stop. A negative `cover` is the cheek the turn bares
+past the far lock where the `at rest` figure shows it hides it, in numbers; an
+absent `cover` line means the lock covers no head edge at rest, not a defect; a
+negative eye or lash `tail` is the intended tuck under the lock. The tail
+line's `corner … (positive: inside it; negative: past it)` is not that tuck: it
+is the eye's corner against the head's edge. These are evidence, never thresholds.
 
 ## Step 2 — score the rubric
 
@@ -872,7 +889,7 @@ EYES-WHITE: white/opening render <r> vs reference <r>; iris h/opening render <r>
 
 MEASUREMENTS
 <the measure_layers check lines, the measure_turn_reference lines quoted
-verbatim, the zoom lines (Step 1), the `HAIRSIDE` lines (or `turn.hairSide`
+verbatim, the zoom lines (Step 1, the root lines included), the `HAIRSIDE` lines (or `turn.hairSide`
 entries) quoted verbatim, the `SWEEP` lines quoted verbatim (evidence only),
 plus any number you quoted from either table>
 

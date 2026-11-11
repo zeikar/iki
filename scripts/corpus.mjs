@@ -174,6 +174,12 @@ async function rig(name, outputPath) {
             achieved: result.turn.achieved,
             clamped: result.turn.clamped,
             strandOverlap: result.turn.strandOverlap ?? null,
+            // Absent, not null, without a side lock: the other characters'
+            // metrics stay as committed. Report-only numbers, tracked so a
+            // later slice can design bounds from them.
+            ...(result.turn.hairSide === undefined
+              ? {}
+              : { hairSide: result.turn.hairSide }),
           },
     patches: result.patches ?? null,
     folds: {

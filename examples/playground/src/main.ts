@@ -137,10 +137,10 @@ idleRow.append(idleLabel);
 panel.insertBefore(idleRow, controls);
 
 // Model picker for the regression corpus models in public/ (the hero, bob's
-// lip-set bust; mint and silver-hood, full bodies that declare a Wave), the
-// vector sample, and a local .iki file. Hero leads so the select's
-// default already names the model the page starts on. Built once, like the Idle
-// row, so it survives the per-model control rebuilds.
+// lip-set bust; mint, mint with side locks and silver-hood, full bodies that
+// declare a Wave), the vector sample, and a local .iki file. Hero leads so the
+// select's default already names the model the page starts on. Built once, like
+// the Idle row, so it survives the per-model control rebuilds.
 const modelRow = document.createElement("div");
 modelRow.className = "control";
 const modelLabel = document.createElement("label");
@@ -152,6 +152,7 @@ const modelEntries: readonly { value: string; text: string; file?: string }[] =
   [
     { value: "hero", text: "Hero character", file: "hero.iki" },
     { value: "mint", text: "Mint — full body", file: "mint.iki" },
+    { value: "mint-locks", text: "Mint — side locks", file: "mint-locks.iki" },
     {
       value: "silver-hood",
       text: "Silver Hood — full body",

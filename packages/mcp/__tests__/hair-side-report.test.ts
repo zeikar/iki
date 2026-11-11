@@ -31,7 +31,7 @@ describe("formatHairSideReport", () => {
       ),
     ).toEqual([
       "HAIRSIDE cover hair_side_R: the lock's outer edge -2.3 model px outside the head's edge at ParamAngleX=-30, +5.1 at rest (least over the rows it covers at rest, at model y 189.5, row 360 model px from the top; negative: the turn bares cheek the lock hides at rest)",
-      "HAIRSIDE tail hair_side_R: eye -6.2 model px / lash +3.0 model px from the lock's face-side edge at ParamAngleX=-30 (negative: under the lock, intended), corner +12.0 model px inside the head's edge (negative: past it)",
+      "HAIRSIDE tail hair_side_R: eye -6.2 model px / lash +3.0 model px from the lock's face-side edge at ParamAngleX=-30 (negative: under the lock, intended), corner +12.0 model px from the head's edge (positive: inside it; negative: past it)",
       "HAIRSIDE cover hair_side_L: the lock's outer edge +0.0 model px outside the head's edge at ParamAngleX=30, +0.0 at rest (least over the rows it covers at rest, at model y 40.0, row 510 model px from the top; negative: the turn bares cheek the lock hides at rest)",
     ]);
   });
@@ -61,7 +61,7 @@ describe("formatHairSideReport", () => {
         CANVAS,
       ),
     ).toEqual([
-      "HAIRSIDE tail hair_side_R: eye +1.0 model px from the lock's face-side edge at ParamAngleX=-15 (negative: under the lock, intended), corner +2.0 model px inside the head's edge (negative: past it)",
+      "HAIRSIDE tail hair_side_R: eye +1.0 model px from the lock's face-side edge at ParamAngleX=-15 (negative: under the lock, intended), corner +2.0 model px from the head's edge (positive: inside it; negative: past it)",
     ]);
   });
 

@@ -62,7 +62,7 @@ function roomLines(
     lines.push(
       `HAIRSIDE tail ${role}: eye ${signedPx(tail.eyeToLock)} model px${lash} from the lock's face-side edge ` +
         `at ParamAngleX=${tail.deg} (negative: under the lock, intended), ` +
-        `corner ${signedPx(tail.eyeToPlate)} model px inside the head's edge (negative: past it)`,
+        `corner ${signedPx(tail.eyeToPlate)} model px from the head's edge (positive: inside it; negative: past it)`,
     );
   }
   if (lines.length === 0) lines.push(`HAIRSIDE ${role}: no cover or tail row`);

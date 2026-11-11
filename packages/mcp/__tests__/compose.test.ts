@@ -690,20 +690,20 @@ describe("composeLayersFromParts", () => {
     // edge shows on hair_side_R's left and on hair_side_L's right.
     const roles = full.layers.map((l) => l.role);
     for (const [role, cx, markSide] of [
-      ["hair_side_L", 780, 1],
-      ["hair_side_R", 320, -1],
+      ["hair_side_L", 715, 1],
+      ["hair_side_R", 385, -1],
     ] as const) {
       // Over the brows, under the bangs.
       expect(roles.indexOf(role)).toBeGreaterThan(roles.indexOf("brow_R"));
       expect(roles.indexOf(role)).toBeLessThan(roles.indexOf("hair_front"));
       expect(full.skipped).not.toContain(role);
-      // 80 wide on cx 320 / 780; the 20x100 fixture is 400 tall on cy 560.
+      // 90 wide on cx 385 / 715; the 20x100 fixture is 450 tall on cy 551.
       const layer = full.layers.find((l) => l.role === role)!;
       expect([layer.left, layer.top, layer.width, layer.height]).toEqual([
-        cx - 40,
-        360,
-        80,
-        400,
+        cx - 45,
+        326,
+        90,
+        450,
       ]);
       const mark = meanColumnNear(await decodePng(layer.path), HAIR_SIDE_MARK);
       expect(Math.sign(mark - (layer.left + layer.width / 2))).toBe(markSide);
@@ -749,22 +749,22 @@ describe("composeLayersFromParts", () => {
 
   it("moves and scales the side locks with the face", async () => {
     // The face 1.2x as wide at (600, 487): the locks' default offset from the
-    // face's centre (230) becomes 276, their 80 width 96, their cy offset
-    // 560 - 437 = 123, x1.2 = 147.6 under the new cy.
+    // face's centre (165) becomes 198, their 90 width 108, their cy offset
+    // 551 - 437 = 114, x1.2 = 136.8 under the new cy.
     const r = await composeOk({
       partsDir: parts,
       outDir: outDir(),
       layout: { face: { cx: 600, cy: 487, w: 480 } },
     });
     for (const [role, cx] of [
-      ["hair_side_L", 876],
-      ["hair_side_R", 324],
+      ["hair_side_L", 798],
+      ["hair_side_R", 402],
     ] as const) {
       const l = r.layers.find((x) => x.role === role)!;
-      expect(l.width).toBe(96);
-      expect(l.left).toBe(cx - 48);
-      expect(l.height).toBe(480); // the 1:5 lock at w 96
-      expect(l.top).toBe(Math.round(487 + (560 - 437) * 1.2 - 480 / 2));
+      expect(l.width).toBe(108);
+      expect(l.left).toBe(cx - 54);
+      expect(l.height).toBe(540); // the 1:5 lock at w 108
+      expect(l.top).toBe(Math.round(487 + (551 - 437) * 1.2 - 540 / 2));
     }
   });
 

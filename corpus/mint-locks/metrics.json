@@ -1,0 +1,155 @@
+{
+  "canvas": {
+    "width": 1100,
+    "height": 3692
+  },
+  "partCount": 32,
+  "parameterCount": 30,
+  "atlasBytes": 1472864,
+  "modelBytes": 1920040,
+  "modelSha256": "02e4575f73fadfcf7c72e6375ed5cae38178efc2145c79b822adffbdda140bb5",
+  "turn": {
+    "achieved": {
+      "eyeShift": 0.1589,
+      "farEyeRatio": 0.7281,
+      "silhouetteRatio": 1
+    },
+    "clamped": [],
+    "strandOverlap": null,
+    "hairSide": {
+      "right": {
+        "role": "hair_side_L",
+        "cover": {
+          "deg": 30,
+          "px": -2.143,
+          "y": 1453.5,
+          "rest": 0.227
+        },
+        "tail": {
+          "deg": 30,
+          "eyeToLock": -0.849,
+          "lashToLock": -0.849,
+          "eyeToPlate": -2.49
+        }
+      },
+      "left": {
+        "role": "hair_side_R",
+        "cover": {
+          "deg": -30,
+          "px": -0.769,
+          "y": 1453.5,
+          "rest": 0.227
+        },
+        "tail": {
+          "deg": -30,
+          "eyeToLock": -0.849,
+          "lashToLock": -0.849,
+          "eyeToPlate": -2.49
+        }
+      }
+    }
+  },
+  "patches": null,
+  "folds": {
+    "poses": 2173,
+    "offenders": []
+  },
+  "physics": [
+    {
+      "id": "hairSway",
+      "input": [
+        "ParamAngleX",
+        "ParamAmbientSway"
+      ],
+      "output": "ParamHairSwayX",
+      "kind": "ok",
+      "why": null,
+      "drives": [
+        "hair_side_L",
+        "hair_side_R",
+        "hair_front"
+      ],
+      "step": {
+        "values": {
+          "ParamAngleX": 30
+        },
+        "peak": -13.701,
+        "at": 0.017,
+        "final": 0,
+        "displacementPx": 31.741
+      },
+      "idle": {
+        "peak": 3.668,
+        "displacementPx": 8.498
+      }
+    },
+    {
+      "id": "hairTilt",
+      "input": [
+        "ParamAngleZ"
+      ],
+      "output": "ParamHairSwayZ",
+      "kind": "ok",
+      "why": null,
+      "drives": [
+        "hair_side_L",
+        "hair_side_R",
+        "hair_front"
+      ],
+      "step": {
+        "values": {
+          "ParamAngleZ": 30
+        },
+        "peak": -8.807,
+        "at": 0.017,
+        "final": 0,
+        "displacementPx": 20.405
+      },
+      "idle": {
+        "peak": 0.022,
+        "displacementPx": 0.051
+      }
+    },
+    {
+      "id": "hairBack",
+      "input": [
+        "ParamAngleX",
+        "ParamAngleZ",
+        "ParamAmbientSway"
+      ],
+      "output": "ParamHairBackSway",
+      "kind": "ok",
+      "why": null,
+      "drives": [
+        "hair_back"
+      ],
+      "step": {
+        "values": {
+          "ParamAmbientSway": 1
+        },
+        "peak": -12.002,
+        "at": 0.017,
+        "final": 0,
+        "displacementPx": 27.817
+      },
+      "idle": {
+        "peak": 4.174,
+        "displacementPx": 9.675
+      }
+    }
+  ],
+  "motions": [
+    "Nod",
+    "Shake",
+    "Tilt",
+    "Wave"
+  ],
+  "expressions": [
+    "smile",
+    "laugh",
+    "angry",
+    "sad",
+    "surprised",
+    "shy"
+  ]
+}

@@ -35,8 +35,10 @@ orchestrator arbitrates.
   mouth at ×4), `mouth-open-0.6-form-0.png` (a mid-open one), and on a full
   body `full-rest.png`.
 - `motion` — the head turn and nod, cropped to the face: `turn/sheet.png`
-  (nine frames of an eased −30 → +30 `ParamAngleX`, in time order, left to
-  right then top to bottom) and its 90 frames `turn/fNNN.png` at 30 fps, and
+  (nine frames of the eased −30 → +30 leg of `ParamAngleX`, in time order, left
+  to right then top to bottom) and its 90 frames `turn/fNNN.png` at 30 fps,
+  which run rest → −30 → +30 → rest over 3 s (−30 at about f022–f023, +30 at
+  about f067–f068), and
   `turn-nod/sheet.png` (a 3 × 3 grid by angle: columns the turn −30/0/+30,
   rows the nod +30/0/−30, rest in the centre, labelled X, Y and t) with its
   180 frames `turn-nod/fNNN.png` at 30 fps along the box path; either half
@@ -53,7 +55,11 @@ orchestrator arbitrates.
 **Scale.** Amounts are canvas px of the composer's 1100-px-wide canvas.
 `rest.png` and `turn-p30.png` show the model's top 1100 × 1100 square at
 560 px, so a render distance × 1100/560 (about ×2) is canvas px. The mouth crops
-show 180 × 120 canvas px at 720 × 480: ÷ 4. `full-rest.png` shows the whole
+show 180 × 120 canvas px at 720 × 480: ÷ 4. The `motion` frames are the face
+crop, 720 px across: the `MOTION:` line's pixel amounts are frame px, and a
+frame px × (the crop's width in canvas px ÷ 720) is canvas px. The crop is the
+`face` box grown by half the face's width a side, so twice that width
+(`layout.face.w` when set, else 400, the composer's default), at most 1100. `full-rest.png` shows the whole
 canvas at the same 560/1100 scale in a wider frame: 1400 px wide (2.5 canvas
 widths, room for a raised arm) and the canvas's height × 560/1100 tall (1880
 for a 3692-px canvas; read the PNG's size), the 1100-px canvas drawn 560 px
@@ -94,9 +100,15 @@ features ride down with the face on a nod, and looking down the front hair's
 cap slides below the back hair's rim and uncovers its dome above the crown.
 Side locks (`hair_side_*`, when drawn) lean with the face and keep their width:
 the far one tucks against the outline, and the near one leans inward,
-uncovering the ear and the back hair behind it. Leave all of those off the
-line. A lock's root popping out from under the bangs, or coming apart from
-them, does go on it. Like `IMPRESSION:`, the `MOTION:` line is for the user and
+uncovering the ear and the back hair behind it. The locks hang from the
+temples along the cheek's edges, under the bangs, in the hair's own colour
+(`hair_side_*` keys in `layout.json` place them); on the turn the far side is
+the side the face turns toward, the side the nose moves to. Leave all of those
+off the line. A lock's root popping out from under the bangs, or coming apart
+from them, does go on it: look at the temples, where each lock comes out from
+under the bangs, at the turn's ±30 extremes (about f022–f023 and f067–f068)
+and at the `turn-nod` box's corner cells. A change of speed at a corner of the box path is the path's, not
+a pop. Like `IMPRESSION:`, the `MOTION:` line is for the user and
 the orchestrator, never a finding by itself: a placement
 that causes it is item 9's `retune`; the rest stays on the line.
 
