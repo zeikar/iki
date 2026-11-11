@@ -126,7 +126,9 @@ artist agent applies your findings; the orchestrator arbitrates.
   `turn.clamped` names what this art's room cut down: the turn (`eyeShift`)
   where the far eye met the face plate's edge, the chin the neck's, or the far
   iris the bangs' side strand, and a `noseShift` / `mouthShift` past its own
-  room.
+  room. With side locks and a `nose` (which `turn` needs) the orchestrator
+  appends the result's `HAIRSIDE` lines, or its `turn.hairSide` entries,
+  report only, verbatim: see "Zoom the far side".
 - `folds` — the fold report `render_poses` printed, verbatim and complete: the
   engine's check of every warp grid cell and mesh-part triangle over its own
   pose set (rest, each parameter at its min and at its max, the angle corners
@@ -354,6 +356,63 @@ px) and quote one line per turned crop under MEASUREMENTS:
 `zoom <pose> <role>: clear`, or `zoom <pose> <role>: <what> over <what> by N
 render px`. Paint that already overlaps on the rest crop is the drawing or its
 placement, not the turn.
+
+A model with `hair_side_L` / `hair_side_R` layers (side locks, drawn over the
+brows and lashes and under the front hair) adds a rule to these crops. The far
+lock is the one on the far eye's side: `hair_side_R` with `eye_R`,
+`hair_side_L` with `eye_L`. The rig's design, which is not a finding: the far
+eye white's outer corner and the lash's wing sliding under the far lock; the
+near lock leaning inward, uncovering the ear and the back hair behind it; the
+locks swinging in phase with the bangs; a short lock rolling nearly rigidly
+with the head. Where only that corner or wing goes under the far lock, quote
+that crop `zoom <pose> <role>: clear` — the overlap lines above count the eye
+over the ear, the outline or hair drawn behind it, not under a lock drawn over
+it.
+
+For a lock's root, crop `rest`, `nod-15`, `stress` and the four `turn-nod`
+corner stops (f036, f072, f108, f144) around each lock's root. On a still,
+centre a window the eye window's size on the top of the lock's `bustBox` in
+`rig-view` (located the way you located the far eye), so it takes in the bangs'
+edge there. On a `turn-nod` frame, locate the root by eye and size the window
+by that frame's scale, not `bustScale`: frame px ÷ (720 / the crop's model-px
+width, the `face` box plus half `faceWidth` a side, clamped to the canvas)
+gives model px. Enlarge each ×4 like the others, and compare each with `rest`.
+
+What IS a finding, each judged against `rest` and quoted with its evidence and
+its amount in model px (the crossing in crop px ÷ 4 ÷ `bustScale` on a still;
+on a `turn-nod` frame, crop px ÷ 4, then the frame's scale above). Outward,
+toward the head's outline, is a lower `hair_side_R.cx` and a higher
+`hair_side_L.cx`; a lower `cy` is up. Retune both keys unless only one side
+shows it.
+
+- The far iris covered by the far lock by more than it is at `rest`: a
+  `retune` of that lock's `cx` outward first (free), else a `regenerate` of
+  `hair_side.png` narrower.
+- The cheek — the face plate's edge, not the ear, which `face.png` paints and
+  shows beside the lock by design — showing past the far lock's outer edge
+  where `rest` hides it: a `retune` of that lock's `cx` outward, else a
+  `regenerate` of `hair_side.png` fuller toward the head's outline.
+- A root visible at `rest`, or with no cover to spare there: a `retune`, `cy`
+  up or `cx` toward the face, else a `regenerate` of `hair_side.png` with a
+  longer root.
+- A gap opening at a stop between a root and the bangs, or the root showing
+  past them. A root that `rest` covers by more px than the gap that opens at
+  the stop cannot be a placement fault, since the root is built to move exactly
+  as the bangs do: it is an `escalate` on `packages/editor/src/auto-rig/`,
+  quoting both numbers, the cover at `rest` and the gap at the stop, in model
+  px. A gap at least as large as the cover at `rest` is the placement finding
+  above: more cover hides it.
+
+Never a `patch` or a `rigPlan` retune for any of these.
+
+When `turn-clamped` carries the `HAIRSIDE` lines, or the `turn.hairSide`
+entries a JSON result carries (`@ikijs/mcp` 0.33.0+), quote them under
+MEASUREMENTS beside the zoom lines. Each number is the least over the lock's
+far stops (`ParamAngleX` ±15 and ±30 on its far side), in model px, and its
+line (or entry) names the stop. A negative `cover` is the cheek past the lock
+in numbers; a negative eye or lash `tail` is the intended tuck under the lock.
+The tail line's `corner … (negative: past it)` is not that tuck: it is the
+eye's corner past the face plate's edge. These are evidence, never thresholds.
 
 ## Step 2 — score the rubric
 
@@ -647,11 +706,11 @@ that no plan field reaches — the far eye riding over the ear at ±30, a bangs 
 shearing — is a `patch` next. An overlap on the zoom crops that no placement
 `retune` fixes is one: name the `patch` even when the same overlap is also why
 you hold a plan field where it is — holding the field keeps the overlap, it
-does not fix it. It is an
-`escalate` only as a defect of the
+does not fix it. It is an `escalate` only as a defect of the
 whole rig — a seam from draw order, a fold, a part detaching from the one it
 sits on across the whole head — or as the render-vs-report discrepancy of
-Step 1.
+Step 1. A `hair_side_*` lock's own findings are the exception to the `patch`
+rule: they route as "Zoom the far side" says, never as a `patch`.
 
 At the `ParamAngleY` midpoint (15°) the question is whether the face reads as
 tipping — the features moving further than the plate, the face shortening a
@@ -686,6 +745,11 @@ itself a finding; only a `strandOverlap` entry counts as coverage.
 - `held: true` is a finding only where the reference shows that eye clear —
   i.e. it disagrees with the reference — as a `regenerate` of `hair_front`;
   painted coverage that matches the reference (`restPx` > 0) is not.
+
+A side lock (`hair_side_*`) is not a `strandOverlap`: only `hair_front` runs
+are measured as strands. The far iris passing under a lock is read on the
+zoom crops (the first finding of "Zoom the far side"), never from
+`strandOverlap`.
 
 ## Step 3 — emit typed findings
 
@@ -807,8 +871,9 @@ EYES-WHITE: white/opening render <r> vs reference <r>; iris h/opening render <r>
 
 MEASUREMENTS
 <the measure_layers check lines, the measure_turn_reference lines quoted
-verbatim, the zoom lines (Step 1), the `SWEEP` lines quoted verbatim (evidence
-only), plus any number you quoted from either table>
+verbatim, the zoom lines (Step 1), the `HAIRSIDE` lines (or `turn.hairSide`
+entries) quoted verbatim, the `SWEEP` lines quoted verbatim (evidence only),
+plus any number you quoted from either table>
 
 FINDINGS
 1. [regenerate] part=<role>

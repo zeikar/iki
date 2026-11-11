@@ -197,7 +197,7 @@ export const RIG_PLAN_FIELDS: readonly RigPlanField[] = [
     fitBy: null,
     provisional: false,
     migratedFrom: "outlineFollow",
-    what: "the front hair's outer edge's share where it draws the head's outline (0: the outline holds, though where back hair paints behind it, it may ride further, as far as that back hair reaches; at hair.follow the side locks ride whole)",
+    what: "the front hair's outer edge's share where it draws the head's outline (0: the outline holds, though where back hair paints behind it, it may ride further, as far as that back hair reaches; at hair.follow the front hair's side strands ride whole)",
   },
   {
     path: "hair.sway",

@@ -15,6 +15,7 @@ export type Family =
   | "nose"
   | "mouth"
   | "hair_front"
+  | "hair_side"
   | "hair_back"
   | "body"
   | "arm"
@@ -96,6 +97,10 @@ export const ROLE_TABLE: readonly RoleSpec[] = [
   { role: "lash_R", family: "eye_R" },
   { role: "brow_L", family: "brow_L" },
   { role: "brow_R", family: "brow_R" },
+  // The front side locks: over the brows and lashes, under the bangs, which
+  // hide their roots.
+  { role: "hair_side_L", family: "hair_side" },
+  { role: "hair_side_R", family: "hair_side" },
   { role: "hair_front", family: "hair_front" },
   // Drawn above the face and the hair: a raised hand passes them.
   { role: "forearm_pose_L", family: "forearm_pose" },
@@ -165,6 +170,21 @@ export function checkArmsHaveBody(roles: Iterable<string>): void {
   }
 }
 
+/** A side lock's root hides under the bangs (`fields.ts`): throws on a
+ *  `hair_side_*` role among `roles` without a `hair_front`. */
+export function checkSidesHaveFront(roles: Iterable<string>): void {
+  const has = new Set(roles);
+  if (has.has("hair_front")) return;
+  const side = ROLE_TABLE.find(
+    (r) => r.family === "hair_side" && has.has(r.role),
+  );
+  if (side !== undefined) {
+    throw new Error(
+      `auto-rig: ${side.role} needs a hair_front layer (a side lock's root hides under the bangs)`,
+    );
+  }
+}
+
 /** The mouth is `mouth` (with an optional `mouth_open`) or the whole lip set
  *  (`mouth.ts`): throws on neither, on part of the set, on both, or on an
  *  inside part without the whole set. */
@@ -215,7 +235,8 @@ export function checkPosesHaveArms(roles: Iterable<string>): void {
  * Map file names to roles. Throws on an unknown role, a role named twice, a
  * required role (`face`, `eye_L`, `eye_R`) missing, no mouth (`mouth`, or the
  * lip set) or a partial or mixed one, a lip set's inside part without the set,
- * an arm without a body, or a pose forearm without its arm.
+ * an arm without a body, a pose forearm without its arm, or a side lock
+ * without the front hair.
  */
 export function parseLayerRoles(
   fileNames: string[],
@@ -247,5 +268,6 @@ export function parseLayerRoles(
   checkMouth(seen.keys());
   checkArmsHaveBody(seen.keys());
   checkPosesHaveArms(seen.keys());
+  checkSidesHaveFront(seen.keys());
   return out;
 }

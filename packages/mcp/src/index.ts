@@ -33,6 +33,7 @@ export {
 export { type RigPlanReport } from "@ikijs/editor";
 export { checkModelFolds, formatFoldReport } from "./fold-report";
 export { formatPhysicsReport } from "./physics-report";
+export { formatHairSideReport } from "./hair-side-report";
 export {
   measureTurnReference,
   formatTurnReport,

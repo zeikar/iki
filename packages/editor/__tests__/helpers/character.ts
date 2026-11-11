@@ -139,6 +139,16 @@ export interface CharacterOptions {
    *  bares all but two rows of it at the back hair's own slide, within the
    *  0.01 hh budget. */
   shoulderDip?: boolean;
+  /** As `wideBack`, but from the temple's end (row 330) down the bangs are a
+   *  fringe only, columns 347–653, no side strands; plus the two side locks,
+   *  70 px wide and 400 px tall from row 300, beside the face and outside
+   *  the eyes' outer corners: `hair_side_R` columns 250–319, `hair_side_L`
+   *  681–750, each solid on every row. Their top 30 rows lie under the
+   *  temple's solid bangs (columns 238–761), so each first shows on row 330
+   *  (model y 170), where its root band ends. They end on row 699, 7 px
+   *  under the chin, so their hang under a roll develops over a head height
+   *  past their tips rather than over their last few rows. */
+  sideLocks?: boolean;
 }
 
 /**
@@ -158,7 +168,8 @@ export interface CharacterOptions {
  * - `solid`: from the brows down, the eye row (433.5) among them: the back
  *   one solid run ±310 behind the locks (as it is below the bangs' crop);
  *   under `tightLock`, the locks' outer edges at ±200 (columns 300 and 701)
- *   and the back solid 2 px past them;
+ *   and the back solid 2 px past them; under `sideLocks`, from here down the
+ *   bangs a fringe only, columns 347–653;
  * - `gap`: as on bob's row 366, a 3 px sliver of back 2 px outside the
  *   bangs' edge, then nothing until 8 px inside it;
  * - `stroke`: as on the hero's row 610, the back solid from inside the
@@ -176,8 +187,8 @@ const FULL_BACK_ROWS = {
  *  crop holds canvas rows 10–969, the back's rows 0–999. The back's crown is
  *  as `crown` names: `fullBack`'s, or the `tuft`, `dip` or `shoulderDip`
  *  option's; `wide`, `crownGap`, `faceGap`, `besideFaceGap`, `plateTopGap`,
- *  `plateTopStep`, `narrowCap` and `tuckedTemple` are the `wideBack`
- *  option's and those built on it;
+ *  `plateTopStep`, `narrowCap`, `tuckedTemple` and `sideLocks` are the
+ *  `wideBack` option's and those built on it;
  *  `tightLock` is `fullBack`'s crown over its own solid band. */
 function fullBackRuns(
   crown:
@@ -193,7 +204,8 @@ function fullBackRuns(
     | "plateTopStep"
     | "narrowCap"
     | "tuckedTemple"
-    | "tightLock",
+    | "tightLock"
+    | "sideLocks",
 ): {
   front: number[][];
   back: number[][];
@@ -207,7 +219,8 @@ function fullBackRuns(
     crown === "plateTopGap" ||
     crown === "plateTopStep" ||
     crown === "narrowCap" ||
-    crown === "tuckedTemple";
+    crown === "tuckedTemple" ||
+    crown === "sideLocks";
   // The bangs' dome: its half-width on row k, from ±200 on its top row (10)
   // to ±262 on row 90 and below.
   const dome = (k: number) =>
@@ -248,6 +261,7 @@ function fullBackRuns(
       f = [300, 347, 654, 701];
       b = [298, 703];
     }
+    if (crown === "sideLocks" && k >= solid[0]) f = [347, 654];
     if (wide && k < temple[1]) b = [180, 820];
     if (crown === "plateTopStep") {
       if (k >= 200 && k <= 202) f = [238, 762];
@@ -305,6 +319,7 @@ export function character(opts: CharacterOptions = {}): {
     tuckedTemple = false,
     tightLock = false,
     shallowEyes = false,
+    sideLocks = false,
   } = opts;
   // The `fullBack` variant an option names, if any.
   const variant = (
@@ -321,6 +336,7 @@ export function character(opts: CharacterOptions = {}): {
       ["narrowCap", narrowCap],
       ["tuckedTemple", tuckedTemple],
       ["tightLock", tightLock],
+      ["sideLocks", sideLocks],
     ] as const
   ).find(([, on]) => on)?.[0];
   const shortFringe = shortFringeOnly || shortFringeRuns;
@@ -438,6 +454,15 @@ export function character(opts: CharacterOptions = {}): {
         runs ? { rowRuns: runs.front } : {},
       ),
     );
+    if (sideLocks) {
+      const lock = (role: string, x: number) =>
+        layer(
+          role,
+          { x, y: 300, w: 70, h: 400 },
+          { rowRuns: Array.from({ length: 400 }, () => [x, x + 70]) },
+        );
+      layers.push(lock("hair_side_R", 250), lock("hair_side_L", 681));
+    }
   }
   const options: GenerateOptions = {};
   if (hair) {
@@ -450,20 +475,38 @@ export function character(opts: CharacterOptions = {}): {
         { role: "hair_front", x: -262 },
         { role: "hair_back", x: -back },
         { role: "face", x: -200 },
+        ...(sideLocks ? [{ role: "hair_side_R", x: -250 }] : []),
       ],
       right: [
         { role: "hair_front", x: 261 },
         { role: "hair_back", x: back - 1 },
         { role: "face", x: 200 },
+        ...(sideLocks ? [{ role: "hair_side_L", x: 250 }] : []),
       ],
     };
     const y = 500 - 433.5;
-    const left: IrisStrand = fringe
-      ? { y, irisOuter: -142, irisInner: -68, runOuter: -240, runFace: null }
-      : { y, irisOuter: -142, irisInner: -68, runOuter: -226, runFace: -153 };
-    const right: IrisStrand = fringe
-      ? { y, irisOuter: 143, irisInner: 69, runOuter: 241, runFace: null }
-      : { y, irisOuter: 143, irisInner: 69, runOuter: 227, runFace: 154 };
+    // The bangs' run over each iris: a strand beside the face, a fringe
+    // across it, or — the side locks' bangs — a fringe only as wide as the
+    // face's middle.
+    const [runL, runR]: [
+      Pick<IrisStrand, "runOuter" | "runFace">,
+      Pick<IrisStrand, "runOuter" | "runFace">,
+    ] = sideLocks
+      ? [
+          { runOuter: -153, runFace: null },
+          { runOuter: 154, runFace: null },
+        ]
+      : fringe
+        ? [
+            { runOuter: -240, runFace: null },
+            { runOuter: 241, runFace: null },
+          ]
+        : [
+            { runOuter: -226, runFace: -153 },
+            { runOuter: 227, runFace: 154 },
+          ];
+    const left: IrisStrand = { y, irisOuter: -142, irisInner: -68, ...runL };
+    const right: IrisStrand = { y, irisOuter: 143, irisInner: 69, ...runR };
     options.strandEdges = { left, right };
   }
   return { layers, options };

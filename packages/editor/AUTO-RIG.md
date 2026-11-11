@@ -92,6 +92,7 @@ the head:
 | mouth                | 0.22                                                                                                                                                                            | at the eyes' depth, level, its width held                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ears                 | far 0.5× the plate at its outer edge; near 1× at its widest reach                                                                                                               | behind the face: the far one narrows about its outer edge to 0.8 of its width (1 − fore) where the head leaves it room (less where it does not, never wider), its root sliding under the cheek but never further than the head moves there; the near one's root rides the head, so it widens a little rather than sliding out from behind it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | front hair           | 1 × the plate over the face; 0 at the outline it draws, more on each row where the back hair paints behind that edge through every turn and nod, up to its follow over the face | eased evenly between the eyes' outer corners and the outline; over the far eye, on the eye's rows, as far as that eye's corner goes; its crown (above the plate's top) turns as the cap's top row, the first vertex row at or below the plate's top, column by column: the whole front hair turns as one piece, nothing leaning between crown and cap, and the crown's sides hold where that row's edges hold. The crown binds nothing of its own: where the back hair above and beside it is thinner than its slide, its top edge turns past it and draws the head's top outline itself. On its cap (its rows above the far eye's), the turn — alone or with the nod and the roll — never puts the outer edge further outside the back hair painted behind it than the nod alone puts it. Where the nod alone keeps it inside, the edge never leaves the back hair. The nod's own motion is the cap slide's. A cap row whose back hair at rest leaves its edge's own pixel bare draws the outline itself and is not bound (in a cell it shares with a blended row it eases toward the back hair's motion). Under a blended cap row at or below the plate's top the blend ramps out evenly in distance, bound rows or not, to nothing at the first vertex row at or below the eyes' top (where the far eye's lead is whole; stepped up while it lies under the irises' top, never past the row under the cap's last; the mesh gains rows there, inside its box, where it had fewer than three), and no cap row blends less than the one under it. The blend is per vertex column: it holds a cap row's bound edges, and in toward the axis it falls as fast as each cell can lean (no cell's width at a full turn changing by more than a quarter of its rest width beyond today's and the cut's), so the bangs over the face keep riding the face. |
+| side locks           | as the front hair, down to the row where the lock first shows under the bangs; below it, the plate's                                                                            | `hair_side_*`: eased from the one to the other over 0.2 hh by row alone, a shear; from there down the lock keeps its width (see The side locks)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | back hair            | −0.012                                                                                                                                                                          | a slight counter-drift: the head moves in front of it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | neck (under the jaw) | 0                                                                                                                                                                               | the chin slides over it; the chin's shade on it slides with the chin (see below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | torso                | 0.03 at the chest (`bodyFollowX` × BodyAngleX's slide)                                                                                                                          | the body warp's follow, easing to nothing at the hips: the legs stay planted                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -103,7 +104,8 @@ down). The features lead the plate's nod at mid-face (0.1575 looking down,
 and the mouth 0.2175 / 0.16, the nose 0.2775 / 0.22, the eyes keeping their
 height. The front hair nods with the plate's top (`hairFollow` × it,
 0.18 / 0.10) and its cap's top 0.18 / 0.05 (half the plate's rise looking up),
-the back hair 0.018 / 0.01; the neck not at all. The front hair's crown eases
+the back hair 0.018 / 0.01; the neck not at all. A side lock's root nods as
+the bangs at its row, its body as the plate. The front hair's crown eases
 from its nod at the plate's top to the cap top's at the hair's top. Looking
 up, the cap's top rises over its own background and uncovers nothing. Looking
 down it slides by one value for the whole cap, so the cap stays rigid: the
@@ -112,6 +114,73 @@ rows the back hair leaves empty at its own nod beyond what the back hair's own
 0.018 bares there — read off the hair layers' `rowRuns`, with each column's
 top dropping as the mesh renders it. Without `rowRuns` it slides 0.018.
 AngleZ ±30 rolls the head 14° about the chin.
+
+### The side locks
+
+`hair_side_L` and `hair_side_R` (family `hair_side`) are optional front side
+locks, drawn over the face, the brows and the lashes and under `hair_front`,
+which hides their roots: a lock without `hair_front` is refused
+(`auto-rig: hair_side_R needs a hair_front layer …`). Each is a root-hinged
+shear built from fields the rig already has. Its root band ends at `rootEnd`,
+a single row per lock, not per column: the top of the first pixel row, going
+down from the lock's top, on which any pixel of its `rowRuns` is not painted
+by the front hair's — where it first shows under the bangs (its bottom if it
+never does); without both layers' runs, a quarter of the way down its box. At
+and above `rootEnd` the lock moves as the front hair's own field there, on the
+turn and the nod; from it down, over `SIDE_ROOT_BLEND` (0.2 hh), it eases by a
+smoothstep in y alone to the plate's own field, which it keeps below. A point
+belongs to a lock by its box's columns, edges included, so the root's edge
+vertices take the bangs' motion with the rest of their row. The weight depends
+on y alone, so the blend adds no distortion of its own: below the band a row
+keeps its width exactly (the plate keeps its width); through the root and the
+band its width varies as the bangs' own follow does across the lock's columns,
+fading out with the weight. Holding the outline across x instead — the bangs'
+follow at the head's outline easing to the face's inside it — squeezed the far
+lock to about 0.6 of its width at ±30 and widened the near one. The mesh is
+cut finer than the front hair's, about 20 px (3–24 cells per axis, no coarser
+than a ninth of the shell), so the band has rows to bend over. The numbers
+below marked "on the side-lock fixture" are the editor tests' `sideLocks`
+bust: 70 × 400 px locks whose top 30 rows lie under bangs whose box is 960 px
+tall, hh ≈ 260.
+
+The locks sway on the front hair's two springs (`HairSwayX`, `HairSwayZ`) at
+the same amplitude: no parameter, binding, physics rig or deformer of their
+own. At and above `rootEnd` a lock takes the bangs' own sway at that row, so
+the junction holds (the lock's own root-pinned profile would read none at its
+top, where the bangs already swing 0.19 × amp on the side-lock fixture); below
+the band it is its own root-pinned profile, `t^1.4` down its box, `amp` at its
+tip; between, the same weight blends the two. The bangs' share is not carried
+on down the lock: a 600 px lock starting at the top of 200 px bangs would
+swing its tip 4.7 × amp. Under a roll a lock hangs as the long hair does,
+giving back up to 35 % of the roll below the chin, but its hang develops over
+at least one head height below the chin (`LOCK_HANG_SPAN`), not just down to
+its tip: over the few rows a lock usually has past the chin the whole hang
+folded its tip at ±30. So a lock ending near the chin rolls almost rigidly
+with the head (one 7 px under it gives back 0.08 % of the roll at its tip),
+one ending above it rolls with the head, and one reaching a head height or
+more below the chin hangs as the back hair does.
+
+Nothing in the turn solve reads a lock: a lock is not a cap's back cover,
+and no bound keeps the far lock clear of the far eye or over the outline.
+Those bounds, an own sway spring and a tuck / lean knob in the rig plan are
+deferred.
+
+`TurnSolveReport.hairSide` (`left` = the lock on the −x side, `right` on +x)
+reports two numbers per lock, px, measured as the far lock at that side's far
+stops (±15, ±30) through the rendered rig, so a later slice can design bounds
+from them. `cover.px` is the least, over the lock's pixel rows that lie on the
+plate and carry a run, of its outer edge landed minus the plate's painted edge
+landed, signed outward (negative: skin shows past the lock), with the stop
+`deg` and row `y` where it is least. `tail.eyeToLock` is the far eye white's
+outer corner landed on the eye's centre row against the lock's face-side edge
+landed there, signed toward the face (positive: a gap; negative: under the
+lock by that much, as intended); `lashToLock` is the lash box's outer x,
+landed on the eye's centre row too, against the same lock edge, and
+`eyeToPlate` the plate's painted edge landed minus the eye's corner landed,
+signed toward the face (how far inside the plate the corner sits). A number
+that cannot be read is left out: `cover` when no lock row on the plate
+carries a run, `tail` when the lock has no run on the eye's centre row; a lock without
+`rowRuns` reports only `unavailable`. Nothing reads these numbers yet.
 
 ## The plate, the neck and the ears
 
@@ -190,9 +259,10 @@ one is all head island: a face drawn without a neck, its neck drawn on the torso
 (which turns only with the body's small follow), slides whole over the torso's
 neck, with no jaw cut, chin-shade band or hidden rows.
 
-The plate, the blush and both hair layers carry their own AngleX and AngleY
-keyforms (per vertex, under `headDeformer`); each feature family rides its own
-small warp grid, baked from its field at `AngleX, AngleY ∈ {−30, 0, 30}`:
+The plate, the blush, both hair layers and the side locks carry their own
+AngleX and AngleY keyforms (per vertex, under `headDeformer`); each feature
+family rides its own small warp grid, baked from its field at
+`AngleX, AngleY ∈ {−30, 0, 30}`:
 
 | Family (grid)             | Parts                                                                                 |
 | ------------------------- | ------------------------------------------------------------------------------------- |
@@ -200,7 +270,7 @@ small warp grid, baked from its field at `AngleX, AngleY ∈ {−30, 0, 30}`:
 | `browWarp_L/R`            | `brow_*`                                                                              |
 | `noseWarp`                | `nose`                                                                                |
 | `mouthWarp`               | `mouth`, `mouth_open`, `mouth_inner`, `mouth_tongue`, `mouth_teeth`, `lip_*`          |
-| — (own keyforms)          | `face`, `blush_*`, `hair_front`, `hair_back`                                          |
+| — (own keyforms)          | `face`, `blush_*`, `hair_side_*`, `hair_front`, `hair_back`                           |
 | — (`bodyWarp`)            | `body`: breath, BodyAngleX/Y/Z, the follow                                            |
 | — (`armDeformer_L/R`)     | `arm_*`: the upper arm, about the shoulder (`ParamArmL/R`)                            |
 | — (`forearmDeformer_L/R`) | `forearm_*` and `elbow_*`: the forearm and its cap, about the elbow (`ParamElbowL/R`) |
@@ -381,8 +451,9 @@ front of the body: drive that pose with a little shoulder raise. Each pair is
 declared only with its arm layer, after Body Angle X/Y/Z.
 
 **Draw order:** hair_back < body < elbow_L, forearm_L, arm_L, elbow_R,
-forearm_R, arm_R < face … < hair_front < forearm_pose_L, forearm_pose_R. The
-upper arm draws over the forearm, which draws over the cap.
+forearm_R, arm_R < face … < brow_R < hair_side_L, hair_side_R < hair_front <
+forearm_pose_L, forearm_pose_R. The upper arm draws over the forearm, which
+draws over the cap.
 
 **The pose forearm.** A `forearm_pose_L` / `forearm_pose_R` layer (it needs
 its arm: `auto-rig: forearm_pose_L needs an arm_L layer …`) is a second
@@ -424,7 +495,7 @@ each field named `group.key`; a field not set is the profile's:
 | --------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `turn.amount`         | `turn`          | the whole turn — plate, features, hair, the eyes' foreshortening, the far ear's narrowing; ignored when `turnTargets.eyeShift` is given, which fits it instead                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `turn.featureLead`    | `featureLead`   | the features' lead over the plate                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `turn.eyeForeshorten` | —               | how much the far eye narrows (and the near one widens) as the head turns — the eyes and the far side lock's follow of the far eye's corner, nothing else; turn only, never the nod; ignored when `turnTargets.farEyeRatio` is given, which fits it instead                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `turn.eyeForeshorten` | —               | how much the far eye narrows (and the near one widens) as the head turns — the eyes and the front hair's follow of the far eye's corner over its rows, nothing else; turn only, never the nod; ignored when `turnTargets.farEyeRatio` is given, which fits it instead                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `turn.noseLead`       | —               | how far the nose leads the plate on the turn (the lead over the plate, not the plate's own slide); turn only, the nod keeps the profile's nose depth; ignored when `turnTargets.noseShift` is given, which fits it instead                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `hair.follow`         | `hairFollow`    | the front hair's share of the plate's turn                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `hair.outlineFollow`  | `outlineFollow` | the front hair's outer edge's share of the turn, where it draws the head's outline (the back hair holds the outline at 0); more on each row where the back hair paints behind that edge through every turn and nod, up to the front hair's follow there (`hair.follow`; over the far eye's rows, as far as that eye's corner goes). On its cap (its rows above the far eye's), the turn — alone or with the nod and the roll — never puts the outer edge further outside the back hair painted behind it than the nod alone puts it. Where the nod alone keeps it inside, the edge never leaves the back hair. The nod's own motion is the cap slide's. A cap row whose back hair at rest leaves its edge's own pixel bare draws the outline itself and is not bound (in a cell it shares with a blended row it eases toward the back hair's motion). Under a blended cap row at or below the plate's top the blend ramps out evenly in distance, bound rows or not, to nothing at the first vertex row at or below the eyes' top (where the far eye's lead is whole; stepped up while it lies under the irises' top, never past the row under the cap's last; the mesh gains rows there, inside its box, where it had fewer than three), and no cap row blends less than the one under it. The blend is per vertex column: it holds a cap row's bound edges, and in toward the axis it falls as fast as each cell can lean (no cell's width at a full turn changing by more than a quarter of its rest width beyond today's and the cut's), so the bangs over the face keep riding the face. |
@@ -496,9 +567,9 @@ attainable range), except `eyeShift`, and a `silhouetteRatio` past the far
 ear's room, which are clamped. `DEFAULT_TURN_TARGETS` is the profile's turn
 in the cues' units for a head whose silhouette at the eye row is back hair
 about 1 hh wide: 0.23 / 0.73 / 1. The eye cue subtracts
-the silhouette's own shift, so a head whose side locks draw its silhouette —
-and ride the face, as they should — reads a smaller eyeShift
-for the same turn.
+the silhouette's own shift, so a head whose front hair or a `hair_side_*` lock
+draws its silhouette at the eye row — and rides the face — reads a smaller
+eyeShift for the same turn.
 
 The room the turn is bounded by, the whole turn scaled down to fit it (with a
 nose or without one):
@@ -646,7 +717,8 @@ layout or `rigPlan`, re-rig, and the patch lands on the new rig.
   Keyed at AngleZ 0 and ±30. On BodyAngleZ the head and its hair roll with
   the body, unhung.
 - **Hair sway** — with `hair_front`, two springs (`AngleX → HairSwayX`,
-  `AngleZ → HairSwayZ`) drive root-pinned swings of `hair_front`, and with
+  `AngleZ → HairSwayZ`) drive root-pinned swings of `hair_front` (and of the
+  side locks, attached to it: see The side locks), and with
   `hair_back` a third, `hairBack`, drives `hair_back` on its own output
   `HairBackSway` (k 32, c 4.5: f₀ 0.90 Hz, ζ 0.40, a slower pendulum for the
   longer layer; the front springs are k 77, c 7: f₀ 1.40 Hz, ζ 0.40), the
@@ -785,9 +857,9 @@ model with a pose forearm adds `Wave` (below the table).
   columns — and at full turn that sliver crosses the outline: about 3 px
   deep where the jaw falls 0.56 px per column, under 5 px where it falls 0.9.
 - On a row where no back hair paints behind the front hair's outer edge,
-  holding the outline it draws squeezes the far side lock (to about 0.6 of
-  its width at ±30 on the hero) and widens the near one; with
-  `outlineFollow` at `hairFollow` the locks ride whole instead and the
+  holding the outline it draws squeezes the front hair's far side strand (to
+  about 0.6 of its width at ±30 on the hero) and widens the near one; with
+  `outlineFollow` at `hairFollow` the strands ride whole instead and the
   outline moves with the face.
 - A layer set whose hair layers carry no `rowRuns` (a host that does not
   measure them) holds the front hair's outer edge on every row, as if no back
@@ -804,10 +876,10 @@ model with a pose forearm adds `Wave` (below the table).
   up a row at a time while it lies under the irises' top — so no painted iris
   row takes any of the ramp, as shallow eyes would otherwise slow the hair
   across the iris — and no further up than the row under the cap's last; the front hair's mesh gains rows between the cap's limit and the irises' top where it had fewer than three (halving its widest segment there, never outside its box and never into a cell under 4 px, so a span too thin for that keeps its rows and a shorter ramp), so the ramp has rows to fall over; from
-  that row down the front hair keeps today's motion, so the lock over the
+  that row down the front hair keeps today's motion, so the strand over the
   far eye goes as far as that eye's corner and the turn solve's far-iris
-  bound is untouched; a side lock there can still step past a back hair that
-  barely reaches past it. The ramp is even in the blend, not in the motion:
+  bound is untouched; a front-hair strand there can still step past a back
+  hair that barely reaches past it. The ramp is even in the blend, not in the motion:
   each row's own follow still rises toward the eyes, so the steps between
   rows are smaller but not even. The pixel rows between the eyes' top and
   that vertex row take a fading share of the ramp.
@@ -844,11 +916,32 @@ model with a pose forearm adds `Wave` (below the table).
   holds the whole cap's top near the back hair's own 0.018 looking down,
   since one column binds the one slide. The full 0.18 needs a back hair
   drawn up past the front hair's top.
-- The lock over the far eye is kept as far over its outer corner as drawn,
-  not clear of it: on the hero the lash's tip is under the lock at rest. The
-  report reads the iris's painted span, not what a lock covers of it, so a
-  render measures a slightly smaller farEyeRatio than the report.
+- The front hair's strand over the far eye is kept as far over its outer
+  corner as drawn, not clear of it: on the hero the lash's tip is under the
+  strand at rest. The report reads the iris's painted span, not what a
+  strand covers of it, so a render measures a slightly smaller farEyeRatio
+  than the report.
 - The nod is linear from 0 to each extreme; so is the turn.
+- Nothing bounds the turn by a side lock: the far-cover and tail numbers
+  are report-only (`hairSide`), no bound reads them yet. The cap's bound
+  and its slide read the back hair's runs only, so a lock painted behind
+  the cap's edge is not counted as cover: the cap may turn and slide less
+  than the lock would allow, never more.
+- A side lock's band takes up the difference between the bangs' nod at its
+  root and the plate's below: looking down, a root under the plate's top
+  drops 0.18 hh and the plate beside the band about 0.16, so the band
+  shortens by about 4 px on the side-lock fixture; a root above the plate's
+  top eases toward the cap's slide (as little as 0.018 hh at the hair's
+  top), so there the band stretches. On the turn the band's rows take the
+  bangs' follow across the lock's columns, fading out with the weight: on
+  the side-lock fixture a row 10 px under `rootEnd` turns 14 px narrower
+  (far side) or wider (near side) at ±30 (of 70 px).
+- The side locks swing in phase with the bangs on the shared springs, each
+  tip travelling the bangs' `amp` whatever its length.
+- A side lock's body is the plate's own motion, the chin's lead included:
+  from the mouth row down it leads the plate as the chin does (0.22 hh at
+  the chin against 0.12), so a lock reaching past the mouth bends toward
+  the turn, and past the chin it follows the chin.
 - The neck island rides the head rigidly, while the torso under it narrows on
   the body's follow of the turn: at AngleX ±30 a neck point lands
   `bodyNarrow` × `bodyFollowX` (0.015) times its distance from the chin's x
@@ -864,8 +957,9 @@ model with a pose forearm adds `Wave` (below the table).
   covers the joint; nothing bends the sleeve's outline round the elbow.
 - The bands overlap on the inside of a bend; the upper arm draws over the
   forearm there, so the seam row shows as the crease.
-- The arms draw behind the face and the front hair, so a raised hand can go
-  under a side lock; the pose forearm draws above both.
+- The arms draw behind the face, the front hair and the `hair_side_*` locks, so
+  a raised hand can go under a lock or the front hair's strands; the pose
+  forearm draws above them all.
 - The swap is a crossfade, so midway both forearms show at half strength, and
   a clip interrupted mid-wave fades the switch back over its fade rather than
   snapping it.

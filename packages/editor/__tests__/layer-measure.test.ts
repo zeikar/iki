@@ -107,7 +107,7 @@ describe("createLayerSetMeasurer", () => {
     expect(measurer.finish().layers).toEqual(inputs);
   });
 
-  it("measures the face's, each hair layer's, the body's, the arms' and a lip layer's opaque runs per crop row, gaps and empty rows included", () => {
+  it("measures the face's, each hair layer's (the side locks' too), the body's, the arms' and a lip layer's opaque runs per crop row, gaps and empty rows included", () => {
     const measurer = createLayerSetMeasurer({ width: CANVAS, height: CANVAS });
     const inputs = [
       ...strandLayers(),
@@ -130,6 +130,12 @@ describe("createLayerSetMeasurer", () => {
       ]),
       layer("arm_L", [{ x: 5, y: 60, w: 6, h: 20 }]),
       layer("lip_upper", [{ x: 40, y: 56, w: 20, h: 3 }]),
+      // A side lock on rows 30..33, columns 12..17, a gap on row 34, then
+      // 13..17 on rows 35..36.
+      layer("hair_side_L", [
+        { x: 12, y: 30, w: 6, h: 4 },
+        { x: 13, y: 35, w: 5, h: 2 },
+      ]),
     ].map((l) => measurer.add(l)!);
     const byRole = new Map(inputs.map((l) => [l.role, l]));
 
@@ -177,12 +183,22 @@ describe("createLayerSetMeasurer", () => {
       ...Array(3).fill([40, 60]),
       [],
     ]);
+    // A side lock's, its gap row empty, in a crop from row 29.
+    expect(byRole.get("hair_side_L")!.rowRuns).toEqual([
+      [],
+      ...Array(4).fill([12, 18]),
+      [],
+      ...Array(2).fill([13, 18]),
+      [],
+    ]);
     for (const l of inputs) {
       if (
         ![
           "face",
           "hair_front",
           "hair_back",
+          "hair_side_L",
+          "hair_side_R",
           "body",
           "arm_L",
           "arm_R",

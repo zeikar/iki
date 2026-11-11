@@ -494,10 +494,10 @@ export type AutoRigResult =
        *  fallback path has no measured edge to report at all. Passed to the
        *  generator so it can land each candidate through its OWN motion
        *  (hair_front's silhouette hold, a turn group's grid for the face and
-       *  its features, the body's own turn translate; `hair_back` holds the
-       *  outline and lands where it rests, and a role outside that table is
-       *  refused) and take the outermost LANDING, not just the outermost
-       *  REST pixel. */
+       *  its features, a side lock's own shear, the body's own turn
+       *  translate; `hair_back` holds the outline and lands where it rests,
+       *  and a role outside that table is refused) and take the outermost
+       *  LANDING, not just the outermost REST pixel. */
       headEdges?: {
         left: { role: string; x: number }[];
         right: { role: string; x: number }[];
@@ -524,8 +524,9 @@ export type AutoRigResult =
       /** What the turn solve settled on — the cues the rig reaches, the
        *  targets it had to cut down (`clamped`) and, per side whose far iris
        *  the bangs' run still covers at some far stop, how much of it
-       *  (`strandOverlap`). Absent for a layer set with no nose, which solves
-       *  no turn at all. */
+       *  (`strandOverlap`) and, per side lock, how it keeps its room on the turn
+       *  (`hairSide`, report-only, printed as `HAIRSIDE` lines). Absent for a
+       *  layer set with no nose, which solves no turn at all. */
       turn?: TurnSolveReport;
       /** The written model's folds over the engine's pose set, its eyes and
        *  mouth shutting on purpose set apart as `expected`. Report-only: a

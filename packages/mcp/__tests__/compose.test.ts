@@ -22,6 +22,7 @@ import {
   EYE_MARK_BESIDE,
   EYE_SHADE,
   EYE_WARM_SHADE,
+  HAIR_SIDE_MARK,
   SKIN,
   WHITE,
   writeBodyWithMark,
@@ -51,6 +52,8 @@ const ROLES: LayerRole[] = [
   "lash_R",
   "brow_L",
   "brow_R",
+  "hair_side_L",
+  "hair_side_R",
   "hair_front",
 ];
 
@@ -681,6 +684,90 @@ describe("composeLayersFromParts", () => {
     expect(result.measure.warnings).toEqual(full.measure.warnings);
   });
 
+  it("composes the side locks from one hair_side.png, mirrored for hair_side_L", async () => {
+    // hair_side.png is read as the lock on the screen left: hair_side_R takes
+    // it as drawn and hair_side_L mirrored, so the mark down the image's left
+    // edge shows on hair_side_R's left and on hair_side_L's right.
+    const roles = full.layers.map((l) => l.role);
+    for (const [role, cx, markSide] of [
+      ["hair_side_L", 780, 1],
+      ["hair_side_R", 320, -1],
+    ] as const) {
+      // Over the brows, under the bangs.
+      expect(roles.indexOf(role)).toBeGreaterThan(roles.indexOf("brow_R"));
+      expect(roles.indexOf(role)).toBeLessThan(roles.indexOf("hair_front"));
+      expect(full.skipped).not.toContain(role);
+      // 80 wide on cx 320 / 780; the 20x100 fixture is 400 tall on cy 560.
+      const layer = full.layers.find((l) => l.role === role)!;
+      expect([layer.left, layer.top, layer.width, layer.height]).toEqual([
+        cx - 40,
+        360,
+        80,
+        400,
+      ]);
+      const mark = meanColumnNear(await decodePng(layer.path), HAIR_SIDE_MARK);
+      expect(Math.sign(mark - (layer.left + layer.width / 2))).toBe(markSide);
+    }
+  });
+
+  it("skips the side locks without a hair_side.png, removing a stale layer", async () => {
+    const dir = outDir();
+    await composeOk({ partsDir: parts, outDir: dir });
+    for (const role of ["hair_side_L", "hair_side_R"]) {
+      expect(fs.existsSync(path.join(dir, `${role}.png`))).toBe(true);
+    }
+
+    const noSide = partsDir();
+    await writePartsSet(noSide, { omit: ["hair_side.png"] });
+    const result = await composeOk({ partsDir: noSide, outDir: dir });
+
+    expect(result.skipped).toEqual(["hair_side_L", "hair_side_R"]);
+    for (const role of ["hair_side_L", "hair_side_R"]) {
+      expect(fs.existsSync(path.join(dir, `${role}.png`))).toBe(false);
+      expect(result.measure.layers[role]).toBeUndefined();
+    }
+    expect(result.measure.warnings).toEqual(full.measure.warnings);
+  });
+
+  it("swaps the side locks' mark with mirrorParts: [hair_side.png]", async () => {
+    // The flag flips the source under both roles, so the mark moves to the
+    // other side of each: hair_side_R now carries it on the right.
+    const flipped = await composeOk({
+      partsDir: parts,
+      outDir: outDir(),
+      mirrorParts: ["hair_side.png"],
+    });
+    for (const [role, markSide] of [
+      ["hair_side_L", -1],
+      ["hair_side_R", 1],
+    ] as const) {
+      const layer = flipped.layers.find((l) => l.role === role)!;
+      const mark = meanColumnNear(await decodePng(layer.path), HAIR_SIDE_MARK);
+      expect(Math.sign(mark - (layer.left + layer.width / 2))).toBe(markSide);
+    }
+  });
+
+  it("moves and scales the side locks with the face", async () => {
+    // The face 1.2x as wide at (600, 487): the locks' default offset from the
+    // face's centre (230) becomes 276, their 80 width 96, their cy offset
+    // 560 - 437 = 123, x1.2 = 147.6 under the new cy.
+    const r = await composeOk({
+      partsDir: parts,
+      outDir: outDir(),
+      layout: { face: { cx: 600, cy: 487, w: 480 } },
+    });
+    for (const [role, cx] of [
+      ["hair_side_L", 876],
+      ["hair_side_R", 324],
+    ] as const) {
+      const l = r.layers.find((x) => x.role === role)!;
+      expect(l.width).toBe(96);
+      expect(l.left).toBe(cx - 48);
+      expect(l.height).toBe(480); // the 1:5 lock at w 96
+      expect(l.top).toBe(Math.round(487 + (560 - 437) * 1.2 - 480 / 2));
+    }
+  });
+
   it("places the nose as a part of its own, under the face and over the mouth", async () => {
     // The rig leads the head turn with the nose, so it is a part like the eyes
     // and the mouth, not something cut out of the face.
@@ -1050,7 +1137,7 @@ describe("composeLayersFromParts", () => {
     expect(error).toBe(
       "layout.eyebrow: unknown role — expected one of hair_back, body, arm_L, " +
         "arm_R, face, blush_L, blush_R, nose, mouth, mouth_open, mouth_inner, eye_L, eye_R, iris_L, " +
-        "iris_R, lash_L, lash_R, brow_L, brow_R, hair_front, forearm_pose_L, forearm_pose_R",
+        "iris_R, lash_L, lash_R, brow_L, brow_R, hair_side_L, hair_side_R, hair_front, forearm_pose_L, forearm_pose_R",
     );
   });
 

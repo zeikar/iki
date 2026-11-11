@@ -274,6 +274,44 @@ describe("MCP server integration", () => {
     expect(fs.existsSync(outPath)).toBe(true);
   });
 
+  it("auto_rig_from_layers prints the HAIRSIDE lines of a set with side locks after the fold and physics lines", async () => {
+    pair = await createPair();
+    const partsDir = tmpDir();
+    await writePartsSet(partsDir);
+    const outDir = tmpDir();
+    const composed = await pair.client.callTool({
+      name: "compose_layers_from_parts",
+      arguments: { partsDir, outDir },
+    });
+    const { layers } = composed.structuredContent as {
+      layers: { path: string }[];
+    };
+    const outPath = path.join(outDir, "model.iki");
+    const result = await pair.client.callTool({
+      name: "auto_rig_from_layers",
+      arguments: {
+        layers: layers.map((l) => ({ path: l.path })),
+        outputPath: outPath,
+      },
+    });
+
+    expect((result.structuredContent as { ok: boolean }).ok).toBe(true);
+    const texts = (result.content as { type: string; text: string }[]).filter(
+      (c) => c.type === "text",
+    );
+    const [first, plan, ...tail] = texts[0].text.split("\n");
+    expect(first).toBe(outPath);
+    expect(plan).toMatch(/^RIGPLAN: turn\.amount=/);
+    const folds = tail.filter((line) => /^FOLDS?[ :]/.test(line));
+    const physics = tail.filter((line) => /^PHYSICS[ :]/.test(line));
+    const hairSide = tail.filter((line) => /^HAIRSIDE[ :]/.test(line));
+    expect(tail).toEqual([...folds, ...physics, ...hairSide]);
+    expect(folds.length).toBeGreaterThan(0);
+    expect(hairSide.length).toBeGreaterThan(0);
+    expect(hairSide[0]).toMatch(/^HAIRSIDE cover hair_side_R: /);
+    expect(hairSide.some((line) => / hair_side_L: /.test(line))).toBe(true);
+  }, 60_000);
+
   it("auto_rig_from_layers accepts quantizeColors through the tool schema", async () => {
     pair = await createPair();
     const dir = tmpDir();

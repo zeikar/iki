@@ -101,6 +101,7 @@ import {
   familyField,
   hairFrontBends,
   neckField,
+  sideRootBlend,
   type Field,
   type HairFrontGrid,
   type TurnModel,
@@ -125,6 +126,8 @@ import {
   hairSway,
   lashFold,
   localWarp,
+  lockHangWeight,
+  lockSway,
   motionReach,
   mouthForm,
   mouthOpenGrow,
@@ -148,6 +151,10 @@ const MESH_CELLS: Record<string, Cells> = {
   face: { px: 28, min: 4, max: 24 },
   // The front hair eases from riding the face to holding the outline.
   hair_front: { px: 32, min: 3, max: 24 },
+  // A side lock bends over its root band (`sideRootBlend`, 0.2 hh), so it
+  // needs rows there for the bend to fall over rather than kink.
+  hair_side_L: { px: 20, min: 3, max: 24 },
+  hair_side_R: { px: 20, min: 3, max: 24 },
   hair_back: { px: 56, min: 3, max: 18 },
 };
 const NECK_CELLS: Cells = { px: 20, min: 3, max: 12 };
@@ -227,7 +234,20 @@ export function generateIkiFromLayerSet(
   // --- the turn ---
   const ctx = solveContext(solveFrame, byRole, turnOptions, hasNose);
   const boxes: TurnModel["boxes"] = Object.fromEntries(
-    (["eye_L", "eye_R", "iris_L", "iris_R", "brow_L", "brow_R"] as const)
+    (
+      [
+        "eye_L",
+        "eye_R",
+        "iris_L",
+        "iris_R",
+        "brow_L",
+        "brow_R",
+        "hair_side_L",
+        "hair_side_R",
+        "lash_L",
+        "lash_R",
+      ] as const
+    )
       .filter(has)
       .map((r) => [r, box(r)]),
   );
@@ -510,6 +530,7 @@ function buildPart(
   const side = spec.role.endsWith("_L") ? "L" : "R";
   const eyeOpen = side === "L" ? P.EyeOpenLeft : P.EyeOpenRight;
   const hh = frame.hh;
+  const swayAmp = plan.hair.sway * plan.profile.AMPLITUDE.sway * hh;
   switch (spec.role) {
     case "face":
       if (region?.some((r) => r === "neck")) {
@@ -656,18 +677,32 @@ function buildPart(
     case "hair_front":
     case "hair_back":
       if (byRole.has("hair_front")) {
-        const amp = plan.hair.sway * plan.profile.AMPLITUDE.sway * hh;
         if (spec.role === "hair_front") {
           warps.push(
-            hairSway(P.HairSwayX, mesh!, b, amp),
-            hairSway(P.HairSwayZ, mesh!, b, amp),
+            hairSway(P.HairSwayX, mesh!, b, swayAmp),
+            hairSway(P.HairSwayZ, mesh!, b, swayAmp),
           );
         } else {
-          warps.push(hairSway(P.HairBackSway, mesh!, b, amp));
+          warps.push(hairSway(P.HairBackSway, mesh!, b, swayAmp));
         }
       }
       warps.push(tiltHang(mesh!, b, pivot, hairHangWeight(frame.chinY, b.y0)));
       break;
+    case "hair_side_L":
+    case "hair_side_R": {
+      // On the bangs' springs and amplitude, attached where they hide its
+      // root (`checkLayers` refuses a lock without them).
+      const attach = {
+        box: box("hair_front"),
+        weight: sideRootBlend(frame, spec.role, b).weight,
+      };
+      warps.push(
+        lockSway(P.HairSwayX, mesh!, b, swayAmp, attach),
+        lockSway(P.HairSwayZ, mesh!, b, swayAmp, attach),
+        tiltHang(mesh!, b, pivot, lockHangWeight(frame.chinY, b.y0, hh)),
+      );
+      break;
+    }
   }
   if (warps.length > 0) part.warps = warps;
   if (bindings.length > 0) part.bindings = bindings;
@@ -745,6 +780,8 @@ function hairFrontGrid(
 function meshScale(role: string, frame: HeadFrame): number {
   switch (role) {
     case "hair_front":
+    case "hair_side_L":
+    case "hair_side_R":
     case "hair_back":
       // It only sways and hangs: smooth bends a coarse mesh carries.
       return Math.max(2, (frame.shellRight - frame.shellLeft) / 9);

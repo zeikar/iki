@@ -92,8 +92,12 @@ nod leg begins, so the hair settles through the first half of each outer
 column and is mid-swing on the corner cells and the (0,+30) cell — the
 features ride down with the face on a nod, and looking down the front hair's
 cap slides below the back hair's rim and uncovers its dome above the crown.
-Leave those out. Like `IMPRESSION:`, it is
-for the user and the orchestrator, never a finding by itself: a placement
+Side locks (`hair_side_*`, when drawn) lean with the face and keep their width:
+the far one tucks against the outline, and the near one leans inward,
+uncovering the ear and the back hair behind it. Leave all of those off the
+line. A lock's root popping out from under the bangs, or coming apart from
+them, does go on it. Like `IMPRESSION:`, the `MOTION:` line is for the user and
+the orchestrator, never a finding by itself: a placement
 that causes it is item 9's `retune`; the rest stays on the line.
 
 ## Checklist

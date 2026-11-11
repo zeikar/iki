@@ -204,20 +204,25 @@ and how a new character's round-1 compose corrects the provisional
    `INVALID: <message>` below is `ok: false` with that `error` in the JSON,
    the `PATCH` lines are its `patches` entries (`index`, `target`, `at`,
    `moved`, `of`, `cols` / `rows`, `maxPx`), the `FOLD` lines are its
-   `folds.offenders`, and the `PHYSICS` lines its `physics.targets`.
+   `folds.offenders`, the `PHYSICS` lines its `physics.targets`, and the
+   `HAIRSIDE` lines its `turn.hairSide` (`left` / `right` are by screen side,
+   each entry naming its lock's `role`: `hair_side_R` / `hair_side_L` in a
+   composed set).
 
    Pass `rigPlan` as well when it is not empty — verbatim — and never
    `turnTargets`: the rig's default profile is every character's
    starting point, and `rigPlan` is how it is tuned. The result's `turn` block
    reports what the turn reaches (`turn.achieved`), what this layer set cut
    down to what it can do (`turn.clamped`, which can name an `eyeShift` — the
-   turn, yours under a `rigPlan.turn.amount` or the profile's — past the room the art
-   leaves the far eye, and a `noseShift` / `mouthShift` past its own), and
-   how much of a far iris the bangs still cover (`turn.strandOverlap`); quote
-   all three in your report. A clamp is not a refusal — the rig still built,
-   so keep it. Nor are the result's `folds` and `physics` (the `FOLD` and
-   `PHYSICS` lines after the path): they are reports, never refusals, so keep
-   the model; the orchestrator reads both off `render_poses`.
+   turn, yours under a `rigPlan.turn.amount` or the profile's — past the room
+   the art leaves the far eye, and a `noseShift` / `mouthShift` past its own),
+   and how much of a far iris the bangs still cover (`turn.strandOverlap`); quote
+   all three in your report, and the `HAIRSIDE` lines the result prints after
+   the `PHYSICS` lines when the set has side locks and a `nose`, verbatim
+   (`@ikijs/mcp` 0.33.0+; none otherwise). A clamp is not a refusal — the rig
+   still built, so keep it. Nor are the result's `folds` and `physics` (the
+   `FOLD` and `PHYSICS` lines after the path): they are reports, never
+   refusals, so keep the model; the orchestrator reads both off `render_poses`.
 
    Quote the result's `RIGPLAN:` line (its `effective`, `clamped` and
    `overriddenBy`) with the `TURN:` block, under `RIGPLAN:` in your report. A
@@ -337,10 +342,10 @@ and how a new character's round-1 compose corrects the provisional
   `target` is one of them, e.g. `eyewhite.png` → `eye_*`, `lash_*`,
   `lash_lower_*`; `iris.png` → `iris_*`; `brow.png` → `brow_*`; `nose.png` →
   `nose`; `face.png` → `face`; `blush.png` → `blush_*`; `hair_front.png` →
-  `hair_front`; `hair_back.png` → `hair_back`; `mouth_keyed.png` /
-  `mouth_interior.png` → the lip set, `mouth_inner`, `mouth_teeth`,
-  `mouth_tongue` and `lip_*`; `mouth.png` / `mouth_open.png` → `mouth`,
-  `mouth_open`; `body.png` → `body`; `arm.png` → `arm_*`, `elbow_*`,
+  `hair_front`; `hair_back.png` → `hair_back`; `hair_side.png` →
+  `hair_side_*`; `mouth_keyed.png` / `mouth_interior.png` → the lip set,
+  `mouth_inner`, `mouth_teeth`, `mouth_tongue` and `lip_*`; `mouth.png` /
+  `mouth_open.png` → `mouth`, `mouth_open`; `body.png` → `body`; `arm.png` → `arm_*`, `elbow_*`,
   `forearm_*`; `forearm_pose.png` → `forearm_pose_*` — or whose `target` is
   the feature grid those layers ride (`eyeWarp_*`, `browWarp_*`, `noseWarp`,
   `mouthWarp`). The op was aimed at the old drawing: a drop is not gated and
@@ -424,7 +429,8 @@ RETUNED: <layout.json keys, mirror-parts.json entries, rig-plan.json fields and 
 MEASURE: <"all geometry checks passed", or the remaining warnings and why>
 MODEL: <path to the rigged .iki (with PATCHES or RIGPLAN proposed, the candidate), or "none" — see BLOCKED>
 TURN: <the result's turn.achieved, turn.clamped and turn.strandOverlap ("none" when absent), or "none" when no turn was solved; with PATCHES or RIGPLAN proposed, the baseline's>
-TURN-CANDIDATE: <with PATCHES or RIGPLAN proposed, the candidate's, as TURN: — a patch or a gated plan field moves turn.achieved, so the two differ; otherwise "none">
+<the result's HAIRSIDE lines verbatim (from a JSON result, its turn.hairSide entries as they are), the baseline's, one per line right after TURN:, when it printed any>
+TURN-CANDIDATE: <with PATCHES or RIGPLAN proposed, the candidate's, as TURN: — a patch or a gated plan field moves turn.achieved, so the two differ, and its HAIRSIDE lines follow it as they follow TURN:; otherwise "none">
 RIGPLAN: <the result's RIGPLAN: line — effective values, with clamped and overriddenBy — or "unavailable"; with a gated plan field, "proposed (<field> <from> -> <to>; base <path>; candidate <path>)" before the baseline's line>
 RIGPLAN-CANDIDATE: <with a gated plan field, the candidate's RIGPLAN: line as RIGPLAN: gives it (effective values, with clamped and overriddenBy) — a plan field moves what the rig clamps, so the two differ; otherwise "none">
 PATCHES: <unchanged | dropped <n> for <files> | proposed (ops N -> M; base <path>; candidate <path>) | unavailable; a drop and a proposal both read "dropped …; proposed …"; "proposed" only with a candidate model written — a dropped candidate reads unchanged (or dropped …), its refusals under ESCALATED>

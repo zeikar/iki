@@ -370,6 +370,8 @@ const ROW_RUN_ROLES: ReadonlySet<string> = new Set([
   "face",
   "hair_front",
   "hair_back",
+  "hair_side_L",
+  "hair_side_R",
   "body",
   "arm_L",
   "arm_R",

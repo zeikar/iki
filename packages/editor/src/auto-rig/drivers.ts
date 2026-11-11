@@ -30,6 +30,8 @@ export const SWAY_RANGE = 20;
 const SWAY_CURVE = 1.4;
 /** The share of a roll the long hair gives back by hanging. */
 const HAIR_HANG = 0.35;
+/** How far below the chin a side lock's hang develops at the least, hh. */
+const LOCK_HANG_SPAN = 1;
 /** Roll stops for the hang and the neck: the profile's roll (`ROLL_DEG`),
  *  which the linear blend between 0 and ±30 carries within about a pixel. */
 export const Z_STOPS = [-30, 0, 30];
@@ -261,6 +263,12 @@ export function mouthWiden(
 
 // --- hair -------------------------------------------------------------------------
 
+/** The root-pinned sway's share of `amp` at model y down a layer over `b`:
+ *  none at its top, all of it at its bottom and below. */
+function swayAt(b: Box, y: number): number {
+  return Math.min(1, Math.max(0, (b.y1 - y) / bh(b))) ** SWAY_CURVE;
+}
+
 /** Root-pinned sway: the top of the layer stays, its ends swing `amp` px at
  *  full sway. */
 export function hairSway(
@@ -274,9 +282,36 @@ export function hairSway(
     mesh,
     box,
     [-SWAY_RANGE, 0, SWAY_RANGE],
+    ([, y], v) => [(v / SWAY_RANGE) * amp * swayAt(box, y), 0],
+  );
+}
+
+/**
+ * A side lock's sway on the bangs' spring: at and above where it leaves the
+ * bangs (`attach.weight` 0) it takes the bangs' own sway at that row, so the
+ * junction holds — its own profile would read none at its top, where the
+ * bangs already swing (0.19 × amp on the tests' side-lock fixture); below
+ * the root band (weight 1) it is its own root-pinned profile, `amp` at its
+ * tip, however long the lock: carrying the bangs' share at the attachment on
+ * down it instead would swing a 600 px lock starting at the top of 200 px
+ * bangs 4.7 × amp.
+ */
+export function lockSway(
+  param: string,
+  mesh: IkiMesh,
+  box: Box,
+  amp: number,
+  attach: { box: Box; weight: (y: number) => number },
+): IkiWarp {
+  return localWarp(
+    param,
+    mesh,
+    box,
+    [-SWAY_RANGE, 0, SWAY_RANGE],
     ([, y], v) => {
-      const t = Math.max(0, (box.y1 - y) / bh(box));
-      return [(v / SWAY_RANGE) * amp * t ** SWAY_CURVE, 0];
+      const w = attach.weight(y);
+      const share = (1 - w) * swayAt(attach.box, y) + w * swayAt(box, y);
+      return [(v / SWAY_RANGE) * amp * share, 0];
     },
   );
 }
@@ -319,6 +354,19 @@ export function hairHangWeight(
   // with the head.
   if (bottom >= pivotY) return () => 0;
   return (y) => HAIR_HANG * smoothstep(pivotY, bottom, y);
+}
+
+/** A side lock's hang weight: the long hair's, developing over at least
+ *  LOCK_HANG_SPAN hh below the pivot. The full hang over a few px folds the
+ *  tip of a lock that ends just past the chin; over a head height a short
+ *  lock all but rolls with the head and a long one hangs as the back hair
+ *  does. */
+export function lockHangWeight(
+  pivotY: number,
+  bottom: number,
+  hh: number,
+): (y: number) => number {
+  return hairHangWeight(pivotY, Math.min(bottom, pivotY - LOCK_HANG_SPAN * hh));
 }
 
 const round1 = (v: number) => roundTo(v, 0.1);

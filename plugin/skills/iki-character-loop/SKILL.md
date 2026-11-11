@@ -574,7 +574,9 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    and `turn-clamped` (the KEPT model's turn line, verbatim: the artist's
    `TURN:`, or its `TURN-CANDIDATE:` when item 3 accepted — its
    `turn.achieved`, `turn.clamped` and `turn.strandOverlap`, or "none" when no
-   turn was solved) so the critic can check the render against the rig's own
+   turn was solved, followed by the `HAIRSIDE` lines the artist quoted after
+   its `TURN:` (or its `TURN-CANDIDATE:`), verbatim)
+   so the critic can check the render against the rig's own
    report and tell a clamp this art forced from a new turn defect, `folds`
    (item 4's fold report, complete and in the form it came: every `FOLD` line
    or the one `FOLDS: none …` line, and the `FOLDS expected:` line when there

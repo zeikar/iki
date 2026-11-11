@@ -188,7 +188,8 @@ const NOSE_TIP_AT = 0.66;
 // lashes, brows, nose and mouth are the hero bob's own tuning; bob wears his
 // blush at its default placement, picked on his face (below). The features'
 // defaults are proportions of the face: resolveLayout carries them with the
-// face's cx, cy and w. The hair and
+// face's cx, cy and w; the front side locks are provisional placements carried
+// with the face the same way. The hair and
 // the torso depend on the hairstyle and on how the torso is framed, so they are
 // older defaults every character retunes from the report. If the rendered model is misaligned, tune cx/cy/w through the
 // `layout` override and re-run — composing is cheap and the parts do not need
@@ -202,8 +203,9 @@ const NOSE_TIP_AT = 0.66;
 // brow.png is the brow on the SCREEN RIGHT, its thick head at the image's left
 // end and its tail at the right; blush.png is the blush on the SCREEN LEFT,
 // its outer end (toward the face's edge) at the image's left end and its
-// inner end (toward the nose) at the right; arm.png is the arm on the SCREEN
-// LEFT (the character's right), hanging, its shoulder at the image's top and
+// inner end (toward the nose) at the right; hair_side.png is the front side
+// lock on the SCREEN LEFT, hanging, its root at the image's top; arm.png is
+// the arm on the SCREEN LEFT (the character's right), hanging, its shoulder at the image's top and
 // its hand at the bottom; forearm_pose.png is that arm's forearm raised, on
 // the SCREEN LEFT too: standing up from its elbow, the open hand at the
 // image's top with the thumb at its right (toward the body), a rounded
@@ -298,6 +300,17 @@ const DEFAULT_LAYOUT = {
   lash_R: { src: "eyewhite_lash.png", cx: 464, cy: 475, w: EYE_W, mirror: false, noTrim: true }, // prettier-ignore
   brow_L: { src: "brow.png", cx: 645, cy: 405, w: 105, mirror: false },
   brow_R: { src: "brow.png", cx: 455, cy: 405, w: 105, mirror: true },
+  // The front side locks, one part for both: hair_side_R (screen left) takes
+  // hair_side.png as drawn and hair_side_L mirrors it, like the blush. They
+  // draw over the face, brows and lashes and under the bangs. PROVISIONAL
+  // placeholders, tuned by eye per character through `layout.hair_side_*`: the
+  // lock's root top lies above the brow row (405) so the bangs' temple hides
+  // it (for a 1:5 lock, whose height follows the image's aspect, cy 560 puts
+  // the top at 360), and the lock hangs over the cheek's edge, outside the
+  // eye's outer corner, with the ear showing beside it. OPTIONAL: a parts dir
+  // without it composes.
+  hair_side_L: { src: "hair_side.png", cx: 780, cy: 560, w: 80, optional: true, mirror: true }, // prettier-ignore
+  hair_side_R: { src: "hair_side.png", cx: 320, cy: 560, w: 80, optional: true, mirror: false }, // prettier-ignore
   hair_front: { src: "hair_front.png", cx: 550, cy: 425, w: 660 },
   // The pose forearms, one drawing for both: forearm_pose_R (screen left)
   // takes forearm_pose.png as drawn and forearm_pose_L mirrors it, like the
@@ -374,6 +387,8 @@ export const ORDER: LayerRole[] = [
   "lash_R",
   "brow_L",
   "brow_R",
+  "hair_side_L",
+  "hair_side_R",
   "hair_front",
   "forearm_pose_L",
   "forearm_pose_R",
@@ -487,6 +502,8 @@ const FACE_FEATURES = [
   "lash_R",
   "brow_L",
   "brow_R",
+  "hair_side_L",
+  "hair_side_R",
 ] as const satisfies readonly Exclude<Role, "nose">[];
 
 /**

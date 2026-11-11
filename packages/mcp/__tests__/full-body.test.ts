@@ -659,7 +659,7 @@ describe("end to end", () => {
       canvasHeight: TALL,
       layout: { body: { w: 600, cy: 1585 } },
     });
-    expect(composed.layers).toHaveLength(21);
+    expect(composed.layers).toHaveLength(23);
 
     const bad = composed.measure.warnings.filter(
       (w) => w.startsWith("arm_") || w.startsWith("body:"),
@@ -718,7 +718,7 @@ describe("end to end", () => {
       canvasHeight: TALL,
       layout: { body: { w: 600, cy: 1585 } },
     });
-    expect(composed.layers).toHaveLength(23);
+    expect(composed.layers).toHaveLength(25);
     expect(
       composed.measure.warnings.filter((w) => w.startsWith("forearm_pose_")),
     ).toEqual([]);

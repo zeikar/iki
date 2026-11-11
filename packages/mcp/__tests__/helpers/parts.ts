@@ -38,6 +38,7 @@ export const EYE_WARM_SHADE: RGB = [235, 180, 195];
 export const CREASE_COOL: RGB = [170, 170, 190];
 const BLUSH: RGB = [245, 160, 170];
 export const BLUSH_MARK: RGB = [200, 80, 100];
+export const HAIR_SIDE_MARK: RGB = [20, 20, 90];
 export const SLEEVE: RGB = [70, 80, 160];
 export const ARM_MARK: RGB = [60, 160, 90];
 
@@ -325,6 +326,23 @@ async function writeBlush(dir: string): Promise<void> {
   });
 }
 
+/**
+ * A hair_side.png: a 20x100 elliptical hair strip with a HAIR_SIDE_MARK band
+ * down its left side, so a mirror shows, on a transparent margin (the trim
+ * reads the corner pixel as the ground). Elliptical because a rectangle would
+ * be opaque along every edge of its frame and trip the cut-off-art warning.
+ */
+async function writeHairSide(dir: string): Promise<void> {
+  await writeRgbaPart(dir, "hair_side.png", 24, 108, (set) => {
+    for (let y = 4; y < 104; y++)
+      for (let x = 2; x < 22; x++) {
+        const inside =
+          ((x + 0.5 - 12) / 10) ** 2 + ((y + 0.5 - 54) / 50) ** 2 <= 1;
+        if (inside) set(x, y, x < 8 ? HAIR_SIDE_MARK : HAIR);
+      }
+  });
+}
+
 /** A part that is just one ellipse on its own transparent frame. */
 const blobPart =
   (
@@ -346,6 +364,7 @@ const PARTS: Record<string, (dir: string) => Promise<void>> = {
   "body.png": blobPart("body.png", 120, 80, 100, 60, DARK),
   "face.png": blobPart("face.png", 100, 120, 80, 100, SKIN),
   "blush.png": writeBlush,
+  "hair_side.png": writeHairSide,
   // The nose is a part of its own — the rig leads the head turn with it.
   "nose.png": blobPart("nose.png", 24, 34, 20, 30, DARK),
   "eyewhite.png": (dir) => writeEyewhite(dir),

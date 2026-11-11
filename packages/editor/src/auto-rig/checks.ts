@@ -11,6 +11,7 @@ import {
   checkArmsHaveBody,
   checkMouth,
   checkPosesHaveArms,
+  checkSidesHaveFront,
   isLipRole,
   REQUIRED_ROLES,
   roleSpec,
@@ -171,6 +172,7 @@ export function checkLayers(
   }
   checkArmsHaveBody(seen);
   checkPosesHaveArms(seen);
+  checkSidesHaveFront(seen);
 }
 
 /** Each entry names a layer of this set; the outermost left edge lies left

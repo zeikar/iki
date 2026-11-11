@@ -23,18 +23,19 @@ export interface LayerInput {
   cropH: number;
   /** Face only: half the opaque span of each crop row, canvas px (0 = none). */
   rowHalfWidths?: number[];
-  /** `face` / `hair_front` / `hair_back` / `body` / `arm_L` / `arm_R` /
-   *  `forearm_pose_L` / `forearm_pose_R` /
+  /** `face` / `hair_front` / `hair_back` / `hair_side_L` / `hair_side_R` /
+   *  `body` / `arm_L` / `arm_R` / `forearm_pose_L` / `forearm_pose_R` /
    *  `mouth_inner` / `lip_lower` / `lip_upper` only:
    *  per crop row, its opaque (alpha ≥ 128) runs as a flat list of canvas
    *  columns `[start0, end0, start1, end1, …]`, each end exclusive (`[]` for a
    *  row with none). The actual pixels, so a gap in the hair is a gap here:
    *  the turn and the nod read off it where back hair is painted behind the
    *  front hair, and the crown's turn reads the face's so it never bares skin.
-   *  The body's place the hips (where it splits into legs), and an arm's place
-   *  its shoulder and elbow pivots, a pose forearm's its elbow-end pivot, and
-   *  a lip set's place the mouth's opening: the upper line's bottom, the
-   *  interior's span, the skin's top. */
+   *  A side lock's place where it leaves the bangs, and its edges for the
+   *  report. The body's place the hips (where it splits into legs), and an
+   *  arm's place its shoulder and elbow pivots, a pose forearm's its
+   *  elbow-end pivot, and a lip set's place the mouth's opening: the upper
+   *  line's bottom, the interior's span, the skin's top. */
   rowRuns?: number[][];
   /** Nose only: the tight box of its alpha ≥ 128 pixels, canvas px. */
   denseCore?: { x: number; y: number; w: number; h: number };
@@ -105,8 +106,9 @@ export class LayerGeometryError extends Error {
  * silhouette holds its width.
  *
  * With no target given the rig renders the profile itself, whatever the cues
- * then read on its art (a head whose side locks draw its silhouette, and ride
- * the face, reads a smaller eyeShift); a given target is fitted.
+ * then read on its art (a head whose front hair or a `hair_side_*` lock draws
+ * its silhouette at the eye row, and rides the face, reads a smaller
+ * eyeShift); a given target is fitted.
  */
 export const DEFAULT_TURN_TARGETS: Readonly<
   Required<Pick<TurnTargets, "eyeShift" | "farEyeRatio" | "silhouetteRatio">>
@@ -156,6 +158,48 @@ export interface TurnSolveReport {
   /** Targets cut down to what this layer set can do. */
   clamped: (keyof TurnTargets)[];
   strandOverlap?: { left?: StrandOverlap; right?: StrandOverlap };
+  /** The side locks' room, report only (nothing bounds by it): `left` is the
+   *  lock on the −x side (the character's `hair_side_R`), `right` the one on
+   *  +x, found by where its box lies about the head's axis (two locks on one
+   *  side of the axis: the first role in the role table is reported).
+   *  Present when a lock is. */
+  hairSide?: { left?: HairSideRoom; right?: HairSideRoom };
+}
+
+/**
+ * How one side lock keeps its room on the turn, measured as the far lock at
+ * that side's far stops (−15 and −30 on the −x side, 15 and 30 on +x), px,
+ * every x landed through the rendered rig. A number that cannot be read is
+ * left out.
+ */
+export interface HairSideRoom {
+  role: "hair_side_L" | "hair_side_R";
+  /** The lock's outer edge against the plate's painted edge: over the lock's
+   *  pixel rows that lie on the plate (`face.y0..y1`) and carry a run, the
+   *  least of (the lock's outer edge landed − the plate's painted edge
+   *  landed), signed outward: positive, the lock covers the plate's edge;
+   *  negative, skin shows past it. `deg` is the stop and `y` the model row
+   *  where it is least. Omitted when no lock row on the plate carries a run. */
+  cover?: { deg: number; px: number; y: number };
+  /** The far eye's outer tail on the eye's centre row, at the stop where
+   *  `eyeToLock` is least. `eyeToLock`: the eye white's outer corner landed
+   *  vs the lock's face-side edge landed there (the inner end of the run
+   *  holding its outer edge), signed toward the face: positive, a gap;
+   *  negative, the corner is under the lock by that much (intended).
+   *  `lashToLock`: the lash box's outer x, landed on the eye's centre row
+   *  too, against the same lock edge, when a `lash_*` is present.
+   *  `eyeToPlate`: the plate's painted edge landed minus the eye's corner
+   *  landed, signed toward the face: how far inside the plate the corner
+   *  sits (where the ear begins). Omitted when the lock has
+   *  no run on the eye's centre row. */
+  tail?: {
+    deg: number;
+    eyeToLock: number;
+    lashToLock?: number;
+    eyeToPlate: number;
+  };
+  /** The lock carries no `rowRuns`: nothing else is reported. */
+  unavailable?: string;
 }
 
 /**

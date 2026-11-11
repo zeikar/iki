@@ -149,8 +149,9 @@ export function deriveProfile(v: ProfileValues) {
     /** The mouth's far corner rises (its near end drops) by this much: it
      *  stays level. */
     mouthTiltDeg: 0,
-    /** The front hair (bangs and side locks) rides the face at this share of
-     *  its translation. */
+    /** The front hair (its bangs and its own side strands; a `hair_side_*` lock
+     *  takes it only down to its root, `hairSideField`) rides the face at this
+     *  share of its translation. */
     hairFollow: v.hairFollow,
     /** The head's outline at the eye row holds: where the front hair draws
      *  it, its outer edge follows the face this much on a row where no back

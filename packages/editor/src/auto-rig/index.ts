@@ -3,6 +3,7 @@ export {
   LayerGeometryError,
   PatchError,
   TurnTargetError,
+  type HairSideRoom,
   type IrisStrand,
   type LayerInput,
   type PatchReport,

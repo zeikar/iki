@@ -164,6 +164,7 @@ const faceGap = rig({ faceGap: true });
 const besideFaceGap = rig({ besideFaceGap: true });
 const narrowCap = rig({ narrowCap: true });
 const tightLock = rig({ tightLock: true });
+const sideLocks = rig({ sideLocks: true });
 const EYE_Y = 500 - 433.5;
 
 /** The three cues `measure_turn_reference` reads, off where the render puts
@@ -324,6 +325,36 @@ describe("parseLayerRoles", () => {
     expect(() => parseLayerRoles(base.slice(0, 3))).toThrow(
       /missing required role mouth \(or the lip set/,
     );
+  });
+
+  it("reads the side locks, and refuses one without the front hair, in the role parse and in the generator", () => {
+    expect(
+      parseLayerRoles([
+        ...base,
+        "hair_front.png",
+        "hair_side_L.png",
+        "Hair-Side-R.png",
+      ]).map((p) => p.role),
+    ).toEqual([
+      ...base.map((f) => f.slice(0, -4)),
+      "hair_front",
+      "hair_side_L",
+      "hair_side_R",
+    ]);
+    expect(() => parseLayerRoles([...base, "hair_side_R.png"])).toThrow(
+      /hair_side_R needs a hair_front layer/,
+    );
+    // The bust's front hair relabelled as a lock: a lock and no front hair.
+    const { layers, options } = character();
+    expect(() =>
+      generateIkiFromLayerSet(
+        layers.map((l) =>
+          l.role === "hair_front" ? { ...l, role: "hair_side_R" } : l,
+        ),
+        CANVAS,
+        options,
+      ),
+    ).toThrow(/hair_side_R needs a hair_front layer/);
   });
 });
 
@@ -502,6 +533,8 @@ describe("generateIkiFromLayerSet: the model", () => {
 
 /** The fixture's profile unit: eye row 67 → chin −192.6. */
 const HH = 67 + 192.625;
+/** The fixture's chin tip, model y. */
+const CHIN_Y = 67 - HH;
 const X30 = (ax: number) => ({ [P.AngleX]: ax });
 
 describe("the head turn", () => {
@@ -2122,6 +2155,250 @@ describe("the head turn", () => {
   });
 });
 
+describe("the side locks", () => {
+  const m = sideLocks.model;
+  const LOCKS = ["hair_side_L", "hair_side_R"] as const;
+  /** Where each lock first shows under the bangs: canvas row 330, the
+   *  temple band's end (`sideLocks`). */
+  const ROOT_END = 500 - 330;
+  const BAND_END = ROOT_END - 0.2 * HH;
+  /** The bangs' tip travel at full sway (`hairSway`): the profile's sway, hh. */
+  const AMP = AMPLITUDE.sway * HH;
+
+  /** A lock's rest vertices, model space, by row (top row first). */
+  function lockRows(id: string): [number, number][][] {
+    const v = landVertices(m, id);
+    const rows = new Map<number, [number, number][]>();
+    for (let i = 0; i < v.length; i += 2) {
+      const y = Math.round(v[i + 1] * 1e3) / 1e3;
+      if (!rows.has(y)) rows.set(y, []);
+      rows.get(y)!.push([v[i], v[i + 1]]);
+    }
+    return [...rows.entries()].sort((a, b) => b[0] - a[0]).map(([, r]) => r);
+  }
+
+  it("the locks add two parts and change nothing else", () => {
+    const ids = m.parts.map((p) => p.id);
+    expect(
+      ids.slice(ids.indexOf("brow_R"), ids.indexOf("hair_front") + 1),
+    ).toEqual(["brow_R", ...LOCKS, "hair_front"]);
+    for (const id of LOCKS) {
+      const part = m.parts.find((p) => p.id === id)!;
+      expect(part.mesh, id).toBeDefined();
+      expect(part.deformer, id).toBe("headDeformer");
+      expect(
+        part.warps!.map((w) => w.parameter),
+        id,
+      ).toEqual([P.AngleX, P.AngleY, P.HairSwayX, P.HairSwayZ, P.AngleZ]);
+      expect(part.bindings, id).toBeUndefined();
+    }
+    const { layers, options } = character({ sideLocks: true });
+    const isLock = (role: string) => role.startsWith("hair_side_");
+    const without = generateIkiFromLayerSet(
+      layers.filter((l) => !isLock(l.role)),
+      CANVAS,
+      {
+        ...options,
+        headEdges: {
+          left: options.headEdges!.left.filter((e) => !isLock(e.role)),
+          right: options.headEdges!.right.filter((e) => !isLock(e.role)),
+        },
+      },
+    );
+    const strip = (model: IkiModel) =>
+      model.parts.filter((p) => !isLock(p.id)).map(({ order: _, ...p }) => p);
+    expect(strip(m)).toEqual(strip(without));
+    for (const k of [
+      "parameters",
+      "deformers",
+      "physics",
+      "expressions",
+      "motions",
+    ] as const) {
+      expect(m[k], k).toEqual(without[k]);
+    }
+  });
+
+  it("the root band lands where the front hair lands", () => {
+    // Every vertex at and above where the lock first shows, its edge columns
+    // among them: they take the bangs' field and sway exactly. The bangs'
+    // own mesh, 31 px columns, carries their follow on the turn to within
+    // 1.4 px of that field there; their nod, sway and roll to within 0.1 px.
+    const poses: [ParamValues, number][] = [];
+    for (const v of [-30, 30]) {
+      poses.push([{ [P.AngleX]: v }, 1.5], [{ [P.AngleY]: v }, 0.5]);
+      poses.push([{ [P.AngleZ]: v }, 0.5]);
+    }
+    for (const v of [-20, 20]) {
+      poses.push([{ [P.HairSwayX]: v }, 0.5], [{ [P.HairSwayZ]: v }, 0.5]);
+    }
+    for (const id of LOCKS) {
+      const root = lockRows(id).filter(([[, y]]) => y >= ROOT_END);
+      expect(root.length, id).toBeGreaterThan(0);
+      const part = m.parts.find((p) => p.id === id)!;
+      const edges = root.flat().map(([x]) => x);
+      expect(Math.min(...edges), id).toBeCloseTo(
+        part.transform.x - part.width / 2,
+        6,
+      );
+      expect(Math.max(...edges), id).toBeCloseTo(
+        part.transform.x + part.width / 2,
+        6,
+      );
+      for (const [pose, tol] of poses) {
+        const lock = landerFor(m, id, pose);
+        const front = landerFor(m, "hair_front", pose);
+        for (const [x, y] of root.flat()) {
+          const a = lock(x, y);
+          const b = front(x, y);
+          const at = `${id} (${x}, ${y}) ${JSON.stringify(pose)}`;
+          expect(Math.abs(a.x - b.x), at).toBeLessThan(tol);
+          expect(Math.abs(a.y - b.y), at).toBeLessThan(tol);
+        }
+      }
+    }
+  });
+
+  it("the body moves with the face and keeps its width", () => {
+    // The plate's field is a slide plus a width change about the axis, and
+    // on this bust the fit keeps the plate's width: its axis on a row lands
+    // as every column of that row's field does. Down to the chin, below
+    // which the plate is the still neck; the plate's mesh carries the chin's
+    // lead to within about a pixel between its rows.
+    const axis = 0.5;
+    for (const ax of [-30, 30]) {
+      const pose = { [P.AngleX]: ax };
+      const face = landerFor(m, "face", pose);
+      const l = face(axis - 100, 0);
+      const r = face(axis + 100, 0);
+      expect(r.x - l.x, `plate ${ax}`).toBeCloseTo(200, 0);
+    }
+    for (const id of LOCKS) {
+      const body = lockRows(id).filter(([[, y]]) => y <= BAND_END);
+      expect(body.length, id).toBeGreaterThan(5);
+      for (const pose of [-30, 30].flatMap((v) => [
+        { [P.AngleX]: v },
+        { [P.AngleY]: v },
+      ])) {
+        const lock = landerFor(m, id, pose);
+        const face = landerFor(m, "face", pose);
+        for (const row of body) {
+          const y = row[0][1];
+          const at = `${id} y ${y} ${JSON.stringify(pose)}`;
+          if (y >= CHIN_Y) {
+            const f = face(axis, y);
+            for (const [x] of row) {
+              const a = lock(x, y);
+              expect(Math.abs(a.x - x - (f.x - axis)), at).toBeLessThan(1.5);
+              expect(Math.abs(a.y - f.y), at).toBeLessThan(1.5);
+            }
+          }
+          const xs = row.map(([x]) => x);
+          const x0 = Math.min(...xs);
+          const x1 = Math.max(...xs);
+          expect(
+            Math.abs(lock(x1, y).x - lock(x0, y).x - (x1 - x0)),
+            at,
+          ).toBeLessThan(1);
+        }
+      }
+    }
+  });
+
+  it("each tip sways the bangs' amplitude, however long", () => {
+    // Below the band the lock's own root-pinned profile: its tip travels the
+    // bangs' amplitude, however far below the bangs' share it hangs.
+    for (const id of LOCKS) {
+      const rows = lockRows(id);
+      for (const s of [-20, 20]) {
+        const lock = landerFor(m, id, { [P.HairSwayX]: s });
+        const travel = (row: [number, number][]) =>
+          Math.max(...row.map(([x, y]) => Math.abs(lock(x, y).x - x)));
+        const tip = rows[rows.length - 1];
+        expect(Math.abs(travel(tip) - AMP), `${id} tip ${s}`).toBeLessThan(1);
+        for (const row of rows) {
+          expect(travel(row), `${id} y ${row[0][1]} ${s}`).toBeLessThanOrEqual(
+            AMP + 1e-3,
+          );
+        }
+      }
+    }
+  });
+
+  describe("the far-eye room report", () => {
+    const report = sideLocks.report!;
+
+    /** The set with every lock cut to its top `h` rows. */
+    function cut(h: number) {
+      const { layers, options } = character({ sideLocks: true });
+      let r: TurnSolveReport | undefined;
+      generateIkiFromLayerSet(
+        layers.map((l) =>
+          l.role.startsWith("hair_side_")
+            ? {
+                ...l,
+                bbox: { ...l.bbox, h },
+                cropH: h,
+                rowRuns: l.rowRuns!.slice(0, h),
+              }
+            : l,
+        ),
+        CANVAS,
+        { ...options, onTurnSolved: (x) => (r = x) },
+      );
+      return r!;
+    }
+
+    it("reads the lock covering the plate's edge and the eye's tail under it", () => {
+      const { left, right } = report.hairSide!;
+      expect(left!.role).toBe("hair_side_R");
+      expect(right!.role).toBe("hair_side_L");
+      for (const room of [left!, right!]) {
+        expect(room.unavailable).toBeUndefined();
+        expect(room.cover!.px).toBeGreaterThanOrEqual(0);
+        // The far eye leads the plate past the lock's inner edge (the rest
+        // gap is 10 to 11 px): a fraction of a pixel under it at the far
+        // stop. The two-sided bound catches a flipped sign or a wrong
+        // inner-edge coordinate.
+        expect(room.tail!.eyeToLock).toBeLessThan(0);
+        expect(room.tail!.eyeToLock).toBeGreaterThan(-1);
+        expect(room.tail!.lashToLock).toBeDefined();
+        expect(room.tail!.eyeToPlate).toBeGreaterThan(0);
+      }
+    });
+
+    it("reports unavailable for a lock without rowRuns, and nothing else", () => {
+      const { report: r } = rig(
+        { sideLocks: true },
+        {},
+        { drop: (role) => role.startsWith("hair_side_") },
+      );
+      for (const side of ["left", "right"] as const) {
+        const room = r!.hairSide![side]!;
+        expect(room.unavailable).toBe("no rowRuns");
+        expect(room.cover).toBeUndefined();
+        expect(room.tail).toBeUndefined();
+      }
+    });
+
+    it("omits the tail where a lock stops short of the eye's row", () => {
+      // Rows 300–400: on the plate, above the eye's centre row (433.5).
+      const r = cut(100);
+      for (const side of ["left", "right"] as const) {
+        const room = r.hairSide![side]!;
+        expect(room.cover, side).toBeDefined();
+        expect(room.tail, side).toBeUndefined();
+        expect(room.unavailable, side).toBeUndefined();
+      }
+    });
+
+    it("is absent without locks", () => {
+      expect(hero.report!.hairSide).toBeUndefined();
+      expect(rig({ fullBack: true }).report!.hairSide).toBeUndefined();
+    });
+  });
+});
+
 describe("the jaw cut", () => {
   /** The fixture's face with a measured jaw stroke: a V from where the jaw
    *  meets the neck (canvas row 648, 78 px either side of the axis) down to
@@ -2638,6 +2915,7 @@ describe("extreme combined poses", () => {
       ["besideFaceGap", besideFaceGap.model, all],
       ["narrowCap", narrowCap.model, all],
       ["tightLock", tightLock.model, all],
+      ["sideLocks", sideLocks.model, [...all, "hair_side_L", "hair_side_R"]],
       ["withEars", withEars().m, ["face"]],
     ] as const) {
       for (const id of ids) {

@@ -77,7 +77,10 @@ export interface HeadFrame {
   /** A hair layer's opaque runs on the pixel row holding model y, as model x
    *  boundaries `[start0, end0, start1, end1, …]` (its `rowRuns`); `[]` off
    *  its crop, `undefined` when the layer is absent or carries none. */
-  hairRuns(role: "hair_front" | "hair_back", y: number): number[] | undefined;
+  hairRuns(
+    role: "hair_front" | "hair_back" | "hair_side_L" | "hair_side_R",
+    y: number,
+  ): number[] | undefined;
   /** The face's runs on model row `y`, as `hairRuns` answers them. */
   faceRuns(y: number): number[] | undefined;
 }
@@ -497,7 +500,7 @@ export function buildHeadFrame(
   }
 
   const runsOf = (
-    role: "face" | "hair_front" | "hair_back",
+    role: "face" | "hair_front" | "hair_back" | "hair_side_L" | "hair_side_R",
     y: number,
   ): number[] | undefined => {
     const l = byRole.get(role);
@@ -505,8 +508,10 @@ export function buildHeadFrame(
     const runs = l.rowRuns[Math.floor(canvasH / 2 - y) - l.bbox.y];
     return runs === undefined ? [] : runs.map((c) => c - canvasW / 2);
   };
-  const hairRuns = (role: "hair_front" | "hair_back", y: number) =>
-    runsOf(role, y);
+  const hairRuns = (
+    role: "hair_front" | "hair_back" | "hair_side_L" | "hair_side_R",
+    y: number,
+  ) => runsOf(role, y);
   const faceRuns = (y: number) => runsOf("face", y);
 
   return {

@@ -14,6 +14,7 @@
  */
 
 import type { HeadFrame } from "./head";
+import { hairSideRoom } from "./hair-side-room";
 import { cy, type Box } from "./layout";
 import { roleSpec, type Family } from "./roles";
 import {
@@ -254,7 +255,7 @@ function coverage(
 }
 
 /** The side's far stops: the −x iris is the far one when turning toward −x. */
-const farStops = (side: -1 | 1) => (side < 0 ? [-15, -30] : [15, 30]);
+export const farStops = (side: -1 | 1) => (side < 0 ? [-15, -30] : [15, 30]);
 
 export function strandOverlaps(
   ctx: SolveContext,
@@ -544,7 +545,7 @@ export function fitTurn(
 const FEATURE_ROOM = 0.05;
 const EYE_ROOM = 1;
 
-function plateEdge(
+export function plateEdge(
   ctx: SolveContext,
   land: Lander,
   y: number,
@@ -661,6 +662,8 @@ export function turnReport(
   };
   const overlap = strandOverlaps(ctx, rendered, hb);
   if (overlap !== undefined) report.strandOverlap = overlap;
+  const hairSide = hairSideRoom(ctx, rendered, m.boxes);
+  if (hairSide !== undefined) report.hairSide = hairSide;
   return report;
 }
 

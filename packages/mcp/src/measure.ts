@@ -17,6 +17,7 @@ import path from "node:path";
 import { decodePng, detectAlphaBbox } from "./node-images";
 import { AutoRigInputError, MAX_LAYERS, resolveInputDir } from "./limits";
 import { ARM_ROLES, armWarnings } from "./measure-arms";
+import { hairSideWarnings } from "./measure-hair-side";
 import { POSE_ROLES, forearmPoseWarnings } from "./measure-forearm-pose";
 import { isLipLayerRole, lipWarnings, type LipFacts } from "./measure-lips";
 import { SPECK_CORE_FRACTION, denseCoreOf, isSpeckCore } from "./measure-turn";
@@ -411,6 +412,10 @@ export async function measureDir(
   //     line's weight, key green left, an interior with holes.
   const lip = await lipWarnings(absDir, layers);
   warnings.push(...lip.warnings);
+
+  // 1f. The side locks: root under the bangs, off the eye corner, paint behind
+  //     the near lean, one lock drawn.
+  warnings.push(...(await hairSideWarnings(absDir, layers)));
 
   // 2/3/4. Eye stack geometry, per side.
   for (const side of ["L", "R"]) {

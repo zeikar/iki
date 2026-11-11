@@ -52,11 +52,23 @@ export interface TurnModel {
   shellScale: number;
   /** The far ear's width at full turn, about its outer edge. */
   earFarScale: number;
-  /** Landmarks: each eye white's and brow's box, the nose's landmark and
-   *  bridge top, the mouth anchor (`mouth.ts`): the closed drawing's centre,
-   *  or the lip set's seam. */
+  /** Landmarks: each eye white's, lash's, brow's and side lock's box, the
+   *  nose's landmark and bridge top, the mouth anchor (`mouth.ts`): the closed
+   *  drawing's centre, or the lip set's seam. */
   boxes: Partial<
-    Record<"eye_L" | "eye_R" | "iris_L" | "iris_R" | "brow_L" | "brow_R", Box>
+    Record<
+      | "eye_L"
+      | "eye_R"
+      | "iris_L"
+      | "iris_R"
+      | "brow_L"
+      | "brow_R"
+      | "hair_side_L"
+      | "hair_side_R"
+      | "lash_L"
+      | "lash_R",
+      Box
+    >
   >;
   noseAt?: { x: number; y: number };
   noseTopY?: number;
@@ -467,6 +479,88 @@ function hairFrontField(m: TurnModel): Field {
     const ry = nodDy(NOD.hairFront, ay, f.hh);
     const by = nodDy(cap, ay, f.hh);
     return [rx, by + crownBlend(m, y) * (ry - by)];
+  };
+}
+
+/** How far down a side lock blends from the bangs' motion to the face's,
+ *  hh, from where it leaves the bangs: long enough that the lock leans over
+ *  it rather than kinking at the bangs' edge, short enough that most of its
+ *  length moves as the face beside it. */
+const SIDE_ROOT_BLEND = 0.2;
+
+/**
+ * A side lock's root band: `rootEnd`, model y, the first pixel row's top,
+ * going down from the lock's top, on which any of its opaque runs lies
+ * outside the front hair's — where it first shows under the bangs (its
+ * bottom if it never does); without both layers' runs, a quarter of the way
+ * down its box. `weight(y)` is the face's share of its motion at model y:
+ * none at and above `rootEnd`, all of it SIDE_ROOT_BLEND hh further down.
+ */
+export function sideRootBlend(
+  f: HeadFrame,
+  role: "hair_side_L" | "hair_side_R",
+  box: Box,
+): { rootEnd: number; weight: (y: number) => number } {
+  let rootEnd = box.y1 - (box.y1 - box.y0) / 4;
+  if (
+    f.hairRuns(role, box.y1 - 0.5) !== undefined &&
+    f.hairRuns("hair_front", box.y1 - 0.5) !== undefined
+  ) {
+    const shows = (y: number) => {
+      const lock = f.hairRuns(role, y)!;
+      const front = f.hairRuns("hair_front", y)!;
+      for (let k = 0; k < lock.length; k += 2) {
+        for (let px = lock[k]; px < lock[k + 1]; px++) {
+          if (!paints(front, px)) return true;
+        }
+      }
+      return false;
+    };
+    const rows = Array.from(
+      { length: Math.round(box.y1 - box.y0) },
+      (_, i) => i,
+    );
+    const i = rows.findIndex((i) => shows(box.y1 - i - 0.5));
+    rootEnd = i < 0 ? box.y0 : box.y1 - i;
+  }
+  const end = rootEnd - SIDE_ROOT_BLEND * f.hh;
+  return { rootEnd, weight: (y) => smoothstep(rootEnd, end, y) };
+}
+
+/**
+ * The front side locks: a shear in y from the bangs' motion at the root to
+ * the face's below it. The root, hidden under the bangs, takes the front
+ * hair's field exactly, so the junction moves with the cap wherever its nod
+ * (`capSlide`) and turn (`spreadBlend`) take it; past `sideRootBlend`'s band
+ * the lock moves as the face it hangs beside does, so its width changes only
+ * as the face's does. Holding the outline across x instead — the bangs'
+ * follow at the head's outline easing to the face's inside it — squeezed
+ * the far lock to about 0.6 of its width at ±30 and widened the near one
+ * (AUTO-RIG.md, the held outline). The weight depends on y alone, so the
+ * blend adds no distortion of its own: through the root and the band a row's
+ * width follows the bangs' own follow across the lock's columns — on the
+ * tests' side-lock fixture a row just under `rootEnd` turns about 14 px of
+ * 70 narrower (far side) or wider (near side) at ±30 — fading out with the
+ * weight over the band; below the band the width holds.
+ */
+function hairSideField(m: TurnModel): Field {
+  const front = hairFrontField(m);
+  const face = faceField(m);
+  const locks = (["hair_side_L", "hair_side_R"] as const).flatMap((role) => {
+    const box = m.boxes[role];
+    return box === undefined
+      ? []
+      : [{ box, ...sideRootBlend(m.frame, role, box) }];
+  });
+  return (x, y, ax, ay) => {
+    const lock = locks.find((l) => x >= l.box.x0 && x <= l.box.x1);
+    if (lock === undefined) return face(x, y, ax, ay);
+    const t = lock.weight(y);
+    if (t === 0) return front(x, y, ax, ay);
+    if (t === 1) return face(x, y, ax, ay);
+    const [fx, fy] = front(x, y, ax, ay);
+    const [gx, gy] = face(x, y, ax, ay);
+    return [fx * (1 - t) + gx * t, fy * (1 - t) + gy * t];
   };
 }
 
@@ -1220,6 +1314,8 @@ export function familyField(m: TurnModel, family: Family): Field {
       return mouthField(m);
     case "hair_front":
       return hairFrontField(m);
+    case "hair_side":
+      return hairSideField(m);
     case "hair_back":
       return hairField(m, m.hairBack, NOD.hairBack);
     case "body":

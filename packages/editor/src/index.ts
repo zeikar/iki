@@ -97,6 +97,7 @@ export {
   styleRemovedMessage,
   type ArmGeometry,
   type ForearmPoseGeometry,
+  type HairSideRoom,
   type IrisStrand,
   type LayerInput,
   type LipInsideRole,
