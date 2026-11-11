@@ -219,7 +219,7 @@ and how a new character's round-1 compose corrects the provisional
    and how much of a far iris the bangs still cover (`turn.strandOverlap`); quote
    all three in your report, and the `HAIRSIDE` lines the result prints after
    the `PHYSICS` lines when the set has side locks and a `nose`, verbatim
-   (`@ikijs/mcp` 0.33.0+; none otherwise). A clamp is not a refusal — the rig
+   (none otherwise). A clamp is not a refusal — the rig
    still built, so keep it. Nor are the result's `folds` and `physics` (the
    `FOLD` and `PHYSICS` lines after the path): they are reports, never
    refusals, so keep the model; the orchestrator reads both off `render_poses`.

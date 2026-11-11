@@ -422,7 +422,7 @@ Quote each root crop under MEASUREMENTS with the other zoom lines:
 `zoom <pose> root <lock role>: gap to the bangs N model px`.
 
 When `turn-clamped` carries the `HAIRSIDE` lines, or the `turn.hairSide`
-entries a JSON result carries (`@ikijs/mcp` 0.33.0+), quote them under
+entries a JSON result carries, quote them under
 MEASUREMENTS beside the zoom lines. Each number is the least over the lock's
 far stops (`ParamAngleX` ±15 and ±30 on its far side), in model px, and its
 line (or entry) names the stop. A negative `cover` is the cheek the turn bares
