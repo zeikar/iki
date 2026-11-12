@@ -1001,7 +1001,7 @@ describe("the full body", () => {
   });
 
   it("rolls the head ROLL_DEG in the world at AngleZ ±30 while the body leans β about the hips", () => {
-    // The bust's neck outline and base (auto-rig.test.ts), moved with the
+    // The bust's neck outline and base (auto-rig-turn.test.ts), moved with the
     // head on the taller canvas.
     const dy = canvas.height / 2 - CANVAS.height / 2;
     const rest = oracle.landVertices(model, "face");
