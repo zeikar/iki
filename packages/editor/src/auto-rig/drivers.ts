@@ -30,8 +30,8 @@ export const SWAY_RANGE = 20;
 const SWAY_CURVE = 1.4;
 /** The share of a roll the long hair gives back by hanging. */
 const HAIR_HANG = 0.35;
-/** How far below the chin a side lock's hang develops at the least, hh. */
-const LOCK_HANG_SPAN = 1;
+/** The share of a roll a side lock gives back by hanging from its root. */
+const LOCK_HANG = 0.45;
 /** Roll stops for the hang and the neck: the profile's roll (`ROLL_DEG`),
  *  which the linear blend between 0 and ±30 carries within about a pixel. */
 export const Z_STOPS = [-30, 0, 30];
@@ -356,17 +356,19 @@ export function hairHangWeight(
   return (y) => HAIR_HANG * smoothstep(pivotY, bottom, y);
 }
 
-/** A side lock's hang weight: the long hair's, developing over at least
- *  LOCK_HANG_SPAN hh below the pivot. The full hang over a few px folds the
- *  tip of a lock that ends just past the chin; over a head height a short
- *  lock all but rolls with the head and a long one hangs as the back hair
- *  does. */
+/** A side lock's hang weight, for a `tiltHang` about the lock's root (where
+ *  it leaves the bangs) rather than the head's pivot: none on the root the
+ *  bangs hide, LOCK_HANG past the root band (`free`, the face's share of its
+ *  motion, `sideRootBlend`). The weight rises where the lever arm is the
+ *  band's own height, so no lock folds, however short. Hung about the
+ *  head's pivot from the chin down, as the long hair is, a lock ending just
+ *  past the chin folded its tip at ±30, and one eased over a head height
+ *  below the chin instead rolled with the head like a board (3 px of hang at
+ *  the tip of a lock reaching the collar). */
 export function lockHangWeight(
-  pivotY: number,
-  bottom: number,
-  hh: number,
+  free: (y: number) => number,
 ): (y: number) => number {
-  return hairHangWeight(pivotY, Math.min(bottom, pivotY - LOCK_HANG_SPAN * hh));
+  return (y) => LOCK_HANG * free(y);
 }
 
 const round1 = (v: number) => roundTo(v, 0.1);

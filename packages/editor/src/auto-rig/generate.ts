@@ -695,14 +695,18 @@ function buildPart(
     case "hair_side_R": {
       // On the bangs' springs and amplitude, attached where they hide its
       // root (`checkLayers` refuses a lock without them).
-      const attach = {
-        box: box("hair_front"),
-        weight: sideRootBlend(frame, spec.role, b).weight,
-      };
+      const { rootEnd, weight } = sideRootBlend(frame, spec.role, b);
+      const attach = { box: box("hair_front"), weight };
       warps.push(
         lockSway(P.HairSwayX, mesh!, b, swayAmp, attach),
         lockSway(P.HairSwayZ, mesh!, b, swayAmp, attach),
-        tiltHang(mesh!, b, pivot, lockHangWeight(frame.chinY, b.y0, hh)),
+        // Under a roll it swings about its root, where it leaves the bangs.
+        tiltHang(
+          mesh!,
+          b,
+          [(b.x0 + b.x1) / 2, rootEnd],
+          lockHangWeight(weight),
+        ),
       );
       break;
     }

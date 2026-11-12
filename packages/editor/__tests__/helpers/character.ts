@@ -146,8 +146,8 @@ export interface CharacterOptions {
    *  681–750, each solid on every row. Their top 30 rows lie under the
    *  temple's solid bangs (columns 238–761), so each first shows on row 330
    *  (model y 170), where its root band ends. They end on row 699, 7 px
-   *  under the chin, so their hang under a roll develops over a head height
-   *  past their tips rather than over their last few rows. */
+   *  under the chin: a lock that short still hangs under a roll, about its
+   *  root. */
   sideLocks?: boolean;
 }
 

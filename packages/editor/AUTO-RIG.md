@@ -151,14 +151,20 @@ top, where the bangs already swing 0.19 × amp on the side-lock fixture); below
 the band it is its own root-pinned profile, `t^1.4` down its box, `amp` at its
 tip; between, the same weight blends the two. The bangs' share is not carried
 on down the lock: a 600 px lock starting at the top of 200 px bangs would
-swing its tip 4.7 × amp. Under a roll a lock hangs as the long hair does,
-giving back up to 35 % of the roll below the chin, but its hang develops over
-at least one head height below the chin (`LOCK_HANG_SPAN`), not just down to
-its tip: over the few rows a lock usually has past the chin the whole hang
-folded its tip at ±30. So a lock ending near the chin rolls almost rigidly
-with the head (one 7 px under it gives back 0.08 % of the roll at its tip),
-one ending above it rolls with the head, and one reaching a head height or
-more below the chin hangs as the back hair does.
+swing its tip 4.7 × amp.
+
+Under a roll a lock hangs from its own root: it is turned back, about the
+point where it leaves the bangs (its box's centre column on `rootEnd`), by
+45 % of the roll (`LOCK_HANG`). The root the bangs hide gets none of that
+and rolls with the head; the share rises over the root band on the turn's own
+weight, and below the band the lock is one rigid piece, its length and width
+kept. The lock on the raised side comes to lie in over the cheek's edge, as
+hair does on a tilted head. The pivot is why no lock folds, however short: the
+weight rises where the lever arm is no longer than the band. Hung about the
+head's pivot from the chin down, as the long hair is, a lock ending just past
+the chin folded its tip at ±30, the whole hang falling on its last few rows;
+eased over a head height below the chin instead (0.30.0), a lock reaching the
+collar gave back 3 px at its tip and rolled with the head like a board.
 
 Nothing in the turn solve reads a lock: a lock is not a cap's back cover,
 and no bound keeps the far lock clear of the far eye or over the outline.
@@ -719,7 +725,8 @@ layout or `rigPlan`, re-rig, and the patch lands on the new rig.
   and `headDeformer` rolls the rest, 12.8°; without one, `headDeformer` rolls
   all 14°. The neck island undoes the head's own roll, so it stays on the
   torso. Long hair gives back 35 % of the world roll toward its ends
-  (hanging); hair that ends above the chin (a fringe) rolls with the head.
+  (hanging); hair that ends above the chin (a fringe) rolls with the head;
+  a side lock gives back 45 % about its own root (The side locks, above).
   Keyed at AngleZ 0 and ±30. On BodyAngleZ the head and its hair roll with
   the body, unhung.
 - **Hair sway** — with `hair_front`, two springs (`AngleX → HairSwayX`,

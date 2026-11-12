@@ -2348,6 +2348,44 @@ describe("the side locks", () => {
     }
   });
 
+  it("hangs from where it leaves the bangs under a roll, giving back 45 % of it", () => {
+    // Under the bangs a lock rolls with the head. Past the root band it is
+    // turned back about its root, so it keeps its length and its width, and
+    // these locks, ending 7 px under the chin, hang as a longer one would.
+    const tilt = (
+      lock: ReturnType<typeof landerFor>,
+      row: [number, number][],
+    ) => {
+      const xs = row.map(([x]) => x);
+      const a = lock(Math.min(...xs), row[0][1]);
+      const b = lock(Math.max(...xs), row[0][1]);
+      return (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+    };
+    for (const id of LOCKS) {
+      const rows = lockRows(id);
+      const xs = rows[0].map(([x]) => x);
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const tipY = rows[rows.length - 1][0][1];
+      for (const z of [-30, 30]) {
+        const lock = landerFor(m, id, { [P.AngleZ]: z });
+        const head = (-z / 30) * ROLL_DEG;
+        for (const row of rows) {
+          const y = row[0][1];
+          if (y >= ROOT_END)
+            expect(tilt(lock, row), `${id} y ${y}`).toBeCloseTo(head, 1);
+          if (y <= BAND_END)
+            expect(tilt(lock, row), `${id} y ${y}`).toBeCloseTo(0.55 * head, 1);
+        }
+        const root = lock(cx, ROOT_END);
+        const tip = lock(cx, tipY);
+        expect(
+          Math.hypot(tip.x - root.x, tip.y - root.y),
+          `${id} length at ${z}`,
+        ).toBeCloseTo(ROOT_END - tipY, 1);
+      }
+    }
+  });
+
   it("each tip sways the bangs' amplitude, however long", () => {
     // Below the band the lock's own root-pinned profile: its tip travels the
     // bangs' amplitude, however far below the bangs' share it hangs.

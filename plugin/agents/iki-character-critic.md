@@ -366,9 +366,10 @@ lock is the one on the far eye's side: `hair_side_R` with `eye_R`,
 `hair_side_L` with `eye_L`. The rig's design, which is not a finding: the far
 eye white's outer corner and the lash's wing sliding under the far lock; the
 near lock leaning inward, uncovering the ear and the back hair behind it; the
-locks swinging in phase with the bangs; a short lock rolling nearly rigidly
-with the head. Where only that corner or wing goes under the far lock, quote
-that crop `zoom <pose> <role>: clear` — the overlap lines above count the eye
+locks swinging in phase with the bangs; under a roll, each lock turned back
+toward plumb about where it leaves the bangs, the one on the raised side lying
+in over the cheek's edge. Where only that corner or wing goes under the far
+lock, quote that crop `zoom <pose> <role>: clear` — the overlap lines above count the eye
 over the ear, the outline or hair drawn behind it, not under a lock drawn over
 it. The same holds for the eye's corner: with a far lock over it, a corner past
 the head's edge but under the lock is `clear` (the lock is what shows there),
