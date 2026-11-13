@@ -302,6 +302,69 @@ export class CustomPartError extends Error {
   }
 }
 
+/**
+ * One lattice a bake spreads over the custom parts it names: `(cols + 1) x
+ * (rows + 1)` control points laid evenly over `box`, listed row-major from the
+ * top-left (the top row first, each row left to right). Every position and
+ * displacement is in canvas px, origin top-left, y DOWN.
+ *
+ * Between stops, and between rest and the nearest stop, the parts' motion is
+ * linear; past the outermost stop on a side it holds that stop's; a side with
+ * no stop is not moved by this target. Targets that name the same part and
+ * parameter add.
+ */
+export interface BakeTarget {
+  /** A label for reports; the rig ignores it. */
+  id?: string;
+  /** A parameter the model declares. */
+  param: string;
+  /** Custom part ids only: a bake moves nothing else. */
+  parts: string[];
+  /** Canvas px; absent, the union of the parts' rest boxes grown by 2 px. */
+  box?: { x: number; y: number; w: number; h: number };
+  /** Integers 1 to 32. */
+  grid: { cols: number; rows: number };
+  /** Keyed by a value of `param` inside its range, never its default (rest is
+   *  implicit). A stop is the part's TOTAL landed displacement from rest when
+   *  `param` alone is at that value and every other parameter is at its
+   *  default: the head's own carry is included, so a neighbour's measured
+   *  displacement at that pose is written as it is. */
+  stops: Record<string, [number, number][]>;
+  /** Fill a missing stop from the one at the value mirrored about the rest
+   *  value: the lattice reflected about the box's vertical centre line, `dx`
+   *  negated. A written stop is never overwritten. */
+  mirror?: boolean;
+  /** Why the target exists, for whoever edits the bakes next; ignored. */
+  why?: string;
+}
+
+/**
+ * Lattice bakes for custom parts: what moves them when the head turns or the
+ * hair sways, which an unrigged custom part otherwise does not. A bake moves
+ * custom parts only.
+ */
+export interface RigBakes {
+  targets: BakeTarget[];
+  /** Re-mesh a custom part before baking: `rows` (canvas-px y, strictly
+   *  increasing, first the part's top and last its bottom within 0.5 px) with
+   *  `cols`, or `cellPx` for a uniform grid. "The box" here is the part's own
+   *  rest box (its layer's bbox), not a target's `box`. */
+  meshes?: Record<
+    string,
+    { rows: number[]; cols: number } | { cellPx: number }
+  >;
+}
+
+/** A `bakes` input that is malformed or misses the model. Its message starts
+ *  with the path of the field (`bakes.targets[2].stops["30"][7]`,
+ *  `bakes.meshes.tail_R.rows[0]`). */
+export class BakeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BakeError";
+  }
+}
+
 export interface HeadEdges {
   left: { role: string; x: number }[];
   right: { role: string; x: number }[];
