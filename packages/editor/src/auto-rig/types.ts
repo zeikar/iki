@@ -269,6 +269,39 @@ export class PatchError extends Error {
   }
 }
 
+/**
+ * A part the auto-rigger has no role for (a hairpin, a twin tail): drawn from
+ * its own canvas-sized layer, hung on the head with plain warps.
+ */
+export interface CustomPart {
+  /** A plain identifier; never a role's name or a part id a role yields. */
+  id: string;
+  layer: {
+    fileName: string;
+    /** The layer's alpha box in canvas px, as `LayerInput.bbox`. */
+    bbox: { x: number; y: number; w: number; h: number };
+  };
+  /** The role whose layer the part is fixed against. */
+  anchor: string;
+  /** Where the part meets the anchor, canvas px: inside both layers' boxes. */
+  tie: [number, number];
+  /** A role of the set: the part is drawn right after that role's last part. */
+  after: string;
+  /** The matrix deformer it hangs on; only `headDeformer` (the default) is
+   *  accepted. */
+  deformer?: string;
+}
+
+/** A `customParts` entry that is malformed or misses the layer set. Its
+ *  message starts `customParts[i].<field>` (`customParts` alone for a
+ *  non-array). */
+export class CustomPartError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CustomPartError";
+  }
+}
+
 export interface HeadEdges {
   left: { role: string; x: number }[];
   right: { role: string; x: number }[];
