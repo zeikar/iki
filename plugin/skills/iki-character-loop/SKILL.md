@@ -212,6 +212,16 @@ provisional until the round-1 measuring compose that places `layout.body`
 corrects it (`full-body.md` Step 2); after that the artist edits its
 `canvasHeight` only on a critic `retune`, as it does `rig-plan.json`.
 
+**A character with custom parts** (a twin tail or a hairpin the role list has
+no name for) is opt-in, as a full body is. The user supplies
+`<workdir>/custom/` (the canvas-sized PNGs) and `<workdir>/custom-parts.json`
+(the `{ "customParts": [ … ] }` list the artist passes to the rig, as the
+**iki-character** skill's Step 3 says) before the run, or they come from the
+**iki-character** run that made the character. The loop never draws, places or
+seeds a custom part: the seed lines above create neither, so a character
+without custom parts never has them, and on a restart both are kept as they
+are. The dispatch passes `custom-parts` (the file's contents) when it exists.
+
 **Restarting on picked parts.** When `parts/` already holds a picked set —
 the plain `<role>.png` files, not only `_a` / `_b` variants — round 1 re-rigs
 what is there: dispatch the artist with `restart: true` (Step 1, item 1). It

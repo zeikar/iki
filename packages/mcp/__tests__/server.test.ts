@@ -6,7 +6,9 @@ import sharp from "sharp";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { IKI_FORMAT_VERSION } from "@ikijs/format";
+import { detectAlphaBbox } from "@ikijs/editor";
 import { createIkiMcpServer } from "../src/server";
+import { decodePng } from "../src/node-images";
 import { writeLipParts, writePartsSet } from "./helpers/parts";
 import { FAR_IRIS_W, IRIS_W, writeTurnPair } from "./helpers/turn-pair";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -311,6 +313,129 @@ describe("MCP server integration", () => {
     expect(hairSide[0]).toMatch(/^HAIRSIDE cover hair_side_R: /);
     expect(hairSide.some((line) => / hair_side_L: /.test(line))).toBe(true);
   }, 60_000);
+
+  it("auto_rig_from_layers lists customParts in its schema and prints the CUSTOM lines last, after the HAIRSIDE lines", async () => {
+    pair = await createPair();
+    const { tools } = await pair.client.listTools();
+    const rigTool = tools.find((t) => t.name === "auto_rig_from_layers")!;
+    expect(Object.keys(rigTool.inputSchema.properties!)).toContain(
+      "customParts",
+    );
+
+    const partsDir = tmpDir();
+    await writePartsSet(partsDir);
+    const outDir = tmpDir();
+    const composed = await pair.client.callTool({
+      name: "compose_layers_from_parts",
+      arguments: { partsDir, outDir },
+    });
+    const { layers } = composed.structuredContent as {
+      layers: { path: string }[];
+    };
+    const face = await decodePng(
+      layers.find((l) => l.path.endsWith("face.png"))!.path,
+    );
+    const faceBox = detectAlphaBbox(face.rgba, face.width, face.height)!;
+    // A tail hanging from the face's centre, so the tie is inside both boxes.
+    const tie = [
+      Math.round(faceBox.x + faceBox.w / 2),
+      Math.round(faceBox.y + faceBox.h / 2),
+    ];
+    const tailPath = path.join(outDir, "tail.png");
+    await sharp({
+      create: {
+        width: face.width,
+        height: face.height,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .composite([
+        {
+          input: await sharp({
+            create: {
+              width: 80,
+              height: 160,
+              channels: 4,
+              background: { r: 40, g: 90, b: 200, alpha: 1 },
+            },
+          })
+            .png()
+            .toBuffer(),
+          left: tie[0] - 40,
+          top: tie[1] - 20,
+        },
+      ])
+      .png()
+      .toFile(tailPath);
+    const outPath = path.join(outDir, "model.iki");
+    const result = await pair.client.callTool({
+      name: "auto_rig_from_layers",
+      arguments: {
+        layers: layers.map((l) => ({ path: l.path })),
+        outputPath: outPath,
+        customParts: [
+          {
+            id: "tail",
+            path: tailPath,
+            anchor: "face",
+            tie,
+            after: "hair_front",
+          },
+        ],
+      },
+    });
+    const sc = result.structuredContent as {
+      ok: boolean;
+      error?: string;
+      customParts?: { parts: { id: string }[] };
+    };
+    expect(sc.error).toBeUndefined();
+    expect(sc.ok).toBe(true);
+    expect(sc.customParts!.parts.map((p) => p.id)).toEqual(["tail"]);
+    const lines = (
+      result.content as { type: string; text: string }[]
+    )[0].text.split("\n");
+    expect(lines.at(-1)).toMatch(/^CUSTOM tail: /);
+    expect(lines.filter((l) => /^CUSTOM[ :]/.test(l))).toHaveLength(1);
+    expect(lines.findLastIndex((l) => /^HAIRSIDE[ :]/.test(l))).toBe(
+      lines.length - 2,
+    );
+  }, 60_000);
+
+  it("auto_rig_from_layers hands an unknown customParts key to the rig, which refuses it as INVALID: customParts[0]… naming the keys", async () => {
+    pair = await createPair();
+    const dir = tmpDir();
+    const paths = await writeRequiredLayers(dir);
+    const outPath = path.join(dir, "model.iki");
+    const result = await pair.client.callTool({
+      name: "auto_rig_from_layers",
+      arguments: {
+        layers: paths.map((p) => ({ path: p })),
+        outputPath: outPath,
+        customParts: [
+          {
+            id: "tail",
+            path: await writeLayer(dir, "tail.png", {
+              x: 60,
+              y: 30,
+              w: 30,
+              h: 40,
+            }),
+            anchor: "face",
+            tie: [70, 40],
+            after: "face",
+            deformr: "headDeformer",
+          },
+        ],
+      },
+    });
+    expect(result.isError).toBeFalsy();
+    const text = (result.content as { type: string; text: string }[])[0].text;
+    expect(text).toMatch(/^INVALID: customParts\[0\]/);
+    expect(text).toContain("deformr");
+    expect(fs.existsSync(outPath)).toBe(false);
+  });
 
   it("auto_rig_from_layers accepts quantizeColors through the tool schema", async () => {
     pair = await createPair();

@@ -14,6 +14,8 @@ export {
   type StandardParameterInfo,
   type AutoRigInput,
   type AutoRigLayerInput,
+  type AutoRigCustomPartInput,
+  type CustomPartReport,
   type AutoRigResult,
   type AutoRigTurnTargets,
   type TurnSolveReport,

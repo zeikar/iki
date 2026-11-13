@@ -9,6 +9,8 @@ import {
   describeRigPlan,
   formatRigPlanReport,
   autoRigFromLayers,
+  type AutoRigCustomPartInput,
+  type CustomPartReport,
 } from "./tools";
 import { composeLayersFromParts } from "./compose";
 import { formatFoldReport } from "./fold-report";
@@ -36,6 +38,14 @@ function formatPatchReports(reports: PatchReport[]): string[] {
         : "vertices";
     return `PATCH ${r.index} ${r.target} at ${at}: ${r.moved} of ${r.of} points (${where}), largest move ${r.maxPx} model px`;
   });
+}
+
+/** One `CUSTOM` line per custom part `auto_rig_from_layers` put in the model. */
+function formatCustomPartReports(parts: CustomPartReport[]): string[] {
+  return parts.map(
+    (p) =>
+      `CUSTOM ${p.id}: box ${p.box.x},${p.box.y} ${p.box.w}x${p.box.h} px, mesh ${p.mesh.vertices} vertices ${p.mesh.triangles} triangles, order ${p.order}, atlas page ${p.page}`,
+  );
 }
 
 export function createIkiMcpServer(): McpServer {
@@ -157,7 +167,7 @@ export function createIkiMcpServer(): McpServer {
     "auto_rig_from_layers",
     {
       description:
-        "Auto-rigs role-named PNG layers (face, eye_L/eye_R and either mouth or the lip set (mouth_inner + lip_lower + lip_upper, a mouth that folds open instead of crossfading) required; iris_L/R, brow_L/R, hair_front, body, arm_L/arm_R, forearm_pose_L/forearm_pose_R, hair_side_L/hair_side_R, mouth_tongue/mouth_teeth (only with the lip set: drawn under its lips and clipped to mouth_inner), etc. optional; an arm needs the body, a pose forearm needs its arm, a side lock needs hair_front, and a partial lip set, one mixed with mouth/mouth_open, or mouth_tongue/mouth_teeth without it is refused) into a renderable .iki written to disk. Pass full-canvas PNG file paths; returns the output path + summary (the model is NOT inlined). Filenames map to roles unless `fileName` is given. The result's `folds` is the written rig's fold report, printed after the path the way render_poses prints it, and report-only: a fold never refuses the rig. The `RIGPLAN:` line (the result's `rigPlan`: `effective`, `clamped`, `overriddenBy`) follows the path and precedes the `PATCH` lines. The `PHYSICS` lines follow the fold report (the result's `physics`), one per physics rig output — a spring's, or each chain segment's — reading ok, frozen or unstable with the step and idle amplitudes, or `PHYSICS: no rigs`; report-only too. With side locks and a `nose` (which `turn` needs) the `HAIRSIDE` lines follow the `PHYSICS` lines (the result's `turn.hairSide`), each naming the lock's role, report-only as well. `patches` (see its field) adds displacements to existing keyform stops of the freshly generated rig; each op then prints one line between the path and the fold report — `PATCH <i> <target> at <Param=v …>: <moved> of <of> points (cols a-b, rows c-d), largest move <maxPx> model px`, with `(vertices)` in place of the columns and rows for a mesh part — and the result's `patches` carries the same reports (`index`, `target`, `at`, `moved`, `of`, `cols`/`rows` for a grid, `maxPx`), present whenever `patches` was passed, `[]` included. An op the input schema accepts but the rig refuses comes back as `INVALID: patches[i]…` and nothing is written; an op with a missing field or a field of the wrong type is the SDK's input validation error.",
+        "Auto-rigs role-named PNG layers (face, eye_L/eye_R and either mouth or the lip set (mouth_inner + lip_lower + lip_upper, a mouth that folds open instead of crossfading) required; iris_L/R, brow_L/R, hair_front, body, arm_L/arm_R, forearm_pose_L/forearm_pose_R, hair_side_L/hair_side_R, mouth_tongue/mouth_teeth (only with the lip set: drawn under its lips and clipped to mouth_inner), etc. optional; an arm needs the body, a pose forearm needs its arm, a side lock needs hair_front, and a partial lip set, one mixed with mouth/mouth_open, or mouth_tongue/mouth_teeth without it is refused) into a renderable .iki written to disk. Pass full-canvas PNG file paths; returns the output path + summary (the model is NOT inlined). Filenames map to roles unless `fileName` is given. The result's `folds` is the written rig's fold report, printed after the path the way render_poses prints it, and report-only: a fold never refuses the rig. The `RIGPLAN:` line (the result's `rigPlan`: `effective`, `clamped`, `overriddenBy`) follows the path and precedes the `PATCH` lines. The `PHYSICS` lines follow the fold report (the result's `physics`), one per physics rig output — a spring's, or each chain segment's — reading ok, frozen or unstable with the step and idle amplitudes, or `PHYSICS: no rigs`; report-only too. With side locks and a `nose` (which `turn` needs) the `HAIRSIDE` lines follow the `PHYSICS` lines (the result's `turn.hairSide`), each naming the lock's role, report-only as well. `patches` (see its field) adds displacements to existing keyform stops of the freshly generated rig; each op then prints one line between the path and the fold report — `PATCH <i> <target> at <Param=v …>: <moved> of <of> points (cols a-b, rows c-d), largest move <maxPx> model px`, with `(vertices)` in place of the columns and rows for a mesh part — and the result's `patches` carries the same reports (`index`, `target`, `at`, `moved`, `of`, `cols`/`rows` for a grid, `maxPx`), present whenever `patches` was passed, `[]` included. An op the input schema accepts but the rig refuses comes back as `INVALID: patches[i]…` and nothing is written; an op with a missing field or a field of the wrong type is the SDK's input validation error. `customParts` adds parts the rig has no role for (a twin tail, a hairpin), each from a canvas-sized PNG of its own, as an unrigged mesh on `headDeformer` after its `after` role's parts; it needs @ikijs/mcp 0.34.0, and an older server drops the field and returns no `customParts`. The result's `customParts` (`parts`: `id`, rest `box`, `mesh`, `order`, atlas `page`) is present whenever the input was passed, `[]` included, and one `CUSTOM <id>: …` line per part follows the `HAIRSIDE` lines. The custom layers are not role layers: they are left out of the head's width and turn measurements, and an empty or wrong-size one, or an entry the rig refuses, comes back as `INVALID: customParts[i]…` with nothing written. A missing field or one of the wrong type (a `tie` that is not two numbers, say) is refused by the schema itself, as the SDK's input validation error.",
       inputSchema: {
         layers: z
           .array(
@@ -200,7 +210,7 @@ export function createIkiMcpServer(): McpServer {
           .passthrough()
           .optional()
           .describe(
-            "What the head turn is fitted to, as `measure_turn_reference` reports it off a front/turned reference pair. `eyeShift` (and the optional `noseShift`/`mouthShift`) is how far that feature slides across the head at full turn, as a fraction of the head's half-width — a MAGNITUDE: the rig turns both ways, so the sign is ignored. `farEyeRatio` is the far/near eye width at full turn over that same ratio at rest, `silhouetteRatio` the head's half-width turned over at rest. The half-width the shifts are fractions of is measured off the layers themselves, so it is not an input. An omitted field leaves that part of the turn at the profile the rig defaults to. A passed `eyeShift` is fitted by the turn's amount and clamped to the room the art leaves the far eye — the face plate's edge, or the bangs' side strand over the far iris (the result's `turn.clamped` lists every clamped field, `turn.achieved` what the rig reaches, and `turn.strandOverlap` how much of a far iris the bangs still cover). A passed `silhouetteRatio` is clamped too, only on a face drawn without hair and with ear islands, where narrowing the head that far would no longer cover the far ear's slide. Any other passed target this layer set cannot reach comes back as `INVALID: …` naming the field and the attainable range, since it is a measurement rather than a preference. A field not named here is refused the same way.",
+            "What the head turn is fitted to, as `measure_turn_reference` reports it off a front/turned reference pair. `eyeShift` (and the optional `noseShift`/`mouthShift`) is how far that feature slides across the head at full turn, as a fraction of the head's half-width — a MAGNITUDE: the rig turns both ways, so the sign is ignored. `farEyeRatio` is the far/near eye width at full turn over that same ratio at rest, `silhouetteRatio` the head's half-width turned over at rest. The half-width the shifts are fractions of is measured off the layers themselves, so it is not an input. An omitted field leaves that part of the turn at the profile the rig defaults to. A passed `eyeShift` is fitted by the turn's amount and clamped to the room the art leaves the far eye — the face plate's edge, or the bangs' side strand over the far iris (the result's `turn.clamped` lists every clamped field, `turn.achieved` what the rig reaches, and `turn.strandOverlap` how much of a far iris the bangs still cover). A passed `silhouetteRatio` is clamped too, only on a face drawn without hair and with ear islands, where narrowing the head that far would no longer cover the far ear's slide. Any other passed target this layer set cannot reach comes back as `INVALID: …` naming the field and the attainable range, since it is a measurement rather than a preference. A field not named here is refused the same way. A pair that shows a custom part crossing the eye row reads a wider head than the rig fits to, since the rig measures the role layers alone: measure a pair drawn without the custom parts.",
           ),
         style: z
           .unknown()
@@ -237,6 +247,47 @@ export function createIkiMcpServer(): McpServer {
           .describe(
             "Per-character tuning from the profile the rig defaults to, in three groups: `turn` (`amount`, `featureLead`, `eyeForeshorten`, `noseLead`: the last two turn only, the nod untouched, and fitted by `turnTargets.farEyeRatio` / `turnTargets.noseShift` when those are given, which the `RIGPLAN:` line then reports as overridden), `hair` (`follow`, `outlineFollow`, `sway`) and `eyes` (`blink`). `describe_rig_plan` lists every field's default, range, recommended span, step and poses. A value out of range, or a group or key not named there, comes back as `INVALID: rigPlan.<path> …`; an object left out or `{}` is the profile. The result reports what the rig built with as `rigPlan` and a `RIGPLAN:` line.",
           ),
+        customParts: z
+          .array(
+            z
+              .object({
+                id: z
+                  .string()
+                  .describe(
+                    "The part's id: a plain identifier, not a role's name or a part id.",
+                  ),
+                path: z
+                  .string()
+                  .describe(
+                    "The part's own PNG, the same size as the role layers (resolved against cwd), drawn alone and whole on a transparent ground.",
+                  ),
+                anchor: z
+                  .string()
+                  .describe("The role whose layer the part is fixed against."),
+                tie: z
+                  .array(z.number())
+                  .length(2)
+                  .describe(
+                    "[x, y] in canvas px where the part meets the anchor: inside both the part's alpha box and the anchor layer's.",
+                  ),
+                after: z
+                  .string()
+                  .describe(
+                    "A role of the set: the part is drawn right after that role's last part.",
+                  ),
+                deformer: z
+                  .string()
+                  .optional()
+                  .describe(
+                    "The matrix deformer it hangs on; only `headDeformer` (the default) is accepted.",
+                  ),
+              })
+              .passthrough(),
+          )
+          .optional()
+          .describe(
+            "Parts the auto-rigger has no role for, each `{ id, path, anchor, tie, after, deformer? }`. A custom layer is read apart from `layers`: never role-parsed or measured, so its name is free and it does not widen the head the turn is fitted to; it counts toward the layer and pixel limits. All custom parts share one extra atlas page, the last, quantized on a palette of its own, so the other pages keep their bytes. An entry the rig refuses (an unknown key, a bad tie) comes back as `INVALID: customParts[i]…` with nothing written; a missing field or one of the wrong type (a `tie` that is not two numbers, say) is refused by the schema itself, as the SDK's input validation error. `[]` is the same rig as leaving the field out, plus an empty `customParts` in the result.",
+          ),
         patches: z
           .array(
             z
@@ -271,6 +322,7 @@ export function createIkiMcpServer(): McpServer {
           // `.length(2)` makes each region span a pair, which its inferred
           // `number[]` cannot say.
           patches: args.patches as RigPatch[] | undefined,
+          customParts: args.customParts as AutoRigCustomPartInput[] | undefined,
         });
         const text = r.ok
           ? [
@@ -280,6 +332,7 @@ export function createIkiMcpServer(): McpServer {
               ...formatFoldReport(r.folds, r.canvas),
               ...formatPhysicsReport(r.physics),
               ...formatHairSideReport(r.turn?.hairSide, r.canvas),
+              ...formatCustomPartReports(r.customParts?.parts ?? []),
             ].join("\n")
           : `INVALID: ${r.error}`;
         return { content: [{ type: "text", text }], structuredContent: r };
@@ -401,7 +454,7 @@ export function createIkiMcpServer(): McpServer {
     "measure_turn_reference",
     {
       description:
-        "Measures how far a head turns between two images of the same character — a front view and a turned one, at the SAME scale — as three ratios, so a rigged turn can be compared to a reference turn (or to an earlier rig) without registering the images: farEyeRatio (turned far/near iris width over the same ratio at rest), eyeShift (how far the eye pair slides across the head, in units of the FRONT head half-width; NEGATIVE = toward the image's left), silhouetteRatio (head half-width, turned over front). The ratios divide out crop and position, not scale, so the pair must already share framing and head size; since a yaw never changes iris height, a pair whose mean iris height differs by more than 10% is refused instead of measured as a turn. Reads engine renders (transparent backdrop) and opaque reference art alike.",
+        "Measures how far a head turns between two images of the same character — a front view and a turned one, at the SAME scale — as three ratios, so a rigged turn can be compared to a reference turn (or to an earlier rig) without registering the images: farEyeRatio (turned far/near iris width over the same ratio at rest), eyeShift (how far the eye pair slides across the head, in units of the FRONT head half-width; NEGATIVE = toward the image's left), silhouetteRatio (head half-width, turned over front). The ratios divide out crop and position, not scale, so the pair must already share framing and head size; since a yaw never changes iris height, a pair whose mean iris height differs by more than 10% is refused instead of measured as a turn. Reads engine renders (transparent backdrop) and opaque reference art alike. A pair that shows a custom part crossing the eye row reads a wider head than the rig fits to, so measure a pair drawn without the custom parts.",
       inputSchema: {
         front: z
           .string()

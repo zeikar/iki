@@ -13,9 +13,11 @@ import {
   packAtlas,
   uvRectFor,
   createLayerSetMeasurer,
+  detectAlphaBbox,
   generateIkiFromLayerSet,
   parseLayerRoles,
   partIdsOfRole,
+  CustomPartError,
   LayerGeometryError,
   PatchError,
   RigPlanError,
@@ -26,6 +28,7 @@ import {
   type LayerSetMeasurer,
   type AtlasAssignment,
   type AtlasLayout,
+  type CustomPart,
   type PatchReport,
   type RigPatch,
   type RigPlan,
@@ -462,6 +465,17 @@ export interface AutoRigInput {
    *  rig, replayed on every rig of these inputs (see @ikijs/editor's
    *  `RigPatch`). */
   patches?: RigPatch[];
+  /** Parts the auto-rigger has no role for (a twin tail, a hairpin), each from
+   *  a canvas-sized PNG of its own, put in the model unrigged on `headDeformer`
+   *  (see @ikijs/editor's `CustomPart`). Their pixels never reach the role
+   *  parse or the measurements the head's width and turn are fitted to. */
+  customParts?: AutoRigCustomPartInput[];
+}
+
+/** One `customParts` entry: a `CustomPart` whose `layer` is read off `path`
+ *  (a PNG the size of the role layers) instead of given. */
+export interface AutoRigCustomPartInput extends Omit<CustomPart, "layer"> {
+  path: string;
 }
 
 /** The turn cues a caller may pass, which is every one but `headHalfWidth`:
@@ -475,8 +489,9 @@ export type AutoRigResult =
       path: string;
       canvas: { width: number; height: number };
       partCount: number;
-      /** The atlas's embedded size: its data URI's length, summed over both
-       *  pages when a quantized rig puts the nose on a page of its own. */
+      /** The atlas's embedded size: its data URI's length, summed over
+       *  every page: the nose's own under `quantizeColors`, and the custom
+       *  parts' page. */
       atlasBytes: number;
       /** The head's half-width at the eye row, measured off the layers.
        *  Absent when the opaque (alpha >= 128) union has no span there — a
@@ -546,8 +561,21 @@ export type AutoRigResult =
        *  Always present on a rigged model; absent only from a server before
        *  0.30.0. */
       rigPlan: RigPlanReport;
+      /** Where each of `input.customParts` landed — present whenever
+       *  `customParts` was passed, `[]` included, so a caller can tell this
+       *  server from one that drops the field. `box` is the layer's alpha box
+       *  in canvas px; `page` is the atlas page, the last one. */
+      customParts?: { parts: CustomPartReport[] };
     }
   | { ok: false; error: string };
+
+export interface CustomPartReport {
+  id: string;
+  box: { x: number; y: number; w: number; h: number };
+  mesh: { vertices: number; triangles: number };
+  order: number;
+  page: number;
+}
 
 export type { TurnSolveReport };
 
@@ -619,10 +647,10 @@ async function renderAtlasPage(
  * and hair layers' opaque runs and the nose's dense core, returned as
  * `noseCore`); what the solve settled on comes back in `turn`. Under
  * `quantizeColors` the nose is atlased alone on a second, lossless page, which
- * the palette would otherwise rim; `atlasBytes` sums both pages. The
- * generator replays `input.patches` on the fresh rig before it validates and
- * reports the turn, and what each op moved comes back in `patches`; a refused
- * op writes nothing.
+ * the palette would otherwise rim; `atlasBytes` sums every page, the custom
+ * page included. The generator replays `input.patches` on the fresh rig before
+ * it validates and reports the turn, and what each op moved comes back in
+ * `patches`; a refused op writes nothing.
  *
  * Re-host of examples/editor/src/store.ts `importLayerSet` with the three DOM
  * pixel functions swapped for the sharp-backed ./node-images helpers; the pure
@@ -639,9 +667,22 @@ export async function autoRigFromLayers(
     if (!Array.isArray(layers) || layers.length === 0) {
       throw new AutoRigInputError("layers must be a non-empty array");
     }
-    if (layers.length > MAX_LAYERS) {
+    // Only the path is read here, by resolveInputPath below; every other field
+    // of an entry is the generator's to check, after the layers.
+    const customInputs: unknown = input.customParts;
+    if (customInputs !== undefined && !Array.isArray(customInputs)) {
+      throw new AutoRigInputError("customParts must be an array");
+    }
+    const customEntries: AutoRigCustomPartInput[] = customInputs ?? [];
+    customEntries.forEach((entry: unknown, i) => {
+      const at = `customParts[${i}]`;
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+        throw new AutoRigInputError(`${at} must be a plain object`);
+      }
+    });
+    if (layers.length + customEntries.length > MAX_LAYERS) {
       throw new AutoRigInputError(
-        `too many layers: ${layers.length} > ${MAX_LAYERS}`,
+        `too many layers: ${layers.length + customEntries.length} > ${MAX_LAYERS}`,
       );
     }
 
@@ -694,6 +735,9 @@ export async function autoRigFromLayers(
       const resolved = resolveInputPath(layer.path);
       return { resolved, fileName: layer.fileName ?? path.basename(resolved) };
     });
+    const customPaths = customEntries.map((entry, i) =>
+      resolveInputPath(entry.path, `customParts[${i}].path`),
+    );
     const rolePairs = expectInput("role parsing", () =>
       parseLayerRoles(resolvedLayers.map((r) => r.fileName)),
     );
@@ -759,6 +803,51 @@ export async function autoRigFromLayers(
       // before the next decode, so peak memory stays ~one canvas + the crops.
       crops.push({ id: role, buffer, width: bbox.w, height: bbox.h });
     }
+
+    // The custom layers come after the role layers, on the canvas they gave,
+    // and never reach the role parse or the measurer: an unknown name would be
+    // refused there, and a tail across the eye row would widen the head the
+    // turn is fitted to.
+    const customLayers: {
+      fileName: string;
+      bbox: { x: number; y: number; w: number; h: number };
+    }[] = [];
+    const customCrops: AtlasCrop[] = [];
+    for (let i = 0; i < customEntries.length; i++) {
+      const at = `customParts[${i}]`;
+      const { id } = customEntries[i];
+      const resolved = customPaths[i];
+      const png = await decodePng(resolved);
+      if (png.width > MAX_LAYER_DIM || png.height > MAX_LAYER_DIM) {
+        throw new AutoRigInputError(
+          `${at}.path ${resolved} dimension ${png.width}x${png.height} exceeds ${MAX_LAYER_DIM}`,
+        );
+      }
+      totalPixels += png.width * png.height;
+      if (totalPixels > MAX_TOTAL_PIXELS) {
+        throw new AutoRigInputError(
+          `total decoded pixels exceed ${MAX_TOTAL_PIXELS}`,
+        );
+      }
+      if (png.width !== canvasW || png.height !== canvasH) {
+        throw new AutoRigInputError(
+          `${at}.path size ${png.width}x${png.height} differs from canvas ${canvasW}x${canvasH}`,
+        );
+      }
+      const bbox = detectAlphaBbox(png.rgba, png.width, png.height);
+      if (bbox === null) {
+        throw new AutoRigInputError(
+          `${at}.path "${path.basename(resolved)}": layer is empty after alpha threshold`,
+        );
+      }
+      customLayers.push({ fileName: path.basename(resolved), bbox });
+      customCrops.push({
+        id,
+        buffer: await cropToBuffer(png.rgba, png.width, png.height, bbox),
+        width: bbox.w,
+        height: bbox.h,
+      });
+    }
     // `layers` is non-empty (checked above), so the loop created the measurer.
     const measurement = measurer!.finish();
     const { headHalfWidth, headHalfWidthApplied, turnOptions } = measurement;
@@ -815,6 +904,16 @@ export async function autoRigFromLayers(
               }),
           ...(headEdges === undefined ? {} : { headEdges }),
           ...(strandEdges === undefined ? {} : { strandEdges }),
+          ...(input.customParts === undefined
+            ? {}
+            : {
+                customParts: customEntries.map(
+                  ({ path: _path, ...rest }, i) => ({
+                    ...rest,
+                    layer: customLayers[i],
+                  }),
+                ),
+              }),
         },
       );
     } catch (e) {
@@ -823,7 +922,8 @@ export async function autoRigFromLayers(
           e instanceof TurnTargetError ||
           e instanceof LayerGeometryError ||
           e instanceof PatchError ||
-          e instanceof RigPlanError
+          e instanceof RigPlanError ||
+          e instanceof CustomPartError
         )
       ) {
         throw e;
@@ -848,7 +948,14 @@ export async function autoRigFromLayers(
             ),
             await renderAtlasPage([losslessCrop], undefined),
           ];
-    const atlasBytes = pages.reduce((sum, p) => sum + p.dataUri.length, 0);
+    // The custom parts' page is the last, quantized on a palette of its own,
+    // so adding one leaves the bytes of the pages above untouched.
+    const customPage =
+      customCrops.length === 0
+        ? undefined
+        : await renderAtlasPage(customCrops, quantizeColors);
+    const allPages = customPage === undefined ? pages : [...pages, customPage];
+    const atlasBytes = allPages.reduce((sum, p) => sum + p.dataUri.length, 0);
     if (atlasBytes > MAX_OUTPUT_BYTES) {
       throw new AutoRigInputError(
         `atlas data URI ${atlasBytes} bytes exceeds ${MAX_OUTPUT_BYTES}`,
@@ -872,6 +979,23 @@ export async function autoRigFromLayers(
         }),
     );
 
+    if (customPage !== undefined) {
+      partTextureAssignments.push(
+        ...customPage.crops.map((crop) => {
+          const placement = customPage.layout.placements.find(
+            (p) => p.id === crop.id,
+          )!;
+          return {
+            partId: crop.id,
+            uv: uvRectFor(placement, {
+              width: customPage.layout.pageWidth,
+              height: customPage.layout.pageHeight,
+            }),
+          };
+        }),
+      );
+    }
+
     // applyAtlas takes a single page: it sets every part's index to 0 and
     // remaps each mesh's uvs into its rect, which for the nose is already in
     // page 1's space — so the nose only needs its index, set on a clone
@@ -881,11 +1005,17 @@ export async function autoRigFromLayers(
       partTextureAssignments,
     });
     let patched = doc.getModel();
-    if (losslessCrop !== undefined) {
+    if (losslessCrop !== undefined || customPage !== undefined) {
       patched = structuredClone(patched);
-      patched.textures = pages.map((p) => ({ source: p.dataUri }));
-      for (const partId of partIdsOfRole(losslessCrop.id)) {
-        patched.parts.find((p) => p.id === partId)!.texture!.index = 1;
+      patched.textures = allPages.map((p) => ({ source: p.dataUri }));
+      if (losslessCrop !== undefined) {
+        for (const partId of partIdsOfRole(losslessCrop.id)) {
+          patched.parts.find((p) => p.id === partId)!.texture!.index = 1;
+        }
+      }
+      for (const crop of customCrops) {
+        patched.parts.find((p) => p.id === crop.id)!.texture!.index =
+          pages.length;
       }
     }
     // Validate the patched model before writing — never persist an invalid model.
@@ -917,6 +1047,25 @@ export async function autoRigFromLayers(
       physics,
       ...(patches === undefined ? {} : { patches }),
       rigPlan: rigPlan!,
+      ...(input.customParts === undefined
+        ? {}
+        : {
+            customParts: {
+              parts: customCrops.map((crop, i): CustomPartReport => {
+                const part = finalModel.parts.find((p) => p.id === crop.id)!;
+                return {
+                  id: crop.id,
+                  box: customLayers[i].bbox,
+                  mesh: {
+                    vertices: part.mesh!.vertices.length / 2,
+                    triangles: part.mesh!.indices.length / 3,
+                  },
+                  order: part.order,
+                  page: part.texture!.index,
+                };
+              }),
+            },
+          }),
     };
   } catch (err) {
     if (err instanceof AutoRigInputError)

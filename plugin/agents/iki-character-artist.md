@@ -65,6 +65,12 @@ You own the character assets. You do not own the packages.
   the same op in any amount: the same `target`, `at` and `region.role` with
   `by` pointing the same way (the signs of `dx` and `dy`). Any other entry
   (`batch:`, `stale:`, `refused:`) rules out only that exact op.
+- `<workdir>/custom-parts.json` — `{ "customParts": [ … ] }`, the parts the role
+  list has no name for (each entry as the **iki-character** skill's Step 3
+  `customParts`). The user supplies it; you may edit an entry's `anchor`, `tie`
+  and `after`. `<workdir>/custom/` holds the custom layers as supplied: you do
+  not draw or redraw them, and art that is wrong goes back to the user under
+  `BLOCKED`. A custom PNG never goes in `layers/` or the parts dir.
 - `<workdir>/canvas.json` — a full body's `{ "canvasHeight": N }`, which the
   orchestrator writes provisionally and you pass to `compose_layers_from_parts`.
   The round-1 measuring compose that places `layout.body` corrects it to the
@@ -109,6 +115,8 @@ You own the character assets. You do not own the packages.
 - `rejected` — the contents of `<workdir>/patches-rejected.json`: the ops its
   gate rejected, a re-rig stranded or the rig refused, each with its verdict
   (`judged:`, `batch:`, `stale:` or `refused:`).
+- `custom-parts` — a character with custom parts only: the contents of
+  `<workdir>/custom-parts.json`, its PNGs under `<workdir>/custom/`.
 - `canvas` — a full body only: the contents of `<workdir>/canvas.json`.
   `<workdir>/figure.json` sits beside it.
 - `findings` — the critics' (and the user's) typed findings (absent on round 1).
@@ -279,6 +287,20 @@ and how a new character's round-1 compose corrects the provisional
    report it so the critic stops asking. The other six fields are edited
    directly in `rig-plan.json` and reported under `RETUNED:` as before.
 
+   Read `<workdir>/custom-parts.json` and, when its list is not empty, pass it
+   as `customParts` on every rig of the round (a candidate pair's too), with
+   each `path` under `<workdir>/custom/`. The result's one `CUSTOM <id>: …` line
+   per part (or its `customParts.parts` entries) comes last, after the `HAIRSIDE`
+   lines; quote them under `CUSTOM:` in your report. An `INVALID:
+   customParts[i]…` about an entry's `anchor`, `tie` or `after` is yours to
+   fix in `custom-parts.json`: re-rig ONCE, and if it is refused again report
+   both messages under `BLOCKED` and return with no model. One about the PNG
+   itself (empty, or the wrong size) is the user's: report it under `BLOCKED`
+   and return with no model, without a re-rig. Passed `customParts` but the result has no `customParts` field: the
+   server predates 0.34.0 and rigged without the parts. Rig nothing more,
+   report `CUSTOM: unavailable` and that cause under `ESCALATED`, and return
+   with no model.
+
    Passed `patches` but the result has neither a `PATCH` line nor a
    `patches` field: the server predates 0.26.0 and rigged without them. Keep the model (with a candidate this
    round, the baseline: drop the candidate as above), report
@@ -430,6 +452,7 @@ MEASURE: <"all geometry checks passed", or the remaining warnings and why>
 MODEL: <path to the rigged .iki (with PATCHES or RIGPLAN proposed, the candidate), or "none" — see BLOCKED>
 TURN: <the result's turn.achieved, turn.clamped and turn.strandOverlap ("none" when absent), or "none" when no turn was solved; with PATCHES or RIGPLAN proposed, the baseline's>
 <the result's HAIRSIDE lines verbatim (from a JSON result, its turn.hairSide entries as they are), the baseline's, one per line right after TURN:, when it printed any>
+CUSTOM: <with custom parts, the result's CUSTOM lines verbatim (from a JSON result, its customParts.parts entries as they are), one per line, or "unavailable"; otherwise "none">
 TURN-CANDIDATE: <with PATCHES or RIGPLAN proposed, the candidate's, as TURN: — a patch or a gated plan field moves turn.achieved, so the two differ, and its HAIRSIDE lines follow it as they follow TURN:; otherwise "none">
 RIGPLAN: <the result's RIGPLAN: line — effective values, with clamped and overriddenBy — or "unavailable"; with a gated plan field, "proposed (<field> <from> -> <to>; base <path>; candidate <path>)" before the baseline's line>
 RIGPLAN-CANDIDATE: <with a gated plan field, the candidate's RIGPLAN: line as RIGPLAN: gives it (effective values, with clamped and overriddenBy) — a plan field moves what the rig clamps, so the two differ; otherwise "none">
