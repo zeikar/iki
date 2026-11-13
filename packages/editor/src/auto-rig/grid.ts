@@ -84,13 +84,17 @@ export function blendStops(
   return offsets[i].map((o, k) => o + (offsets[i + 1][k] - o) * t);
 }
 
-/** Where a rest point lands on the deformed grid (rest + offsets). */
-export function land(
-  l: Lattice,
-  offsets: number[],
+/**
+ * The rest cell a point binds to, and its fractions in it: the engine's
+ * `bindPointToRestGrid`, edges included. A point on a column line binds to the
+ * cell on its right, on a row line to the cell below, and outside the grid it
+ * clamps to the nearest cell.
+ */
+export function bindToRest(
+  l: { cols: number; rows: number; points: number[] },
   x: number,
   y: number,
-): [number, number] {
+): { row: number; col: number; s: number; t: number } {
   const { cols, rows, points } = l;
   const stride = cols + 1;
   let col = cols - 1;
@@ -111,8 +115,24 @@ export function land(
   const x1 = points[(col + 1) * 2];
   const yT = points[row * stride * 2 + 1];
   const yB = points[(row + 1) * stride * 2 + 1];
-  const s = clamp((x - x0) / (x1 - x0), 0, 1);
-  const t = clamp((yT - y) / (yT - yB), 0, 1);
+  return {
+    row,
+    col,
+    s: clamp((x - x0) / (x1 - x0), 0, 1),
+    t: clamp((yT - y) / (yT - yB), 0, 1),
+  };
+}
+
+/** Where a rest point lands on the deformed grid (rest + offsets). */
+export function land(
+  l: Lattice,
+  offsets: number[],
+  x: number,
+  y: number,
+): [number, number] {
+  const { cols, points } = l;
+  const stride = cols + 1;
+  const { row, col, s, t } = bindToRest(l, x, y);
   const at = (r: number, c: number): [number, number] => {
     const k = (r * stride + c) * 2;
     return [points[k] + offsets[k], points[k + 1] + offsets[k + 1]];
