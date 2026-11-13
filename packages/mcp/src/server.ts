@@ -21,6 +21,7 @@ import { SWEEP_PRESETS } from "./sweep";
 import { measureLayers, formatMeasureReport } from "./measure";
 import { measureTurnReference, formatTurnReport } from "./measure-turn";
 import { renderPoses } from "./render-poses";
+import { probeRig } from "./probe";
 
 /** Injected by tsup (and vitest) from this package's package.json version. */
 declare const __MCP_VERSION__: string;
@@ -601,6 +602,74 @@ export function createIkiMcpServer(): McpServer {
                 : []),
             ].join("\n")
           : `INVALID: ${r.error}`;
+        return { content: [{ type: "text", text }], structuredContent: r };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: "text", text: `Unexpected error: ${error}` }],
+          structuredContent: { ok: false, error },
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "probe_rig",
+    {
+      description:
+        "Measures a rigged .iki without rendering it, through the engine's own landing. Each query is one of: `paint` (the opaque runs, alpha 128 and over, of a layer PNG, per canvas row, as `{ y0, rows }` with `[x0, x1)` runs; read from the PNG you give, not the atlas, so a quantized model reads the same, and the PNG must be the model's canvas size), `land` (where each canvas-px point of a part lands in a pose) or `displacement` (the landing minus the point). The frame is canvas px, origin top-left, x right, y down — the frame of the layer PNGs and describe_iki's boxes. A point is `[x, y]` and must lie on the part at rest, inside one of its mesh triangles (a part without a mesh, its unit quad); its landing is then found by barycentric interpolation inside that triangle. A point outside the part's mesh comes back as `null`, never an extrapolation. `pose` is parameter settings: every parameter it does not name is at its default, a value outside the parameter's range is clamped as the player does, and an id the model does not declare or a non-finite value is refused. The text is the results as JSON, one entry per query in order. With `outputPath` (a `.probe.json` under the working directory, its folder existing) the results are written there as the same JSON and the text is the path and one line per query, so a part's paint stays out of your context for a rigging program to read. A query's refusal comes back as `INVALID: queries[i].<field> …`, any refusal writes nothing.",
+      inputSchema: {
+        modelPath: z
+          .string()
+          .describe(
+            "Rigged .iki file path (resolved against cwd; must sit under the working directory).",
+          ),
+        queries: z
+          .array(
+            z.discriminatedUnion("op", [
+              z.object({
+                op: z.literal("paint"),
+                path: z
+                  .string()
+                  .describe(
+                    "Canvas-sized layer PNG (resolved against cwd), the drawing the part was built from.",
+                  ),
+              }),
+              z.object({
+                op: z.enum(["land", "displacement"]),
+                part: z.string().describe("A part id of the model."),
+                points: z
+                  .array(z.tuple([z.number(), z.number()]))
+                  .describe(
+                    "Canvas-px points `[x, y]`, at most 5000, each on the part at rest.",
+                  ),
+                pose: z
+                  .record(z.string(), z.number())
+                  .optional()
+                  .describe(
+                    "Parameter id to value; the others stay at their defaults.",
+                  ),
+              }),
+            ]),
+          )
+          .describe("The queries, answered in order; at most 64 per call."),
+        outputPath: z
+          .string()
+          .optional()
+          .describe(
+            "A path ending in `.probe.json` (resolved against cwd, under it; its folder must exist) to write the results to.",
+          ),
+      },
+    },
+    async (args) => {
+      try {
+        const r = await probeRig(args);
+        const text = !r.ok
+          ? `INVALID: ${r.error}`
+          : "results" in r
+            ? JSON.stringify(r.results)
+            : [r.outputPath, ...r.lines].join("\n");
         return { content: [{ type: "text", text }], structuredContent: r };
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);

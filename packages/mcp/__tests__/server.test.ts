@@ -718,6 +718,65 @@ describe("MCP server integration", () => {
     expect(sc.rigPlan.effective["turn.amount"]).toBeGreaterThan(0);
   });
 
+  it("probe_rig is registered and answers one batched call", async () => {
+    pair = await createPair();
+    const { tools } = await pair.client.listTools();
+    expect(tools.map((t) => t.name)).toContain("probe_rig");
+    const dir = tmpDir();
+    const modelPath = path.join(dir, "m.iki");
+    fs.writeFileSync(
+      modelPath,
+      JSON.stringify({
+        version: 1,
+        name: "t",
+        canvas: { width: 400, height: 400 },
+        parameters: [{ id: "ParamAngleX", min: -30, max: 30, default: 0 }],
+        parts: [
+          {
+            id: "tail",
+            color: [1, 1, 1, 1],
+            width: 200,
+            height: 200,
+            transform: { x: 0, y: 0 },
+            order: 0,
+          },
+        ],
+      }),
+    );
+    const result = await pair.client.callTool({
+      name: "probe_rig",
+      arguments: {
+        modelPath,
+        queries: [
+          { op: "land", part: "tail", points: [[200, 200]] },
+          {
+            op: "displacement",
+            part: "tail",
+            points: [
+              [200, 200],
+              [5, 5],
+            ],
+          },
+        ],
+      },
+    });
+    expect(result.isError).toBeFalsy();
+    const [text] = result.content as { type: string; text: string }[];
+    expect(JSON.parse(text.text)).toEqual([
+      { op: "land", part: "tail", points: [[200, 200]] },
+      { op: "displacement", part: "tail", points: [[0, 0], null] },
+    ]);
+    const refused = await pair.client.callTool({
+      name: "probe_rig",
+      arguments: {
+        modelPath,
+        queries: [{ op: "land", part: "ghost", points: [[1, 1]] }],
+      },
+    });
+    const [msg] = refused.content as { type: string; text: string }[];
+    expect(msg.text).toMatch(/^INVALID: queries\[0\]\.part names no part/);
+  });
+
   it("render_poses refuses an outDir outside the working directory", async () => {
     pair = await createPair();
     const result = await pair.client.callTool({

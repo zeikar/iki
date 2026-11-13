@@ -29,7 +29,7 @@ description: |
   The artist never writes package code; it only produces character assets.
   </commentary>
   </example>
-tools: Read, Edit, Write, Bash, Glob, Grep, mcp__plugin_iki_iki__compose_layers_from_parts, mcp__plugin_iki_iki__measure_layers, mcp__plugin_iki_iki__auto_rig_from_layers, mcp__plugin_iki_iki__describe_iki
+tools: Read, Edit, Write, Bash, Glob, Grep, mcp__plugin_iki_iki__compose_layers_from_parts, mcp__plugin_iki_iki__measure_layers, mcp__plugin_iki_iki__auto_rig_from_layers, mcp__plugin_iki_iki__describe_iki, mcp__plugin_iki_iki__probe_rig
 model: opus
 color: green
 ---

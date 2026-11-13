@@ -66,4 +66,13 @@ export {
   type RequestedPose,
   type RenderPosesResult,
 } from "./render-poses";
+export {
+  probeRig,
+  type ProbeInput,
+  type ProbeQuery,
+  type ProbePoint,
+  type ProbeQueryResult,
+  type ProbeResult,
+  type PaintRuns,
+} from "./probe";
 export { createIkiMcpServer } from "./server";

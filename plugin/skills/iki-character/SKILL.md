@@ -303,6 +303,18 @@ printf '%s\n' \
   | node <iki-checkout>/packages/mcp/dist/cli.js
 ```
 
+#### Measuring a rig
+
+`probe_rig` reads numbers off a written `.iki` that a render cannot give exactly: how far a point of a part moves in a pose, and where a layer is painted. It needs `@ikijs/mcp` 0.34.0 or later (an older server has no such tool). Use it to check a custom part's tie, or to size a retune before you spend a round on it. Each call is `{ modelPath, queries, outputPath? }`, and a query is one of:
+
+- `{ "op": "land", "part": "tail_L", "points": [[310, 420]], "pose": { "ParamAngleX": -30 } }` gives where each point lands in the pose.
+- `{ "op": "displacement", … }` gives the landing minus the point, so a part that must stay with its anchor reads as a small `[dx, dy]`.
+- `{ "op": "paint", "path": "iki-char/custom/tail_L.png" }` gives the layer's opaque runs per canvas row, `{ y0, rows }` with `[x0, x1)` runs.
+
+The frame is canvas px, origin top-left, x right, y down, the one the layer PNGs and `describe_iki`'s boxes use. A point must lie on the part at rest; one off its mesh comes back `null`, not a guess, so a `null` means the point was not on the part. `pose` names only the parameters you move: the rest stay at their defaults, and a value past a parameter's range is clamped, as the player does. `paint` reads the layer PNG you give (the part's own file, canvas-sized), not the atlas.
+
+Pass `outputPath` (a name ending in `.probe.json`, such as `iki-char/custom/bare.probe.json`, under the working directory, its folder existing) for any call whose answer is long, a layer's paint above all: the results are written there as the same JSON, the text is the path and one line per query, and you read the file with a script instead of carrying the rows in your context. An entry the tool refuses comes back as `INVALID: queries[i].<field> …`.
+
 ### Step 4 — Render-verify
 
 Load the `.iki` and confirm it renders + animates. On a host without browser automation, the

@@ -36,6 +36,10 @@ export const MAX_TOTAL_PIXELS = 128 * 1024 * 1024;
  *  crop px (1,677,898 B over 1,075,888 px), and a full body on a canvas up to
  *  4096 tall crops to at most ~5 M px, about 8 MB. */
 export const MAX_OUTPUT_BYTES = 12 * 1024 * 1024;
+/** Max queries in one `probe_rig` call. */
+export const MAX_PROBE_QUERIES = 64;
+/** Max points in one `probe_rig` land/displacement query. */
+export const MAX_PROBE_POINTS = 5000;
 
 /**
  * Expected, caller-input-caused failure. The tool catches ONLY this class and
@@ -150,19 +154,26 @@ export function confineToWorkingDirectory(
  * the tool never creates directories (fail-fast).
  *
  * Writes are confined to the MCP process working directory: the path must end
- * in `.iki` AND resolve to a location under `process.cwd()`. The MCP server runs
+ * in `extension` (`.iki` unless a tool writes another kind; a tool whose output
+ * is not a model names a suffix of its own, so it cannot replace a `package.json`)
+ * AND resolve to a location under `process.cwd()`. The MCP server runs
  * with the user's own permissions on agent-supplied input, so an unrestricted
  * `outputPath` is an arbitrary-file-overwrite surface — absolute paths and `..`
  * traversal that escape the working directory are rejected. (Overwriting an
  * existing `.iki` UNDER the working directory is intentional: re-running the tool
  * regenerates the named model.)
  */
-export function resolveOutputPath(outputPath: string): string {
+export function resolveOutputPath(
+  outputPath: string,
+  extension = ".iki",
+): string {
   if (typeof outputPath !== "string" || outputPath.trim() === "") {
     throw new AutoRigInputError("output path is empty");
   }
-  if (!outputPath.toLowerCase().endsWith(".iki")) {
-    throw new AutoRigInputError(`output path must end in .iki: ${outputPath}`);
+  if (!outputPath.toLowerCase().endsWith(extension)) {
+    throw new AutoRigInputError(
+      `output path must end in ${extension}: ${outputPath}`,
+    );
   }
   const root = process.cwd();
   const resolved = path.resolve(root, outputPath);
