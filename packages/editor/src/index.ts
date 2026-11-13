@@ -75,6 +75,7 @@ export {
   createGridMesh,
 } from "./factories";
 export {
+  CustomPartError,
   DEFAULT_TURN_TARGETS,
   LayerGeometryError,
   LIP_INSIDE_ROLES,
@@ -96,6 +97,7 @@ export {
   partIdsOfRole,
   styleRemovedMessage,
   type ArmGeometry,
+  type CustomPart,
   type ForearmPoseGeometry,
   type HairSideRoom,
   type IrisStrand,

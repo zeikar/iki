@@ -321,6 +321,10 @@ export interface GenerateOptions {
   /** Displacements added to the generated rig's stops (`RigPatch`), replayed
    *  on every rig; a refused op throws `PatchError` and rigs nothing. */
   patches?: RigPatch[];
+  /** Parts the auto-rigger has no role for, put in the model unrigged: drawn
+   *  from their own layers, hung on the head. Every entry is checked first
+   *  (`CustomPartError`). */
+  customParts?: CustomPart[];
   /** What each of `patches` moved, in order — called only when `patches` is
    *  given, and only for a model that validates. */
   onPatchesApplied?: (report: PatchReport[]) => void;

@@ -4,6 +4,8 @@
  * field (`customParts[i].tie`).
  */
 
+import type { IkiPart } from "@ikijs/format";
+import { bh, boxOfPixels, bw, cx, cy, gridMesh } from "./layout";
 import { ROLE_TABLE, partIdsOfRole } from "./roles";
 import { checkedKeys } from "./solve";
 import { CustomPartError, type CustomPart, type LayerInput } from "./types";
@@ -122,4 +124,33 @@ export function checkCustomParts(
     }
   });
   return customParts as CustomPart[];
+}
+
+/** The experiment's cell size (`uniformMesh` at 20 px): a plain grid, so a bake
+ *  can later move its vertices freely. */
+const CELL_PX = 20;
+
+/** One unrigged part per entry, on `headDeformer` with no warps and no
+ *  bindings, placed from the layer's box the way a role's part is. `order`
+ *  is left for the caller, who places it among the role parts. */
+export function buildCustomParts(
+  customParts: CustomPart[],
+  canvas: { width: number; height: number },
+): IkiPart[] {
+  return customParts.map(({ id, layer }) => {
+    const b = boxOfPixels(layer.bbox, canvas.width, canvas.height);
+    return {
+      id,
+      color: [1, 1, 1, 1],
+      width: bw(b),
+      height: bh(b),
+      transform: { x: cx(b), y: cy(b) },
+      order: 0,
+      deformer: "headDeformer",
+      mesh: gridMesh(
+        Math.max(1, Math.round(bw(b) / CELL_PX)),
+        Math.max(1, Math.round(bh(b) / CELL_PX)),
+      ),
+    };
+  });
 }

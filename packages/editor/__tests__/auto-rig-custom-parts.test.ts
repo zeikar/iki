@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
+import {
+  EditorDocument,
+  PatchError,
+  generateIkiFromLayerSet,
+  type CustomPart,
+  type RigPlanReport,
+  type TurnSolveReport,
+} from "@ikijs/editor";
+import { parseIkiModel, type IkiModel } from "@ikijs/format";
 import { checkCustomParts } from "../src/auto-rig/custom-parts";
 import { ROLE_TABLE, partIdsOfRole } from "../src/auto-rig/roles";
 import { CustomPartError, type LayerInput } from "../src/auto-rig/types";
 import { CANVAS, character } from "./helpers/character";
+import { fullBody } from "./helpers/full-body";
 
 const { layers } = character();
 const byRole = new Map<string, LayerInput>(layers.map((l) => [l.role, l]));
@@ -202,5 +212,171 @@ describe("checkCustomParts", () => {
     expect(refused([good(), good({ id: "b", tie: [0, 0] })])).toMatch(
       /^customParts\[1\]\.tie /,
     );
+  });
+});
+
+describe("customParts in the generated rig", () => {
+  const { layers: bustLayers, options: bustOptions } = character();
+  const rigBust = (customParts?: CustomPart[]) =>
+    generateIkiFromLayerSet(bustLayers, CANVAS, {
+      ...bustOptions,
+      ...(customParts === undefined ? {} : { customParts }),
+    });
+  const withoutOrder = (m: IkiModel) => ({
+    ...m,
+    parts: m.parts.map(({ order: _order, ...p }) => p),
+  });
+  const ribbon = good() as unknown as CustomPart;
+
+  it("gives a model identical to none for undefined and for []", () => {
+    const bust = JSON.stringify(rigBust());
+    expect(JSON.stringify(rigBust([]))).toBe(bust);
+    expect(
+      JSON.stringify(
+        generateIkiFromLayerSet(bustLayers, CANVAS, {
+          ...bustOptions,
+          customParts: undefined,
+        }),
+      ),
+    ).toBe(bust);
+
+    const fb = fullBody({ arms: true });
+    const rigFb = (extra: object) =>
+      JSON.stringify(
+        generateIkiFromLayerSet(fb.layers, fb.canvas, {
+          ...fb.options,
+          ...extra,
+        }),
+      );
+    expect(rigFb({ customParts: [] })).toBe(rigFb({}));
+    expect(rigFb({ customParts: undefined })).toBe(rigFb({}));
+  });
+
+  it("leaves every other part and the rest of the model as they were", () => {
+    const base = rigBust();
+    const custom = rigBust([ribbon]);
+    expect(custom.parts.map((p) => p.id)).toContain("ribbon");
+    const rest = {
+      ...custom,
+      parts: custom.parts.filter((p) => p.id !== "ribbon"),
+    };
+    expect(withoutOrder(rest)).toEqual(withoutOrder(base));
+    expect(rest.parts.map((p) => p.id)).toEqual(base.parts.map((p) => p.id));
+    expect(custom.parts.map((p) => p.order)).toEqual(
+      custom.parts.map((_, i) => i),
+    );
+  });
+
+  it("reports the turn and the rig plan as without", () => {
+    const reports = (customParts?: CustomPart[]) => {
+      let turn: TurnSolveReport | undefined;
+      let plan: RigPlanReport | undefined;
+      generateIkiFromLayerSet(bustLayers, CANVAS, {
+        ...bustOptions,
+        ...(customParts === undefined ? {} : { customParts }),
+        onTurnSolved: (r) => (turn = r),
+        onRigPlanResolved: (r) => (plan = r),
+      });
+      return { turn, plan };
+    };
+    const without = reports();
+    expect(without.turn).toBeDefined();
+    expect(reports([ribbon])).toEqual(without);
+  });
+
+  it("places the part: its box, a plain mesh, headDeformer, draw order", () => {
+    const model = rigBust([ribbon]);
+    const part = model.parts.find((p) => p.id === "ribbon")!;
+    // A 100 x 100 box at the face's top left corner, on a 1000 canvas.
+    expect(part.width).toBe(100);
+    expect(part.height).toBe(100);
+    expect(part.transform.x).toBe(faceBox.x + 50 - CANVAS.width / 2);
+    expect(part.transform.y).toBe(CANVAS.height / 2 - (faceBox.y + 50));
+    expect(part.color).toEqual([1, 1, 1, 1]);
+    expect(part.deformer).toBe("headDeformer");
+    expect(part.warps ?? []).toEqual([]);
+    expect(part.mesh!.vertices.length / 2).toBe(6 * 6);
+    expect(part.mesh!.indices.length / 3).toBe(5 * 5 * 2);
+    const ids = model.parts.map((p) => p.id);
+    const backs = partIdsOfRole("hair_back").map((id) => ids.indexOf(id));
+    expect(ids.indexOf("ribbon")).toBe(Math.max(...backs) + 1);
+    expect(() => parseIkiModel(model)).not.toThrow();
+  });
+
+  it("sizes the mesh at about 20 px a cell, at least one", () => {
+    const thin = {
+      ...good({ id: "thread", tie: [faceBox.x + 3, faceBox.y + 50] }),
+      layer: {
+        fileName: "t.png",
+        bbox: { x: faceBox.x, y: faceBox.y, w: 6, h: 300 },
+      },
+    } as unknown as CustomPart;
+    const part = rigBust([thin]).parts.find((p) => p.id === "thread")!;
+    // 1 column, 15 rows.
+    expect(part.mesh!.vertices.length / 2).toBe(2 * 16);
+  });
+
+  it("puts entries with the same `after` in list order, one after the other", () => {
+    const model = rigBust([
+      good({ id: "a", after: "face" }),
+      good({ id: "b", after: "face" }),
+    ] as unknown as CustomPart[]);
+    const ids = model.parts.map((p) => p.id);
+    expect(ids.indexOf("b")).toBe(ids.indexOf("a") + 1);
+    expect(ids.indexOf("a")).toBe(ids.indexOf("face") + 1);
+  });
+
+  it("goes after the last of a role's several parts", () => {
+    const fb = fullBody({ arms: true });
+    const armBox = fb.layers.find((l) => l.role === "arm_L")!.bbox;
+    const pin = {
+      id: "cuffpin",
+      layer: { fileName: "p.png", bbox: { ...armBox, w: 40, h: 40 } },
+      anchor: "arm_L",
+      tie: [armBox.x + 10, armBox.y + 10],
+      after: "arm_L",
+    } as CustomPart;
+    const model = generateIkiFromLayerSet(fb.layers, fb.canvas, {
+      ...fb.options,
+      customParts: [pin],
+    });
+    const ids = model.parts.map((p) => p.id);
+    const armIds = partIdsOfRole("arm_L");
+    expect(armIds.length).toBeGreaterThan(1);
+    expect(ids.indexOf("cuffpin")).toBe(
+      Math.max(...armIds.map((id) => ids.indexOf(id))) + 1,
+    );
+  });
+
+  it("refuses a patch aimed at a custom part", () => {
+    expect(() =>
+      generateIkiFromLayerSet(bustLayers, CANVAS, {
+        ...bustOptions,
+        customParts: [ribbon],
+        patches: [
+          {
+            target: "ribbon",
+            at: { ParamAngleX: 30 },
+            region: { role: "face", x: [0, 1], y: [0, 1] },
+            by: { dx: 0.01, dy: 0 },
+          },
+        ],
+      }),
+    ).toThrow(/^patches\[0\]\.target "ribbon" is neither a feature grid/);
+  });
+
+  it("checks the entries before the rig: a bad patch and a bad entry give CustomPartError", () => {
+    expect(() =>
+      generateIkiFromLayerSet(bustLayers, CANVAS, {
+        ...bustOptions,
+        customParts: [good({ id: "face" }) as unknown as CustomPart],
+        patches: [{ target: "nowhere" } as never],
+      }),
+    ).toThrow(CustomPartError);
+  });
+
+  it("survives the editor's document round trip", () => {
+    const model = rigBust([ribbon]);
+    expect(new EditorDocument(model).getModel()).toEqual(model);
   });
 });

@@ -100,7 +100,13 @@ profile in three groups (`turn`, `hair`, `eyes`: the whole turn, the
 features' lead, the front hair's follow and its outline's, the blink and the
 hair sway), validated against `RIG_PLAN_FIELDS`. `options.patches` adds displacements to a generated rig's keyform
 stops (`RigPatch`), replayed on every rig and reported through
-`options.onPatchesApplied`; a refused op throws `PatchError`. The turn
+`options.onPatchesApplied`; a refused op throws `PatchError`. `options.customParts` adds parts the
+auto-rigger has no role for (`CustomPart`: `id`, `layer`, `anchor`, `tie`,
+`after`), unrigged on `headDeformer` with a plain mesh and drawn after the
+`after` role's last part; the rest of the model is as without them but for
+the `order` of every part after an inserted one (a set rigged without
+`customParts` is byte-identical), and a malformed entry throws
+`CustomPartError`. The turn
 is bounded by the art: the far eye stays inside the plate's outline and, given
 `options.strandEdges`, the far iris may not slide under the bangs' side strand
 any further than it is painted — best effort, never a refusal. The report's

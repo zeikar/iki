@@ -1,8 +1,10 @@
 export {
+  CustomPartError,
   DEFAULT_TURN_TARGETS,
   LayerGeometryError,
   PatchError,
   TurnTargetError,
+  type CustomPart,
   type HairSideRoom,
   type IrisStrand,
   type LayerInput,

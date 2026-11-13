@@ -23,6 +23,7 @@ each constant is what it is.
 | `context.ts`      | what the solve reads off the layers; the lander that reads a rig back as drawn                                |
 | `checks.ts`       | input checks: a malformed layer throws, a malformed turn option `TurnTargetError`                             |
 | `patches.ts`      | the rig patch layer: `displace` ops replayed onto the generated rig's keyform stops                           |
+| `custom-parts.ts` | the `customParts` input: checked before any rigging, built as plain unrigged parts                            |
 | `drivers.ts`      | everything but the turn: blink fold, gaze, brows, mouth, hair sway, roll hang                                 |
 | `animations.ts`   | the default expressions and motions, each described; filtered to the declared parameters                      |
 | `generate.ts`     | assembly: parts, meshes, deformers, parameters, physics, expressions, motions                                 |
@@ -648,6 +649,34 @@ layout or `rigPlan`, re-rig, and the patch lands on the new rig.
   Each throws `PatchError`, `patches[i]…`, naming what there is instead.
 - **Echo** — `options.onPatchesApplied` gets a `PatchReport` per op: points
   (or vertices) moved of all, a grid's columns and rows, the largest move.
+
+## Custom parts
+
+`options.customParts` adds a part the auto-rigger has no role for (a hairpin,
+a twin tail). Each entry is `{ id, layer, anchor, tie, after, deformer? }`:
+the part's own canvas-sized layer (`fileName` and its alpha `bbox`, as a role
+layer's), the role whose layer it is fixed against, where it meets that layer
+(`tie`, canvas px, inside both boxes), and the role it is drawn after.
+
+- **Drawn** — right after the last part of the `after` role (a role with
+  several parts, an arm, puts it after the last), entries with the same
+  `after` in list order; every part's `order` is then its index. The part's
+  box is placed from `layer.bbox` as a role's is, tint white.
+- **Plain mesh** — a uniform grid of `round(w / 20)` by `round(h / 20)` cells,
+  at least one each, the winding of every other grid. No warps and no
+  bindings: the part rides `headDeformer` and moves with the head, nothing
+  more.
+- **Kept out of the head's measurement** — a custom layer is never in the
+  layer set the turn, the frame and the grids read, so adding one changes
+  nothing else: the model without it is the model with it minus the part
+  (and the `order`s), and the turn and rig-plan reports are equal. It is also
+  built after the patch replay and the role loops, which look every part up by
+  role, so a patch aimed at it is an unknown target.
+- **Refused** — `CustomPartError`, `customParts[i].<field>`, before anything
+  is rigged: an id that is not a plain identifier, a role's name or a part id a
+  role yields, or repeated; a layer or box off the canvas; an `anchor` or
+  `after` that is not a role of the set; a `tie` outside either box; any
+  `deformer` but `headDeformer`.
 
 ## Everything else
 

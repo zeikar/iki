@@ -64,6 +64,7 @@ import { renderedLander, sideIrises, solveContext } from "./context";
 import { buildHeadFrame, type HeadFrame } from "./head";
 import { buildFaceMesh, type Region } from "./face-mesh";
 import { applyPatches } from "./patches";
+import { buildCustomParts, checkCustomParts } from "./custom-parts";
 import {
   bh,
   boxOfLayer,
@@ -81,6 +82,7 @@ import {
 import {
   isLipInsideRole,
   isLipRole,
+  partIdsOfRole,
   roleOfPart,
   roleSpec,
   ROLE_TABLE,
@@ -206,6 +208,12 @@ export function generateIkiFromLayerSet(
   const plateHalf = byRole.get("face")!.cropW / 2;
 
   checkHeadEdges(options.headEdges, byRole);
+  // An empty list runs nothing; a non-array still reaches the check.
+  const entries =
+    options.customParts !== undefined &&
+    !(Array.isArray(options.customParts) && options.customParts.length === 0)
+      ? checkCustomParts(options.customParts, byRole, canvas)
+      : [];
   checkStrandEdges(
     options.strandEdges,
     sideIrises(byRole),
@@ -415,6 +423,22 @@ export function generateIkiFromLayerSet(
           faceWidth: byRole.get("face")!.cropW,
           parameters,
         });
+  // Built after the patch replay and the role loops above: they look every
+  // part up by role, and a custom part has none.
+  if (entries.length > 0) {
+    const built = buildCustomParts(entries, canvas);
+    entries.forEach((entry, i) => {
+      const group = new Set(partIdsOfRole(entry.after));
+      for (let j = 0; j < i; j++) {
+        if (entries[j].after === entry.after) group.add(entries[j].id);
+      }
+      const last = parts.map((p) => group.has(p.id)).lastIndexOf(true);
+      parts.splice(last + 1, 0, built[i]);
+    });
+    parts.forEach((p, i) => {
+      p.order = i;
+    });
+  }
   const model: IkiModel = {
     version: IKI_FORMAT_VERSION,
     name: "auto-rigged",
