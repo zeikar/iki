@@ -1,0 +1,5 @@
+---
+"@ikijs/editor": minor
+---
+
+`options.bakes` writes the warps of a custom part from control lattices: per parameter, a lattice of displacements at each stop, read at every vertex and solved in closed form through the head's frame, so the part lands where it was asked within 0.01 px. A stop is the part's total landed displacement; the head's own carry is inside it and is not counted twice. `meshes` re-meshes a custom part first, with the same box and UV map. `CustomPart.rigid` marks art that does not bend: a stop that bends it by more than 0.0025 face widths throws `BakeError`. `options.onBakesApplied` reports what each part and parameter was asked, for a model that validates. `RigBakes`, `BakeTarget`, `BakeReport`, `BakeError` and `rigidResidual` are exported. A set rigged without `bakes` is byte-identical.

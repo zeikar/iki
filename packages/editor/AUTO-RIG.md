@@ -24,6 +24,8 @@ each constant is what it is.
 | `checks.ts`       | input checks: a malformed layer throws, a malformed turn option `TurnTargetError`                             |
 | `patches.ts`      | the rig patch layer: `displace` ops replayed onto the generated rig's keyform stops                           |
 | `custom-parts.ts` | the `customParts` input: checked before any rigging, built as plain unrigged parts                            |
+| `bakes.ts`        | the `bakes` input: parsed and checked, then written as warps on the custom parts; `rigidResidual`             |
+| `chain.ts`        | a matrix deformer's world affine at a pose, in closed form, from the emitted deformers alone                  |
 | `drivers.ts`      | everything but the turn: blink fold, gaze, brows, mouth, hair sway, roll hang                                 |
 | `animations.ts`   | the default expressions and motions, each described; filtered to the declared parameters                      |
 | `generate.ts`     | assembly: parts, meshes, deformers, parameters, physics, expressions, motions                                 |
@@ -676,7 +678,75 @@ layer's), the role whose layer it is fixed against, where it meets that layer
   is rigged: an id that is not a plain identifier, a role's name or a part id a
   role yields, or repeated; a layer or box off the canvas; an `anchor` or
   `after` that is not a role of the set; a `tie` outside either box; any
-  `deformer` but `headDeformer`.
+  `deformer` but `headDeformer`; a `rigid` that is not true or false.
+
+## Bakes
+
+`options.bakes` moves custom parts when a parameter does: what turns a tail
+with the head, or sways it with the hair, which an unrigged custom part does
+not do. It is `{ targets, meshes? }`. A target is a lattice, `(cols + 1) x
+(rows + 1)` control points over a canvas-px `box`, with a displacement per
+point at each stop of one parameter; it names custom parts only. The whole
+input is checked first (`BakeError`, `bakes.targets[i]…`), so a refusal rigs
+nothing.
+
+- **A stop** — the part's TOTAL landed displacement in canvas px when that
+  parameter alone is at the stop and every other is at its default. The
+  head's own carry is inside it, so a neighbour's displacement as
+  `probe_rig` measures it is written as it is. The rest value is implicit.
+  Between rest and a stop, and between stops, the part moves linearly; past
+  the outermost stop it holds; a side with no stop is not moved by the
+  target. `mirror` fills a missing stop from the one at the mirrored value.
+- **Reading the lattice** — each vertex's wanted displacement is the bilinear
+  lattice value at its rest position (outside the box, the nearest edge's),
+  summed over the targets that name the part and the parameter. A target
+  without a stop another has contributes its own value there: linear from
+  rest through its stops, held past the outermost.
+- **The solve** — closed form, no engine in the loop. With `W0` the head's
+  world at rest and `W` its world with the parameter at the stop
+  (`chain.ts`), a vertex's local position is `W⁻¹ · (W0 · rest + wanted)` and
+  its offset is that minus its rest position, over the part's width and
+  height. A parameter that moves nothing above the part gives `W = W0`, so
+  the head's motion is never counted twice: asking for the head's own rigid
+  displacement under `ParamAngleZ` writes zero offsets. Offsets are rounded
+  to 1e-6, not the generator's usual 1e-4, which is 0.08 px on an 830 px
+  tail, the whole error budget; the landing matches the ask within 0.01 px
+  (tested through the engine).
+- **One warp per part and parameter** — keyforms at the parameter's default
+  (zeros) and at every stop its targets use, ascending. A part in targets on
+  two parameters gets two warps.
+- **Matrix deformers only** — the chain above the part has to be solvable in
+  closed form: `headDeformer` bare or under the body warp. A custom part hangs
+  on nothing else, so a warp deformer's rest-grid binding and clamp never
+  come in.
+- **`meshes`** — re-meshes a custom part before the bake with `rows`
+  (canvas-px y, first the box top, last the bottom, each within 0.5 px) and
+  `cols`, or `cellPx` (the plain mesh's rounding at that cell size). The box
+  and the UV map are the part's own, so the rest picture is the same.
+- **`rigid`** — `CustomPart.rigid` marks art that does not bend. A stop that
+  bends such a part by more than 0.0025 face widths (the `face` layer's crop
+  width) from its best-fit rotation and translation (`rigidResidual(rest,
+moved)`) throws `BakeError` naming every target on that part and
+  parameter, the stop and the bend. A rigid part takes one displacement for
+  every control point, or a rotation.
+- **Echo** — `options.onBakesApplied` gets a `BakeReport` per part and
+  parameter: the stops, the vertex count and each stop's wanted displacement
+  per vertex, unrounded, in canvas px — called only for a model that
+  validates, so a caller can verify the landing.
+- **Stale by rule** — bake stops are absolute, so a retune of the rig
+  (`rigPlan`, the layout, a new layer) marks them stale: they are not
+  re-derived. (Patches are not stale on a retune: they replay through one;
+  only a regenerated part drops the patches anchored to it.) What a bake
+  copies off the rig are fields: the head's roll about the chin, the back
+  hair's sway down its height, the face's travel at the tie's row. A stop
+  stored relative to the anchor's carry at the tie would follow only that one
+  vector through a retune and be silently wrong for the rest. An absolute stop
+  is what the tools measure. A tie a retune breaks shows as the part no longer
+  landing where its anchor does; the stops are then re-measured.
+
+Known limits. A part's warps on two parameters add in the head's frame, so
+roll with sway is the sum of each rotated by the head, not the sum of each
+alone. Between stops a keyed rotation follows its chord, not its arc.
 
 ## Everything else
 

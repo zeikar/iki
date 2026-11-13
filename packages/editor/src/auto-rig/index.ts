@@ -1,14 +1,18 @@
 export {
+  BakeError,
   CustomPartError,
   DEFAULT_TURN_TARGETS,
   LayerGeometryError,
   PatchError,
   TurnTargetError,
+  type BakeReport,
+  type BakeTarget,
   type CustomPart,
   type HairSideRoom,
   type IrisStrand,
   type LayerInput,
   type PatchReport,
+  type RigBakes,
   type RigPatch,
   type StrandOverlap,
   type TurnDepths,
@@ -43,4 +47,5 @@ export {
   partIdsOfRole,
   type LipInsideRole,
 } from "./roles";
+export { rigidResidual } from "./bakes";
 export { generateIkiFromLayerSet } from "./generate";

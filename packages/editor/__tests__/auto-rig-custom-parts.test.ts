@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   EditorDocument,
-  PatchError,
   generateIkiFromLayerSet,
   type CustomPart,
   type RigPlanReport,
@@ -208,6 +207,15 @@ describe("checkCustomParts", () => {
     expect(m).toContain("headDeformer");
   });
 
+  it("checks rigid", () => {
+    expect(
+      checkCustomParts([good({ rigid: true })], byRole, CANVAS),
+    ).toHaveLength(1);
+    expect(refused([good({ rigid: "yes" })])).toMatch(
+      /^customParts\[0\]\.rigid must be true or false/,
+    );
+  });
+
   it("refuses a later entry's fault, naming its index", () => {
     expect(refused([good(), good({ id: "b", tie: [0, 0] })])).toMatch(
       /^customParts\[1\]\.tie /,
@@ -265,6 +273,37 @@ describe("customParts in the generated rig", () => {
     expect(custom.parts.map((p) => p.order)).toEqual(
       custom.parts.map((_, i) => i),
     );
+  });
+
+  it("with bakes, leaves the rest of the model as it was", () => {
+    const base = rigBust();
+    const custom = generateIkiFromLayerSet(bustLayers, CANVAS, {
+      ...bustOptions,
+      customParts: [ribbon],
+      bakes: {
+        targets: [
+          {
+            param: "ParamAngleX",
+            parts: ["ribbon"],
+            grid: { cols: 1, rows: 1 },
+            stops: {
+              "30": [
+                [5, 0],
+                [5, 0],
+                [5, 0],
+                [5, 0],
+              ],
+            },
+          },
+        ],
+      },
+    });
+    expect(custom.parts.find((p) => p.id === "ribbon")!.warps).toHaveLength(1);
+    const rest = {
+      ...custom,
+      parts: custom.parts.filter((p) => p.id !== "ribbon"),
+    };
+    expect(withoutOrder(rest)).toEqual(withoutOrder(base));
   });
 
   it("reports the turn and the rig plan as without", () => {

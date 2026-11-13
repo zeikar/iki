@@ -10,7 +10,7 @@ import { ROLE_TABLE, partIdsOfRole } from "./roles";
 import { checkedKeys } from "./solve";
 import { CustomPartError, type CustomPart, type LayerInput } from "./types";
 
-const KEYS = ["id", "layer", "anchor", "tie", "after", "deformer"];
+const KEYS = ["id", "layer", "anchor", "tie", "after", "deformer", "rigid"];
 const LAYER_KEYS = ["fileName", "bbox"];
 
 const finite = (v: unknown): v is number =>
@@ -57,7 +57,7 @@ export function checkCustomParts(
       throw new CustomPartError(`${at} must be a plain object`);
     }
     checkedKeys(at, entry, KEYS, CustomPartError);
-    const { id, layer, anchor, tie, after, deformer } = entry;
+    const { id, layer, anchor, tie, after, deformer, rigid } = entry;
 
     if (typeof id !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(id)) {
       throw new CustomPartError(
@@ -120,6 +120,12 @@ export function checkCustomParts(
     if (deformer !== undefined && deformer !== "headDeformer") {
       throw new CustomPartError(
         `${at}.deformer "${String(deformer)}" is not accepted: headDeformer is the only deformer a custom part hangs on`,
+      );
+    }
+
+    if (rigid !== undefined && typeof rigid !== "boolean") {
+      throw new CustomPartError(
+        `${at}.rigid must be true or false, got ${JSON.stringify(rigid)}`,
       );
     }
   });

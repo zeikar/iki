@@ -1,12 +1,24 @@
 /**
- * The `bakes` generator input. The whole input is checked before anything is
- * applied, so a refusal changes nothing; each message starts at the path of
- * the field (`bakes.targets[2].stops["30"][7]`).
+ * The `bakes` generator input, in two steps. `parseBakes` checks the whole
+ * input before anything is applied, so a refusal changes nothing; each
+ * message starts at the path of the field (`bakes.targets[2].stops["30"][7]`).
+ * `applyBakes` then re-meshes the named parts and writes their warps, solved
+ * in closed form through the head's chain.
  */
 
-import type { IkiParameter } from "@ikijs/format";
+import type { IkiDeformer, IkiParameter, IkiPart } from "@ikijs/format";
+import { matrixWorldAt, type Affine } from "./chain";
+import {
+  boxOfPixels,
+  bh,
+  bw,
+  clamp,
+  columnMesh,
+  gridMesh,
+  roundTo,
+} from "./layout";
 import { checkedKeys, checkedNumber } from "./solve";
-import { BakeError, type CustomPart } from "./types";
+import { BakeError, type BakeReport, type CustomPart } from "./types";
 
 const TARGET_KEYS = [
   "id",
@@ -403,4 +415,289 @@ export function parseBakes(
     }
   }
   return { targets: parsedTargets, meshes: parsedMeshes };
+}
+
+/** Offsets are written to this fraction of the part's own size: the
+ *  generator's usual 1e-4 is 0.08 px on an 830 px tail, the whole error
+ *  budget of a bake. */
+const OFFSET_STEP = 1e-6;
+
+/** A rigid part may bend by this many face widths at a stop (1 px on a
+ *  400 px face): a hairpin that is only translated or turned stays under it,
+ *  a bent one does not. */
+const RIGID_BEND = 0.0025;
+
+/**
+ * The largest distance, over the point set, from where `moved` puts a point
+ * to where the least-squares rigid fit of `rest` puts it: 0 for a rigid
+ * motion, the bend of anything else. The fit is a rotation and a translation,
+ * no scale and no reflection, and it minimises the summed squares, not the
+ * largest distance (so the result can exceed the minimax one). Both lists
+ * hold the same points in the same order, in one frame, so their lengths must
+ * be equal.
+ */
+export function rigidResidual(
+  rest: readonly Point[],
+  moved: readonly Point[],
+): number {
+  const n = rest.length;
+  if (moved.length !== n) {
+    throw new Error(
+      `rigidResidual: ${n} rest points but ${moved.length} moved points`,
+    );
+  }
+  if (n === 0) return 0;
+  let pcx = 0;
+  let pcy = 0;
+  let qcx = 0;
+  let qcy = 0;
+  for (let i = 0; i < n; i++) {
+    pcx += rest[i][0];
+    pcy += rest[i][1];
+    qcx += moved[i][0];
+    qcy += moved[i][1];
+  }
+  pcx /= n;
+  pcy /= n;
+  qcx /= n;
+  qcy /= n;
+  let dot = 0;
+  let cross = 0;
+  for (let i = 0; i < n; i++) {
+    const px = rest[i][0] - pcx;
+    const py = rest[i][1] - pcy;
+    const qx = moved[i][0] - qcx;
+    const qy = moved[i][1] - qcy;
+    dot += px * qx + py * qy;
+    cross += px * qy - py * qx;
+  }
+  const theta = Math.atan2(cross, dot);
+  const c = Math.cos(theta);
+  const s = Math.sin(theta);
+  let worst = 0;
+  for (let i = 0; i < n; i++) {
+    const px = rest[i][0] - pcx;
+    const py = rest[i][1] - pcy;
+    const ex = qcx + c * px - s * py - moved[i][0];
+    const ey = qcy + s * px + c * py - moved[i][1];
+    worst = Math.max(worst, Math.hypot(ex, ey));
+  }
+  return worst;
+}
+
+/** The bilinear lattice value at canvas point (x, y); outside the box, the
+ *  nearest edge's. */
+function latticeAt(
+  t: ParsedBakeTarget,
+  lattice: Point[],
+  x: number,
+  y: number,
+) {
+  const { cols, rows, box } = t;
+  const u = clamp((x - box.x) / box.w, 0, 1) * cols;
+  const v = clamp((y - box.y) / box.h, 0, 1) * rows;
+  const c = Math.min(Math.floor(u), cols - 1);
+  const r = Math.min(Math.floor(v), rows - 1);
+  const fx = u - c;
+  const fy = v - r;
+  const at = (rr: number, cc: number) => lattice[rr * (cols + 1) + cc];
+  const mix = (k: 0 | 1) => {
+    const top = at(r, c)[k] + (at(r, c + 1)[k] - at(r, c)[k]) * fx;
+    const bot = at(r + 1, c)[k] + (at(r + 1, c + 1)[k] - at(r + 1, c)[k]) * fx;
+    return top + (bot - top) * fy;
+  };
+  return [mix(0), mix(1)] as Point;
+}
+
+/** A target's displacement at value `v` as a function of canvas point (x, y):
+ *  linear from rest through the stops on `v`'s side, held past the outermost,
+ *  zero on a side with none. The knots are read once, not per vertex. */
+function targetField(t: ParsedBakeTarget, v: number) {
+  const side = Math.sign(v - t.rest);
+  const knots = [...t.stops.keys()]
+    .filter((k) => Math.sign(k - t.rest) === side)
+    .sort((a, b) => Math.abs(a - t.rest) - Math.abs(b - t.rest));
+  const a = Math.abs(v - t.rest);
+  return (x: number, y: number): Point => {
+    if (knots.length === 0) return [0, 0];
+    const at = (k: number) => latticeAt(t, t.stops.get(k)!, x, y);
+    let lo = 0;
+    let loVal: Point = [0, 0];
+    for (const k of knots) {
+      const hi = Math.abs(k - t.rest);
+      const hiVal = at(k);
+      if (a <= hi + SAME_STOP) {
+        const f = hi - lo > 0 ? Math.min(1, (a - lo) / (hi - lo)) : 1;
+        return [
+          loVal[0] + (hiVal[0] - loVal[0]) * f,
+          loVal[1] + (hiVal[1] - loVal[1]) * f,
+        ];
+      }
+      lo = hi;
+      loVal = hiVal;
+    }
+    return loVal;
+  };
+}
+
+const apply = (m: Affine, x: number, y: number): Point => [
+  m[0] * x + m[2] * y + m[4],
+  m[1] * x + m[3] * y + m[5],
+];
+
+function invert(m: Affine): Affine {
+  const det = m[0] * m[3] - m[1] * m[2];
+  const a = m[3] / det;
+  const b = -m[1] / det;
+  const c = -m[2] / det;
+  const d = m[0] / det;
+  return [a, b, c, d, -(a * m[4] + c * m[5]), -(b * m[4] + d * m[5])];
+}
+
+/** Replaces the mesh of a part with the chosen grid over its rest box: the
+ *  same box and the same UV map, so the rest picture is as it was. */
+function remesh(
+  part: IkiPart,
+  entry: CustomPart,
+  choice: MeshChoice,
+  canvas: { width: number; height: number },
+) {
+  const b = boxOfPixels(entry.layer.bbox, canvas.width, canvas.height);
+  if ("cellPx" in choice) {
+    part.mesh = gridMesh(
+      Math.max(1, Math.round(bw(b) / choice.cellPx)),
+      Math.max(1, Math.round(bh(b) / choice.cellPx)),
+    );
+    return;
+  }
+  const xs = Array.from(
+    { length: choice.cols + 1 },
+    (_, c) => b.x0 + (bw(b) * c) / choice.cols,
+  );
+  part.mesh = columnMesh(b, {
+    xs,
+    ys: choice.rows.map((y) => canvas.height / 2 - y),
+  });
+}
+
+/**
+ * Writes the parsed bakes into the built custom `parts` (in place): re-meshes
+ * the parts named in `meshes`, then one warp per part and parameter, keyforms
+ * at the parameter's rest (zeros) and at every stop its targets use.
+ *
+ * A stop's value is the part's TOTAL landed displacement in canvas px, so the
+ * head's own carry is inside it. The part's local offsets that land it there
+ * are solved in closed form: with W0 the head's world at rest and W its world
+ * with the parameter at the stop, a vertex's local position is
+ * W⁻¹ · (W0 · rest + wanted), and its offset is that minus its rest position.
+ */
+export function applyBakes(
+  parsed: ParsedBakes,
+  parts: IkiPart[],
+  entries: readonly CustomPart[],
+  ctx: {
+    canvas: { width: number; height: number };
+    deformers: IkiDeformer[];
+    parameters: IkiParameter[];
+    faceWidth: number;
+  },
+): BakeReport[] {
+  const { canvas, deformers, parameters, faceWidth } = ctx;
+  const partOf = (id: string) => parts.find((p) => p.id === id)!;
+  const entryOf = (id: string) => entries.find((e) => e.id === id)!;
+
+  for (const [id, choice] of parsed.meshes) {
+    remesh(partOf(id), entryOf(id), choice, canvas);
+  }
+
+  const ids = [...new Set(parsed.targets.flatMap((t) => t.parts))];
+  const reports: BakeReport[] = [];
+  for (const id of ids) {
+    const part = partOf(id);
+    const n = part.mesh!.vertices.length / 2;
+    const own = parsed.targets.filter((t) => t.parts.includes(id));
+    const w0 = matrixWorldAt(deformers, parameters, part.deformer!);
+    // A vertex's place in the part's own model-space frame, and where it
+    // rests in the canvas.
+    const local: Point[] = [];
+    const restModel: Point[] = [];
+    const restCanvas: Point[] = [];
+    for (let i = 0; i < n; i++) {
+      const p: Point = [
+        part.transform.x + part.mesh!.vertices[i * 2] * part.width,
+        part.transform.y + part.mesh!.vertices[i * 2 + 1] * part.height,
+      ];
+      const r = apply(w0, p[0], p[1]);
+      local.push(p);
+      restModel.push(r);
+      restCanvas.push([r[0] + canvas.width / 2, canvas.height / 2 - r[1]]);
+    }
+
+    for (const param of [...new Set(own.map((t) => t.param))]) {
+      const targets = own.filter((t) => t.param === param);
+      const rest = targets[0].rest;
+      const stops: number[] = [];
+      for (const v of targets
+        .flatMap((t) => [...t.stops.keys()])
+        .sort((a, b) => a - b)) {
+        if (stops.length === 0 || v - stops[stops.length - 1] > SAME_STOP) {
+          stops.push(v);
+        }
+      }
+
+      const keyforms = [{ value: rest, offsets: new Array(2 * n).fill(0) }];
+      const wanted: number[][] = [];
+      for (const v of stops) {
+        const disp = new Array<number>(2 * n).fill(0);
+        const fields = targets.map((t) => targetField(t, v));
+        for (let i = 0; i < n; i++) {
+          for (const field of fields) {
+            const [dx, dy] = field(restCanvas[i][0], restCanvas[i][1]);
+            disp[i * 2] += dx;
+            disp[i * 2 + 1] += dy;
+          }
+        }
+        wanted.push(disp);
+
+        if (entryOf(id).rigid === true) {
+          const moved = restCanvas.map(
+            (p, i) => [p[0] + disp[i * 2], p[1] + disp[i * 2 + 1]] as Point,
+          );
+          const bend = rigidResidual(restCanvas, moved);
+          if (bend > RIGID_BEND * faceWidth) {
+            const names = targets
+              .map(
+                (t) =>
+                  `bakes.targets[${parsed.targets.indexOf(t)}] ("${t.id}")`,
+              )
+              .join(", ");
+            throw new BakeError(
+              `${names}: "${id}" is rigid, but at ${param} ${v} these targets together bend it by ${bend.toFixed(2)} px, over the ${(RIGID_BEND * faceWidth).toFixed(2)} px a rigid part may bend (${RIGID_BEND} face widths): give every control point one displacement, or a rotation`,
+            );
+          }
+        }
+
+        const inv = invert(
+          matrixWorldAt(deformers, parameters, part.deformer!, { [param]: v }),
+        );
+        const offsets: number[] = [];
+        for (let i = 0; i < n; i++) {
+          const [px, py] = apply(
+            inv,
+            restModel[i][0] + disp[i * 2],
+            restModel[i][1] - disp[i * 2 + 1],
+          );
+          offsets.push(
+            roundTo((px - local[i][0]) / part.width, OFFSET_STEP),
+            roundTo((py - local[i][1]) / part.height, OFFSET_STEP),
+          );
+        }
+        keyforms.push({ value: v, offsets });
+      }
+      keyforms.sort((a, b) => a.value - b.value);
+      part.warps = [...(part.warps ?? []), { parameter: param, keyforms }];
+      reports.push({ part: id, param, stops, vertexCount: n, wanted });
+    }
+  }
+  return reports;
 }

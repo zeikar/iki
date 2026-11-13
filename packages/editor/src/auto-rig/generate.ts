@@ -64,6 +64,7 @@ import { renderedLander, sideIrises, solveContext } from "./context";
 import { buildHeadFrame, type HeadFrame } from "./head";
 import { buildFaceMesh, type Region } from "./face-mesh";
 import { applyPatches } from "./patches";
+import { applyBakes, parseBakes } from "./bakes";
 import { buildCustomParts, checkCustomParts } from "./custom-parts";
 import {
   bh,
@@ -146,7 +147,11 @@ import {
   styleRemovedMessage,
   type ResolvedRigPlan,
 } from "./rig-plan";
-import { type GenerateOptions, type LayerInput } from "./types";
+import {
+  type BakeReport,
+  type GenerateOptions,
+  type LayerInput,
+} from "./types";
 
 /** Mesh cells per role. The plate's head island carries the chin's lead and
  *  the jaw's narrowing; the hair only sways and hangs. */
@@ -214,6 +219,12 @@ export function generateIkiFromLayerSet(
     !(Array.isArray(options.customParts) && options.customParts.length === 0)
       ? checkCustomParts(options.customParts, byRole, canvas)
       : [];
+  const parameters = declareParameters(new Set(byRole.keys()));
+  // Parsed here so a bad input fails before any rigging, as `customParts` does.
+  const bakes =
+    options.bakes === undefined
+      ? undefined
+      : parseBakes(options.bakes, entries, parameters);
   checkStrandEdges(
     options.strandEdges,
     sideIrises(byRole),
@@ -408,7 +419,6 @@ export function generateIkiFromLayerSet(
     ];
   }
 
-  const parameters = declareParameters(new Set(byRole.keys()));
   // Every keyform is baked by now, and the model and the turn report below
   // read these same arrays, so both describe the patched rig.
   const reports =
@@ -423,6 +433,15 @@ export function generateIkiFromLayerSet(
           faceWidth: byRole.get("face")!.cropW,
           parameters,
         });
+  // Built before the model literal: the bake solves through the head's chain.
+  const deformerList = deformers(
+    frame,
+    grids,
+    bodyWarp?.deformer,
+    arms,
+    byRole,
+  );
+  let bakeReports: BakeReport[] | undefined;
   // Built after the patch replay and the role loops above: they look every
   // part up by role, and a custom part has none.
   if (entries.length > 0) {
@@ -438,6 +457,14 @@ export function generateIkiFromLayerSet(
     parts.forEach((p, i) => {
       p.order = i;
     });
+    if (bakes !== undefined) {
+      bakeReports = applyBakes(bakes, built, entries, {
+        canvas,
+        deformers: deformerList,
+        parameters,
+        faceWidth: byRole.get("face")!.cropW,
+      });
+    }
   }
   const model: IkiModel = {
     version: IKI_FORMAT_VERSION,
@@ -445,7 +472,7 @@ export function generateIkiFromLayerSet(
     canvas: { width: canvas.width, height: canvas.height },
     parameters,
     parts,
-    deformers: deformers(frame, grids, bodyWarp?.deformer, arms, byRole),
+    deformers: deformerList,
     ...(has("hair_front") ? { physics: hairPhysics(has("hair_back")) } : {}),
     expressions: defaultExpressions(new Set(parameters.map((p) => p.id))),
     motions: defaultMotions(new Set(parameters.map((p) => p.id))),
@@ -454,6 +481,7 @@ export function generateIkiFromLayerSet(
   // Reported only for a model that validates.
   const valid = parseIkiModel(model);
   if (reports !== undefined) options.onPatchesApplied?.(reports);
+  if (bakeReports !== undefined) options.onBakesApplied?.(bakeReports);
   options.onRigPlanResolved?.(
     rigPlanReport(options.rigPlan ?? {}, plan, targets, fit),
   );

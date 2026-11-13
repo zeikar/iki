@@ -75,6 +75,7 @@ export {
   createGridMesh,
 } from "./factories";
 export {
+  BakeError,
   CustomPartError,
   DEFAULT_TURN_TARGETS,
   LayerGeometryError,
@@ -95,8 +96,11 @@ export {
   mouthRestShift,
   parseLayerRoles,
   partIdsOfRole,
+  rigidResidual,
   styleRemovedMessage,
   type ArmGeometry,
+  type BakeReport,
+  type BakeTarget,
   type CustomPart,
   type ForearmPoseGeometry,
   type HairSideRoom,
@@ -107,6 +111,7 @@ export {
   type Opening,
   type OpeningColumn,
   type PatchReport,
+  type RigBakes,
   type RigPatch,
   type RigPlan,
   type RigPlanField,

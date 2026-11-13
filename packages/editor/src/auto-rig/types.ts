@@ -290,6 +290,9 @@ export interface CustomPart {
   /** The matrix deformer it hangs on; only `headDeformer` (the default) is
    *  accepted. */
   deformer?: string;
+  /** The art does not bend (a hairpin, a ribbon): a bake that bends it more
+   *  than 0.0025 face widths at a stop is refused (`BakeError`). */
+  rigid?: boolean;
 }
 
 /** A `customParts` entry that is malformed or misses the layer set. Its
@@ -355,6 +358,20 @@ export interface RigBakes {
   >;
 }
 
+/** What a bake asked of one custom part on one parameter, for a caller that
+ *  checks the landing. */
+export interface BakeReport {
+  part: string;
+  param: string;
+  /** The stops written, ascending (rest, implicit, not among them). */
+  stops: number[];
+  vertexCount: number;
+  /** Per stop, in `stops` order: each vertex's wanted displacement from rest,
+   *  `[dx0, dy0, dx1, dy1, ...]` in canvas px (y down), before the offsets
+   *  were rounded. */
+  wanted: number[][];
+}
+
 /** A `bakes` input that is malformed or misses the model. Its message starts
  *  with the path of the field (`bakes.targets[2].stops["30"][7]`,
  *  `bakes.meshes.tail_R.rows[0]`). */
@@ -388,6 +405,13 @@ export interface GenerateOptions {
    *  from their own layers, hung on the head. Every entry is checked first
    *  (`CustomPartError`). */
   customParts?: CustomPart[];
+  /** Lattices that move the custom parts when a parameter does (`RigBakes`):
+   *  written as warps on the parts, after the patches. A refused input throws
+   *  `BakeError` and rigs nothing. */
+  bakes?: RigBakes;
+  /** What `bakes` asked of each custom part and parameter — called only when
+   *  `bakes` is given, and only for a model that validates. */
+  onBakesApplied?: (report: BakeReport[]) => void;
   /** What each of `patches` moved, in order — called only when `patches` is
    *  given, and only for a model that validates. */
   onPatchesApplied?: (report: PatchReport[]) => void;
