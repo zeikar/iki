@@ -28,16 +28,20 @@ export interface ProfileValues {
   noseDepth: number;
   /** AngleX: the front hair rides the face at this share of its slide. */
   hairFollow: number;
-  /** AngleX: the far eye and the far ear narrow to 1 − fore of their width,
-   *  the near eye widens to 1 + fore / 2; each eye's and brow's lead scales
-   *  with its eye's width. */
+  /** AngleX: the far eye narrows to 1 − fore of its width, the near eye
+   *  widens to 1 + fore / 2; each eye's and brow's lead scales with its eye's
+   *  width. */
   fore: number;
   /** The back hair takes this share of the plate's motion: against it on the
    *  turn, with it on the nod. */
   backShare: number;
   /** AngleX: the far ear's outer edge moves this share of the plate's slide
-   *  (the near ear rides the head). */
+   *  (the near ear rides the head). At 0 it holds still and the head slides
+   *  over the ear. */
   earFar: number;
+  /** AngleX: the far ear narrows to 1 − earFore of its width, about its
+   *  outer edge. */
+  earFore: number;
   /** AngleY −30 (looking down): the plate's top drops this far, hh. */
   nodDown: number;
   /** AngleY +30 (looking up): the plate rises this far, whole, hh. */
@@ -89,7 +93,10 @@ export interface ProfileValues {
 /** The values. The head's, `slide` to `blushRest`: round numbers picked by
  *  eye on our own characters (Bob and the long-haired one), each against its
  *  neighbours on a coarse grid in a blind A/B judged by a fresh agent and by
- *  us (2026-10); `AUTO-RIG.md` has the record. The six body values,
+ *  us (2026-10); `AUTO-RIG.md` has the record. The two ear values, `earFar`
+ *  and `earFore`, were picked again by eye on the twin-tailed character
+ *  (2026-11): the far ear goes half under the face at a full turn. The six
+ *  body values,
  *  `bodySlide` to `bodyFollowZ`, are provisional: our own but not yet picked
  *  by eye, which they will be on Bob's full body (full-body slice 3), never
  *  off a sample. */
@@ -100,7 +107,8 @@ export const PROFILE_VALUES: ProfileValues = {
   hairFollow: 1,
   fore: 0.2,
   backShare: 0.1,
-  earFar: 0.5,
+  earFar: 0,
+  earFore: 0.1,
   nodDown: 0.18,
   nodUp: 0.1,
   nodLead: 0.06,
@@ -170,7 +178,7 @@ export function deriveProfile(v: ProfileValues) {
     earNear: 1,
     /** The far ear's width at full turn, about its outer edge, where the head
      *  leaves it room; less where it does not. */
-    earFarScale: 1 - v.fore,
+    earFarScale: 1 - v.earFore,
   };
   // The plate's nod halfway between its top and the chin, looking down.
   const mid = (v.nodDown * (1 + v.chinShare)) / 2;

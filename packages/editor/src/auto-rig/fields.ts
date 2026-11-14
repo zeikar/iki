@@ -147,10 +147,11 @@ export function faceField(m: TurnModel): Field {
 
 /**
  * The ears the plate paints: on the head, but behind the face, so they lag
- * its slide, and nod with it. The far one's outer edge lags most, and the
- * ear narrows about it (to `earFarScale` of its width at a full turn, where
- * the head leaves it room): its root follows the head further, sliding a
- * little under the cheek, but never further than the head moves on the line
+ * its slide, and nod with it. The far one's outer edge lags most (at the
+ * profile's `earFar` of 0 it holds, and the head slides over the ear), and
+ * the ear narrows about it (to `earFarScale` of its width at a full turn,
+ * where the head leaves it room): its root follows the head a little, under
+ * the cheek, but never further than the head moves on the line
  * under the ear — so where the head leaves less room, it narrows less — and
  * its tucked strip no further than the head over it, so it stays covered. The
  * turn solve keeps the head moving at least as far on that line as the

@@ -78,7 +78,7 @@ edge further outside the back hair painted behind it than the nod alone does —
 and the back hair stays behind; the neck and the
 ears the face layer paints are cut off into islands of the plate's own mesh,
 drawn behind the head — the neck stays (only the chin's shade slides across
-it), the ears lag the face, the far one narrowing. AngleZ rolls the head 14° about the chin.
+it), the ears lag the face, the far one held while the head slides partly over it (about half of an ear of the default size). AngleZ rolls the head 14° about the chin.
 A `body` rides a body warp that breathes, follows the head's turn and tilt a
 little and turns on `ParamBodyAngleX/Y/Z`, its legs planted, and the head
 hangs from it. `arm_L` / `arm_R`, each a whole arm drawn hanging with its

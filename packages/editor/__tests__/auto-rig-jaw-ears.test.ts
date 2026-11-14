@@ -336,12 +336,14 @@ describe("the ears", () => {
   });
 
   it("keeps the far ear's tucked strip under the head", () => {
-    // Without hair at silhouetteRatio 0.9 the plate narrows, so the head
-    // moves barely past the ear's outer edge on the line under it: the root
-    // is held there, short of the ear's full narrowing.
+    // Without hair the plate narrows. At silhouetteRatio 0.9 the head still
+    // moves well past the ear's held outer edge on the line under it; at a
+    // shellScale of 0.8 the solve stops the narrowing where the head barely
+    // moves there, so the root is held, short of the ear's full narrowing.
     for (const { m, frame } of [
       withEars(),
       withEars({ hair: false }, { silhouetteRatio: 0.9 }),
+      withEars({ hair: false }, { silhouetteRatio: shellRatio(0.8) }),
     ]) {
       const ears = frame.ears!;
       const ear = withoutHead(m);
@@ -394,10 +396,12 @@ describe("the ears", () => {
 
   it("moves the far ear's tucked strip no further than the head over it", () => {
     // Without hair at a shellScale of 0.94 the plate narrows on the turn
-    // slower than the far ear does, while the head still moves well past
-    // the ear's outer edge on the line under it; at 0.8 (the narrowest) the
-    // solve limits the narrowing to where the head there still moves as far
-    // as that edge.
+    // while the head still moves well past the ear's held outer edge on the
+    // line under it; at 0.8 (the narrowest) the solve limits the narrowing
+    // to where the head there does not move back off that edge. With the
+    // edge held (`earFar` 0) the head covers the strip's inner end with room
+    // to spare in both, so the cap on the strip does not bind here: this
+    // guards it for an outer edge that moves.
     for (const { m, frame } of [
       withEars(),
       withEars({ hair: false }, { silhouetteRatio: shellRatio(0.94) }),
@@ -438,9 +442,9 @@ describe("the ears", () => {
     }
   });
 
-  it("narrows a fitted silhouette only as far as the head still covers the far ear's slide", () => {
+  it("narrows a fitted silhouette only as far as the head does not move back off the far ear", () => {
     // Without hair at a shellScale of 0.8 the plate would narrow so much
-    // that on the line under the ear the head moved less than the ear's
+    // that on the line under the ear the head moved back off the ear's held
     // outer edge: the solve stops short, and says so.
     const { m, frame, report } = withEars(
       { hair: false },
@@ -454,7 +458,8 @@ describe("the ears", () => {
     const ear = withoutHead(m);
     for (const ax of [-30, 30]) {
       const s = Math.sign(ax);
-      // The outer edge keeps its TURN.earFar of the plate's slide (row 85).
+      // The outer edge keeps its TURN.earFar of the plate's slide (row 85):
+      // it holds.
       const far = frame.axisX + s * (ears.outer - 0.5);
       const rim = landedXAt(m, "face", far, 85, X30(ax)) - far;
       const plate = landedXAt(m, "face", 0.5, 85, X30(ax)) - 0.5;
