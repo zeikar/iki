@@ -1,5 +1,6 @@
 import type {
   IkiModel,
+  IkiOcclusion,
   IkiParameter,
   IkiPart,
   IkiWarp,
@@ -15,6 +16,7 @@ import {
   translate,
 } from "./affine";
 import { evaluateTransform, resolveDeformers } from "./deform";
+import { occlusionAmount } from "./occlusion";
 import { checkedView, projectView, type IkiView } from "./view";
 import { applyWarps } from "./warp";
 import { applyWarpToChild, type ResolvedWarpGrid } from "./warp-grid";
@@ -94,7 +96,7 @@ export class IkiPlayer {
   private readonly uAlphaCutoff: WebGLUniformLocation;
   private readonly aPos: number;
   private readonly aUv: number;
-  /** True when the context granted a stencil buffer; clipping needs it. */
+  /** True when the context granted a stencil buffer; clipping and occlusion need it. */
   private readonly stencilAvailable: boolean;
 
   private model?: IkiModel;
@@ -121,6 +123,15 @@ export class IkiPlayer {
    * → its mask part indices. A part absent from this map is unclipped.
    */
   private partClipGroups = new Map<number, number[]>();
+  /**
+   * Occlusion resolved once per `load()`: occluded part index → its occluders'
+   * part indices and its field. Empty for a model without the field, and then
+   * the frame loop does no per-part lookup.
+   */
+  private partOcclusions = new Map<
+    number,
+    { occluders: number[]; occlusion: IkiOcclusion }
+  >();
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", {
@@ -134,7 +145,7 @@ export class IkiPlayer {
       // and composite too dark.
       premultipliedAlpha: true,
       // Stencil buffer backs clip masks (a part rendered only inside its masks'
-      // coverage). Granted by every modern browser; the load() guard reports if not.
+      // coverage) and occlusion (a part hidden inside its occluders'). Granted by every modern browser; the load() guard reports if not.
       stencil: true,
     });
     if (!gl) throw new Error("WebGL2 is not available in this browser");
@@ -446,9 +457,28 @@ export class IkiPlayer {
         .filter((mi): mi is number => mi !== undefined);
       if (maskIndices.length > 0) nextClipGroups.set(i, maskIndices);
     }
+    const nextOcclusions = new Map<
+      number,
+      { occluders: number[]; occlusion: IkiOcclusion }
+    >();
+    for (let i = 0; i < nextParts.length; i++) {
+      const occlusion = nextParts[i].occlusion;
+      if (!occlusion) continue;
+      const occluders = occlusion.by
+        .map((id) => indexById.get(id))
+        .filter((oi): oi is number => oi !== undefined);
+      if (occluders.length > 0) {
+        nextOcclusions.set(i, { occluders, occlusion });
+      }
+    }
     if (nextClipGroups.size > 0 && !this.stencilAvailable) {
       console.error(
         "Iki: model uses clip masks but this WebGL2 context has no stencil buffer; rendering unclipped",
+      );
+    }
+    if (nextOcclusions.size > 0 && !this.stencilAvailable) {
+      console.error(
+        "Iki: model uses occlusion but this WebGL2 context has no stencil buffer; rendering unhidden",
       );
     }
 
@@ -465,6 +495,7 @@ export class IkiPlayer {
     this.parts = nextParts;
     this.partMeshes = nextPartMeshes;
     this.partClipGroups = nextClipGroups;
+    this.partOcclusions = nextOcclusions;
     this.textures = uploaded;
 
     return {
@@ -620,10 +651,79 @@ export class IkiPlayer {
           warpGrids,
         );
       } else {
-        // Unclipped (or stencil unavailable — load() already reported it).
-        this.drawPart(index, project, deformerWorlds, warpGrids);
+        const occlusion =
+          this.partOcclusions.size > 0
+            ? this.partOcclusions.get(index)
+            : undefined;
+        const amount =
+          occlusion && this.stencilAvailable
+            ? occlusionAmount(
+                occlusion.occlusion,
+                this.params.get(occlusion.occlusion.parameter),
+              )
+            : 0;
+        if (occlusion && amount > 0) {
+          this.drawOccluded(
+            index,
+            occlusion.occluders,
+            amount,
+            project,
+            deformerWorlds,
+            warpGrids,
+          );
+        } else {
+          // Unclipped (or stencil unavailable — load() already reported it).
+          this.drawPart(index, project, deformerWorlds, warpGrids);
+        }
       }
     }
+  }
+
+  /**
+   * Draw an occluded part: stencil the union of its occluders' coverage (as a
+   * mask's, colour-free, at the half-opaque contour), then draw the part once
+   * outside it at full strength and, when the amount is under 1, once inside
+   * it at `1 − amount`. Each sample gets exactly one copy, so there is no seam
+   * and nothing of the part shows through an occluder's translucent pixels.
+   * Restores the same state as {@link drawClipped}.
+   */
+  private drawOccluded(
+    index: number,
+    occluderIndices: number[],
+    amount: number,
+    project: Affine,
+    deformerWorlds: Map<string, Affine> | undefined,
+    warpGrids: Map<string, ResolvedWarpGrid> | undefined,
+  ): void {
+    const { gl } = this;
+
+    gl.clear(gl.STENCIL_BUFFER_BIT);
+    gl.enable(gl.STENCIL_TEST);
+    gl.colorMask(false, false, false, false);
+    gl.stencilMask(0xff);
+    gl.stencilFunc(gl.ALWAYS, 1, 0xff);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
+    gl.uniform1f(this.uAlphaCutoff, MASK_ALPHA_CUTOFF);
+    for (const occluderIndex of occluderIndices) {
+      this.drawPart(occluderIndex, project, deformerWorlds, warpGrids);
+    }
+
+    gl.uniform1f(this.uAlphaCutoff, 0);
+    gl.colorMask(true, true, true, true);
+
+    gl.stencilMask(0x00);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+    gl.stencilFunc(gl.NOTEQUAL, 1, 0xff);
+    this.drawPart(index, project, deformerWorlds, warpGrids);
+    if (amount < 1) {
+      gl.stencilFunc(gl.EQUAL, 1, 0xff);
+      this.drawPart(index, project, deformerWorlds, warpGrids, 1 - amount);
+    }
+
+    gl.disable(gl.STENCIL_TEST);
+    gl.stencilMask(0xff);
+    gl.stencilFunc(gl.ALWAYS, 0, 0xff);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
   }
 
   /**
@@ -675,15 +775,18 @@ export class IkiPlayer {
 
   /**
    * Draw a single part with its full per-part material + geometry state. Shared
-   * by the normal pass, the stencil mask-write pass, and the masked consumer
-   * draw — so every path prepares the SAME complete uniform/texture/VBO state
-   * (the caller only sets stencil/colorMask/u_alphaCutoff around it).
+   * by the normal pass, the stencil coverage-write passes (clip masks and
+   * occluders), the masked consumer draw and the occluded draws — so every path
+   * prepares the SAME complete uniform/texture/VBO state (the caller only sets
+   * stencil/colorMask/u_alphaCutoff around it). `fade` scales the part's alpha
+   * (an occluded part inside its coverage draws at `1 − amount`).
    */
   private drawPart(
     index: number,
     project: Affine,
     deformerWorlds: Map<string, Affine> | undefined,
     warpGrids: Map<string, ResolvedWarpGrid> | undefined,
+    fade = 1,
   ): void {
     const { gl } = this;
     const part = this.parts[index];
@@ -721,7 +824,7 @@ export class IkiPlayer {
 
     const [r, g, b, a] = part.color;
     gl.uniformMatrix3fv(this.uMatrix, false, toMat3(m));
-    gl.uniform4f(this.uColor, r, g, b, a * t.opacity);
+    gl.uniform4f(this.uColor, r, g, b, a * t.opacity * fade);
 
     if (part.texture && texture) {
       const { uv } = part.texture;

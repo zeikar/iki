@@ -65,6 +65,7 @@ values, `setView` throws on a non-finite centre or a non-positive size.
 | `foldPoses`                                      | The `FoldPose[]` `checkFolds` checks by default: rest, every parameter's extremes, angle corners × eyes/mouth/arms  |
 | `checkPhysics`                                   | A report-only `PhysicsReport`: per rig and chain segment, ok / frozen / unstable, step and idle amplitude, px moved |
 | `landParts`                                      | Where named parts land at a pose, model space, by the renderer's own path (for a host's geometry readouts)          |
+| `occlusionAmount`                                | How far an `occlusion` hides a part at a parameter value (what the player draws)                                    |
 | `translate` `rotate` `scale` `multiply` `toMat3` | The 2D affine helpers the engine itself uses                                                                        |
 
 ## Motion drivers
@@ -178,6 +179,10 @@ still drive it.
   masks, so a part outside the box shows if the view leaves room for it.
 - Clipping masks use the stencil buffer. If the context grants no stencil, the
   affected parts render unclipped and `load()` logs it.
+- Occlusion (`IkiPart.occlusion`) uses the stencil buffer the same way: the
+  occluders' coverage is cut at their half-opaque contour, and the part is drawn
+  outside it at full strength and inside it at `1 − amount`. Without a stencil
+  buffer the part draws unhidden and `load()` logs it.
 - Textures are decoded from `data:` URIs only; external URLs are skipped with a
   warning (a resolver is not part of v1).
 - Atlas authors should pad / extrude sub-rect borders to avoid LINEAR-filter
