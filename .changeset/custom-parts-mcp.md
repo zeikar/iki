@@ -1,5 +1,0 @@
----
-"@ikijs/mcp": minor
----
-
-`auto_rig_from_layers` takes `customParts`, parts the auto-rigger has no role for (twin tails, a hairpin), each `{ id, path, anchor, tie, after, deformer? }` with `path` a canvas-sized PNG. A custom layer is never role-parsed or measured, so its name is free and it does not widen the head the turn is fitted to; it counts toward the layer and pixel limits. All custom parts share one extra atlas page, the last, quantized on a palette of its own, so the other pages keep their bytes. The result carries `customParts` (`parts`: `id`, `box`, `mesh`, `order`, `page`, present whenever the input was passed, `[]` included) and one `CUSTOM <id>: …` line per part after the `HAIRSIDE` lines. An empty or wrong-size layer, or an entry the rig refuses, is `INVALID: customParts[i]…` and writes nothing. A rig without `customParts` (absent or `[]`) writes the same file as before. `measure_turn_reference` now says a pair showing a custom part across the eye row reads a wider head than the rig fits to.

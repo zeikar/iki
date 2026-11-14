@@ -1,5 +1,12 @@
 # @ikijs/editor
 
+## 0.31.0
+
+### Minor Changes
+
+- 4fdc0fa: `options.bakes` writes the warps of a custom part from control lattices: per parameter, a lattice of displacements at each stop, read at every vertex and solved in closed form through the head's frame, so the part lands where it was asked within 0.01 px at rest, at each stop and at an end key written at the range end of a side holding its outermost stop; between keys it is interpolated, and under the head's roll it bows off the straight line. A stop is the part's total landed displacement; the head's own carry is inside it and is not counted twice. `meshes` re-meshes a custom part first, with the same box and UV map. `CustomPart.rigid` marks art that does not bend: a stop that bends it by more than 0.0025 face widths throws `BakeError`. `options.onBakesApplied` reports what each part and parameter was asked, for a model that validates. `RigBakes`, `BakeTarget`, `BakeReport`, `BakeError` and `rigidResidual` are exported. A set rigged without `bakes` is byte-identical.
+- ea02df5: `options.customParts` adds a part the auto-rigger has no role for (twin tails, a hairpin). Each entry names its own layer, an `anchor` role, a `tie` point and the role it is drawn `after`; the part joins the model unrigged, on `headDeformer`, with a plain grid mesh, and nothing else in the model changes but the `order` of each part drawn after an inserted one. A malformed entry throws `CustomPartError`, path-qualified. `CustomPart` and `CustomPartError` are exported. A set rigged without `customParts` (absent or empty) is byte-identical.
+
 ## 0.30.1
 
 ### Patch Changes
