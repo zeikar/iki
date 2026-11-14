@@ -78,8 +78,9 @@ const model: IkiModel = {
 
 Beyond flat parts the schema also carries triangle meshes with per-vertex UV,
 per-vertex and per-control-point warp keyforms (1D and 2D parameter grids),
-matrix and warp deformer hierarchies, clipping masks, spring/chain physics
-rigs, and named expressions and motion clips for a host to play. See [`src/types.ts`](https://github.com/zeikar/iki/tree/main/packages/format/src/types.ts) and [`src/animations.ts`](https://github.com/zeikar/iki/tree/main/packages/format/src/animations.ts) — every field is documented there.
+matrix and warp deformer hierarchies, clipping masks, occlusion (a part hidden
+where other parts cover it, by an amount keyed on a parameter), spring/chain
+physics rigs, and named expressions and motion clips for a host to play. See [`src/types.ts`](https://github.com/zeikar/iki/tree/main/packages/format/src/types.ts) and [`src/animations.ts`](https://github.com/zeikar/iki/tree/main/packages/format/src/animations.ts) — every field is documented there.
 
 ### Expressions and motions
 

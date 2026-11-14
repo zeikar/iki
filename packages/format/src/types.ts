@@ -126,6 +126,23 @@ export interface IkiTransform {
   opacity?: number;
 }
 
+/** One stop of an {@link IkiOcclusion}: the amount at a parameter value. */
+export interface IkiOcclusionStop {
+  value: number;
+  /** 0..1: 0 leaves the part alone, 1 hides it wherever it is covered; in between, the part is drawn at 1 − amount inside the coverage. */
+  amount: number;
+}
+
+/** How far a part is hidden behind other parts, keyed on one parameter. */
+export interface IkiOcclusion {
+  /** Ids of the parts whose coverage hides this one. */
+  by: string[];
+  /** Id of the parameter that keys the amount. */
+  parameter: string;
+  /** Non-empty, strictly ascending by `value`, each inside the parameter's range. */
+  stops: IkiOcclusionStop[];
+}
+
 /** A drawable piece of the character. */
 export interface IkiPart {
   id: string;
@@ -158,10 +175,22 @@ export interface IkiPart {
    * sclera so it never spills past the eye at extreme gaze. Each id must
    * reference another part that carries a `mesh` and is not itself clipped
    * (masks are flat — no nesting). Mask parts still render normally in their
-   * own `order` slot. The object shape leaves room for additive options
-   * (e.g. `inverted`) without a breaking reshape.
+   * own `order` slot. To hide a part where others cover it instead, see
+   * `occlusion`.
    */
   clip?: { masks: string[] };
+  /**
+   * Hides this part where the `by` parts cover it, by an amount keyed on a
+   * parameter. The amount is linear between the stops and held before the
+   * first and after the last (one stop is a constant); 1 hides the part
+   * wherever the union of the occluders' coverage lies over it, 0 leaves it
+   * alone. An occluder may be drawn before or after this part: its coverage is
+   * its own drawn shape (alpha at least 0.5 at that pose), whatever is drawn
+   * over it. Each `by` id must reference another part that carries a `mesh`
+   * and is neither clipped nor itself occluded; a part is not both clipped and
+   * occluded, and a clip mask is never occluded. The parameter may not be a physics output.
+   */
+  occlusion?: IkiOcclusion;
 }
 
 /** Matrix-only subset of {@link IkiTransformChannel} — opacity is not representable as a matrix. */

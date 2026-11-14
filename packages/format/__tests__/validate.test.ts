@@ -2146,6 +2146,315 @@ describe("parseIkiModel — clip masks", () => {
   });
 });
 
+describe("parseIkiModel — occlusion", () => {
+  const tri = () => ({
+    vertices: [0, 0, 1, 0, 0, 1],
+    uvs: [0, 0, 1, 0, 0, 1],
+    indices: [0, 1, 2],
+  });
+  const meshPart = (id: string, order: number, extra: object = {}) => ({
+    id,
+    color: [1, 1, 1, 1],
+    width: 1,
+    height: 1,
+    order,
+    transform: { x: 0, y: 0 },
+    mesh: tri(),
+    ...extra,
+  });
+  const goodOcclusion = () => ({
+    by: ["head"],
+    parameter: "ParamA",
+    stops: [
+      { value: 0, amount: 0 },
+      { value: 1, amount: 1 },
+    ],
+  });
+
+  /** An occluder `head` (order 0) and a part `tail` (order 1) carrying `occlusion`. */
+  function occModel(occlusion: unknown, tailExtra: object = {}) {
+    return {
+      version: IKI_FORMAT_VERSION,
+      name: "occ",
+      canvas: { width: 100, height: 100 },
+      parameters: [{ id: "ParamA", min: -1, max: 1, default: 0 }],
+      parts: [
+        meshPart("head", 0),
+        meshPart("tail", 1, { occlusion, ...tailExtra }),
+      ],
+    };
+  }
+
+  it("accepts an occluder drawn before the part", () => {
+    const model = parseIkiModel(occModel(goodOcclusion()));
+    expect(model.parts[1].occlusion).toEqual(goodOcclusion());
+  });
+
+  it("accepts an occluder drawn after the part", () => {
+    const m = occModel(goodOcclusion());
+    (m.parts[0] as Record<string, unknown>).order = 2;
+    expect(parseIkiModel(m).parts[1].occlusion).toEqual(goodOcclusion());
+  });
+
+  it("accepts one stop alone", () => {
+    const one = { ...goodOcclusion(), stops: [{ value: 0.5, amount: 1 }] };
+    expect(parseIkiModel(occModel(one)).parts[1].occlusion).toEqual(one);
+  });
+
+  it("round-trips through loadIkiModel", () => {
+    const model = parseIkiModel(occModel(goodOcclusion()));
+    expect(loadIkiModel(JSON.stringify(model))).toEqual(model);
+  });
+
+  it("gives a part without the field no occlusion key", () => {
+    const model = parseIkiModel(occModel(undefined));
+    expect("occlusion" in model.parts[0]).toBe(false);
+    expect("occlusion" in model.parts[1]).toBe(false);
+  });
+
+  it("rejects a non-object occlusion", () => {
+    expect(() => parseIkiModel(occModel("head"))).toThrow(
+      /parts\[1\]\.occlusion must be an object/,
+    );
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["a string", "head"],
+    ["empty", []],
+  ])("rejects a `by` that is %s", (_name, by) => {
+    expect(() => parseIkiModel(occModel({ ...goodOcclusion(), by }))).toThrow(
+      /parts\[1\]\.occlusion\.by must be a non-empty array/,
+    );
+  });
+
+  it("rejects a `by` entry that is not a string", () => {
+    expect(() =>
+      parseIkiModel(occModel({ ...goodOcclusion(), by: ["head", 3] })),
+    ).toThrow(/parts\[1\]\.occlusion\.by\[1\] must be a non-empty string/);
+  });
+
+  it("rejects an undeclared parameter", () => {
+    expect(() =>
+      parseIkiModel(occModel({ ...goodOcclusion(), parameter: "Nope" })),
+    ).toThrow(
+      /parts\[1\]\.occlusion\.parameter "Nope" is not a declared parameter/,
+    );
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["a string", "0"],
+    ["empty", []],
+  ])("rejects `stops` that is %s", (_name, stops) => {
+    expect(() =>
+      parseIkiModel(occModel({ ...goodOcclusion(), stops })),
+    ).toThrow(/parts\[1\]\.occlusion\.stops must be a non-empty array/);
+  });
+
+  it("rejects a stop that is not an object", () => {
+    expect(() =>
+      parseIkiModel(occModel({ ...goodOcclusion(), stops: [0] })),
+    ).toThrow(/parts\[1\]\.occlusion\.stops\[0\] must be an object/);
+  });
+
+  it("rejects a non-finite stop value", () => {
+    expect(() =>
+      parseIkiModel(
+        occModel({
+          ...goodOcclusion(),
+          stops: [
+            { value: 0, amount: 0 },
+            { value: "1", amount: 1 },
+          ],
+        }),
+      ),
+    ).toThrow(/parts\[1\]\.occlusion\.stops\[1\]\.value must be a finite/);
+  });
+
+  it("rejects a stop value outside the parameter's range", () => {
+    expect(() =>
+      parseIkiModel(
+        occModel({
+          ...goodOcclusion(),
+          stops: [
+            { value: 0, amount: 0 },
+            { value: 2, amount: 1 },
+          ],
+        }),
+      ),
+    ).toThrow(
+      /parts\[1\]\.occlusion\.stops\[1\]\.value 2 is outside parameter "ParamA" range \[-1,1\]/,
+    );
+  });
+
+  it.each([
+    ["equal", 0],
+    ["descending", -0.5],
+  ])("rejects stop values that are %s", (_name, second) => {
+    expect(() =>
+      parseIkiModel(
+        occModel({
+          ...goodOcclusion(),
+          stops: [
+            { value: 0, amount: 0 },
+            { value: second, amount: 1 },
+          ],
+        }),
+      ),
+    ).toThrow(
+      /parts\[1\]\.occlusion\.stops\[1\]\.value must be strictly ascending/,
+    );
+  });
+
+  it("rejects a non-finite stop amount", () => {
+    expect(() =>
+      parseIkiModel(
+        occModel({ ...goodOcclusion(), stops: [{ value: 0, amount: null }] }),
+      ),
+    ).toThrow(/parts\[1\]\.occlusion\.stops\[0\]\.amount must be a finite/);
+  });
+
+  it.each([-0.1, 1.5])("rejects a stop amount of %s", (amount) => {
+    expect(() =>
+      parseIkiModel(
+        occModel({ ...goodOcclusion(), stops: [{ value: 0, amount }] }),
+      ),
+    ).toThrow(
+      /parts\[1\]\.occlusion\.stops\[0\]\.amount must be a number in 0\.\.1/,
+    );
+  });
+
+  it("rejects an occluder that is the part itself", () => {
+    expect(() =>
+      parseIkiModel(occModel({ ...goodOcclusion(), by: ["tail"] })),
+    ).toThrow(/parts\[1\]\.occlusion\.by\[0\] "tail" cannot occlude itself/);
+  });
+
+  it("rejects a repeated occluder", () => {
+    expect(() =>
+      parseIkiModel(occModel({ ...goodOcclusion(), by: ["head", "head"] })),
+    ).toThrow(/parts\[1\]\.occlusion\.by\[1\] "head" is a duplicate/);
+  });
+
+  it("rejects an occluder that is not a declared part", () => {
+    expect(() =>
+      parseIkiModel(occModel({ ...goodOcclusion(), by: ["nope"] })),
+    ).toThrow(/parts\[1\]\.occlusion\.by\[0\] "nope" is not a declared part/);
+  });
+
+  it("rejects an occluder without a mesh", () => {
+    const m = occModel(goodOcclusion());
+    delete (m.parts[0] as Record<string, unknown>).mesh;
+    expect(() => parseIkiModel(m)).toThrow(
+      /parts\[1\]\.occlusion\.by\[0\] "head" must reference a part with a mesh/,
+    );
+  });
+
+  it("rejects a clipped occluder", () => {
+    const m = {
+      ...occModel(goodOcclusion()),
+      parts: [
+        meshPart("base", 0),
+        meshPart("head", 1, { clip: { masks: ["base"] } }),
+        meshPart("tail", 2, { occlusion: goodOcclusion() }),
+      ],
+    };
+    expect(() => parseIkiModel(m)).toThrow(
+      /parts\[2\]\.occlusion\.by\[0\] "head" is clipped/,
+    );
+  });
+
+  it("rejects an occluder that is itself occluded", () => {
+    const m = {
+      ...occModel(goodOcclusion()),
+      parts: [
+        meshPart("base", 0),
+        meshPart("head", 1, {
+          occlusion: { ...goodOcclusion(), by: ["base"] },
+        }),
+        meshPart("tail", 2, { occlusion: goodOcclusion() }),
+      ],
+    };
+    expect(() => parseIkiModel(m)).toThrow(
+      /parts\[2\]\.occlusion\.by\[0\] "head" is itself occluded/,
+    );
+  });
+
+  it("rejects a part that is both clipped and occluded", () => {
+    const m = occModel(goodOcclusion(), { clip: { masks: ["head"] } });
+    expect(() => parseIkiModel(m)).toThrow(
+      /parts\[1\]\.occlusion cannot be combined with parts\[1\]\.clip/,
+    );
+  });
+
+  it("rejects an occlusion on a part that is a clip mask", () => {
+    const m = {
+      ...occModel(goodOcclusion()),
+      parts: [
+        meshPart("head", 0),
+        meshPart("tail", 1, { occlusion: goodOcclusion() }),
+        meshPart("iris", 2, { clip: { masks: ["tail"] } }),
+      ],
+    };
+    expect(() => parseIkiModel(m)).toThrow(
+      /parts\[1\]\.occlusion cannot be declared on a clip mask \(parts\[2\]\.clip uses it\)/,
+    );
+  });
+
+  it("rejects a parameter that is a physics rig's output", () => {
+    const m = {
+      ...occModel(goodOcclusion()),
+      parameters: [
+        { id: "ParamA", min: -1, max: 1, default: 0 },
+        { id: "ParamIn", min: -1, max: 1, default: 0 },
+      ],
+      physics: [
+        {
+          id: "rig",
+          input: { parameter: "ParamIn", weight: 1 },
+          output: { parameter: "ParamA", scale: 1 },
+          stiffness: 20,
+          damping: 4,
+          mass: 1,
+        },
+      ],
+    };
+    expect(() => parseIkiModel(m)).toThrow(
+      /parts\[1\]\.occlusion\.parameter "ParamA" is a physics output/,
+    );
+  });
+
+  it("rejects a parameter that is a chain segment's output", () => {
+    const m = {
+      ...occModel(goodOcclusion()),
+      parameters: [
+        { id: "ParamA", min: -1, max: 1, default: 0 },
+        { id: "ParamIn", min: -1, max: 1, default: 0 },
+      ],
+      deformers: [{ id: "root", pivot: { x: 0, y: 0 }, bindings: [] }],
+      physicsChains: [
+        {
+          id: "chain",
+          anchorDeformer: "root",
+          gravity: { angle: -90, strength: 35 },
+          segments: [
+            {
+              output: { parameter: "ParamA", scale: 1 },
+              mass: 1,
+              stiffness: 10,
+              damping: 4,
+            },
+          ],
+        },
+      ],
+    };
+    expect(() => parseIkiModel(m)).toThrow(
+      /parts\[1\]\.occlusion\.parameter "ParamA" is a physics output/,
+    );
+  });
+});
+
 describe("physics rigs", () => {
   /** A valid model declaring the two params physics rigs reference. */
   function physicsModel(physics: unknown) {

@@ -12,6 +12,7 @@ import {
   type IkiMatrixDeformer,
   type IkiMesh,
   type IkiModel,
+  type IkiOcclusion,
   type IkiParameter,
   type IkiPart,
   type IkiPhysics,
@@ -863,6 +864,52 @@ function parseDeformer(
   };
 }
 
+function parseOcclusion(
+  value: unknown,
+  path: string,
+  paramDescriptors: ReadonlyMap<string, { min: number; max: number }>,
+): IkiOcclusion {
+  if (!isObject(value)) throw new IkiFormatError(`${path} must be an object`);
+  if (!Array.isArray(value.by) || value.by.length === 0) {
+    throw new IkiFormatError(`${path}.by must be a non-empty array`);
+  }
+  const by = value.by.map((id, j) => str(id, `${path}.by[${j}]`));
+  const parameter = str(value.parameter, `${path}.parameter`);
+  const descriptor = paramDescriptors.get(parameter);
+  if (!descriptor) {
+    throw new IkiFormatError(
+      `${path}.parameter "${parameter}" is not a declared parameter`,
+    );
+  }
+  if (!Array.isArray(value.stops) || value.stops.length === 0) {
+    throw new IkiFormatError(`${path}.stops must be a non-empty array`);
+  }
+  const { min, max } = descriptor;
+  const stops = value.stops.map((stop, k) => {
+    const at = `${path}.stops[${k}]`;
+    if (!isObject(stop)) throw new IkiFormatError(`${at} must be an object`);
+    const v = num(stop.value, `${at}.value`);
+    if (v < min || v > max) {
+      throw new IkiFormatError(
+        `${at}.value ${v} is outside parameter "${parameter}" range [${min},${max}]`,
+      );
+    }
+    const amount = num(stop.amount, `${at}.amount`);
+    if (amount < 0 || amount > 1) {
+      throw new IkiFormatError(`${at}.amount must be a number in 0..1`);
+    }
+    return { value: v, amount };
+  });
+  for (let k = 1; k < stops.length; k++) {
+    if (stops[k].value <= stops[k - 1].value) {
+      throw new IkiFormatError(
+        `${path}.stops[${k}].value must be strictly ascending`,
+      );
+    }
+  }
+  return { by, parameter, stops };
+}
+
 function parsePart(
   value: unknown,
   path: string,
@@ -938,6 +985,16 @@ function parsePart(
     };
   }
 
+  // Added only when declared, so a part without it gains no key.
+  const occlusion: Pick<IkiPart, "occlusion"> = {};
+  if (value.occlusion !== undefined) {
+    occlusion.occlusion = parseOcclusion(
+      value.occlusion,
+      `${path}.occlusion`,
+      paramDescriptors,
+    );
+  }
+
   return {
     id: str(value.id, `${path}.id`),
     color: parseColor(value.color, `${path}.color`),
@@ -956,6 +1013,7 @@ function parsePart(
     mesh,
     warps,
     clip,
+    ...occlusion,
   };
 }
 
@@ -1245,13 +1303,14 @@ export function parseIkiModel(input: unknown): IkiModel {
   // Checks: rig/chain id uniqueness (shared seenIds — chain ids must be unique vs
   // flat rig ids too), output-param uniqueness (shared seenOutputs), and no output
   // may equal any input of a flat rig (feedback loops unsupported).
+  // seenOutputs ends holding every physics output; the occlusion check reads it.
+  const seenOutputs = new Set<string>();
   {
     // physicsInputIds: every input parameter of every flat rig (chains have no explicit input param)
     const physicsInputIds = new Set(
       (physics ?? []).flatMap((r) => physicsInputs(r).map((p) => p.parameter)),
     );
     const seenIds = new Set<string>();
-    const seenOutputs = new Set<string>();
 
     for (let i = 0; i < (physics ?? []).length; i++) {
       const rig = physics![i];
@@ -1346,6 +1405,72 @@ export function parseIkiModel(input: unknown): IkiModel {
         if (anchorChainParams.has(outId)) {
           throw new IkiFormatError(
             `physicsChains[${i}].segments[${j}].output.parameter "${outId}" feeds its own anchor deformer chain (feedback)`,
+          );
+        }
+      }
+    }
+  }
+
+  // Cross-check occlusion: occluders must exist, carry a mesh and be neither
+  // clipped nor themselves occluded (one stencil bit, no nesting); a part is not
+  // both clipped and occluded; a clip mask is never occluded; a physics output may not key the amount.
+  {
+    const clipMaskOf = new Map<string, number>();
+    parts.forEach((p, k) => {
+      for (const maskId of p.clip?.masks ?? []) {
+        if (!clipMaskOf.has(maskId)) clipMaskOf.set(maskId, k);
+      }
+    });
+    for (let i = 0; i < parts.length; i++) {
+      const { occlusion } = parts[i];
+      if (occlusion === undefined) continue;
+      const base = `parts[${i}].occlusion`;
+      if (parts[i].clip !== undefined) {
+        throw new IkiFormatError(
+          `${base} cannot be combined with parts[${i}].clip`,
+        );
+      }
+      const clipperIdx = clipMaskOf.get(parts[i].id);
+      if (clipperIdx !== undefined) {
+        throw new IkiFormatError(
+          `${base} cannot be declared on a clip mask (parts[${clipperIdx}].clip uses it)`,
+        );
+      }
+      if (seenOutputs.has(occlusion.parameter)) {
+        throw new IkiFormatError(
+          `${base}.parameter "${occlusion.parameter}" is a physics output; an occlusion amount cannot be keyed on one`,
+        );
+      }
+      const seen = new Set<string>();
+      for (let j = 0; j < occlusion.by.length; j++) {
+        const byId = occlusion.by[j];
+        const at = `${base}.by[${j}]`;
+        if (byId === parts[i].id) {
+          throw new IkiFormatError(`${at} "${byId}" cannot occlude itself`);
+        }
+        if (seen.has(byId)) {
+          throw new IkiFormatError(
+            `${at} "${byId}" is a duplicate occluder reference`,
+          );
+        }
+        seen.add(byId);
+        const byIdx = partIndexById.get(byId);
+        if (byIdx === undefined) {
+          throw new IkiFormatError(`${at} "${byId}" is not a declared part`);
+        }
+        if (parts[byIdx].mesh === undefined) {
+          throw new IkiFormatError(
+            `${at} "${byId}" must reference a part with a mesh`,
+          );
+        }
+        if (parts[byIdx].clip !== undefined) {
+          throw new IkiFormatError(
+            `${at} "${byId}" is clipped; a clipped part cannot occlude`,
+          );
+        }
+        if (parts[byIdx].occlusion !== undefined) {
+          throw new IkiFormatError(
+            `${at} "${byId}" is itself occluded; an occluder cannot be occluded`,
           );
         }
       }

@@ -23,6 +23,8 @@ export {
   type IkiMatrixDeformer,
   type IkiMesh,
   type IkiModel,
+  type IkiOcclusion,
+  type IkiOcclusionStop,
   type IkiParameter,
   type IkiPart,
   type IkiPhysics,
