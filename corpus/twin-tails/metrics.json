@@ -121,7 +121,7 @@
   ],
   "customParts": {
     "ok": true,
-    "poses": 887,
+    "poses": 929,
     "parts": [
       {
         "id": "tail_R",
@@ -133,12 +133,12 @@
         "tiePx": 0.037,
         "slide": {
           "px": 19.57,
-          "onAnchorPx": 1.566
+          "onAnchorPx": 4.631
         },
         "exposed": {
           "hiddenPx": 335,
           "noTurnPx2": 2,
-          "turningPx2": 20
+          "turningPx2": 32
         },
         "hidden": {
           "atRest": 0,
@@ -197,12 +197,12 @@
         "tiePx": 0.037,
         "slide": {
           "px": 18.554,
-          "onAnchorPx": 1.837
+          "onAnchorPx": 3.396
         },
         "exposed": {
           "hiddenPx": 260,
           "noTurnPx2": 2,
-          "turningPx2": 10
+          "turningPx2": 18
         },
         "hidden": {
           "atRest": 0,

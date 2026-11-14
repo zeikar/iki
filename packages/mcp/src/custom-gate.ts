@@ -378,7 +378,8 @@ function hiddenSide(
 
 /** The poses the gate reads for one part: the engine's fold poses, each of the
  *  part's own stops alone, and every combination of two baked parameters'
- *  stops (the interior ones too: the part's warps are piecewise linear and add,
+ *  stops. `baked` also carries the stops of the part's occlusion on its key
+ *  parameter (the interior ones too: the part's warps are piecewise linear and add,
  *  so a pair's sum can be worst at a stop between the ends). */
 function posesOf(
   model: IkiModel,
@@ -479,7 +480,18 @@ export function checkCustomGate(
     if (!model.parts.some((p) => p.id === part.id)) {
       throw new Error(`custom gate: the model has no part "${part.id}"`);
     }
-    return options.poses ?? posesOf(model, bakedOf(part.id), base);
+    if (options.poses) return options.poses;
+    const sampledOf = bakedOf(part.id);
+    const occ = model.parts.find((p) => p.id === part.id)!.occlusion;
+    if (occ !== undefined) {
+      // The amount is piecewise linear in its stops, so they are breakpoints
+      // of what is drawn: sample them like the part's own bake stops.
+      const at = sampledOf.get(occ.parameter) ?? [];
+      sampledOf.set(occ.parameter, [
+        ...new Set([...at, ...occ.stops.map((s) => s.value)]),
+      ]);
+    }
+    return posesOf(model, sampledOf, base);
   });
   const all = new Map(poseSets.flat().map((p) => [p.name, p]));
 
@@ -632,7 +644,8 @@ export function checkCustomGate(
         keyParam!.max,
         Math.max(keyParam!.min, values[keyParam!.id] ?? keyParam!.default),
       );
-    // The values of the key parameter this part's poses sample. A reading in
+    // The values of the key parameter this part's poses sample (its bake
+    // stops and its occlusion's stops, both in the pose set). A reading in
     // a stretch between two samples is bounded by the readings at its two
     // ends, and none is taken between them, so a pose is left out only when
     // nothing is drawn in either stretch it bounds: the amount is 1 from the

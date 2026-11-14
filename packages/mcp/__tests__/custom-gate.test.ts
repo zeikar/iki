@@ -521,8 +521,10 @@ describe("checkCustomGate: RIGID", () => {
 
 describe("checkCustomGate: what an occlusion hides", () => {
   // The fixture's pose set: rest, three parameters at min and max (6), the four
-  // ParamAngleX x ParamAngleY corners = 11; a part baked on a parameter at
-  // +-15 and +-30 adds the two +-15 poses on its own = 13.
+  // ParamAngleX x ParamAngleY corners = 11. A part baked or occluded on a
+  // parameter at +-15 and +-30 adds the two +-15 poses on their own = 13; the
+  // occlusion's +-10 stops (DEEP, LATE) add two more: DEEP with its +-15 = 15,
+  // LATE (+-10, +-30) = 13.
   const SLIDE_AWAY: Warp = { param: "ParamAngleX", stop: 30, dx: [30, 30] };
   /** 5 px at +-15, inside the 20 px limit, 30 px at +-30. */
   const EARLY: Warp = {
@@ -593,21 +595,49 @@ describe("checkCustomGate: what an occlusion hides", () => {
     // ParamAngleX at +-30: two alone and four corners. +-15 stays read.
     expect(h.leftOut).toBe(6);
     expect(h.leftOutTurning).toBe(6);
-    expect(h.poses).toBe(13);
+    expect(h.poses).toBe(15);
     expect(h.cover).toEqual(["hair_back"]);
     expect(h.atRest).toBe(0);
     expect(h.below).toEqual({ leaves: -10, full: -15 });
     expect(h.above).toEqual({ leaves: 10, full: 15 });
-    // ParamAngleX=-15 and 15 are the poses that turn the head and are read.
-    expect(r.parts[0].slide.turningPoses).toBe(2);
+    // ParamAngleX=-15, -10, 10 and 15 are the poses that turn the head and
+    // are read.
+    expect(r.parts[0].slide.turningPoses).toBe(4);
     expect(r.parts[0].slide.slide.px).toBeCloseTo(5, 3);
     const line = hiddenLine(r);
     expect(line).toMatch(
       /below 0 the amount leaves 0 at -10 and reaches 1 at -15/,
     );
     expect(line).toMatch(
-      /left out of TIE and SLIDE: 6 of 13 poses \(reported, no limit\)/,
+      /left out of TIE and SLIDE: 6 of 15 poses \(reported, no limit\)/,
     );
+  });
+
+  it("samples the occlusion's stops: a bake key where the fade ends changes nothing", () => {
+    // Linear travel to 30 px at +-30, hidden from +-15 on. Without a bake key
+    // at 15 the reading there is still 15 px (inside the 20 px limit) and the
+    // +-30 poses are left out, as with the redundant key.
+    const bare = hides({
+      stripWarps: [SLIDE_AWAY],
+      occlusion: DEEP("ParamAngleX", 1),
+    });
+    const keyed = hides({
+      stripWarps: [
+        {
+          param: "ParamAngleX",
+          stop: 15,
+          dx: [15, 15],
+          also: [{ stop: 30, dx: [30, 30] }],
+        },
+      ],
+      occlusion: DEEP("ParamAngleX", 1),
+    });
+    for (const r of [bare, keyed]) {
+      expect(r.failed).toEqual([]);
+      expect(r.parts[0].slide.slide.px).toBeCloseTo(15, 3);
+      expect(r.parts[0].hidden!.leftOut).toBe(6);
+      expect(r.parts[0].hidden!.poses).toBe(15);
+    }
   });
 
   it("fails SLIDE where the amount reaches 1 only at the end stop, the stretch before it being drawn", () => {
@@ -619,7 +649,7 @@ describe("checkCustomGate: what an occlusion hides", () => {
     expect(r.parts[0].slide.slide.px).toBeCloseTo(60, 3);
     // +-30's stretch to the sampled 0 starts at amount 0: nothing is left out.
     expect(r.parts[0].hidden!.leftOut).toBe(0);
-    expect(r.parts[0].hidden!.poses).toBe(11);
+    expect(r.parts[0].hidden!.poses).toBe(13);
   });
 
   it("fails SLIDE for the same slide with the top amount 0.9", () => {
@@ -630,7 +660,7 @@ describe("checkCustomGate: what an occlusion hides", () => {
     expect(r.failed).toContain("strip SLIDE");
     expect(r.parts[0].slide.slide.px).toBeCloseTo(30, 3);
     expect(r.parts[0].hidden!.leftOut).toBe(0);
-    expect(r.parts[0].hidden!.poses).toBe(13);
+    expect(r.parts[0].hidden!.poses).toBe(15);
   });
 
   it("fails SLIDE at amount 1 where the tie lands off the occluder's paint", () => {
@@ -646,7 +676,7 @@ describe("checkCustomGate: what an occlusion hides", () => {
     // read; -30's (alone and two corners) stay under it and are left out.
     expect(r.parts[0].slide.slide.pose).toMatch(/^ParamAngleX=30/);
     expect(r.parts[0].hidden!.leftOut).toBe(3);
-    expect(r.parts[0].hidden!.poses).toBe(13);
+    expect(r.parts[0].hidden!.poses).toBe(15);
   });
 
   it("fails SLIDE where a ring point lies off the part's mesh, though it would be left out otherwise", () => {
@@ -707,7 +737,7 @@ describe("checkCustomGate: what an occlusion hides", () => {
       expect(r.failed).toEqual([]);
       // ParamAngleY at +-30: two alone and four corners.
       expect(r.parts[0].hidden!.leftOut).toBe(6);
-      expect(r.parts[0].hidden!.poses).toBe(13);
+      expect(r.parts[0].hidden!.poses).toBe(15);
     });
 
     it("fails where the amount reaches 1 only at the end stop", () => {
@@ -719,7 +749,7 @@ describe("checkCustomGate: what an occlusion hides", () => {
       expect(r.parts[0].exposed.noTurn.px2!).toBeGreaterThan(300);
       expect(r.failed).toContain("strip EXPOSED");
       expect(r.parts[0].hidden!.leftOut).toBe(0);
-      expect(r.parts[0].hidden!.poses).toBe(11);
+      expect(r.parts[0].hidden!.poses).toBe(13);
     });
 
     it("still counts hidden art that shows outside the cover, while TIE leaves that pose out", () => {
@@ -739,7 +769,7 @@ describe("checkCustomGate: what an occlusion hides", () => {
       expect(p.hidden!.cover).toEqual(["hair_front"]);
       // ParamAngleY at +-30: two alone and four corners.
       expect(p.hidden!.leftOut).toBe(6);
-      expect(p.hidden!.poses).toBe(13);
+      expect(p.hidden!.poses).toBe(15);
       expect(p.exposed.pass).toBe(false);
       expect(p.exposed.noTurn.px2!).toBeGreaterThan(300);
       // The pose where EXPOSED fails moves the strip 30 px: TIE read at it

@@ -185,7 +185,7 @@ artist agent applies your findings; the orchestrator arbitrates.
   `EXPOSED` where the head turns is reported with no limit. `HIDDEN` is a fact
   too: the occluders, which give the gate cover, the amount at rest, where the
   fade starts and ends and how many poses `TIE` and `SLIDE` left out (only
-  those fully hidden across the stretches to the neighbouring sampled values on both sides); the gate
+  those fully hidden across the stretches to the neighbouring sampled values on both sides, those being the default, the bake stops and the occlusion's stops); the gate
   excuses nothing it cannot show the player hides, and it never fails on this
   line. On the `turn` sheet a part declared hidden should leave behind its
   cover between the cells either side of the fade, with no jump, and should
