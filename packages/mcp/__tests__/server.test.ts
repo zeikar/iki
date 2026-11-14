@@ -782,6 +782,24 @@ describe("MCP server integration", () => {
     expect(names).toContain("describe_rig_plan");
   });
 
+  it("no tool's input schema uses the array-form `items` draft 2020-12 forbids", async () => {
+    pair = await createPair();
+    const { tools } = await pair.client.listTools();
+    const tuples: string[] = [];
+    const walk = (node: unknown, at: string): void => {
+      if (Array.isArray(node)) {
+        node.forEach((n, i) => walk(n, `${at}[${i}]`));
+      } else if (node !== null && typeof node === "object") {
+        for (const [k, v] of Object.entries(node)) {
+          if (k === "items" && Array.isArray(v)) tuples.push(`${at}.items`);
+          walk(v, `${at}.${k}`);
+        }
+      }
+    };
+    for (const t of tools) walk(t.inputSchema, t.name);
+    expect(tuples).toEqual([]);
+  });
+
   it("describe_rig_plan lists the rig plan's fields", async () => {
     pair = await createPair();
     const result = await pair.client.callTool({

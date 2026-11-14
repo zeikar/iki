@@ -23,7 +23,7 @@ import { SWEEP_PRESETS } from "./sweep";
 import { measureLayers, formatMeasureReport } from "./measure";
 import { measureTurnReference, formatTurnReport } from "./measure-turn";
 import { renderPoses } from "./render-poses";
-import { probeRig } from "./probe";
+import { probeRig, type ProbeInput } from "./probe";
 
 /** Injected by tsup (and vitest) from this package's package.json version. */
 declare const __MCP_VERSION__: string;
@@ -350,7 +350,7 @@ export function createIkiMcpServer(): McpServer {
           .passthrough()
           .optional()
           .describe(
-            "Lattices that move the CUSTOM parts when a parameter does, which an unrigged custom part otherwise does not: `{ targets, meshes? }`; it needs `customParts` and names no other part. A target `{ id?, param, parts, box?, grid: { cols, rows }, stops, mirror?, why? }` is `(cols + 1) x (rows + 1)` control points laid evenly over `box` (canvas px; absent, the union of the parts' rest boxes grown by 2 px), listed row-major from the top-left; `stops` is `{ \"<value>\": [[dx, dy], … one per control point] }`. FRAME: every position and displacement is in canvas px, origin top-left, x right, y DOWN, the frame of the layer PNGs and of `describe_iki`'s boxes and `probe_rig`. A STOP is the part's TOTAL landed displacement from rest when `param` alone is at that value and every other parameter is at its default: the head's own carry is inside it, so a neighbour's displacement as `probe_rig` measures it is written as it is. Stop keys are values of `param` inside its range, never its default (rest is implicit). Between stops, and between rest and the nearest stop, the part moves LINEARLY; past the outermost stop on a side it HOLDS that stop's displacement; a side with no stop is not moved by the target. Each vertex takes the bilinear value of the lattice at its REST position, and a vertex outside `box` takes the nearest edge's value. `mirror: true` fills a missing stop from the one at the value mirrored about the rest value, when that value is inside the parameter's range: the lattice reflected about the box's vertical centre line, `dx` negated; a stop you wrote is never overwritten. Targets that name the same part and parameter SUM; a part in targets on two parameters gets one warp per parameter, and the two add in the head's frame, so under a roll a sway tilts with the head. `meshes` re-meshes a custom part before the bake, `{ <id>: { rows: [canvas-px y, …], cols } }` (the first row at the part's top and the last at its bottom, within 0.5 px) or `{ <id>: { cellPx } }`; the rest picture is unchanged. The written model is then landed through the engine at every stop and refused when one is off by 0.1 px or more. An input the rig refuses comes back as `INVALID: bakes…` (`bakes.targets[2].stops[\"30\"][7]…`) and nothing is written; a field of the wrong type is refused by the schema itself, as the SDK's input validation error. A bake is measured on one rig: after a retune of the layout or `rigPlan`, a regenerated anchor, a changed custom layer or an accepted patch batch, measure the stops again.",
+            "Lattices that move the CUSTOM parts when a parameter does, which an unrigged custom part otherwise does not: `{ targets, meshes? }`; it needs `customParts` and names no other part. A target `{ id?, param, parts, box?, grid: { cols, rows }, stops, mirror?, why? }` is `(cols + 1) x (rows + 1)` control points laid evenly over `box` (canvas px; absent, the union of the parts' rest boxes grown by 2 px), listed row-major from the top-left; `stops` is `{ \"<value>\": [[dx, dy], … one per control point] }`. FRAME: every position and displacement is in canvas px, origin top-left, x right, y DOWN, the frame of the layer PNGs and of `describe_iki`'s boxes and `probe_rig`. A STOP is the part's TOTAL landed displacement from rest when `param` alone is at that value and every other parameter is at its default: the head's own carry is inside it, so a neighbour's displacement as `probe_rig` measures it is written as it is. Stop keys are values of `param` inside its range, never its default (rest is implicit). The landing is exact at rest, at each stop and at one end key at the range end on a side whose outermost stop is inside the range (it holds that stop's displacement); a side with no stop is not moved by the target. Between keys the offsets blend linearly, so under the head's roll (ParamAngleZ) the path bows off the line, about 1 px midway over 15°: put a stop where the path matters. Each vertex takes the bilinear value of the lattice at its REST position, and a vertex outside `box` takes the nearest edge's value. `mirror: true` fills a missing stop from the one at the value mirrored about the rest value, when that value is inside the parameter's range: the lattice reflected about the box's vertical centre line, `dx` negated; a stop you wrote is never overwritten. Targets that name the same part and parameter SUM; a part in targets on two parameters gets one warp per parameter, and the two add in the head's frame, so under a roll a sway tilts with the head. `meshes` re-meshes a custom part before the bake, `{ <id>: { rows: [canvas-px y, …], cols } }` (the first row at the part's top and the last at its bottom, within 0.5 px) or `{ <id>: { cellPx } }`; the rest picture is unchanged. The written model is then landed through the engine at every stop and at the range end each side holds its outermost stop to, and refused when one is off by 0.1 px or more. An input the rig refuses comes back as `INVALID: bakes…` (`bakes.targets[2].stops[\"30\"][7]…`) and nothing is written; a field of the wrong type is refused by the schema itself, as the SDK's input validation error. A bake is measured on one rig: after a retune of the layout or `rigPlan`, a regenerated anchor, a changed custom layer or an accepted patch batch, measure the stops again.",
           ),
         patches: z
           .array(
@@ -714,7 +714,7 @@ export function createIkiMcpServer(): McpServer {
                 op: z.enum(["land", "displacement"]),
                 part: z.string().describe("A part id of the model."),
                 points: z
-                  .array(z.tuple([z.number(), z.number()]))
+                  .array(z.array(z.number()).length(2))
                   .describe(
                     "Canvas-px points `[x, y]`, at most 5000, each on the part at rest.",
                   ),
@@ -738,7 +738,9 @@ export function createIkiMcpServer(): McpServer {
     },
     async (args) => {
       try {
-        const r = await probeRig(args);
+        // `points` is a plain number array in the schema (no tuple, see the
+        // patches'); probeRig checks each is a [x, y] pair.
+        const r = await probeRig(args as ProbeInput);
         const text = !r.ok
           ? `INVALID: ${r.error}`
           : "results" in r

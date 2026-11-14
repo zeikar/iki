@@ -679,6 +679,28 @@ describe("applyBakes", () => {
     expect(worst).toBeLessThan(2e-6);
   });
 
+  it("lands the outermost stop's displacement exactly at the stop and at the range end under the head's roll", () => {
+    const calls: BakeReport[][] = [];
+    const model = rigBust(
+      { targets: [one("ParamAngleZ", 15, same(0, 0))] },
+      [pin()],
+      { onBakesApplied: (r) => calls.push(r) },
+    );
+    const warp = model.parts
+      .find((p) => p.id === "pin")!
+      .warps!.find((x) => x.parameter === "ParamAngleZ")!;
+    // Rest, the stop and the max; the side below rest has no stop, no keyform.
+    expect(warp.keyforms.map((k) => k.value)).toEqual([0, 15, 30]);
+    for (const v of [15, 30]) {
+      for (const [dx, dy] of landed(model, "pin", { ParamAngleZ: v })) {
+        expect(Math.hypot(dx, dy)).toBeLessThan(0.01);
+      }
+    }
+    expect(calls[0][0].stops).toEqual([15]);
+    expect(calls[0][0].ends.map((e) => e.value)).toEqual([30]);
+    expect(calls[0][0].ends[0].wanted.every((w) => w === 0)).toBe(true);
+  });
+
   it("adds the targets that name a part and parameter", () => {
     const model = rigBust({
       targets: [one(SWAY, 20, same(3, 4)), one(SWAY, 20, same(1, -2))],

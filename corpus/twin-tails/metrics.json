@@ -121,7 +121,7 @@
   ],
   "customParts": {
     "ok": true,
-    "poses": 695,
+    "poses": 887,
     "parts": [
       {
         "id": "tail_R",
@@ -133,7 +133,7 @@
         "tiePx": 0.037,
         "slide": {
           "px": 19.57,
-          "onAnchorPx": 5.688
+          "onAnchorPx": 5.863
         },
         "exposed": {
           "hiddenPx": 335,
@@ -193,7 +193,7 @@
         "tiePx": 0.037,
         "slide": {
           "px": 18.554,
-          "onAnchorPx": 5.082
+          "onAnchorPx": 5.089
         },
         "exposed": {
           "hiddenPx": 260,

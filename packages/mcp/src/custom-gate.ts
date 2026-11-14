@@ -274,8 +274,9 @@ function triangleGrid(
 }
 
 /** The poses the gate reads for one part: the engine's fold poses, each of the
- *  part's own stops alone, and the corners of every pair of baked parameters'
- *  outermost stops. */
+ *  part's own stops alone, and every combination of two baked parameters'
+ *  stops (the interior ones too: the part's warps are piecewise linear and add,
+ *  so a pair's sum can be worst at a stop between the ends). */
 function posesOf(
   model: IkiModel,
   baked: Map<string, number[]>,
@@ -293,12 +294,10 @@ function posesOf(
   const params = [...baked.keys()];
   for (let i = 0; i < params.length; i++) {
     for (let j = i + 1; j < params.length; j++) {
-      const ends = (p: string) => {
-        const stops = baked.get(p)!;
-        return [Math.min(...stops), Math.max(...stops)];
-      };
-      for (const a of ends(params[i])) {
-        for (const b of ends(params[j])) {
+      for (const a of baked.get(params[i])!) {
+        if (a === defaults.get(params[i])) continue;
+        for (const b of baked.get(params[j])!) {
+          if (b === defaults.get(params[j])) continue;
           add({ [params[i]]: a, [params[j]]: b });
         }
       }

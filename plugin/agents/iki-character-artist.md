@@ -369,6 +369,8 @@ and how a new character's round-1 compose corrects the provisional
    - Copy a measured neighbour's displacement (the anchor's, at the same pose)
      rather than inventing one: a stop is the part's total, so it is written
      as measured.
+   - The landing is exact at the stops only; between two stops under a roll
+     the path bows by about a pixel per 15°, so put a stop where it matters.
    - Under a roll, a long part hangs about its own root: the root and the knot
      turn with the head, and below it each cross-section turns back about the
      part's centreline, so the part keeps its length and hangs instead of

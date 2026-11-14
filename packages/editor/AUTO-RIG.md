@@ -694,14 +694,23 @@ nothing.
   parameter alone is at the stop and every other is at its default. The
   head's own carry is inside it, so a neighbour's displacement as
   `probe_rig` measures it is written as it is. The rest value is implicit.
-  Between rest and a stop, and between stops, the part moves linearly; past
-  the outermost stop it holds; a side with no stop is not moved by the
-  target. `mirror` fills a missing stop from the one at the mirrored value.
+  The landed displacement is exact (to the rounding) at the keys the bake
+  writes: rest, each stop and, on a side whose outermost stop is inside the
+  parameter's range, one end key at the range's end holding that stop's
+  displacement. A side with no stop is not moved by the target. Between two
+  keys the engine blends the part's local offsets linearly: under a parent
+  that only translates with the parameter that is a straight line (a hold
+  stays a hold), but under one that rotates with it (the head's roll,
+  `ParamAngleZ`) the landed path bows off that line, since the offsets
+  cancel the rotation only at the keys. Measured on the twin corpus
+  character: 1.04 px midway between keys at 15 and 30, 3.9 px midway between
+  1 and 30. A stop where the path matters tightens it. `mirror` fills a missing stop from the one at the mirrored value.
 - **Reading the lattice** — each vertex's wanted displacement is the bilinear
   lattice value at its rest position (outside the box, the nearest edge's),
   summed over the targets that name the part and the parameter. A target
-  without a stop another has contributes its own value there: linear from
-  rest through its stops, held past the outermost.
+  without a stop another has contributes its own value there (at a key, or
+  at the end key): linear from rest through its stops, held past the
+  outermost.
 - **The solve** — closed form, no engine in the loop. With `W0` the head's
   world at rest and `W` its world with the parameter at the stop
   (`chain.ts`), a vertex's local position is `W⁻¹ · (W0 · rest + wanted)` and
@@ -713,7 +722,8 @@ nothing.
   tail, the whole error budget; the landing matches the ask within 0.01 px
   (tested through the engine).
 - **One warp per part and parameter** — keyforms at the parameter's default
-  (zeros) and at every stop its targets use, ascending. A part in targets on
+  (zeros), at every stop its targets use and at the parameter's range end on
+  each side that has a stop, ascending. A part in targets on
   two parameters gets two warps.
 - **Matrix deformers only** — the chain above the part has to be solvable in
   closed form: `headDeformer` bare or under the body warp. A custom part hangs
@@ -746,7 +756,8 @@ moved)`) throws `BakeError` naming every target on that part and
 
 Known limits. A part's warps on two parameters add in the head's frame, so
 roll with sway is the sum of each rotated by the head, not the sum of each
-alone. Between stops a keyed rotation follows its chord, not its arc.
+alone. Between keys a keyed rotation follows its chord, not its arc (the bow
+above under the head's roll is the same effect).
 
 ## Everything else
 

@@ -645,9 +645,25 @@ export function applyBakes(
         }
       }
 
+      // Past its outermost stop the part must hold that stop's total
+      // displacement, but a parent deformer keeps moving to the parameter's
+      // end, so each side with a stop gets one more keyform there, solved for
+      // the displacement the outermost stop wants.
+      const range = parameters.find((p) => p.id === param)!;
+      const ends: number[] = [];
+      for (const [outer, end] of [
+        [stops.filter((v) => v < rest).shift(), range.min],
+        [stops.filter((v) => v > rest).pop(), range.max],
+      ] as const) {
+        if (outer !== undefined && Math.abs(end - outer) > SAME_STOP) {
+          ends.push(end);
+        }
+      }
+
       const keyforms = [{ value: rest, offsets: new Array(2 * n).fill(0) }];
       const wanted: number[][] = [];
-      for (const v of stops) {
+      const endWanted: number[][] = [];
+      for (const v of [...stops, ...ends]) {
         const disp = new Array<number>(2 * n).fill(0);
         const fields = targets.map((t) => targetField(t, v));
         for (let i = 0; i < n; i++) {
@@ -657,7 +673,7 @@ export function applyBakes(
             disp[i * 2 + 1] += dy;
           }
         }
-        wanted.push(disp);
+        (ends.includes(v) ? endWanted : wanted).push(disp);
 
         if (entryOf(id).rigid === true) {
           const moved = restCanvas.map(
@@ -696,7 +712,14 @@ export function applyBakes(
       }
       keyforms.sort((a, b) => a.value - b.value);
       part.warps = [...(part.warps ?? []), { parameter: param, keyforms }];
-      reports.push({ part: id, param, stops, vertexCount: n, wanted });
+      reports.push({
+        part: id,
+        param,
+        stops,
+        vertexCount: n,
+        wanted,
+        ends: ends.map((value, i) => ({ value, wanted: endWanted[i] })),
+      });
     }
   }
   return reports;

@@ -396,6 +396,7 @@ describe("checkBakes", () => {
       stops: [30],
       vertexCount: rest.length / 2,
       wanted: [wanted],
+      ends: [],
     };
   }
 
@@ -410,6 +411,25 @@ describe("checkBakes", () => {
     expect(checkBakes(model, [report(0.05)])[0].errorPx).toBeCloseTo(0.05, 3);
     expect(() => checkBakes(model, [report(0.11)])).toThrow(
       /^BAKE ERROR tail ParamAngleX=30: vertex 0 lands 0\.11\d* px.*report this as a bug in the packages$/,
+    );
+  });
+
+  it("lands a range end through the engine too and refuses a gap there", () => {
+    const r = landedReport(model);
+    const end = (extra: number): BakeReport => ({
+      ...r,
+      stops: [],
+      wanted: [],
+      ends: [
+        {
+          value: 30,
+          wanted: r.wanted[0].map((v, i) => (i === 0 ? v + extra : v)),
+        },
+      ],
+    });
+    expect(checkBakes(model, [end(0.05)])[0].errorPx).toBeCloseTo(0.05, 3);
+    expect(() => checkBakes(model, [end(0.11)])).toThrow(
+      /^BAKE ERROR tail ParamAngleX=30: vertex 0 lands 0\.11\d* px/,
     );
   });
 

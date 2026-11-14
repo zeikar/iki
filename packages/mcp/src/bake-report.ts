@@ -1,8 +1,9 @@
 /**
  * What `auto_rig_from_layers` checks of `bakes` before it writes the rig: each
- * baked custom part landed through the engine's own `landParts` at every stop,
- * against the displacement the generator was asked for. The generator solves
- * its offsets in closed form, so this is the check that the closed form and the
+ * baked custom part landed through the engine's own `landParts` at every stop
+ * and at the parameter's range ends where it holds the outermost stop, against
+ * the displacement the generator was asked for. The generator solves its
+ * offsets in closed form, so this is the check that the closed form and the
  * player agree on the written model.
  */
 
@@ -39,7 +40,7 @@ const BUG =
  *
  * Throws `AutoRigInputError`, each message starting `BAKE ERROR`: for a part
  * the bake moves at rest by `BAKE_TOLERANCE_PX` or more (`<part> at rest`), and
- * for the first stop that is off by as much (`<part> <param>=<value>`).
+ * for the first stop or range end that is off by as much (`<part> <param>=<value>`).
  */
 export function checkBakes(
   model: IkiModel,
@@ -74,11 +75,14 @@ export function checkBakes(
   return reports.map((r) => {
     const rest = restOf.get(r.part)!;
     let errorPx = 0;
-    r.stops.forEach((value, s) => {
+    const asked = [
+      ...r.stops.map((value, s) => ({ value, wanted: r.wanted[s] })),
+      ...r.ends,
+    ];
+    asked.forEach(({ value, wanted }) => {
       const posed = landParts(model, { [r.param]: value }, [r.part]).get(
         r.part,
       )!;
-      const wanted = r.wanted[s];
       let worst = 0;
       let worstVertex = 0;
       for (let v = 0; v < r.vertexCount; v++) {

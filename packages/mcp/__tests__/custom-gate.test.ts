@@ -202,6 +202,29 @@ describe("checkCustomGate: the tie, folds and slide", () => {
     expect(flipped.failed).toContain("strip FOLDS");
   });
 
+  it("fails FOLDS at a pair of interior stops that the outermost stops never reach", () => {
+    const model = bust({});
+    const strip = model.parts.find((p) => p.id === "strip")!;
+    // Both bottom vertices rise 0.6 heights at 10 and are back at rest at the
+    // ends, so each parameter alone folds nothing (ratio 0.4) and the pair's
+    // sum, 1.2 heights, flips the strip.
+    const rise = (y: number) => [0, 0, 0, 0, 0, y, 0, y];
+    strip.warps = ["ParamHairBackSway", "ParamAngleX"].map((parameter) => ({
+      parameter,
+      keyforms: [
+        { value: -20, offsets: rise(0) },
+        { value: 0, offsets: rise(0) },
+        { value: 10, offsets: rise(0.6) },
+        { value: 20, offsets: rise(0) },
+      ],
+    }));
+    const r = checkCustomGate(model, part(), paints());
+    expect(r.parts[0].folds.pass).toBe(false);
+    expect(r.parts[0].folds.ratio).toBeLessThan(0);
+    expect(r.parts[0].folds.pose).toBe("ParamAngleX=10 ParamHairBackSway=10");
+    expect(r.failed).toContain("strip FOLDS");
+  });
+
   it("fails SLIDE when the tie slides past 0.1 face widths in a turn", () => {
     const r = gate({
       stripWarps: [{ param: "ParamAngleX", stop: 30, dx: [30, 30] }],

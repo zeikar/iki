@@ -311,9 +311,11 @@ export class CustomPartError extends Error {
  * top-left (the top row first, each row left to right). Every position and
  * displacement is in canvas px, origin top-left, y DOWN.
  *
- * Between stops, and between rest and the nearest stop, the parts' motion is
- * linear; past the outermost stop on a side it holds that stop's; a side with
- * no stop is not moved by this target. Targets that name the same part and
+ * A stop is exact where the bake writes it, and so is the end key a side's
+ * outermost stop gets at the parameter's range end; between keys the motion
+ * is interpolated, and under a parent that rotates with the parameter (the
+ * head's roll) it bows off the straight line, so put a stop where the path
+ * matters. A side with no stop is not moved by this target. Targets that name the same part and
  * parameter add.
  */
 export interface BakeTarget {
@@ -370,6 +372,11 @@ export interface BakeReport {
    *  `[dx0, dy0, dx1, dy1, ...]` in canvas px (y down), before the offsets
    *  were rounded. */
   wanted: number[][];
+  /** The end keys the bake wrote at the parameter's range ends, ascending,
+   *  each with the displacement it was solved for (`wanted` as above): its
+   *  side's outermost stop's. A side with no stop, or whose outermost stop is
+   *  at the end, has none. */
+  ends: { value: number; wanted: number[] }[];
 }
 
 /** A `bakes` input that is malformed or misses the model. Its message starts
