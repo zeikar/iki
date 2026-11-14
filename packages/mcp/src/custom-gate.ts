@@ -12,7 +12,13 @@
  */
 
 import { partIdsOfRole, rigidResidual } from "@ikijs/editor";
-import { checkFolds, foldPoses, landParts, type FoldPose } from "@ikijs/engine";
+import {
+  checkFolds,
+  foldPoses,
+  landParts,
+  occlusionAmount,
+  type FoldPose,
+} from "@ikijs/engine";
 import { StandardParameter, type IkiModel } from "@ikijs/format";
 import { foldPose } from "./fold-report";
 import {
@@ -35,6 +41,10 @@ export interface CustomGatePart {
   /** Where the part meets the anchor, canvas px. */
   tie: [number, number];
   rigid?: boolean;
+  /** The roles of the entry's `occlusion.by`, when it declares one. Their
+   *  paint gives the gate the cover it excuses a reading under; without it a
+   *  declared occlusion excuses nothing. */
+  occludedBy?: string[];
 }
 
 export interface CustomGateOptions {
@@ -124,7 +134,38 @@ export interface CustomGatePartReport {
   };
   rigid?: CustomGateReading;
   tip: CustomGateTip[];
+  /** Only for a part that declares occlusion. Reported, never failing. */
+  hidden?: CustomGateHidden;
   ok: boolean;
+}
+
+/** Where the amount leaves its rest value and first reaches 1, on one side of
+ *  the key parameter's default; null where it never does. */
+export interface CustomGateHiddenSide {
+  leaves: number | null;
+  full: number | null;
+}
+
+export interface CustomGateHidden {
+  /** Every occluder part id the model names. */
+  by: string[];
+  /** Those whose paint gives the gate cover; the rest fade (or are roles not
+   *  passed) and give none. */
+  cover: string[];
+  parameter: string;
+  /** The parameter's default. */
+  default: number;
+  /** The amount with every parameter at its default. */
+  atRest: number;
+  below: CustomGateHiddenSide;
+  above: CustomGateHiddenSide;
+  /** Poses of the part's set that `TIE` and `SLIDE` left out, and how many of
+   *  them turn the head. */
+  leftOut: number;
+  leftOutTurning: number;
+  /** Poses that do not turn the head and that `TIE` read. */
+  readNoTurn: number;
+  poses: number;
 }
 
 export interface CustomGateReport {
@@ -271,6 +312,68 @@ function triangleGrid(
           Math.floor((x - bounds.x0) / cell) +
             Math.floor((y - bounds.y0) / cell) * cols,
         ) ?? []);
+}
+
+/** Whether each of `points` lies over a painted rest point of `mesh`, posed as
+ *  `posed`: the triangle holding the point gives the rest point it came from. */
+function paintedUnder(
+  posed: Float64Array,
+  mesh: RestMesh,
+  paint: PaintRuns,
+  points: ProbePoint[],
+): boolean[] {
+  if (points.length === 0) return [];
+  const bounds = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+  for (const [x, y] of points) {
+    bounds.x0 = Math.min(bounds.x0, x);
+    bounds.y0 = Math.min(bounds.y0, y);
+    bounds.x1 = Math.max(bounds.x1, x);
+    bounds.y1 = Math.max(bounds.y1, y);
+  }
+  const find = triangleGrid(posed, mesh.indices, bounds);
+  return points.map(([x, y]) => {
+    for (const t of find(x, y)) {
+      const tri: [number, number, number] = [
+        mesh.indices[t * 3],
+        mesh.indices[t * 3 + 1],
+        mesh.indices[t * 3 + 2],
+      ];
+      const w = locate(posed, tri, x, y);
+      if (!w) continue;
+      let rx = 0;
+      let ry = 0;
+      for (let k = 0; k < 3; k++) {
+        rx += w[k] * mesh.rest[tri[k] * 2];
+        ry += w[k] * mesh.rest[tri[k] * 2 + 1];
+      }
+      return paintedAt(paint, rx, ry);
+    }
+    return false;
+  });
+}
+
+/** One side of `from` along an occlusion's stops: where the amount leaves its
+ *  value at `from`, and where it first reaches 1. The amount is linear between
+ *  stops, so both are stops (or `from` itself). */
+function hiddenSide(
+  occlusion: { stops: { value: number; amount: number }[] },
+  from: number,
+  direction: 1 | -1,
+): CustomGateHiddenSide {
+  const at = (v: number) => occlusionAmount(occlusion, v);
+  const rest = at(from);
+  const marks = occlusion.stops
+    .map((s) => s.value)
+    .filter((v) => (v - from) * direction > 0)
+    .sort((a, b) => (a - b) * direction);
+  const run = [from, ...marks];
+  let leaves: number | null = null;
+  let full: number | null = rest === 1 ? from : null;
+  for (let i = 0; i + 1 < run.length; i++) {
+    if (leaves === null && at(run[i + 1]) !== rest) leaves = run[i];
+    if (full === null && at(run[i + 1]) === 1) full = run[i + 1];
+  }
+  return { leaves, full };
 }
 
 /** The poses the gate reads for one part: the engine's fold poses, each of the
@@ -495,6 +598,69 @@ export function checkCustomGate(
         l !== null && onAnchorMesh[i] !== null,
     );
 
+    // Cover: the occluders the player draws at full alpha in every pose, with
+    // the paint they were drawn from. A fading one gives none, whatever the
+    // player does with it (`mouth_open`, a blush and a pose forearm fade).
+    const occlusion = ownPart.occlusion;
+    const coverParts: { id: string; mesh: RestMesh; paint: PaintRuns }[] = [];
+    if (occlusion !== undefined) {
+      for (const role of part.occludedBy ?? []) {
+        for (const id of partIdsOfRole(role)) {
+          const o = model.parts.find((p) => p.id === id);
+          if (o === undefined || !occlusion.by.includes(id)) continue;
+          const steady =
+            o.color[3] === 1 &&
+            (o.transform.opacity ?? 1) >= 1 &&
+            !(o.bindings ?? []).some((b) => b.channel === "opacity");
+          if (!steady) continue;
+          const paint = paints.get(role);
+          if (paint === undefined) {
+            throw new Error(`custom gate: no paint for "${role}"`);
+          }
+          coverParts.push({ id, mesh: restMesh(model, cache, id), paint });
+        }
+      }
+    }
+    const coverIds = new Set(coverParts.map((c) => c.id));
+    const keyParam =
+      occlusion === undefined
+        ? undefined
+        : model.parameters.find((p) => p.id === occlusion.parameter)!;
+    // The key value as the player reads it: inside the parameter's range.
+    const keyOf = (values: Record<string, number>): number =>
+      Math.min(
+        keyParam!.max,
+        Math.max(keyParam!.min, values[keyParam!.id] ?? keyParam!.default),
+      );
+    // The values of the key parameter this part's poses sample. A reading in
+    // a stretch between two samples is bounded by the readings at its two
+    // ends, and none is taken between them, so a pose is left out only when
+    // nothing is drawn in either stretch it bounds: the amount is 1 from the
+    // sample below to the sample above.
+    const sampled =
+      keyParam === undefined
+        ? []
+        : [
+            ...new Set([
+              keyParam.default,
+              ...poses.map((p) => keyOf(p.values)),
+            ]),
+          ].sort((a, b) => a - b);
+    const fullyHidden = (lo: number, hi: number): boolean =>
+      occlusion!.stops.every(
+        (st) => st.value <= lo || st.value >= hi || st.amount === 1,
+      ) &&
+      occlusionAmount(occlusion!, lo) === 1 &&
+      occlusionAmount(occlusion!, hi) === 1;
+    const hiddenAt = (v: number): boolean =>
+      fullyHidden(
+        sampled.filter((x) => x < v).at(-1) ?? v,
+        sampled.find((x) => x > v) ?? v,
+      );
+    let leftOut = 0;
+    let leftOutTurning = 0;
+    let readNoTurn = 0;
+
     const stops = bakedOf(part.id);
     // Worst values, in px (px² for the exposed ones); `readingOf` converts.
     const worstOf = {
@@ -530,11 +696,53 @@ export function checkCustomGate(
     };
 
     for (const pose of poses) {
-      const landed = landParts(model, pose.values, [part.id, anchorId]);
+      // The player hides the part wholly over the stretch this pose stands
+      // for; only then are the occluders landed, for the spots the readings
+      // below ask about.
+      const hiding = occlusion !== undefined && hiddenAt(keyOf(pose.values));
+      const landed = landParts(model, pose.values, [
+        ...new Set([
+          part.id,
+          anchorId,
+          ...(hiding && coverIds.size > 0 ? coverIds : []),
+        ]),
+      ]);
       const partPosed = toCanvas(model, landed.get(part.id)!);
       const anchorPosed = toCanvas(model, landed.get(anchorId)!);
+      const canvasOf = new Map<string, Float64Array>();
+      const underCover = (points: ProbePoint[], skip?: string): boolean[] => {
+        const covered = points.map(() => false);
+        if (!hiding) return covered;
+        for (const c of coverParts) {
+          if (c.id === skip) continue;
+          let posed = canvasOf.get(c.id);
+          if (posed === undefined) {
+            posed = toCanvas(model, landed.get(c.id)!);
+            canvasOf.set(c.id, posed);
+          }
+          const under = paintedUnder(posed, c.mesh, c.paint, points);
+          under.forEach((u, i) => {
+            if (u) covered[i] = true;
+          });
+        }
+        return covered;
+      };
       const turning = turns(pose);
-      if (turning) turningPoses++;
+
+      // TIE and SLIDE measure the ring, so a pose where the player hides the
+      // part and all of the ring is under cover has nothing to measure.
+      const ringLands = onPart.map((l) =>
+        l === null ? null : landLocated(partPosed, l)!,
+      );
+      const ringHidden =
+        hiding &&
+        ringLands.every((p) => p !== null) &&
+        underCover(ringLands as ProbePoint[]).every(Boolean);
+      if (ringHidden) {
+        leftOut++;
+        if (turning) leftOutTurning++;
+      } else if (turning) turningPoses++;
+      else readNoTurn++;
 
       let gap = 0;
       for (const i of shared) {
@@ -544,11 +752,11 @@ export function checkCustomGate(
         // point: the rest point drops out.
         gap = Math.max(gap, Math.hypot(a[0] - b[0], a[1] - b[1]));
       }
-      if (shared.length > 0) {
+      if (shared.length > 0 && !ringHidden) {
         keep(turning ? worstOf.slide : worstOf.tie, gap, pose.name);
       }
 
-      if (turning) {
+      if (turning && !ringHidden) {
         const at = landLocated(partPosed, tieOnPart);
         let nearest: number | null = null;
         if (at !== null) {
@@ -565,43 +773,22 @@ export function checkCustomGate(
       if (hiddenOn.length > 0) {
         const lowerPosed = lowerId === part.id ? partPosed : anchorPosed;
         const upperPosed = upperId === part.id ? partPosed : anchorPosed;
-        const upperIndices = upperMesh.indices;
         const lands = hiddenOn.map((l) => landLocated(lowerPosed, l)!);
-        const bounds = {
-          x0: Infinity,
-          y0: Infinity,
-          x1: -Infinity,
-          y1: -Infinity,
-        };
-        for (const [x, y] of lands) {
-          bounds.x0 = Math.min(bounds.x0, x);
-          bounds.y0 = Math.min(bounds.y0, y);
-          bounds.x1 = Math.max(bounds.x1, x);
-          bounds.y1 = Math.max(bounds.y1, y);
-        }
-        const find = triangleGrid(upperPosed, upperIndices, bounds);
+        const underUpper = paintedUnder(
+          upperPosed,
+          upperMesh,
+          upperPaint,
+          lands,
+        );
+        // Hidden by declaration where an occluder covers the spot. The lower
+        // part's own art is under its cover by construction.
+        const underHider = coverIds.has(lowerId)
+          ? lands.map(() => hiding)
+          : underCover(lands, upperId);
         let showing = 0;
-        for (const at of lands) {
-          let covered = false;
-          for (const t of find(at[0], at[1])) {
-            const tri: [number, number, number] = [
-              upperIndices[t * 3],
-              upperIndices[t * 3 + 1],
-              upperIndices[t * 3 + 2],
-            ];
-            const w = locate(upperPosed, tri, at[0], at[1]);
-            if (!w) continue;
-            let rx = 0;
-            let ry = 0;
-            for (let k = 0; k < 3; k++) {
-              rx += w[k] * upperMesh.rest[tri[k] * 2];
-              ry += w[k] * upperMesh.rest[tri[k] * 2 + 1];
-            }
-            covered = paintedAt(upperPaint, rx, ry);
-            break;
-          }
-          if (!covered) showing++;
-        }
+        lands.forEach((_, i) => {
+          if (!underUpper[i] && !underHider[i]) showing++;
+        });
         keep(
           turning ? worstOf.exposedTurn : worstOf.exposed,
           showing,
@@ -772,6 +959,23 @@ export function checkCustomGate(
       },
       ...(rigidReading === undefined ? {} : { rigid: rigidReading }),
       tip,
+      ...(occlusion === undefined
+        ? {}
+        : {
+            hidden: {
+              by: occlusion.by,
+              cover: [...coverIds],
+              parameter: occlusion.parameter,
+              default: keyParam!.default,
+              atRest: occlusionAmount(occlusion, keyParam!.default),
+              below: hiddenSide(occlusion, keyParam!.default, -1),
+              above: hiddenSide(occlusion, keyParam!.default, 1),
+              leftOut,
+              leftOutTurning,
+              readNoTurn,
+              poses: poses.length,
+            },
+          }),
       ok,
     };
   });
@@ -815,13 +1019,21 @@ export function formatCustomGate(report: CustomGateReport): string[] {
     lines.push(
       `${at} FOLDS: least triangle area ratio ${r.folds.ratio.toFixed(3)} at [${r.folds.pose}] (limit >= ${r.folds.limit})  ${verdict(r.folds.pass, r.folds.reason)}`,
     );
+    const noTurnLeftOut =
+      r.hidden !== undefined &&
+      r.hidden.readNoTurn === 0 &&
+      r.hidden.leftOut > r.hidden.leftOutTurning;
     lines.push(
-      `${at} TIE: at the tie and the ring around it, ${r.id} against ${r.anchor}, poses that do not turn the head: max ${both(w, r.tie.px)} at [${r.tie.pose}] (limit <= ${limit(r.tie.limit)})  ${verdict(r.tie.pass, r.tie.reason)}`,
+      noTurnLeftOut
+        ? `${at} TIE: every pose that does not turn the head is left out as hidden (see HIDDEN)  ${verdict(r.tie.pass, r.tie.reason)}`
+        : `${at} TIE: at the tie and the ring around it, ${r.id} against ${r.anchor}, poses that do not turn the head: max ${both(w, r.tie.px)} at [${r.tie.pose}] (limit <= ${limit(r.tie.limit)})  ${verdict(r.tie.pass, r.tie.reason)}`,
     );
     const s = r.slide;
     lines.push(
       s.turningPoses === 0
-        ? `${at} SLIDE: no pose turns the head  pass`
+        ? r.hidden !== undefined && r.hidden.leftOutTurning > 0
+          ? `${at} SLIDE: every pose that turns the head is left out as hidden (see HIDDEN)  pass`
+          : `${at} SLIDE: no pose turns the head  pass`
         : `${at} SLIDE: poses that turn the head, the same length: max ${both(w, s.slide.px)} at [${s.slide.pose}] (limit <= ${limit(s.slide.limit)}); the tie's distance to the nearest painted point of ${r.anchor} as landed: max ${both(w, s.onAnchor.px)} at [${s.onAnchor.pose}] (limit <= ${limit(s.onAnchor.limit)})  ${verdict(s.pass, s.slide.pass ? s.onAnchor.reason : s.slide.reason)}`,
     );
     const e = r.exposed;
@@ -832,6 +1044,16 @@ export function formatCustomGate(report: CustomGateReport): string[] {
     lines.push(
       `${at} EXPOSED: ${e.hiddenPx} px of art both ${r.id} and ${r.anchor} paint near the tie, the lower one's hidden at rest; showing where the head does not turn: max ${(e.noTurn.px2 ?? 0).toFixed(0)} px² (${(e.noTurn.value ?? 0).toFixed(5)} face widths²) at [${e.noTurn.pose}] (limit <= ${e.noTurn.limit} face widths², ${(e.noTurn.limit * w * w).toFixed(0)} px²)  ${verdict(e.pass, e.noTurn.reason)}; where it turns: ${turnText}`,
     );
+    if (r.hidden) {
+      const h = r.hidden;
+      const side = (name: string, s: CustomGateHiddenSide) =>
+        h.atRest === 1
+          ? `${name} ${h.default} the amount is 1 at rest and ${s.leaves === null ? "stays 1" : `leaves it at ${s.leaves}`}`
+          : `${name} ${h.default} the amount ${s.leaves === null ? `never leaves ${h.atRest}` : `leaves ${h.atRest} at ${s.leaves}`} and ${s.full === null ? "never reaches 1" : `reaches 1 at ${s.full}`}`;
+      lines.push(
+        `${at} HIDDEN: hidden by ${h.by.join(",")} on ${h.parameter}, cover from ${h.cover.length === 0 ? "none of them" : h.cover.join(",")}${h.cover.length === h.by.length ? "" : " (the rest fade or are roles not passed, and give none)"}; amount ${h.atRest} at rest; ${side("below", h.below)}; ${side("above", h.above)}; left out of TIE and SLIDE: ${h.leftOut} of ${h.poses} poses (reported, no limit)`,
+      );
+    }
     if (r.rigid) {
       lines.push(
         `${at} RIGID: bend against rest: max ${both(w, r.rigid.px)} at [${r.rigid.pose}] (limit <= ${limit(r.rigid.limit)})  ${verdict(r.rigid.pass, r.rigid.reason)}`,

@@ -315,8 +315,9 @@ and how a new character's round-1 compose corrects the provisional
 
    **The custom gate.** The text of a rig with custom parts ends with the
    gate (the result's `customParts.gate`): per part a `CUSTOM <id> <LINE>: …`
-   line for `FOLDS`, `TIE`, `SLIDE`, `EXPOSED`, `RIGID` (a rigid part) and
-   `TIP`, then `CUSTOM GATE pass` or `CUSTOM GATE FAIL: <part LINE, …>`. A
+   line for `FOLDS`, `TIE`, `SLIDE`, `EXPOSED`, `HIDDEN` (a part with an
+   `occlusion`; needs `@ikijs/mcp` 0.35.0, reported, never blocks), `RIGID` (a
+   rigid part) and `TIP`, then `CUSTOM GATE pass` or `CUSTOM GATE FAIL: <part LINE, …>`. A
    failed gate does not stop the file being written, so the rule is about
    where the file goes. It covers the models the loop keeps, renders or
    judges, and only those: `<workdir>/iki-character.iki`, and the
@@ -387,7 +388,10 @@ and how a new character's round-1 compose corrects the provisional
      far-side `ParamAngleX` stops toward the head's axis by about what the near
      tie rides the face (read with `probe_rig`), and declare its `occlusion`
      (needs `@ikijs/mcp` 0.35.0) on that side only, keyed on `ParamAngleX`,
-     starting above the idle sway (3.5).
+     starting above the idle sway (3.5). Declare it only for a part that
+     really goes behind its cover in the turned reference, never to clear a
+     `TIE`, `SLIDE` or `EXPOSED` failure: the gate still reads every pose up
+     to and including the stop where the part becomes fully hidden.
 
    A failure in steps 2 to 4 that the input explains is yours: a `probe_rig`
    refusal, a `bake.mjs` that exits non-zero, or an `INVALID: bakes…` (the

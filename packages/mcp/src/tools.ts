@@ -788,7 +788,11 @@ export async function autoRigFromLayers(
     // The opaque runs of each custom part's anchor layer and of each custom
     // layer, read while they are decoded, for the custom gate.
     const paints = new Map<string, PaintRuns>();
-    const anchorRoles = new Set(customEntries.map((e) => e.anchor));
+    // Anchor roles, and the roles that hide a custom part: the gate reads the
+    // paint of both.
+    const anchorRoles = new Set(
+      customEntries.flatMap((e) => [e.anchor, ...(e.occlusion?.by ?? [])]),
+    );
     for (let i = 0; i < resolvedLayers.length; i++) {
       const { resolved, fileName } = resolvedLayers[i];
       const png = await decodePng(resolved);
@@ -1087,11 +1091,12 @@ export async function autoRigFromLayers(
       try {
         gate = checkCustomGate(
           finalModel,
-          customEntries.map(({ id, anchor, tie, rigid }) => ({
+          customEntries.map(({ id, anchor, tie, rigid, occlusion }) => ({
             id,
             anchor,
             tie,
             ...(rigid === undefined ? {} : { rigid }),
+            ...(occlusion === undefined ? {} : { occludedBy: occlusion.by }),
           })),
           paints,
         );

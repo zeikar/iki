@@ -298,7 +298,9 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    item 2's reading, any gate (item 3) and any render. The artist's `CUSTOM:`
    block (the promoted model's; the measuring rig's reading under `BAKES:` is
    not judged) must end `CUSTOM GATE pass`. A missing block is a fail, and so
-   is any `FAIL` line in it, hidden art showing (`EXPOSED`) included. In a
+   is any `FAIL` line in it, hidden art showing (`EXPOSED`) included. A
+   `HIDDEN` line (a part with an `occlusion`) is reported and never fails: it
+   goes to the critic with the rest. In a
    gated round (`PATCHES:` or `RIGPLAN:` reads `proposed`) both the baseline's
    and the candidate's blocks must read pass: the candidate is never judged or
    promoted on a fail, and a baseline that fails ends the round. A fail ends

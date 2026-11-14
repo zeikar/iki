@@ -422,8 +422,15 @@ describe("MCP server integration", () => {
     expect(
       lines
         .slice(partLine + 1, -1)
-        .every((l) => /^CUSTOM tail (FOLDS|TIE|SLIDE|EXPOSED|TIP)/.test(l)),
+        .every((l) =>
+          /^CUSTOM tail (FOLDS|TIE|SLIDE|EXPOSED|HIDDEN|TIP)/.test(l),
+        ),
     ).toBe(true);
+    // HIDDEN follows EXPOSED and reports the declared occlusion.
+    const exposedAt = lines.findIndex((l) => /^CUSTOM tail EXPOSED/.test(l));
+    expect(lines[exposedAt + 1]).toMatch(
+      /^CUSTOM tail HIDDEN: hidden by hair_front,face on ParamAngleX, cover from .*\(reported, no limit\)$/,
+    );
     const gate = (sc as unknown as { customParts: { gate: { ok: boolean } } })
       .customParts.gate;
     expect(lines.at(-1) === "CUSTOM GATE pass").toBe(gate.ok);

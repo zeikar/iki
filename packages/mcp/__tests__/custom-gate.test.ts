@@ -41,6 +41,8 @@ interface Warp {
   param: string;
   stop: number;
   dx: number[];
+  /** More stops, each mirrored at its negative as `stop` is. */
+  also?: { stop: number; dx: number[] }[];
 }
 function meshPart(
   id: string,
@@ -73,14 +75,20 @@ function meshPart(
       ? {}
       : {
           warps: warps.map((wp) => {
-            const at = (sign: number) =>
-              wp.dx.flatMap((dx) => [(sign * dx) / w, 0, (sign * dx) / w, 0]);
+            const at = (dxs: number[], sign: number) =>
+              dxs.flatMap((dx) => [(sign * dx) / w, 0, (sign * dx) / w, 0]);
+            const stops = [
+              { stop: wp.stop, dx: wp.dx },
+              ...(wp.also ?? []),
+            ].sort((a, b) => a.stop - b.stop);
             return {
               parameter: wp.param,
               keyforms: [
-                { value: -wp.stop, offsets: at(-1) },
-                { value: 0, offsets: at(0) },
-                { value: wp.stop, offsets: at(1) },
+                ...[...stops]
+                  .reverse()
+                  .map((k) => ({ value: -k.stop, offsets: at(k.dx, -1) })),
+                { value: 0, offsets: at(wp.dx, 0) },
+                ...stops.map((k) => ({ value: k.stop, offsets: at(k.dx, 1) })),
               ],
             };
           }),
@@ -95,33 +103,50 @@ interface Case {
   stripWarps?: Warp[];
   /** Strip drawn below its anchor. */
   stripBelow?: boolean;
+  /** What hides the strip, written by hand. */
+  occlusion?: { by: string[]; parameter: string; stops: Stop[] };
+  /** A part added after the strip, such as a small occluder. */
+  extra?: ReturnType<typeof meshPart>;
+  /** Changes the built anchor, to make it fade. */
+  anchorEdit?: (anchor: Record<string, unknown>) => void;
+}
+interface Stop {
+  value: number;
+  amount: number;
 }
 function bust(c: Case): IkiModel {
   const anchor = c.anchor ?? BIG;
+  const hairBack: Record<string, unknown> = meshPart(
+    "hair_back",
+    anchor,
+    c.stripBelow ? 2 : 1,
+    [0, 1],
+    c.anchorWarps ?? [],
+  );
+  c.anchorEdit?.(hairBack);
   return parseIkiModel({
     version: 1,
     name: "bust",
     canvas: { width: CANVAS, height: CANVAS },
     parameters: [
       { id: "ParamAngleX", min: -30, max: 30, default: 0 },
+      { id: "ParamAngleY", min: -30, max: 30, default: 0 },
       { id: "ParamHairBackSway", min: -20, max: 20, default: 0 },
     ],
     parts: [
       meshPart("face", { x0: 100, x1: 300, y0: 100, y1: 300 }, 0, [0, 1], []),
-      meshPart(
-        "hair_back",
-        anchor,
-        c.stripBelow ? 2 : 1,
-        [0, 1],
-        c.anchorWarps ?? [],
-      ),
-      meshPart(
-        "strip",
-        STRIP,
-        c.stripBelow ? 1 : 2,
-        c.stripRows ?? [0, 1],
-        c.stripWarps ?? [],
-      ),
+      hairBack,
+      {
+        ...meshPart(
+          "strip",
+          STRIP,
+          c.stripBelow ? 1 : 2,
+          c.stripRows ?? [0, 1],
+          c.stripWarps ?? [],
+        ),
+        ...(c.occlusion === undefined ? {} : { occlusion: c.occlusion }),
+      },
+      ...(c.extra === undefined ? [] : [c.extra]),
     ],
   });
 }
@@ -491,5 +516,329 @@ describe("checkCustomGate: RIGID", () => {
 
   it("is absent for a part that is not rigid", () => {
     expect(gate({}).parts[0].rigid).toBeUndefined();
+  });
+});
+
+describe("checkCustomGate: what an occlusion hides", () => {
+  // The fixture's pose set: rest, three parameters at min and max (6), the four
+  // ParamAngleX x ParamAngleY corners = 11; a part baked on a parameter at
+  // +-15 and +-30 adds the two +-15 poses on its own = 13.
+  const SLIDE_AWAY: Warp = { param: "ParamAngleX", stop: 30, dx: [30, 30] };
+  /** 5 px at +-15, inside the 20 px limit, 30 px at +-30. */
+  const EARLY: Warp = {
+    param: "ParamAngleX",
+    stop: 15,
+    dx: [5, 5],
+    also: [{ stop: 30, dx: [30, 30] }],
+  };
+  /** Hidden from +-15 out (amount 1 there and at +-30), clear inside +-10. */
+  const DEEP = (parameter: string, top: number): Case["occlusion"] => ({
+    by: ["hair_back"],
+    parameter,
+    stops: [
+      { value: -30, amount: top },
+      { value: -15, amount: top },
+      { value: -10, amount: 0 },
+      { value: 10, amount: 0 },
+      { value: 15, amount: top },
+      { value: 30, amount: top },
+    ],
+  });
+  /** Reaches amount 1 only at the end stops. */
+  const LATE = (parameter: string): Case["occlusion"] => ({
+    by: ["hair_back"],
+    parameter,
+    stops: [
+      { value: -30, amount: 1 },
+      { value: -10, amount: 0 },
+      { value: 10, amount: 0 },
+      { value: 30, amount: 1 },
+    ],
+  });
+  const hides = (c: Case, extra: Partial<CustomGatePart> = {}) =>
+    checkCustomGate(
+      bust(c),
+      part({ occludedBy: ["hair_back"], ...extra }),
+      paints(c.anchor ?? BIG),
+    );
+  const hiddenLine = (r: CustomGateReport) =>
+    formatCustomGate(r).find((l) => /HIDDEN:/.test(l))!;
+
+  it("still fails TIE at rest where the amount is 0, though the tie lies on the anchor's paint", () => {
+    const r = hides({
+      anchorWarps: SWAY_ANCHOR,
+      occlusion: {
+        by: ["hair_back"],
+        parameter: "ParamAngleX",
+        stops: [
+          { value: 0, amount: 0 },
+          { value: 30, amount: 1 },
+        ],
+      },
+    });
+    expect(r.parts[0].tie.pass).toBe(false);
+    expect(r.parts[0].tie.px).toBeCloseTo(20, 3);
+    expect(r.parts[0].tie.pose).toMatch(/^ParamHairBackSway=-?20$/);
+    expect(r.failed).toContain("strip TIE");
+    expect(r.parts[0].hidden!.atRest).toBe(0);
+    // The amount is 0 at the sampled 0, so +30's stretch is not fully hidden.
+    expect(r.parts[0].hidden!.leftOut).toBe(0);
+    expect(r.parts[0].hidden!.poses).toBe(11);
+  });
+
+  it("passes a slide that is large only where the part is fully hidden, and counts those poses", () => {
+    const r = hides({ stripWarps: [EARLY], occlusion: DEEP("ParamAngleX", 1) });
+    expect(r.failed).toEqual([]);
+    const h = r.parts[0].hidden!;
+    // ParamAngleX at +-30: two alone and four corners. +-15 stays read.
+    expect(h.leftOut).toBe(6);
+    expect(h.leftOutTurning).toBe(6);
+    expect(h.poses).toBe(13);
+    expect(h.cover).toEqual(["hair_back"]);
+    expect(h.atRest).toBe(0);
+    expect(h.below).toEqual({ leaves: -10, full: -15 });
+    expect(h.above).toEqual({ leaves: 10, full: 15 });
+    // ParamAngleX=-15 and 15 are the poses that turn the head and are read.
+    expect(r.parts[0].slide.turningPoses).toBe(2);
+    expect(r.parts[0].slide.slide.px).toBeCloseTo(5, 3);
+    const line = hiddenLine(r);
+    expect(line).toMatch(
+      /below 0 the amount leaves 0 at -10 and reaches 1 at -15/,
+    );
+    expect(line).toMatch(
+      /left out of TIE and SLIDE: 6 of 13 poses \(reported, no limit\)/,
+    );
+  });
+
+  it("fails SLIDE where the amount reaches 1 only at the end stop, the stretch before it being drawn", () => {
+    const r = hides({
+      stripWarps: [{ param: "ParamAngleX", stop: 30, dx: [60, 60] }],
+      occlusion: LATE("ParamAngleX"),
+    });
+    expect(r.failed).toContain("strip SLIDE");
+    expect(r.parts[0].slide.slide.px).toBeCloseTo(60, 3);
+    // +-30's stretch to the sampled 0 starts at amount 0: nothing is left out.
+    expect(r.parts[0].hidden!.leftOut).toBe(0);
+    expect(r.parts[0].hidden!.poses).toBe(11);
+  });
+
+  it("fails SLIDE for the same slide with the top amount 0.9", () => {
+    const r = hides({
+      stripWarps: [EARLY],
+      occlusion: DEEP("ParamAngleX", 0.9),
+    });
+    expect(r.failed).toContain("strip SLIDE");
+    expect(r.parts[0].slide.slide.px).toBeCloseTo(30, 3);
+    expect(r.parts[0].hidden!.leftOut).toBe(0);
+    expect(r.parts[0].hidden!.poses).toBe(13);
+  });
+
+  it("fails SLIDE at amount 1 where the tie lands off the occluder's paint", () => {
+    const anchor: Rect = { x0: 100, x1: 225, y0: 100, y1: 300 };
+    const r = hides({
+      anchor,
+      stripWarps: [EARLY],
+      occlusion: DEEP("ParamAngleX", 1),
+    });
+    expect(r.failed).toContain("strip SLIDE");
+    expect(r.parts[0].slide.slide.pass).toBe(false);
+    // The ring lands at 228..232 at +30, off the paint, so +30's poses are
+    // read; -30's (alone and two corners) stay under it and are left out.
+    expect(r.parts[0].slide.slide.pose).toMatch(/^ParamAngleX=30/);
+    expect(r.parts[0].hidden!.leftOut).toBe(3);
+    expect(r.parts[0].hidden!.poses).toBe(13);
+  });
+
+  it("fails SLIDE where a ring point lies off the part's mesh, though it would be left out otherwise", () => {
+    // The ring is +-2 px on this 200 px face: y 149 is above the strip (150).
+    const r = hides(
+      { stripWarps: [EARLY], occlusion: DEEP("ParamAngleX", 1) },
+      { tie: [200, 151] },
+    );
+    expect(r.parts[0].hidden!.leftOut).toBe(0);
+    expect(r.failed).toContain("strip SLIDE");
+  });
+
+  it("gives no cover from an occluder that fades, by binding or by alpha", () => {
+    const fade = (anchorEdit: Case["anchorEdit"]) =>
+      hides({
+        stripWarps: [EARLY],
+        occlusion: DEEP("ParamAngleX", 1),
+        anchorEdit,
+      });
+    const byBinding = fade((a) => {
+      a.bindings = [
+        {
+          parameter: "ParamHairBackSway",
+          channel: "opacity",
+          from: 1,
+          to: 0.5,
+        },
+      ];
+    });
+    const byAlpha = fade((a) => {
+      a.color = [1, 1, 1, 0.9];
+    });
+    const byTransform = fade((a) => {
+      (a.transform as { opacity?: number }).opacity = 0.9;
+    });
+    for (const r of [byBinding, byAlpha, byTransform]) {
+      expect(r.failed).toContain("strip SLIDE");
+      expect(r.parts[0].hidden!.cover).toEqual([]);
+      expect(r.parts[0].hidden!.leftOut).toBe(0);
+      expect(hiddenLine(r)).toMatch(/cover from none of them \(the rest fade/);
+    }
+  });
+
+  describe("EXPOSED, keyed on ParamAngleY", () => {
+    const EARLY_Y: Warp = {
+      param: "ParamAngleY",
+      stop: 15,
+      dx: [0.5, 0.5],
+      also: [{ stop: 30, dx: [30, 30] }],
+    };
+
+    it("does not count hidden art under the cover where the part is fully hidden, and the pose is left out of TIE", () => {
+      const r = hides({
+        stripWarps: [EARLY_Y],
+        occlusion: DEEP("ParamAngleY", 1),
+      });
+      expect(r.parts[0].exposed.hiddenPx).toBeGreaterThan(500);
+      expect(r.failed).toEqual([]);
+      // ParamAngleY at +-30: two alone and four corners.
+      expect(r.parts[0].hidden!.leftOut).toBe(6);
+      expect(r.parts[0].hidden!.poses).toBe(13);
+    });
+
+    it("fails where the amount reaches 1 only at the end stop", () => {
+      const r = hides({
+        stripWarps: [{ param: "ParamAngleY", stop: 30, dx: [30, 30] }],
+        occlusion: LATE("ParamAngleY"),
+      });
+      expect(r.parts[0].exposed.pass).toBe(false);
+      expect(r.parts[0].exposed.noTurn.px2!).toBeGreaterThan(300);
+      expect(r.failed).toContain("strip EXPOSED");
+      expect(r.parts[0].hidden!.leftOut).toBe(0);
+      expect(r.parts[0].hidden!.poses).toBe(11);
+    });
+
+    it("still counts hidden art that shows outside the cover, while TIE leaves that pose out", () => {
+      // A small occluder, moving with the strip, over the tie's ring and
+      // little else; the anchor is not an occluder.
+      const small: Rect = { x0: 185, x1: 215, y0: 155, y1: 175 };
+      const r = checkCustomGate(
+        bust({
+          stripWarps: [EARLY_Y],
+          extra: meshPart("hair_front", small, 3, [0, 1], [EARLY_Y]),
+          occlusion: { ...DEEP("ParamAngleY", 1)!, by: ["hair_front"] },
+        }),
+        part({ occludedBy: ["hair_front"] }),
+        new Map([...paints(), ["hair_front", rectPaint(small)]]),
+      );
+      const p = r.parts[0];
+      expect(p.hidden!.cover).toEqual(["hair_front"]);
+      // ParamAngleY at +-30: two alone and four corners.
+      expect(p.hidden!.leftOut).toBe(6);
+      expect(p.hidden!.poses).toBe(13);
+      expect(p.exposed.pass).toBe(false);
+      expect(p.exposed.noTurn.px2!).toBeGreaterThan(300);
+      // The pose where EXPOSED fails moves the strip 30 px: TIE read at it
+      // would be 30, so it is among the poses left out.
+      expect(p.exposed.noTurn.pose).toMatch(/^ParamAngleY=-?30$/);
+      expect(p.tie.pass).toBe(true);
+      expect(p.tie.px!).toBeLessThan(1);
+      expect(r.failed).toEqual(["strip EXPOSED"]);
+    });
+  });
+
+  it("still fails FOLDS at a pose TIE leaves out", () => {
+    const model = bust({
+      stripWarps: [EARLY],
+      occlusion: DEEP("ParamAngleX", 1),
+    });
+    const w = model.parts.find((p) => p.id === "strip")!.warps![0];
+    // Only the +-30 stops flip the strip: those are the poses left out.
+    for (const k of w.keyforms.filter((k) => Math.abs(k.value) === 30)) {
+      k.offsets[5] = 1.5 * Math.sign(k.value);
+      k.offsets[7] = 1.5 * Math.sign(k.value);
+    }
+    const r = checkCustomGate(
+      model,
+      part({ occludedBy: ["hair_back"] }),
+      paints(),
+    );
+    expect(r.parts[0].hidden!.leftOut).toBe(6);
+    expect(r.parts[0].folds.pass).toBe(false);
+    expect(r.parts[0].folds.pose).toMatch(/^ParamAngleX=-?30/);
+    expect(r.failed).toContain("strip FOLDS");
+  });
+
+  it("says so when every pose a line would read is left out", () => {
+    // Hidden at every value: the default pose (amount 1, and 1 out to the
+    // sampled -30 and 30) and all the others are left out, the anchor's sway
+    // included.
+    const r = hides({
+      anchorWarps: SWAY_ANCHOR,
+      occlusion: {
+        by: ["hair_back"],
+        parameter: "ParamAngleX",
+        stops: [{ value: 0, amount: 1 }],
+      },
+    });
+    expect(r.failed).toEqual([]);
+    const h = r.parts[0].hidden!;
+    expect(h.leftOut).toBe(11);
+    expect(h.leftOutTurning).toBe(6);
+    expect(h.readNoTurn).toBe(0);
+    const lines = formatCustomGate(r);
+    expect(lines.find((l) => /SLIDE/.test(l))).toBe(
+      "CUSTOM strip SLIDE: every pose that turns the head is left out as hidden (see HIDDEN)  pass",
+    );
+    expect(lines.find((l) => /TIE/.test(l))).toBe(
+      "CUSTOM strip TIE: every pose that does not turn the head is left out as hidden (see HIDDEN)  pass",
+    );
+  });
+
+  it("reads a pose whose stretch toward the next sample is drawn, though the amount is 1 at the pose", () => {
+    // Hidden at rest and out to 15, then appearing: 1 at 15, 0 at 30. At 22.5
+    // the player draws the strip at alpha 0.5, slid 30 px.
+    const r = hides({
+      stripWarps: [
+        {
+          param: "ParamAngleX",
+          stop: 15,
+          dx: [60, 60],
+          also: [{ stop: 30, dx: [0, 0] }],
+        },
+      ],
+      occlusion: {
+        by: ["hair_back"],
+        parameter: "ParamAngleX",
+        stops: [
+          { value: 15, amount: 1 },
+          { value: 30, amount: 0 },
+        ],
+      },
+    });
+    expect(r.failed).toContain("strip SLIDE");
+    expect(r.parts[0].slide.slide.px).toBeCloseTo(60, 3);
+    expect(r.parts[0].slide.slide.pose).toMatch(/^ParamAngleX=-?15/);
+    const line = hiddenLine(r);
+    expect(line).toMatch(/above 0 the amount is 1 at rest and leaves it at 15/);
+    expect(line).toMatch(/below 0 the amount is 1 at rest and stays 1/);
+  });
+
+  it("leaves a part without occlusion as it was: no hidden key, no HIDDEN line", () => {
+    const r = gate({ stripWarps: [SLIDE_AWAY] });
+    expect("hidden" in r.parts[0]).toBe(false);
+    expect(formatCustomGate(r).some((l) => /HIDDEN/.test(l))).toBe(false);
+    // An occludedBy the model does not back with an occlusion excuses nothing.
+    const stray = checkCustomGate(
+      bust({ stripWarps: [SLIDE_AWAY] }),
+      part({ occludedBy: ["hair_back"] }),
+      paints(),
+    );
+    expect(stray.failed).toContain("strip SLIDE");
+    expect("hidden" in stray.parts[0]).toBe(false);
   });
 });

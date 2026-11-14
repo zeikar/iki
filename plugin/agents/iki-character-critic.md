@@ -176,14 +176,24 @@ artist agent applies your findings; the orchestrator arbitrates.
   empty for no rigs. `unavailable` means the server predates the report.
 - `custom` — a character with custom parts only: the `CUSTOM` lines the rig
   printed for the model you are judging, verbatim: per part its `CUSTOM <id>:`
-  line, then `FOLDS`, `TIE`, `SLIDE`, `EXPOSED`, `RIGID` (a rigid part) and
-  `TIP` lines, then `CUSTOM GATE pass`. The orchestrator did not hand you a
+  line, then `FOLDS`, `TIE`, `SLIDE`, `EXPOSED`, `HIDDEN` (a part with an
+  `occlusion`), `RIGID` (a rigid part) and `TIP` lines, then `CUSTOM GATE pass`. The orchestrator did not hand you a
   model that fails a limited line, so these are facts like the measure
   report's: the gate says each part holds its tie, does not fold, does not
   bend (rigid) and does not bare hidden art where the head does not turn. It
   does not say the part looks right: `TIP` is only the free end's travel, and
-  `EXPOSED` where the head turns is reported with no limit. Absent for a
-  character without custom parts.
+  `EXPOSED` where the head turns is reported with no limit. `HIDDEN` is a fact
+  too: the occluders, which give the gate cover, the amount at rest, where the
+  fade starts and ends and how many poses `TIE` and `SLIDE` left out (only
+  those fully hidden across the stretches to the neighbouring sampled values on both sides); the gate
+  excuses nothing it cannot show the player hides, and it never fails on this
+  line. On the `turn` sheet a part declared hidden should leave behind its
+  cover between the cells either side of the fade, with no jump, and should
+  not fade while the head idles (the fade starts above the idle sway, 3.5 on
+  `ParamAngleX`). A defect there is a `bake` finding, which now also names the
+  occlusion's stops or its `by`. Flat or unfinished art of the cover showing
+  where the part left is an `escalate`. Absent for a character without custom
+  parts.
 - `roll` — a character with custom parts only: the `roll` sweep's
   `renders/face/roll/sheet.png` (nine frames of `ParamAngleZ`, the head's tilt,
   on the turn's eased curve, labelled with the angle and t, cropped to the head
