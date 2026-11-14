@@ -67,11 +67,11 @@ You own the character assets. You do not own the packages.
   (`batch:`, `stale:`, `refused:`) rules out only that exact op.
 - `<workdir>/custom-parts.json` — `{ "customParts": [ … ] }`, the parts the role
   list has no name for (each entry as the **iki-character** skill's Step 3
-  `customParts`). The user supplies it; you may edit an entry's `anchor`, `tie`
-  and `after`. `<workdir>/custom/` holds the custom layers as supplied: you do
-  not draw or redraw them, and art that is wrong goes back to the user under
-  `BLOCKED`. A custom PNG never goes in `layers/` or the parts dir. The bake
-  files below live in `<workdir>/custom/` too, and are yours.
+  `customParts`). The user supplies it; you may edit an entry's `anchor`, `tie`,
+  `after` and `occlusion`. `<workdir>/custom/` holds the custom layers as
+  supplied: you do not draw or redraw them, and art that is wrong goes back to
+  the user under `BLOCKED`. A custom PNG never goes in `layers/` or the parts
+  dir. The bake files below live in `<workdir>/custom/` too, and are yours.
 - `<workdir>/bakes.json` — `{ "bakes": { … } }`, what moves the custom parts
   when a parameter does (the **iki-character** skill's Step 3 `bakes`). You
   derive it with the procedure under Rig, and edit it by that procedure only.
@@ -297,12 +297,18 @@ and how a new character's round-1 compose corrects the provisional
    each `path` under `<workdir>/custom/`. The result's one `CUSTOM <id>: …` line
    per part (or its `customParts.parts` entries) comes after the `HAIRSIDE`
    lines, then the `BAKE` lines and the gate's (below); quote them under
-   `CUSTOM:` in your report. An `INVALID:
-   customParts[i]…` about an entry's `anchor`, `tie` or `after` is yours to
+   `CUSTOM:` in your report. A part with an `occlusion` has its line end
+   `, hidden by <id>,<id>… on <parameter> at <value>:<amount> <value>:<amount>…`; quote that
+   text as it is. An `INVALID:
+   customParts[i]…` about an entry's `anchor`, `tie`, `after` or `occlusion` (but see the unknown-key case below) is yours to
    fix in `custom-parts.json`: re-rig ONCE, and if it is refused again report
    both messages under `BLOCKED` and return with no model. One about the PNG
    itself (empty, or the wrong size) is the user's: report it under `BLOCKED`
-   and return with no model, without a re-rig. Passed `customParts` but the result has no `customParts` field: the
+   and return with no model, without a re-rig. An `INVALID: customParts[i]…`
+   that refuses `occlusion` as an unknown key means the server predates 0.35.0:
+   remove the `occlusion` key from that entry, rig without it (the far part
+   then draws in front of its cover) and say so under `ESCALATED`, not
+   `BLOCKED`: the model is valid, only the hiding is missing. Passed `customParts` but the result has no `customParts` field: the
    server predates 0.34.0 and rigged without the parts. Rig nothing more,
    report `CUSTOM: unavailable` and that cause under `ESCALATED`, and return
    `BLOCKED` with no model.
@@ -377,6 +383,11 @@ and how a new character's round-1 compose corrects the provisional
      swinging out with the head.
    - A `rigid` part takes one displacement for every control point of a stop
      (or a rotation), never a lattice that varies.
+   - A part on the head's far side on a turn goes behind the head. Bake its
+     far-side `ParamAngleX` stops toward the head's axis by about what the near
+     tie rides the face (read with `probe_rig`), and declare its `occlusion`
+     (needs `@ikijs/mcp` 0.35.0) on that side only, keyed on `ParamAngleX`,
+     starting above the idle sway (3.5).
 
    A failure in steps 2 to 4 that the input explains is yours: a `probe_rig`
    refusal, a `bake.mjs` that exits non-zero, or an `INVALID: bakes…` (the

@@ -216,6 +216,125 @@ describe("auto_rig_from_layers customParts", () => {
     ]);
   });
 
+  describe("occlusion", () => {
+    const occlusion = {
+      by: ["hair_front", "face"],
+      parameter: "ParamAngleX",
+      stops: [
+        { value: 5, amount: 0 },
+        { value: 15, amount: 1 },
+      ],
+    };
+
+    it("writes it with the roles' part ids and reports it in the result", async () => {
+      const r = await rig(
+        dir,
+        "occ.iki",
+        { customParts: [{ ...tail, occlusion }] },
+        layers,
+      );
+      const written = readModel(path.join(dir, "occ.iki")).parts.find(
+        (p) => p.id === "tail",
+      )!;
+      expect(written.occlusion).toEqual({
+        by: ["hair_front", "face"],
+        parameter: "ParamAngleX",
+        stops: occlusion.stops,
+      });
+      expect(r.customParts!.parts[0].occlusion).toEqual(written.occlusion);
+    });
+
+    it("leaves the report of a part that declares none without the key", () => {
+      expect(withTail.customParts!.parts[0]).not.toHaveProperty("occlusion");
+    });
+
+    it("writes no occlusion key on a part that declares none", () => {
+      const written = readModel(path.join(dir, "t.iki")).parts.find(
+        (p) => p.id === "tail",
+      )!;
+      expect(written).not.toHaveProperty("occlusion");
+    });
+
+    it.each([
+      ["an unknown key", { ...occlusion, extra: 1 }, "extra"],
+      ["a role the set lacks", { ...occlusion, by: ["hair_side_L"] }, "by[0]"],
+      ["no roles", { ...occlusion, by: [] }, "by"],
+      [
+        "a parameter the rig lacks",
+        { ...occlusion, parameter: "ParamNope" },
+        "parameter",
+      ],
+      [
+        "a physics output",
+        { ...occlusion, parameter: "ParamHairSwayX" },
+        "parameter",
+      ],
+      [
+        "stops that do not ascend",
+        {
+          ...occlusion,
+          stops: [
+            { value: 15, amount: 1 },
+            { value: 5, amount: 0 },
+          ],
+        },
+        "stops[1].value",
+      ],
+      [
+        "a stop value outside the parameter's range",
+        { ...occlusion, stops: [{ value: 500, amount: 1 }] },
+        "stops[0].value",
+      ],
+      [
+        "an amount above 1",
+        { ...occlusion, stops: [{ value: 5, amount: 2 }] },
+        "stops[0].amount",
+      ],
+    ])(
+      "%s comes back ok: false with its path and writes nothing",
+      async (_, bad, where) => {
+        const out = path.join(dir, "occ-refused.iki");
+        const r = await autoRigFromLayers({
+          layers,
+          outputPath: out,
+          customParts: [{ ...tail, occlusion: bad }],
+        });
+        expect(r.ok).toBe(false);
+        if (!r.ok) {
+          expect(r.error).toMatch(/^customParts\[0\]\.occlusion/);
+          expect(r.error).toContain(where);
+        }
+        expect(fs.existsSync(out)).toBe(false);
+      },
+    );
+
+    it("refuses a role whose part is clipped, after generation, and leaves the output dir empty", async () => {
+      const out = tmpDir();
+      const withIris = [
+        ...layers,
+        {
+          path: await writeLayer(dir, "iris_L.png", {
+            x: 33,
+            y: 36,
+            w: 6,
+            h: 6,
+          }),
+        },
+      ];
+      const r = await autoRigFromLayers({
+        layers: withIris,
+        outputPath: path.join(out, "late.iki"),
+        customParts: [{ ...tail, occlusion: { ...occlusion, by: ["iris_L"] } }],
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error).toMatch(/^customParts\[0\]\.occlusion\.by\[0\]/);
+        expect(r.error).toContain("is clipped");
+      }
+      expect(fs.readdirSync(out)).toEqual([]);
+    });
+  });
+
   describe("refusals write nothing", () => {
     async function refused(
       entry: AutoRigCustomPartInput,

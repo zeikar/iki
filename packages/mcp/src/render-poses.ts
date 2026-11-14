@@ -414,7 +414,8 @@ export interface RenderPosesInput {
 /**
  * `model` without the parts `hideParts` names, for the page to draw. Throws
  * `AutoRigInputError` for an id the model lacks, or one a part that stays is
- * clipped to (its mask would vanish and the part would draw unclipped).
+ * clipped to (its mask would vanish and the part would draw unclipped) or
+ * occluded by (it would show whole where its occluder hid it).
  */
 function withoutParts(model: IkiModel, hideParts: string[]): IkiModel {
   const hidden = new Set(hideParts);
@@ -430,6 +431,14 @@ function withoutParts(model: IkiModel, hideParts: string[]): IkiModel {
     if (kept) {
       throw new AutoRigInputError(
         `hideParts[${i}] ${JSON.stringify(id)} masks ${JSON.stringify(kept.id)}, which stays; hide ${JSON.stringify(kept.id)} too`,
+      );
+    }
+    const occluded = model.parts.find(
+      (p) => !hidden.has(p.id) && p.occlusion?.by.includes(id),
+    );
+    if (occluded) {
+      throw new AutoRigInputError(
+        `hideParts[${i}] ${JSON.stringify(id)} occludes ${JSON.stringify(occluded.id)}, which stays; hide ${JSON.stringify(occluded.id)} too`,
       );
     }
   });

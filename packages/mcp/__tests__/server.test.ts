@@ -321,6 +321,12 @@ describe("MCP server integration", () => {
     expect(Object.keys(rigTool.inputSchema.properties!)).toContain(
       "customParts",
     );
+    const entry = (
+      rigTool.inputSchema.properties!.customParts as {
+        items: { properties: Record<string, unknown> };
+      }
+    ).items;
+    expect(Object.keys(entry.properties)).toContain("occlusion");
 
     const partsDir = tmpDir();
     await writePartsSet(partsDir);
@@ -381,6 +387,14 @@ describe("MCP server integration", () => {
             anchor: "face",
             tie,
             after: "hair_front",
+            occlusion: {
+              by: ["hair_front", "face"],
+              parameter: "ParamAngleX",
+              stops: [
+                { value: 5, amount: 0 },
+                { value: 15, amount: 1 },
+              ],
+            },
           },
         ],
       },
@@ -398,6 +412,9 @@ describe("MCP server integration", () => {
     )[0].text.split("\n");
     expect(lines.at(-1)).toMatch(/^CUSTOM GATE (pass|FAIL: )/);
     const partLine = lines.findIndex((l) => /^CUSTOM tail: /.test(l));
+    expect(lines[partLine]).toMatch(
+      /, hidden by hair_front,face on ParamAngleX at 5:0 15:1$/,
+    );
     expect(lines.findLastIndex((l) => /^HAIRSIDE[ :]/.test(l))).toBe(
       partLine - 1,
     );

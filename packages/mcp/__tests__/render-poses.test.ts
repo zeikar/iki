@@ -477,6 +477,31 @@ describe("renderPoses refuses a custom pose list", () => {
   });
 });
 
+/** A hand-built model whose `tail_L` is hidden by `face` on ParamAngleX. */
+const occludedModel = (): IkiModel => {
+  const mesh = {
+    vertices: [0, 0, 1, 0, 0, 1],
+    uvs: [0, 0, 1, 0, 0, 1],
+    indices: [0, 1, 2],
+  };
+  return {
+    ...model(1100, 1100, [], []),
+    parameters: [{ id: "ParamAngleX", min: -30, max: 30, default: 0 }],
+    parts: [
+      { ...part("face", 0, 0), mesh },
+      {
+        ...part("tail_L", 0, 0),
+        mesh,
+        occlusion: {
+          by: ["face"],
+          parameter: "ParamAngleX",
+          stops: [{ value: 15, amount: 1 }],
+        },
+      },
+    ],
+  };
+};
+
 // Each refusal comes back before the browser search, as the pose list's do.
 describe("renderPoses refuses hideParts", () => {
   const clipped = (id: string, masks: string[]) => ({
@@ -488,6 +513,11 @@ describe("renderPoses refuses hideParts", () => {
     },
     clip: { masks },
   });
+  const mesh = {
+    vertices: [0, 0, 1, 0, 0, 1],
+    uvs: [0, 0, 1, 0, 0, 1],
+    indices: [0, 1, 2],
+  };
   const m = (): IkiModel => ({
     ...model(1100, 1100, [], []),
     parts: [
@@ -512,6 +542,21 @@ describe("renderPoses refuses hideParts", () => {
   it("refuses an id the model lacks", async () => {
     expect(await refusal(["tail_L", "ghost"])).toBe(
       'hideParts[1] "ghost" is not a part of the model',
+    );
+  });
+
+  it("refuses a part that a part which stays names in occlusion.by", async () => {
+    const dir = tmpDir();
+    const modelPath = path.join(dir, "m.iki");
+    fs.writeFileSync(modelPath, JSON.stringify(occludedModel()));
+    const r = await renderPoses({
+      modelPath,
+      outDir: dir,
+      hideParts: ["face"],
+    });
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toBe(
+      'hideParts[0] "face" occludes "tail_L", which stays; hide "tail_L" too',
     );
   });
 
@@ -1052,6 +1097,21 @@ describe.skipIf(findBrowser() === undefined)("renderPoses in a browser", () => {
         hideParts: [mask.id, ...clippedByMask],
       });
       expect(together.ok).toBe(true);
+    }, 120_000);
+
+    it("draws with a part hidden together with its occluder, or the occluded part alone", async () => {
+      const dir = tmpDir();
+      const modelPath = path.join(dir, "m.iki");
+      fs.writeFileSync(modelPath, JSON.stringify(occludedModel()));
+      for (const hideParts of [["face", "tail_L"], ["tail_L"]]) {
+        const r = await renderPoses({
+          modelPath,
+          outDir: tmpDir(),
+          poses: [{ name: "rest", values: {} }],
+          hideParts,
+        });
+        expect(r.ok).toBe(true);
+      }
     }, 120_000);
 
     it("clears a sweep dir's other-preset files when a name is reused", async () => {

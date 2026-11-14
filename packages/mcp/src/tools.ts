@@ -7,6 +7,7 @@ import {
   StandardParameter,
   type IkiModel,
   type IkiDeformer,
+  type IkiOcclusion,
 } from "@ikijs/format";
 import {
   EditorDocument,
@@ -599,6 +600,9 @@ export interface CustomPartReport {
   mesh: { vertices: number; triangles: number };
   order: number;
   page: number;
+  /** What hides the part, as written on the model; only for a part that
+   *  declares it. */
+  occlusion?: IkiOcclusion;
 }
 
 export type { TurnSolveReport, BakeCheck, CustomGateReport };
@@ -1127,6 +1131,9 @@ export async function autoRigFromLayers(
                   },
                   order: part.order,
                   page: part.texture!.index,
+                  ...(part.occlusion === undefined
+                    ? {}
+                    : { occlusion: part.occlusion }),
                 };
               }),
               ...(bakes === undefined ? {} : { bakes }),
