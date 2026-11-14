@@ -1,0 +1,18 @@
+{
+  "customParts": [
+    {
+      "id": "tail_R",
+      "file": "tail_R.png",
+      "anchor": "hair_back",
+      "tie": [388, 240],
+      "after": "hair_back"
+    },
+    {
+      "id": "tail_L",
+      "file": "tail_L.png",
+      "anchor": "hair_back",
+      "tie": [712, 240],
+      "after": "hair_back"
+    }
+  ]
+}

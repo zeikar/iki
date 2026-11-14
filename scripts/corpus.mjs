@@ -4,8 +4,9 @@
  *
  * Each directory under `corpus/` with a `layers/` folder is one character,
  * rigged with the options the plugin's character artist rigs with:
- * `quantizeColors` 256, `rig-plan.json` verbatim, the whole `patches.json` list
- * and no `turnTargets`. Update mode writes the model to
+ * `quantizeColors` 256, `rig-plan.json` verbatim, the whole `patches.json` list,
+ * the `custom-parts.json` entries (their layers under the character's
+ * `custom/`), `bakes.json` and no `turnTargets`. Update mode writes the model to
  * `examples/playground/public/<name>.iki` (bob's to `hero.iki`: it is the
  * site's hero) and its metrics to
  * `corpus/<name>/metrics.json`; check mode rigs into `.corpus-check/` and
@@ -25,7 +26,10 @@ import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
-import { autoRigFromLayers } from "../packages/mcp/dist/index.mjs";
+import {
+  autoRigFromLayers,
+  formatCustomGate,
+} from "../packages/mcp/dist/index.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(scriptDir, "..");
@@ -59,8 +63,14 @@ for (const name of names) {
     mode === "update" ? demoDir : checkDir,
     demoName,
   );
-  const { metrics, modelFile } = await rig(name, outputPath);
+  const { metrics, modelFile, gate } = await rig(name, outputPath);
   const metricsPath = path.join(corpusDir, name, "metrics.json");
+  // A custom part the gate refuses is a rig the loop would not accept; the
+  // files are still written (update) or compared (check) so the numbers show.
+  if (gate !== undefined && !gate.ok) {
+    console.log(`${name}: ${formatCustomGate(gate).slice(-1)[0]}`);
+    failed = true;
+  }
 
   if (mode === "update") {
     await writeFile(metricsPath, `${JSON.stringify(metrics, null, 2)}\n`);
@@ -146,12 +156,49 @@ async function rig(name, outputPath) {
     );
   }
 
+  const customFile = await readIfExists(
+    path.join(characterDir, "custom-parts.json"),
+  );
+  const customEntries =
+    customFile === null
+      ? undefined
+      : JSON.parse(customFile.toString()).customParts;
+  if (
+    customFile !== null &&
+    (!Array.isArray(customEntries) ||
+      !customEntries.every(
+        (entry) =>
+          entry !== null &&
+          typeof entry === "object" &&
+          typeof entry.file === "string",
+      ))
+  ) {
+    throw new Error(
+      `corpus/${name}/custom-parts.json: expected { "customParts": [{ "file": ..., ...}] }`,
+    );
+  }
+  const customParts = customEntries?.map(({ file, ...entry }) => ({
+    ...entry,
+    path: path.join(characterDir, "custom", file),
+  }));
+  const bakesFile = await readIfExists(path.join(characterDir, "bakes.json"));
+  const bakes =
+    bakesFile === null ? undefined : JSON.parse(bakesFile.toString()).bakes;
+  if (
+    bakesFile !== null &&
+    (bakes === null || typeof bakes !== "object" || Array.isArray(bakes))
+  ) {
+    throw new Error(`corpus/${name}/bakes.json: expected { "bakes": {...} }`);
+  }
+
   const result = await autoRigFromLayers({
     layers,
     outputPath,
     quantizeColors: 256,
     rigPlan,
     ...(patches === undefined ? {} : { patches }),
+    ...(customParts === undefined ? {} : { customParts }),
+    ...(bakes === undefined ? {} : { bakes }),
   });
   if (!result.ok) {
     console.error(`${name}: ${result.error}`);
@@ -218,8 +265,13 @@ async function rig(name, outputPath) {
     })),
     motions: Object.keys(model.motions ?? {}),
     expressions: (model.expressions ?? []).map((expression) => expression.id),
+    // Only a character with custom parts has the key, so the others' metrics
+    // stay as committed.
+    ...(result.customParts === undefined
+      ? {}
+      : { customParts: customPartMetrics(result.customParts.gate) }),
   };
-  return { metrics, modelFile };
+  return { metrics, modelFile, gate: result.customParts?.gate };
 }
 
 function summary(name, metrics) {
@@ -240,7 +292,36 @@ function summary(name, metrics) {
 }
 
 function round3(value) {
-  return Math.round(value * 1000) / 1000;
+  return value === null ? null : Math.round(value * 1000) / 1000;
+}
+
+/** The gate's verdict and each part's worst readings, rounded like the physics numbers. */
+function customPartMetrics(gate) {
+  return {
+    ok: gate.ok,
+    poses: gate.poses,
+    parts: gate.parts.map((part) => ({
+      id: part.id,
+      ok: part.ok,
+      folds: { ratio: round3(part.folds.ratio), pose: part.folds.pose },
+      tiePx: round3(part.tie.px),
+      slide: {
+        px: round3(part.slide.slide.px),
+        onAnchorPx: round3(part.slide.onAnchor.px),
+      },
+      exposed: {
+        hiddenPx: part.exposed.hiddenPx,
+        noTurnPx2: round3(part.exposed.noTurn.px2),
+        turningPx2: round3(part.exposed.turning?.px2 ?? null),
+      },
+      ...(part.rigid === undefined ? {} : { rigidPx: round3(part.rigid.px) }),
+      tip: part.tip.map((tip) => ({
+        param: tip.param,
+        fromBare: tip.ends.map((end) => round3(end.fromBare)),
+        travel: round3(tip.travel),
+      })),
+    })),
+  };
 }
 
 /** Every leaf that differs between `a` and `b`, as `<path>: <a> → <b>`. */

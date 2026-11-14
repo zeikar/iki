@@ -76,8 +76,9 @@ art? Hand role-named PNG layers to the auto-rigger through the
 No install — both demos run in the browser:
 
 - **[Playground](https://zeikar.dev/iki/playground/)** — drag the sliders
-  that a host would drive, on a hand-authored model or one of the four
-  regression-corpus characters — the hero and three full bodies.
+  that a host would drive, on a hand-authored model or one of the five
+  regression-corpus characters — the hero, three full bodies and a bust with
+  baked twin tails.
 - **[Editor](https://zeikar.dev/iki/editor/)** — author parts, deformers,
   and physics rigs, import a layered PSD, and export a validated `.iki`.
 
@@ -126,7 +127,7 @@ web format you can script against, that is what this is.
 | [`@ikijs/engine`](./packages/engine)                                                        | WebGL2 runtime that plays a `.iki` model                                                                                                                                                         |
 | [`@ikijs/editor`](./packages/editor)                                                        | Headless editing core (no UI): EditorDocument, edit commands, undo/redo, atlas layout/UV helpers, auto-rigger (depends only on @ikijs/format)                                                    |
 | [`@ikijs/mcp`](./packages/mcp)                                                              | stdio MCP server exposing `.iki` read/validate plus `compose_layers_from_parts`, `measure_layers`, `auto_rig_from_layers`, `measure_turn_reference`, `render_poses` and `probe_rig` to AI agents |
-| [`examples/playground`](./examples/playground) ([live](https://zeikar.dev/iki/playground/)) | Slider-driven demo of the four regression-corpus characters (the hero and three full bodies) and a hand-authored model                                                                           |
+| [`examples/playground`](./examples/playground) ([live](https://zeikar.dev/iki/playground/)) | Slider-driven demo of the five regression-corpus characters (the hero, three full bodies and a bust with baked twin tails) and a hand-authored model                                             |
 | [`examples/editor`](./examples/editor) ([live](https://zeikar.dev/iki/editor/))             | Private React+Zustand app — load/import art, numeric part + deformer + physics editing, pivot gizmo, live IkiPlayer preview, validated .iki export                                               |
 | [`plugin/`](./plugin)                                                                       | Claude Code / Codex plugin — shared character-generation skills, two agent roles, and the MCP server, wired up in one install                                                                    |
 

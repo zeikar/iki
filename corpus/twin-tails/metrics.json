@@ -1,0 +1,246 @@
+{
+  "canvas": {
+    "width": 1100,
+    "height": 1100
+  },
+  "partCount": 24,
+  "parameterCount": 22,
+  "atlasBytes": 643162,
+  "modelBytes": 1490509,
+  "modelSha256": "64d5cf578070c494f003e08ef6a013642ede40e95e2f4a3b120f0390932034f8",
+  "turn": {
+    "achieved": {
+      "eyeShift": 0.1032,
+      "farEyeRatio": 0.7256,
+      "silhouetteRatio": 1
+    },
+    "clamped": [],
+    "strandOverlap": null
+  },
+  "patches": null,
+  "folds": {
+    "poses": 621,
+    "offenders": []
+  },
+  "physics": [
+    {
+      "id": "hairSway",
+      "input": [
+        "ParamAngleX",
+        "ParamAmbientSway"
+      ],
+      "output": "ParamHairSwayX",
+      "kind": "ok",
+      "why": null,
+      "drives": [
+        "hair_front"
+      ],
+      "step": {
+        "values": {
+          "ParamAngleX": 30
+        },
+        "peak": -13.701,
+        "at": 0.017,
+        "final": 0,
+        "displacementPx": 29.927
+      },
+      "idle": {
+        "peak": 3.668,
+        "displacementPx": 8.012
+      }
+    },
+    {
+      "id": "hairTilt",
+      "input": [
+        "ParamAngleZ"
+      ],
+      "output": "ParamHairSwayZ",
+      "kind": "ok",
+      "why": null,
+      "drives": [
+        "hair_front"
+      ],
+      "step": {
+        "values": {
+          "ParamAngleZ": 30
+        },
+        "peak": -8.807,
+        "at": 0.017,
+        "final": 0,
+        "displacementPx": 19.239
+      },
+      "idle": {
+        "peak": 0.022,
+        "displacementPx": 0.048
+      }
+    },
+    {
+      "id": "hairBack",
+      "input": [
+        "ParamAngleX",
+        "ParamAngleZ",
+        "ParamAmbientSway"
+      ],
+      "output": "ParamHairBackSway",
+      "kind": "ok",
+      "why": null,
+      "drives": [
+        "hair_back",
+        "tail_R",
+        "tail_L"
+      ],
+      "step": {
+        "values": {
+          "ParamAmbientSway": 1
+        },
+        "peak": -12.002,
+        "at": 0.017,
+        "final": 0,
+        "displacementPx": 79.737
+      },
+      "idle": {
+        "peak": 4.174,
+        "displacementPx": 45.914
+      }
+    }
+  ],
+  "motions": [
+    "Nod",
+    "Shake",
+    "Tilt"
+  ],
+  "expressions": [
+    "smile",
+    "laugh",
+    "angry",
+    "sad",
+    "surprised",
+    "shy"
+  ],
+  "customParts": {
+    "ok": true,
+    "poses": 675,
+    "parts": [
+      {
+        "id": "tail_R",
+        "ok": true,
+        "folds": {
+          "ratio": 0.87,
+          "pose": "ParamAngleZ=30 ParamHairBackSway=-20"
+        },
+        "tiePx": 0.037,
+        "slide": {
+          "px": 19.57,
+          "onAnchorPx": 5.688
+        },
+        "exposed": {
+          "hiddenPx": 335,
+          "noTurnPx2": 2,
+          "turningPx2": 36
+        },
+        "tip": [
+          {
+            "param": "ParamAngleX",
+            "fromBare": [
+              4.208,
+              17.369
+            ],
+            "travel": 24.081
+          },
+          {
+            "param": "ParamAngleY",
+            "fromBare": [
+              3.29,
+              1.817
+            ],
+            "travel": 5.107
+          },
+          {
+            "param": "ParamAngleZ",
+            "fromBare": [
+              102.216,
+              102.022
+            ],
+            "travel": 136.546
+          },
+          {
+            "param": "ParamBodyAngleZ",
+            "fromBare": [
+              29.235,
+              29.207
+            ],
+            "travel": 80.472
+          },
+          {
+            "param": "ParamHairBackSway",
+            "fromBare": [
+              95.588,
+              95.437
+            ],
+            "travel": 190.747
+          }
+        ]
+      },
+      {
+        "id": "tail_L",
+        "ok": true,
+        "folds": {
+          "ratio": 0.876,
+          "pose": "ParamAngleX=30 ParamAngleY=30 ParamAngleZ=30 ParamBodyAngleX=-10 ParamBodyAngleY=10 ParamBodyAngleZ=10"
+        },
+        "tiePx": 0.037,
+        "slide": {
+          "px": 18.554,
+          "onAnchorPx": 5.082
+        },
+        "exposed": {
+          "hiddenPx": 260,
+          "noTurnPx2": 2,
+          "turningPx2": 22
+        },
+        "tip": [
+          {
+            "param": "ParamAngleX",
+            "fromBare": [
+              16.352,
+              7.05
+            ],
+            "travel": 20.222
+          },
+          {
+            "param": "ParamAngleY",
+            "fromBare": [
+              3.29,
+              1.817
+            ],
+            "travel": 5.107
+          },
+          {
+            "param": "ParamAngleZ",
+            "fromBare": [
+              102.002,
+              102.236
+            ],
+            "travel": 136.764
+          },
+          {
+            "param": "ParamBodyAngleZ",
+            "fromBare": [
+              29.218,
+              29.225
+            ],
+            "travel": 80.561
+          },
+          {
+            "param": "ParamHairBackSway",
+            "fromBare": [
+              95.481,
+              95.624
+            ],
+            "travel": 190.826
+          }
+        ]
+      }
+    ]
+  }
+}
