@@ -17,6 +17,7 @@ import {
   generateIkiFromLayerSet,
   parseLayerRoles,
   partIdsOfRole,
+  BakeError,
   CustomPartError,
   LayerGeometryError,
   PatchError,
@@ -28,7 +29,9 @@ import {
   type LayerSetMeasurer,
   type AtlasAssignment,
   type AtlasLayout,
+  type BakeReport,
   type CustomPart,
+  type RigBakes,
   type PatchReport,
   type RigPatch,
   type RigPlan,
@@ -42,6 +45,7 @@ import {
   type FoldReport,
   type PhysicsReport,
 } from "@ikijs/engine";
+import { checkBakes, type BakeCheck } from "./bake-report";
 import { checkModelFolds } from "./fold-report";
 import { BUST_SIZE, bustPadY } from "./render-poses";
 import {
@@ -470,6 +474,11 @@ export interface AutoRigInput {
    *  (see @ikijs/editor's `CustomPart`). Their pixels never reach the role
    *  parse or the measurements the head's width and turn are fitted to. */
   customParts?: AutoRigCustomPartInput[];
+  /** Lattices that move the custom parts when a parameter does (see
+   *  @ikijs/editor's `RigBakes`); needs `customParts`. The written model is
+   *  landed through the engine and refused (`BAKE ERROR`, nothing written) when
+   *  a stop is off by 0.1 px or more. */
+  bakes?: RigBakes;
 }
 
 /** One `customParts` entry: a `CustomPart` whose `layer` is read off `path`
@@ -564,8 +573,10 @@ export type AutoRigResult =
       /** Where each of `input.customParts` landed — present whenever
        *  `customParts` was passed, `[]` included, so a caller can tell this
        *  server from one that drops the field. `box` is the layer's alpha box
-       *  in canvas px; `page` is the atlas page, the last one. */
-      customParts?: { parts: CustomPartReport[] };
+       *  in canvas px; `page` is the atlas page, the last one. `bakes` is
+       *  present only when `bakes` was passed: one entry per baked part and
+       *  parameter, as the engine lands it. */
+      customParts?: { parts: CustomPartReport[]; bakes?: BakeCheck[] };
     }
   | { ok: false; error: string };
 
@@ -577,7 +588,7 @@ export interface CustomPartReport {
   page: number;
 }
 
-export type { TurnSolveReport };
+export type { TurnSolveReport, BakeCheck };
 
 /**
  * Run a fallible input/environment-boundary call, re-tagging any throw as an
@@ -874,6 +885,7 @@ export async function autoRigFromLayers(
     let turn: TurnSolveReport | undefined;
     let patches: PatchReport[] | undefined;
     let rigPlan: RigPlanReport | undefined;
+    let bakeReports: BakeReport[] | undefined;
     let model: IkiModel;
     try {
       // The caller's fields cross as passed (a headHalfWidth was refused
@@ -914,6 +926,14 @@ export async function autoRigFromLayers(
                   }),
                 ),
               }),
+          ...(input.bakes === undefined
+            ? {}
+            : {
+                bakes: input.bakes,
+                onBakesApplied: (reports: BakeReport[]) => {
+                  bakeReports = reports;
+                },
+              }),
         },
       );
     } catch (e) {
@@ -923,7 +943,8 @@ export async function autoRigFromLayers(
           e instanceof LayerGeometryError ||
           e instanceof PatchError ||
           e instanceof RigPlanError ||
-          e instanceof CustomPartError
+          e instanceof CustomPartError ||
+          e instanceof BakeError
         )
       ) {
         throw e;
@@ -1020,6 +1041,12 @@ export async function autoRigFromLayers(
     }
     // Validate the patched model before writing — never persist an invalid model.
     const finalModel = parseIkiModel(patched);
+    // Landed through the engine before the write: a bake the player does not
+    // reproduce is refused, not shipped.
+    const bakes =
+      bakeReports === undefined
+        ? undefined
+        : checkBakes(finalModel, bakeReports);
 
     // Write to a fresh temp file in the verified directory, then atomically
     // rename over the target — see writeFileAtomic for why an existing `.iki`
@@ -1064,6 +1091,7 @@ export async function autoRigFromLayers(
                   page: part.texture!.index,
                 };
               }),
+              ...(bakes === undefined ? {} : { bakes }),
             },
           }),
     };

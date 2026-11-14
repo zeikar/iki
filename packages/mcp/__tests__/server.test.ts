@@ -403,6 +403,108 @@ describe("MCP server integration", () => {
     );
   }, 60_000);
 
+  it("auto_rig_from_layers lists bakes in its schema and prints the BAKE lines after the CUSTOM lines", async () => {
+    pair = await createPair();
+    const { tools } = await pair.client.listTools();
+    const rigTool = tools.find((t) => t.name === "auto_rig_from_layers")!;
+    expect(Object.keys(rigTool.inputSchema.properties!)).toContain("bakes");
+
+    const partsDir = tmpDir();
+    await writePartsSet(partsDir);
+    const outDir = tmpDir();
+    const composed = await pair.client.callTool({
+      name: "compose_layers_from_parts",
+      arguments: { partsDir, outDir },
+    });
+    const { layers } = composed.structuredContent as {
+      layers: { path: string }[];
+    };
+    const face = await decodePng(
+      layers.find((l) => l.path.endsWith("face.png"))!.path,
+    );
+    const faceBox = detectAlphaBbox(face.rgba, face.width, face.height)!;
+    const tie = [
+      Math.round(faceBox.x + faceBox.w / 2),
+      Math.round(faceBox.y + faceBox.h / 2),
+    ];
+    const tailPath = path.join(outDir, "tail.png");
+    await sharp({
+      create: {
+        width: face.width,
+        height: face.height,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .composite([
+        {
+          input: await sharp({
+            create: {
+              width: 80,
+              height: 160,
+              channels: 4,
+              background: { r: 40, g: 90, b: 200, alpha: 1 },
+            },
+          })
+            .png()
+            .toBuffer(),
+          left: tie[0] - 40,
+          top: tie[1] - 20,
+        },
+      ])
+      .png()
+      .toFile(tailPath);
+    const result = await pair.client.callTool({
+      name: "auto_rig_from_layers",
+      arguments: {
+        layers: layers.map((l) => ({ path: l.path })),
+        outputPath: path.join(outDir, "model.iki"),
+        customParts: [
+          {
+            id: "tail",
+            path: tailPath,
+            anchor: "face",
+            tie,
+            after: "hair_front",
+          },
+        ],
+        bakes: {
+          targets: [
+            {
+              param: "ParamAngleX",
+              parts: ["tail"],
+              grid: { cols: 1, rows: 1 },
+              stops: {
+                "30": [
+                  [4, 0],
+                  [4, 0],
+                  [4, 0],
+                  [4, 0],
+                ],
+              },
+            },
+          ],
+        },
+      },
+    });
+    const sc = result.structuredContent as {
+      ok: boolean;
+      error?: string;
+      customParts?: { bakes?: { part: string; errorPx: number }[] };
+    };
+    expect(sc.error).toBeUndefined();
+    expect(sc.customParts!.bakes!.map((b) => b.part)).toEqual(["tail"]);
+    const lines = (
+      result.content as { type: string; text: string }[]
+    )[0].text.split("\n");
+    expect(lines.at(-1)).toMatch(
+      /^BAKE tail ParamAngleX: \d+ vertices, stops 30, error 0(\.\d+)? px$/,
+    );
+    expect(lines.findLastIndex((l) => /^CUSTOM[ :]/.test(l))).toBe(
+      lines.length - 2,
+    );
+  }, 60_000);
+
   it("auto_rig_from_layers hands an unknown customParts key to the rig, which refuses it as INVALID: customParts[0]… naming the keys", async () => {
     pair = await createPair();
     const dir = tmpDir();

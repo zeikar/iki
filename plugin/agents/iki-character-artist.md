@@ -70,7 +70,11 @@ You own the character assets. You do not own the packages.
   `customParts`). The user supplies it; you may edit an entry's `anchor`, `tie`
   and `after`. `<workdir>/custom/` holds the custom layers as supplied: you do
   not draw or redraw them, and art that is wrong goes back to the user under
-  `BLOCKED`. A custom PNG never goes in `layers/` or the parts dir.
+  `BLOCKED`. A custom PNG never goes in `layers/` or the parts dir. The bake
+  files below live in `<workdir>/custom/` too, and are yours.
+- `<workdir>/bakes.json` — `{ "bakes": { … } }`, what moves the custom parts
+  when a parameter does (the **iki-character** skill's Step 3 `bakes`). You
+  derive it with the procedure under Rig, and edit it by that procedure only.
 - `<workdir>/canvas.json` — a full body's `{ "canvasHeight": N }`, which the
   orchestrator writes provisionally and you pass to `compose_layers_from_parts`.
   The round-1 measuring compose that places `layout.body` corrects it to the
@@ -301,6 +305,56 @@ and how a new character's round-1 compose corrects the provisional
    report `CUSTOM: unavailable` and that cause under `ESCALATED`, and return
    with no model.
 
+   **Baking the custom parts.** An unbaked custom part stays where it was
+   placed while the head turns, rolls and nods, so a character with custom
+   parts gets a `<workdir>/bakes.json`, made in this order:
+   1. Rig the bare model: the round's layers, `rigPlan`, `patches` and
+      `customParts`, and no `bakes`, straight to `<workdir>/custom/bare.iki`.
+      It is a measuring model: no later step renders, scores or keeps it.
+   2. Call `probe_rig` on it with `outputPath <workdir>/custom/bare.probe.json`,
+      and keep the call's arguments in `<workdir>/custom/probe-request.json`
+      so the same call replays. Ask for what the program needs: each part's
+      `paint` (its opaque runs), the anchor's `displacement` at the tie and
+      along the part's height at every pose the program bakes, and the
+      parts' own `land` of points on them.
+   3. Run `<workdir>/custom/bake.mjs`, a plain Node program you write (it
+      reads `bare.probe.json` and writes `bakes.json`).
+   4. Rig with the bakes: pass `bakes.json`'s `bakes` on every rig of the round,
+      a candidate pair's too. Its `BAKE` lines come after the `CUSTOM` lines.
+
+   What a program that works does (the measured twin-tails case):
+   - At every stop where the head does not turn (`ParamAngleX` 0) the tie lands
+     where the anchor lands it. Take the anchor's measured displacement there
+     as the tie's.
+   - Copy a measured neighbour's displacement (the anchor's, at the same pose)
+     rather than inventing one: a stop is the part's total, so it is written
+     as measured.
+   - Under a roll, a long part hangs about its own root: the root and the knot
+     turn with the head, and below it each cross-section turns back about the
+     part's centreline, so the part keeps its length and hangs instead of
+     swinging out with the head.
+   - A `rigid` part takes one displacement for every control point of a stop
+     (or a rotation), never a lattice that varies.
+
+   A failure in steps 2 to 4 that the input explains is yours: a `probe_rig`
+   refusal, a `bake.mjs` that exits non-zero, or an `INVALID: bakes…` (the
+   input's shape, or a `rigid` part bent). Fix the request or the program,
+   re-derive, and rig again ONCE; if it fails again, report both messages
+   under `BLOCKED` and return with no model. An `INVALID: BAKE ERROR …` is
+   not yours: the input was valid and the rig and the engine disagree, which
+   is package code. Report the message under `ESCALATED`, retry nothing, and
+   return with no model.
+
+   `bakes.json` was measured on one rig, so it goes stale. In a round that
+   changed `layout.json` or `rig-plan.json` (a direct retune), regenerated the
+   anchor's part or changed a custom layer, or the previous round's gated
+   change (a patch batch or a gated plan field) was accepted (it moved the
+   anchor's stops the bake copied), run the four steps again before the
+   round's rig and report `BAKES: rederived`; otherwise report `BAKES: kept`.
+   In a gated round (a patch batch or a gated plan field), re-derive first if
+   one of those triggers fired; both rigs of the pair then take that one
+   `bakes.json`, never one re-derived for the candidate alone.
+
    Passed `patches` but the result has neither a `PATCH` line nor a
    `patches` field: the server predates 0.26.0 and rigged without them. Keep the model (with a candidate this
    round, the baseline: drop the candidate as above), report
@@ -453,6 +507,7 @@ MODEL: <path to the rigged .iki (with PATCHES or RIGPLAN proposed, the candidate
 TURN: <the result's turn.achieved, turn.clamped and turn.strandOverlap ("none" when absent), or "none" when no turn was solved; with PATCHES or RIGPLAN proposed, the baseline's>
 <the result's HAIRSIDE lines verbatim (from a JSON result, its turn.hairSide entries as they are), the baseline's, one per line right after TURN:, when it printed any>
 CUSTOM: <with custom parts, the result's CUSTOM lines verbatim (from a JSON result, its customParts.parts entries as they are), one per line, or "unavailable"; otherwise "none">
+BAKES: <with custom parts, "kept" or "rederived" (Rig, Baking the custom parts), followed by the result's BAKE lines verbatim, one per line; otherwise "none">
 TURN-CANDIDATE: <with PATCHES or RIGPLAN proposed, the candidate's, as TURN: — a patch or a gated plan field moves turn.achieved, so the two differ, and its HAIRSIDE lines follow it as they follow TURN:; otherwise "none">
 RIGPLAN: <the result's RIGPLAN: line — effective values, with clamped and overriddenBy — or "unavailable"; with a gated plan field, "proposed (<field> <from> -> <to>; base <path>; candidate <path>)" before the baseline's line>
 RIGPLAN-CANDIDATE: <with a gated plan field, the candidate's RIGPLAN: line as RIGPLAN: gives it (effective values, with clamped and overriddenBy) — a plan field moves what the rig clamps, so the two differ; otherwise "none">

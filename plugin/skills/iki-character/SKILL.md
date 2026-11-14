@@ -267,7 +267,7 @@ The ops replay on the freshly generated rig every time it is rigged, added to wh
 
 `patches` needs `@ikijs/mcp` 0.26.0 or later. An older server drops the field silently and rigs WITHOUT it: the result then has no `PATCH` line and no `patches` field. On such a server treat `patches` as unavailable, and never trust a model from such a call as patched.
 
-`customParts` is optional and adds a part the rig has no role for, such as twin tails or a hairpin. Each entry is `{ id, path, anchor, tie, after, deformer? }`:
+`customParts` is optional and adds a part the rig has no role for, such as twin tails or a hairpin. Each entry is `{ id, path, anchor, tie, after, deformer?, rigid? }`:
 
 ```jsonc
 "customParts": [
@@ -282,6 +282,26 @@ The ops replay on the freshly generated rig every time it is rigged, added to wh
 ```
 
 `deformer` is optional and accepts only `headDeformer`, the default. The part goes in the model as an unrigged mesh on the head. Keep the custom layers in `iki-char/custom/`, never in `layers/`: `measure_layers` and the role parse refuse a name that is no role, and a custom layer must not be measured as a role anyway, since a tail across the eye row would widen the head the turn is fitted to. The composer places no custom part, so the PNG is canvas-sized and supplied by the caller: put the drawn part on a transparent canvas of the model's size at the position it should sit, scaling it first if needed, e.g. `magick -size <W>x<H> xc:none <part.png> -geometry +<x>+<y> -composite iki-char/custom/<id>.png`. `tie` is a canvas-px point that both the placed part and its anchor's layer paint, where the part is attached. Pass the whole list on every call, as with `patches`. The result carries `customParts` (`parts`: `id`, `box`, `mesh`, `order`, atlas `page`, `[]` for `[]`), and one `CUSTOM <id>: …` line per part follows the `HAIRSIDE` lines, after every other line. An empty or wrong-size layer, or an entry the rig refuses, comes back as `INVALID: customParts[i]…` and nothing is written. All custom parts share one extra atlas page, the last. `customParts` needs `@ikijs/mcp` 0.34.0 or later. An older server drops the field silently and rigs WITHOUT the parts: the result then has no `customParts` field and no `CUSTOM` line, so check for it before trusting the model.
+
+`bakes` is optional, needs `customParts`, and makes the custom parts move: without it a custom part stays where it was placed and the head turns away from it. The tool's `bakes` field is `{ "targets": [ … ], "meshes"?: { … } }` (a `bakes.json` file wraps it as `{ "bakes": { … } }`), and a target is a lattice of control points with a displacement at each stop of one parameter:
+
+```jsonc
+"bakes": {
+  "targets": [
+    {
+      "id": "tail_L-sway",                       // a label for reports
+      "param": "ParamHairBackSway",              // a parameter the model declares
+      "parts": ["tail_L"],                       // custom part ids only
+      "grid": { "cols": 1, "rows": 1 },          // (cols + 1) x (rows + 1) control points, integers 1 to 32
+      "stops": { "20": [[0, 0], [0, 0], [6, 0], [6, 0]] }   // one [dx, dy] per control point, row-major from the top-left
+    }
+  ]
+}
+```
+
+Every position and displacement is in canvas px, origin top-left, x right, y DOWN, the frame `probe_rig` answers in. A stop is the part's TOTAL displacement from rest when that parameter alone is at the stop value and the others are at their defaults: the head's own carry is inside it, so a neighbour's displacement as `probe_rig` measures it is written as it is. The head does not move on `ParamHairBackSway`, so the stop above holds the top row, where the tail is tied on, still and swings the lower edge 6 px right at 20. Stop keys are values inside the parameter's range, never its default (rest is implicit); the motion is linear between rest and a stop and between stops, and holds the outermost stop's displacement past it; a side with no stop does not move. `box` (canvas px) is the lattice's extent and defaults to the parts' rest boxes grown by 2 px. `mirror: true` fills a missing stop from the one at the mirrored value, the lattice reflected about the box's vertical centre line with `dx` negated. Targets that name the same part and parameter add. `meshes` (`{ "tail_L": { "rows": [y0, y1, …], "cols": 6 } }` or `{ "tail_L": { "cellPx": 12 } }`) gives a long part more vertices to bend with. `rigid: true` on a `customParts` entry marks art that does not bend (a hairpin): a stop that bends it is refused, so give such a part one displacement for every control point of a stop, or a rotation (a roll turns it with the head).
+
+The written rig is landed through the engine at every stop and the result prints one `BAKE <part> <param>: <n> vertices, stops <values>, error <px> px` line per part and parameter after the `CUSTOM` lines (the result's `customParts.bakes`); the error is under 0.1 px, or the call is `INVALID: BAKE ERROR <part> <param>=<value>: …` (or `<part> at rest`) and nothing is written; that one means the rig and the engine disagree, which is a bug in the packages. An input the rig refuses is `INVALID: bakes…` with its path. `bakes` needs `@ikijs/mcp` 0.34.0 or later; an older server drops the field, rigs WITHOUT the motion, and returns no `BAKE` line, so look for one.
 
 Leave `turnTargets` out: the rig then renders the profile, which is the default and every character's starting point, and `rigPlan` is how a character is tuned from it. Pass `turnTargets` only to match a measured front/turned pair literally — the cues `measure_turn_reference` reads off a front view and the same character turned at the same scale (`eyeShift`, `farEyeRatio`, `silhouetteRatio`, and optionally `noseShift` / `mouthShift`; the shifts are magnitudes, the sign is the turn's own business). Each cue given is fitted — `eyeShift` by the turn's amount (so `rigPlan.turn.amount` is ignored beside it), `farEyeRatio` by the eyes' foreshortening, `silhouetteRatio` by the hair's width at full turn, `noseShift` / `mouthShift` by that feature's own shift — and an omitted one stays at the profile. The **iki-character-loop** skill no longer measures a pair: its drawn turned reference is a style check the critic reads by eye. `headHalfWidth` is not an input — the rig measures it off the layers and refuses one passed in — and a field not named here is refused too. A pair that shows a custom part crossing the eye row reads a wider head than the rig fits to, since the rig measures the role layers alone: measure a pair drawn without the custom parts.
 

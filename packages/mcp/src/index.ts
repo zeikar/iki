@@ -16,6 +16,7 @@ export {
   type AutoRigLayerInput,
   type AutoRigCustomPartInput,
   type CustomPartReport,
+  type BakeCheck,
   type AutoRigResult,
   type AutoRigTurnTargets,
   type TurnSolveReport,

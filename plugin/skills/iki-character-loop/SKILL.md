@@ -220,7 +220,8 @@ no name for) is opt-in, as a full body is. The user supplies
 **iki-character** run that made the character. The loop never draws, places or
 seeds a custom part: the seed lines above create neither, so a character
 without custom parts never has them, and on a restart both are kept as they
-are. The dispatch passes `custom-parts` (the file's contents) when it exists.
+are, with `<workdir>/bakes.json` and the `custom/` bake files the artist makes
+(`bare.iki`, `bare.probe.json`, `probe-request.json`, `bake.mjs`). The dispatch passes `custom-parts` (the file's contents) when it exists.
 
 **Restarting on picked parts.** When `parts/` already holds a picked set —
 the plain `<role>.png` files, not only `_a` / `_b` variants — round 1 re-rigs
