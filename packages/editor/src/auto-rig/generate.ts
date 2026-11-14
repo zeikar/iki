@@ -65,7 +65,11 @@ import { buildHeadFrame, type HeadFrame } from "./head";
 import { buildFaceMesh, type Region } from "./face-mesh";
 import { applyPatches } from "./patches";
 import { applyBakes, parseBakes } from "./bakes";
-import { buildCustomParts, checkCustomParts } from "./custom-parts";
+import {
+  buildCustomParts,
+  checkCustomParts,
+  writeOcclusion,
+} from "./custom-parts";
 import {
   bh,
   boxOfLayer,
@@ -213,13 +217,20 @@ export function generateIkiFromLayerSet(
   const plateHalf = byRole.get("face")!.cropW / 2;
 
   checkHeadEdges(options.headEdges, byRole);
+  const physics = has("hair_front") ? hairPhysics(has("hair_back")) : undefined;
+  const parameters = declareParameters(new Set(byRole.keys()));
   // An empty list runs nothing; a non-array still reaches the check.
   const entries =
     options.customParts !== undefined &&
     !(Array.isArray(options.customParts) && options.customParts.length === 0)
-      ? checkCustomParts(options.customParts, byRole, canvas)
+      ? checkCustomParts(
+          options.customParts,
+          byRole,
+          canvas,
+          parameters,
+          new Set((physics ?? []).map((r) => r.output.parameter)),
+        )
       : [];
-  const parameters = declareParameters(new Set(byRole.keys()));
   // Parsed here so a bad input fails before any rigging, as `customParts` does.
   const bakes =
     options.bakes === undefined
@@ -457,6 +468,7 @@ export function generateIkiFromLayerSet(
     parts.forEach((p, i) => {
       p.order = i;
     });
+    writeOcclusion(entries, built, parts);
     if (bakes !== undefined) {
       bakeReports = applyBakes(bakes, built, entries, {
         canvas,
@@ -473,7 +485,7 @@ export function generateIkiFromLayerSet(
     parameters,
     parts,
     deformers: deformerList,
-    ...(has("hair_front") ? { physics: hairPhysics(has("hair_back")) } : {}),
+    ...(physics !== undefined ? { physics } : {}),
     expressions: defaultExpressions(new Set(parameters.map((p) => p.id))),
     motions: defaultMotions(new Set(parameters.map((p) => p.id))),
   };

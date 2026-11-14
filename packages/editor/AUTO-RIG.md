@@ -655,7 +655,7 @@ layout or `rigPlan`, re-rig, and the patch lands on the new rig.
 ## Custom parts
 
 `options.customParts` adds a part the auto-rigger has no role for (a hairpin,
-a twin tail). Each entry is `{ id, layer, anchor, tie, after, deformer? }`:
+a twin tail). Each entry is `{ id, layer, anchor, tie, after, deformer?, rigid?, occlusion? }`:
 the part's own canvas-sized layer (`fileName` and its alpha `bbox`, as a role
 layer's), the role whose layer it is fixed against, where it meets that layer
 (`tie`, canvas px, inside both boxes), and the role it is drawn after.
@@ -674,11 +674,29 @@ layer's), the role whose layer it is fixed against, where it meets that layer
   (and the `order`s), and the turn and rig-plan reports are equal. It is also
   built after the patch replay and the role loops, which look every part up by
   role, so a patch aimed at it is an unknown target.
+- **Occlusion** — `occlusion: { by, parameter, stops }` hides the part where
+  other parts cover it (`IkiPart.occlusion`, drawn by the engine; the amount
+  is linear between the `{ value, amount }` stops, held past the first and
+  last). `by` lists ROLES of the set, as `anchor` and `after` do, and the
+  generator writes the part ids those roles yield (an arm is three parts whose
+  ids are the generator's own). Only roles, not another custom part, until a
+  character needs one. It is written once
+  the custom parts sit among the role parts; no occluder gains a field, so
+  the model without the part is still the model minus it.
 - **Refused** — `CustomPartError`, `customParts[i].<field>`, before anything
   is rigged: an id that is not a plain identifier, a role's name or a part id a
   role yields, or repeated; a layer or box off the canvas; an `anchor` or
   `after` that is not a role of the set; a `tie` outside either box; any
-  `deformer` but `headDeformer`; a `rigid` that is not true or false.
+  `deformer` but `headDeformer`; a `rigid` that is not true or false; an
+  `occlusion` with an unknown key, a `by` that is empty, repeats a role or names a role the set lacks (the
+  message lists the roles present), a `parameter` the rig does not declare or
+  that a physics rig outputs, or `stops` that break the format's rules
+  (finite, inside the parameter's range, strictly ascending, amount 0..1; an
+  unknown key inside a stop is refused too, stricter than the format, as
+  generator inputs are). Once the part is placed, a `by` role that yields a
+  clipped part (`iris_L`) or a part without a mesh (`forearm_pose_L`) is
+  refused at `customParts[i].occlusion.by[j]`,
+  naming the part, since the format would refuse that occluder.
 
 ## Bakes
 

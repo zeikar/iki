@@ -769,10 +769,11 @@ export class AddDeformer implements EditCommand {
  * visually predictable.
  *
  * No `parseIkiModel` pre-check is needed: removing an element from an already-
- * valid model cannot introduce a structural violation — EXCEPT for clip-mask
- * references, the one part→part reference in the contract. `apply` refuses to
- * delete a part still used as another part's `clip.masks` entry (guard below),
- * so it can never leave a dangling mask ref that would fail `toIkiModel()`.
+ * valid model cannot introduce a structural violation — EXCEPT for the part→part
+ * references in the contract: `clip.masks` and `occlusion.by`. `apply` refuses to
+ * delete a part still used as another part's `clip.masks` or `occlusion.by`
+ * entry (guards below), so it can never leave a dangling ref that would fail
+ * `toIkiModel()`.
  *
  * Texture-reference safety (package invariant): `apply` refuses to delete a
  * part that still carries `part.texture`. Texture/atlas state is non-undoable
@@ -807,7 +808,7 @@ export class DeletePart implements EditCommand {
 
     const parts = doc.getModel().parts;
 
-    // Clip-mask guard — `clip.masks` is the one part→part reference in the model
+    // Clip-mask guard — `clip.masks` is a part→part reference in the model
     // contract. Deleting a referenced mask would leave a dangling ref that fails
     // parseIkiModel on toIkiModel(). Refuse rather than corrupt (mirrors the
     // texture guard above). Throw before any capture or mutation.
@@ -817,6 +818,17 @@ export class DeletePart implements EditCommand {
     if (masker) {
       throw new Error(
         `parts."${this.partId}": cannot delete — used as a clip mask by part "${masker.id}"; remove its clip first`,
+      );
+    }
+
+    // Occluder guard — `occlusion.by` is the other part→part reference; same
+    // reason as the clip-mask guard above.
+    const occluded = parts.find(
+      (p) => p.id !== this.partId && p.occlusion?.by.includes(this.partId),
+    );
+    if (occluded) {
+      throw new Error(
+        `parts."${this.partId}": cannot delete — used as an occluder by part "${occluded.id}"; remove its occlusion first`,
       );
     }
 
@@ -1162,6 +1174,17 @@ export class SetPartMesh implements EditCommand {
           `parts."${this.partId}": cannot remove mesh — used as a clip mask by part "${masker.id}" (masks require a mesh); remove its clip first`,
         );
       }
+      // Occluder guard — an occluder must have a mesh too. Mirrors DeletePart.
+      const occluded = doc
+        .getModel()
+        .parts.find(
+          (p) => p.id !== this.partId && p.occlusion?.by.includes(this.partId),
+        );
+      if (occluded) {
+        throw new IkiFormatError(
+          `parts."${this.partId}": cannot remove mesh — used as an occluder by part "${occluded.id}" (occluders require a mesh); remove its occlusion first`,
+        );
+      }
     } else {
       // ADD/REPLACE: guard on authored offsets (length > 0). An empty warps: []
       // has no offsets to invalidate, so replacing the mesh under it is harmless.
@@ -1294,6 +1317,18 @@ function validatePhysicsCandidate(
       }
     }
     throw e;
+  }
+  // The stand-in part carries no occlusion, so the format's rule that an
+  // occlusion cannot be keyed on a physics output never ran above.
+  for (const rig of candidatePhysics) {
+    const part = doc
+      .getModel()
+      .parts.find((p) => p.occlusion?.parameter === rig.output.parameter);
+    if (part !== undefined) {
+      throw new IkiFormatError(
+        `physics."${rig.id}".output.parameter "${rig.output.parameter}" keys parts."${part.id}".occlusion; an occlusion amount cannot be keyed on a physics output`,
+      );
+    }
   }
 }
 

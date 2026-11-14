@@ -165,6 +165,26 @@ describe("round-trip", () => {
     expect(doc.toIkiModel()).toEqual(model);
   });
 
+  it("round-trips a model that declares occlusion", () => {
+    const tri = {
+      vertices: [0, 0, 1, 0, 0, 1],
+      uvs: [0, 0, 1, 0, 0, 1],
+      indices: [0, 1, 2],
+    };
+    const model = fixtureModel();
+    model.parts[0].mesh = tri;
+    model.parts[1].occlusion = {
+      by: ["part-a"],
+      parameter: "ParamA",
+      stops: [
+        { value: -0.5, amount: 0 },
+        { value: 0.5, amount: 1 },
+      ],
+    };
+    const doc = new EditorDocument(structuredClone(model));
+    expect(doc.toIkiModel()).toEqual(model);
+  });
+
   it("throws IkiFormatError with path-qualified message on invalid export", () => {
     const doc = new EditorDocument(fixtureModel());
     // Corrupt via the live model reference — NaN is not a finite number

@@ -4,13 +4,24 @@
  * field (`customParts[i].tie`).
  */
 
-import type { IkiPart } from "@ikijs/format";
+import type { IkiParameter, IkiPart } from "@ikijs/format";
 import { bh, boxOfPixels, bw, cx, cy, gridMesh } from "./layout";
 import { ROLE_TABLE, partIdsOfRole } from "./roles";
 import { checkedKeys } from "./solve";
 import { CustomPartError, type CustomPart, type LayerInput } from "./types";
 
-const KEYS = ["id", "layer", "anchor", "tie", "after", "deformer", "rigid"];
+const KEYS = [
+  "id",
+  "layer",
+  "anchor",
+  "tie",
+  "after",
+  "deformer",
+  "rigid",
+  "occlusion",
+];
+const OCCLUSION_KEYS = ["by", "parameter", "stops"];
+const STOP_KEYS = ["value", "amount"];
 const LAYER_KEYS = ["fileName", "bbox"];
 
 const finite = (v: unknown): v is number =>
@@ -34,6 +45,8 @@ export function checkCustomParts(
   customParts: unknown,
   byRole: ReadonlyMap<string, LayerInput>,
   canvas: { width: number; height: number },
+  parameters: readonly IkiParameter[],
+  physicsOutputs: ReadonlySet<string>,
 ): CustomPart[] {
   if (!Array.isArray(customParts)) {
     throw new CustomPartError(
@@ -57,7 +70,7 @@ export function checkCustomParts(
       throw new CustomPartError(`${at} must be a plain object`);
     }
     checkedKeys(at, entry, KEYS, CustomPartError);
-    const { id, layer, anchor, tie, after, deformer, rigid } = entry;
+    const { id, layer, anchor, tie, after, deformer, rigid, occlusion } = entry;
 
     if (typeof id !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(id)) {
       throw new CustomPartError(
@@ -128,8 +141,96 @@ export function checkCustomParts(
         `${at}.rigid must be true or false, got ${JSON.stringify(rigid)}`,
       );
     }
+
+    if (occlusion !== undefined) {
+      checkOcclusion(
+        `${at}.occlusion`,
+        occlusion,
+        present,
+        parameters,
+        physicsOutputs,
+      );
+    }
   });
   return customParts as CustomPart[];
+}
+
+/** `occlusion`, by the format's rules for `IkiPart.occlusion` (the roles stand
+ *  in for part ids, which the generator writes). */
+function checkOcclusion(
+  at: string,
+  occlusion: unknown,
+  present: string[],
+  parameters: readonly IkiParameter[],
+  physicsOutputs: ReadonlySet<string>,
+): void {
+  if (!isObject(occlusion)) {
+    throw new CustomPartError(`${at} must be a plain object`);
+  }
+  checkedKeys(at, occlusion, OCCLUSION_KEYS, CustomPartError);
+  const { by, parameter, stops } = occlusion;
+
+  if (!Array.isArray(by) || by.length === 0) {
+    throw new CustomPartError(
+      `${at}.by must be a non-empty array of roles of the set, one of ${present.join(", ")}`,
+    );
+  }
+  by.forEach((role: unknown, j) => {
+    if (typeof role !== "string" || !present.includes(role)) {
+      throw new CustomPartError(
+        `${at}.by[${j}] must be a role of the set, one of ${present.join(", ")}; got ${JSON.stringify(role)}`,
+      );
+    }
+    if (by.indexOf(role) !== j) {
+      throw new CustomPartError(
+        `${at}.by[${j}] "${role}" repeats an earlier role`,
+      );
+    }
+  });
+
+  const descriptor = parameters.find((p) => p.id === parameter);
+  if (typeof parameter !== "string" || descriptor === undefined) {
+    throw new CustomPartError(
+      `${at}.parameter must be a parameter the rig declares, got ${JSON.stringify(parameter)}`,
+    );
+  }
+  if (physicsOutputs.has(parameter)) {
+    throw new CustomPartError(
+      `${at}.parameter "${parameter}" is a physics output; an occlusion amount cannot be keyed on one`,
+    );
+  }
+
+  if (!Array.isArray(stops) || stops.length === 0) {
+    throw new CustomPartError(`${at}.stops must be a non-empty array`);
+  }
+  const { min, max } = descriptor;
+  let previous = -Infinity;
+  stops.forEach((stop: unknown, k) => {
+    const s = `${at}.stops[${k}]`;
+    if (!isObject(stop))
+      throw new CustomPartError(`${s} must be a plain object`);
+    checkedKeys(s, stop, STOP_KEYS, CustomPartError);
+    const { value, amount } = stop;
+    if (!finite(value)) {
+      throw new CustomPartError(
+        `${s}.value must be a finite number, got ${JSON.stringify(value)}`,
+      );
+    }
+    if (value < min || value > max) {
+      throw new CustomPartError(
+        `${s}.value ${value} is outside parameter "${parameter}" range [${min},${max}]`,
+      );
+    }
+    if (value <= previous) {
+      throw new CustomPartError(`${s}.value must be strictly ascending`);
+    }
+    previous = value;
+    if (!finite(amount) || amount < 0 || amount > 1) {
+      throw new CustomPartError(
+        `${s}.amount must be a number in 0..1, got ${JSON.stringify(amount)}`,
+      );
+    }
+  });
 }
 
 /** The experiment's cell size (`uniformMesh` at 20 px): a plain grid, so a bake
@@ -157,6 +258,45 @@ export function buildCustomParts(
         Math.max(1, Math.round(bw(b) / CELL_PX)),
         Math.max(1, Math.round(bh(b) / CELL_PX)),
       ),
+    };
+  });
+}
+
+/** Writes each entry's `occlusion` onto its built part, `by` expanded to the
+ *  ids its roles yield in this model. Called once the custom parts sit among
+ *  the role parts, so a role's clipped or meshless part is found here. */
+export function writeOcclusion(
+  customParts: CustomPart[],
+  built: IkiPart[],
+  parts: readonly IkiPart[],
+): void {
+  const byId = new Map(parts.map((p) => [p.id, p]));
+  customParts.forEach((entry, i) => {
+    if (entry.occlusion === undefined) return;
+    const { by, parameter, stops } = entry.occlusion;
+    const ids: string[] = [];
+    by.forEach((role, j) => {
+      for (const id of partIdsOfRole(role)) {
+        const part = byId.get(id);
+        if (part === undefined) continue;
+        const fault =
+          part.clip !== undefined
+            ? { is: "is clipped", kind: "a clipped part" }
+            : part.mesh === undefined
+              ? { is: "has no mesh", kind: "a part without a mesh" }
+              : undefined;
+        if (fault !== undefined) {
+          throw new CustomPartError(
+            `customParts[${i}].occlusion.by[${j}] "${role}" yields part "${id}", which ${fault.is}; ${fault.kind} cannot occlude`,
+          );
+        }
+        ids.push(id);
+      }
+    });
+    built[i].occlusion = {
+      by: ids,
+      parameter,
+      stops: stops.map((s) => ({ value: s.value, amount: s.amount })),
     };
   });
 }

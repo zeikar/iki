@@ -29,9 +29,23 @@ const good = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+const rigged = generateIkiFromLayerSet(layers, CANVAS, character().options);
+const check = (
+  customParts: unknown,
+  roles: ReadonlyMap<string, LayerInput>,
+  canvas: { width: number; height: number },
+) =>
+  checkCustomParts(
+    customParts,
+    roles,
+    canvas,
+    rigged.parameters,
+    new Set((rigged.physics ?? []).map((r) => r.output.parameter)),
+  );
+
 const refused = (customParts: unknown): string => {
   try {
-    checkCustomParts(customParts, byRole, CANVAS);
+    check(customParts, byRole, CANVAS);
   } catch (e) {
     expect(e).toBeInstanceOf(CustomPartError);
     return (e as Error).message;
@@ -48,8 +62,8 @@ describe("checkCustomParts", () => {
         deformer: "headDeformer",
       }),
     ];
-    expect(checkCustomParts(list, byRole, CANVAS)).toHaveLength(2);
-    expect(checkCustomParts([], byRole, CANVAS)).toEqual([]);
+    expect(check(list, byRole, CANVAS)).toHaveLength(2);
+    expect(check([], byRole, CANVAS)).toEqual([]);
   });
 
   it("refuses a non-array", () => {
@@ -120,12 +134,10 @@ describe("checkCustomParts", () => {
         tie: [950, 5],
       }),
     ];
-    expect(
-      checkCustomParts(withW(CANVAS.width - 900), full, CANVAS),
-    ).toHaveLength(1);
-    expect(() =>
-      checkCustomParts(withW(CANVAS.width - 900 + 1), full, CANVAS),
-    ).toThrow(/^customParts\[0\]\.layer\.bbox /);
+    expect(check(withW(CANVAS.width - 900), full, CANVAS)).toHaveLength(1);
+    expect(() => check(withW(CANVAS.width - 900 + 1), full, CANVAS)).toThrow(
+      /^customParts\[0\]\.layer\.bbox /,
+    );
   });
 
   it("pins the tie's far edges from both sides", () => {
@@ -133,7 +145,7 @@ describe("checkCustomParts", () => {
     const y = faceBox.y;
     const own = { fileName: "r.png", bbox: { x, y, w: 100, h: 100 } };
     const ok = (tie: unknown) =>
-      checkCustomParts([good({ layer: own, tie })], byRole, CANVAS);
+      check([good({ layer: own, tie })], byRole, CANVAS);
     expect(ok([x + 99, y + 99])).toHaveLength(1);
     expect(() => ok([x + 100, y + 50])).toThrow(/^customParts\[0\]\.tie /);
     expect(() => ok([x + 50, y + 100])).toThrow(/^customParts\[0\]\.tie /);
@@ -144,11 +156,7 @@ describe("checkCustomParts", () => {
       bbox: { x: edge - 50, y, w: 100, h: 100 },
     };
     const at = (px: number) =>
-      checkCustomParts(
-        [good({ layer: wide, tie: [px, y + 50] })],
-        byRole,
-        CANVAS,
-      );
+      check([good({ layer: wide, tie: [px, y + 50] })], byRole, CANVAS);
     expect(at(edge - 1)).toHaveLength(1);
     expect(() => at(edge)).toThrow(/^customParts\[0\]\.tie /);
   });
@@ -208,12 +216,120 @@ describe("checkCustomParts", () => {
   });
 
   it("checks rigid", () => {
-    expect(
-      checkCustomParts([good({ rigid: true })], byRole, CANVAS),
-    ).toHaveLength(1);
+    expect(check([good({ rigid: true })], byRole, CANVAS)).toHaveLength(1);
     expect(refused([good({ rigid: "yes" })])).toMatch(
       /^customParts\[0\]\.rigid must be true or false/,
     );
+  });
+
+  describe("occlusion", () => {
+    const occlusion = (extra: Record<string, unknown> = {}) => ({
+      by: ["hair_front"],
+      parameter: "ParamAngleX",
+      stops: [
+        { value: 5, amount: 0 },
+        { value: 15, amount: 1 },
+      ],
+      ...extra,
+    });
+    const withOcclusion = (extra: Record<string, unknown> = {}) => [
+      good({ occlusion: occlusion(extra) }),
+    ];
+
+    it("passes a valid occlusion", () => {
+      expect(check(withOcclusion(), byRole, CANVAS)).toHaveLength(1);
+      expect(
+        check(
+          withOcclusion({
+            by: ["hair_front", "face"],
+            stops: [{ value: 0, amount: 1 }],
+          }),
+          byRole,
+          CANVAS,
+        ),
+      ).toHaveLength(1);
+    });
+
+    it("refuses what is not an object, and an unknown key", () => {
+      expect(refused([good({ occlusion: 3 })])).toMatch(
+        /^customParts\[0\]\.occlusion must be a plain object/,
+      );
+      expect(refused(withOcclusion({ extra: 1 }))).toMatch(
+        /^customParts\[0\]\.occlusion\.extra is not one of/,
+      );
+    });
+
+    it("refuses a by that is empty, not an array, or not roles of the set", () => {
+      for (const by of [[], "hair_front", undefined]) {
+        expect(refused(withOcclusion({ by }))).toMatch(
+          /^customParts\[0\]\.occlusion\.by must be a non-empty array/,
+        );
+      }
+      const m = refused(withOcclusion({ by: ["hair_front", "tail"] }));
+      expect(m).toMatch(/^customParts\[0\]\.occlusion\.by\[1\] /);
+      expect(m).toContain("one of body, face, ");
+      expect(refused(withOcclusion({ by: [3] }))).toMatch(
+        /^customParts\[0\]\.occlusion\.by\[0\] /,
+      );
+    });
+
+    it("refuses a repeated role, naming its index", () => {
+      expect(
+        refused(withOcclusion({ by: ["hair_front", "face", "hair_front"] })),
+      ).toMatch(/^customParts\[0\]\.occlusion\.by\[2\] "hair_front" repeats/);
+    });
+
+    it("refuses a parameter the rig does not declare, and a physics output", () => {
+      expect(refused(withOcclusion({ parameter: "ParamNope" }))).toMatch(
+        /^customParts\[0\]\.occlusion\.parameter /,
+      );
+      expect(refused(withOcclusion({ parameter: undefined }))).toMatch(
+        /^customParts\[0\]\.occlusion\.parameter /,
+      );
+      expect(refused(withOcclusion({ parameter: "ParamHairSwayX" }))).toMatch(
+        /^customParts\[0\]\.occlusion\.parameter "ParamHairSwayX" is a physics output/,
+      );
+    });
+
+    it("refuses stops by the format's rules, each at its own path", () => {
+      const stops = (s: unknown) => refused(withOcclusion({ stops: s }));
+      expect(stops([])).toMatch(
+        /^customParts\[0\]\.occlusion\.stops must be a non-empty array/,
+      );
+      expect(stops("x")).toMatch(/^customParts\[0\]\.occlusion\.stops /);
+      expect(stops([1])).toMatch(/^customParts\[0\]\.occlusion\.stops\[0\] /);
+      expect(stops([{ value: 5, amount: 0, x: 1 }])).toMatch(
+        /^customParts\[0\]\.occlusion\.stops\[0\]/,
+      );
+      expect(stops([{ value: NaN, amount: 0 }])).toMatch(
+        /^customParts\[0\]\.occlusion\.stops\[0\]\.value /,
+      );
+      expect(stops([{ value: "5", amount: 0 }])).toMatch(
+        /^customParts\[0\]\.occlusion\.stops\[0\]\.value /,
+      );
+      expect(stops([{ value: 31, amount: 0 }])).toMatch(
+        /^customParts\[0\]\.occlusion\.stops\[0\]\.value 31 is outside parameter "ParamAngleX" range/,
+      );
+      expect(
+        stops([
+          { value: 5, amount: 0 },
+          { value: 5, amount: 1 },
+        ]),
+      ).toMatch(
+        /^customParts\[0\]\.occlusion\.stops\[1\]\.value must be strictly ascending/,
+      );
+      expect(
+        stops([
+          { value: 5, amount: 0 },
+          { value: 4, amount: 1 },
+        ]),
+      ).toMatch(/^customParts\[0\]\.occlusion\.stops\[1\]\.value /);
+      for (const amount of [-0.1, 1.1, NaN, "1", undefined]) {
+        expect(stops([{ value: 5, amount }])).toMatch(
+          /^customParts\[0\]\.occlusion\.stops\[0\]\.amount /,
+        );
+      }
+    });
   });
 
   it("refuses a later entry's fault, naming its index", () => {
@@ -321,6 +437,85 @@ describe("customParts in the generated rig", () => {
     const without = reports();
     expect(without.turn).toBeDefined();
     expect(reports([ribbon])).toEqual(without);
+  });
+
+  describe("occlusion", () => {
+    const stops = [
+      { value: 5, amount: 0 },
+      { value: 15, amount: 1 },
+    ];
+    const fb = fullBody({ arms: true });
+    const fbRibbon = (occlusion: unknown) => {
+      const face = fb.layers.find((l) => l.role === "face")!.bbox;
+      return {
+        ...good({ occlusion }),
+        layer: {
+          fileName: "ribbon.png",
+          bbox: { x: face.x, y: face.y, w: 100, h: 100 },
+        },
+        tie: [face.x + 50, face.y + 50],
+      } as unknown as CustomPart;
+    };
+    const rigFb = (occlusion: unknown) =>
+      generateIkiFromLayerSet(fb.layers, fb.canvas, {
+        ...fb.options,
+        customParts: [fbRibbon(occlusion)],
+      });
+
+    it("writes the role's part ids that are in the model, and the model validates", () => {
+      const model = rigFb({ by: ["arm_L"], parameter: "ParamAngleX", stops });
+      const written = model.parts.find((p) => p.id === "ribbon")!.occlusion!;
+      expect(written.by).toEqual(["elbow_L", "forearm_L", "arm_L"]);
+      expect(written.parameter).toBe("ParamAngleX");
+      expect(written.stops).toEqual(stops);
+      expect(() =>
+        parseIkiModel(JSON.parse(JSON.stringify(model))),
+      ).not.toThrow();
+    });
+
+    it("refuses a role with a clipped part, naming the part", () => {
+      expect(() =>
+        rigFb({ by: ["iris_L"], parameter: "ParamAngleX", stops }),
+      ).toThrow(
+        /^customParts\[0\]\.occlusion\.by\[0\] "iris_L" yields part "iris_L", which is clipped/,
+      );
+    });
+
+    it("refuses a role with a meshless part, naming the part", () => {
+      const pose = fullBody({ arms: true, poses: true });
+      expect(() =>
+        generateIkiFromLayerSet(pose.layers, pose.canvas, {
+          ...pose.options,
+          customParts: [
+            {
+              ...fbRibbon({
+                by: ["forearm_pose_L"],
+                parameter: "ParamAngleX",
+                stops,
+              }),
+            },
+          ],
+        }),
+      ).toThrow(
+        /^customParts\[0\]\.occlusion\.by\[0\] "forearm_pose_L" yields part "forearm_pose_L", which has no mesh/,
+      );
+    });
+
+    it("gives the rig minus its custom parts as without, no occluder gaining a field", () => {
+      const base = generateIkiFromLayerSet(fb.layers, fb.canvas, fb.options);
+      const custom = rigFb({ by: ["arm_L"], parameter: "ParamAngleX", stops });
+      const rest = {
+        ...custom,
+        parts: custom.parts.filter((p) => p.id !== "ribbon"),
+      };
+      expect(withoutOrder(rest)).toEqual(withoutOrder(base));
+    });
+
+    it("writes none for an entry without the key", () => {
+      expect(
+        rigBust([ribbon]).parts.find((p) => p.id === "ribbon")!,
+      ).not.toHaveProperty("occlusion");
+    });
   });
 
   it("places the part: its box, a plain mesh, headDeformer, draw order", () => {

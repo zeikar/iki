@@ -399,3 +399,53 @@ describe("AddPhysicsRig / SetPhysicsRig cross-chain collision checks", () => {
     expect(doc.findPhysicsRig("r1").output.parameter).toBe("ParamHairSwayX");
   });
 });
+
+describe("a physics output keying a part's occlusion", () => {
+  function occludedModel(): IkiModel {
+    const model = baseModel();
+    model.parts[0].mesh = {
+      vertices: [0, 0, 1, 0, 0, 1],
+      uvs: [0, 0, 1, 0, 0, 1],
+      indices: [0, 1, 2],
+    };
+    model.parts.push({
+      id: "tail",
+      color: [1, 1, 1, 1],
+      width: 100,
+      height: 100,
+      transform: { x: 0, y: 0 },
+      order: 1,
+      occlusion: {
+        by: ["quad"],
+        parameter: "ParamBlink",
+        stops: [{ value: 0, amount: 1 }],
+      },
+    });
+    return model;
+  }
+  const keying = (over: Partial<IkiPhysics> = {}) =>
+    rig({ output: { parameter: "ParamBlink", scale: 1 }, ...over });
+  const message =
+    /physics\."r1"\.output\.parameter "ParamBlink" keys parts\."tail"\.occlusion; an occlusion amount cannot be keyed on a physics output/;
+
+  it("AddPhysicsRig refuses; model and undo stack unchanged", () => {
+    const doc = new EditorDocument(occludedModel());
+    expect(() => doc.execute(new AddPhysicsRig(keying()))).toThrow(message);
+    expect(doc.getModel().physics).toBeUndefined();
+    expect(doc.canUndo()).toBe(false);
+    expect(() => doc.toIkiModel()).not.toThrow();
+  });
+
+  it("SetPhysicsRig refuses; model and undo stack unchanged", () => {
+    const doc = new EditorDocument(occludedModel());
+    doc.execute(new AddPhysicsRig(rig()));
+    const before = JSON.stringify(doc.getModel());
+    expect(() => doc.execute(new SetPhysicsRig("r1", keying()))).toThrow(
+      message,
+    );
+    expect(JSON.stringify(doc.getModel())).toBe(before);
+    doc.undo();
+    expect(doc.canUndo()).toBe(false);
+    expect(() => doc.toIkiModel()).not.toThrow();
+  });
+});

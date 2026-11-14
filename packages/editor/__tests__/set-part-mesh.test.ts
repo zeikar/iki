@@ -521,3 +521,53 @@ describe("SetPartMesh clip-mask guard", () => {
     expect(doc.canUndo()).toBe(undoBefore);
   });
 });
+
+// ── SetPartMesh occluder guard ────────────────────────────────────────────────
+
+describe("SetPartMesh occluder guard", () => {
+  function occlusionModel(): IkiModel {
+    return {
+      version: IKI_FORMAT_VERSION,
+      name: "occlusion",
+      canvas: { width: 1000, height: 1000 },
+      parameters: [{ id: "ParamA", min: -1, max: 1, default: 0 }],
+      parts: [
+        {
+          id: "head",
+          color: [1, 1, 1, 1],
+          width: 1,
+          height: 1,
+          transform: { x: 0, y: 0 },
+          order: 0,
+          mesh: createGridMesh(2, 2),
+        },
+        {
+          id: "tail",
+          color: [0, 0, 1, 1],
+          width: 1,
+          height: 1,
+          transform: { x: 0, y: 0 },
+          order: 1,
+          occlusion: {
+            by: ["head"],
+            parameter: "ParamA",
+            stops: [{ value: 0, amount: 1 }],
+          },
+        },
+      ],
+    };
+  }
+
+  it("refuses to remove the mesh from an occluder; model+stacks unchanged", () => {
+    const doc = new EditorDocument(occlusionModel());
+    const before = JSON.stringify(doc.toIkiModel());
+    const undoBefore = doc.canUndo();
+
+    expect(() => doc.execute(new SetPartMesh("head", undefined))).toThrow(
+      /parts\."head": cannot remove mesh — used as an occluder by part "tail"/,
+    );
+
+    expect(JSON.stringify(doc.toIkiModel())).toBe(before);
+    expect(doc.canUndo()).toBe(undoBefore);
+  });
+});

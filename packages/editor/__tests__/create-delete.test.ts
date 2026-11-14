@@ -777,3 +777,62 @@ describe("DeletePart clip-mask guard", () => {
     expect(() => doc.toIkiModel()).not.toThrow();
   });
 });
+
+describe("DeletePart occluder guard", () => {
+  function occlusionModel(): IkiModel {
+    const model = {
+      version: IKI_FORMAT_VERSION,
+      name: "occlusion",
+      canvas: { width: 1000, height: 1000 },
+      parameters: [{ id: "ParamA", min: -1, max: 1, default: 0 }],
+      parts: [
+        {
+          id: "head",
+          color: [1, 1, 1, 1],
+          width: 1,
+          height: 1,
+          transform: { x: 0, y: 0 },
+          order: 0,
+          mesh: {
+            vertices: [0, 0, 1, 0, 0, 1],
+            uvs: [0, 0, 1, 0, 0, 1],
+            indices: [0, 1, 2],
+          },
+        },
+        {
+          id: "tail",
+          color: [0, 0, 1, 1],
+          width: 1,
+          height: 1,
+          transform: { x: 0, y: 0 },
+          order: 1,
+          occlusion: {
+            by: ["head"],
+            parameter: "ParamA",
+            stops: [{ value: 0, amount: 1 }],
+          },
+        },
+      ],
+    } satisfies IkiModel;
+    return model;
+  }
+
+  it("refuses to delete a part another part names in occlusion.by; model unchanged, canUndo false", () => {
+    const doc = new EditorDocument(occlusionModel());
+    const before = snap(doc);
+
+    expect(() => doc.execute(new DeletePart("head"))).toThrow(
+      /parts\."head": cannot delete — used as an occluder by part "tail"/,
+    );
+    expect(doc.canUndo()).toBe(false);
+    expect(doc.getModel()).toEqual(before);
+    expect(() => doc.toIkiModel()).not.toThrow();
+  });
+
+  it("deletes the occluded part freely", () => {
+    const doc = new EditorDocument(occlusionModel());
+    doc.execute(new DeletePart("tail"));
+    expect(doc.getModel().parts.map((p) => p.id)).toEqual(["head"]);
+    expect(() => doc.toIkiModel()).not.toThrow();
+  });
+});

@@ -293,6 +293,16 @@ export interface CustomPart {
   /** The art does not bend (a hairpin, a ribbon): a bake that bends it more
    *  than 0.0025 face widths at a stop is refused (`BakeError`). */
   rigid?: boolean;
+  /** Hide the part where the parts of these roles cover it, by an amount keyed on a
+   *  parameter (`IkiPart.occlusion`). `by` lists roles of the set: the
+   *  generator writes the part ids those roles yield. The parameter is one
+   *  the model declares and not a physics output; the stops follow the
+   *  format's rules. */
+  occlusion?: {
+    by: string[];
+    parameter: string;
+    stops: { value: number; amount: number }[];
+  };
 }
 
 /** A `customParts` entry that is malformed or misses the layer set. Its
