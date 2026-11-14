@@ -148,7 +148,10 @@ describe("auto_rig_from_layers customParts", () => {
       fs.readFileSync(path.join(dir, "none.iki"), "utf8"),
     );
     expect(roles.customParts).toBeUndefined();
-    expect(empty.customParts).toEqual({ parts: [] });
+    expect(empty.customParts).toMatchObject({
+      parts: [],
+      gate: { ok: true, parts: [] },
+    });
   });
 
   it("puts the custom parts on the last page and leaves page 0 as it was", async () => {

@@ -35,6 +35,20 @@ export {
 } from "./measure";
 export { type RigPlanReport } from "@ikijs/editor";
 export { checkModelFolds, formatFoldReport } from "./fold-report";
+export {
+  checkCustomGate,
+  formatCustomGate,
+  failedCustomGate,
+  CUSTOM_GATE_LIMITS,
+  type CustomGateLimits,
+  type CustomGateAreaReading,
+  type CustomGatePart,
+  type CustomGateOptions,
+  type CustomGateReading,
+  type CustomGateTip,
+  type CustomGatePartReport,
+  type CustomGateReport,
+} from "./custom-gate";
 export { formatPhysicsReport } from "./physics-report";
 export { formatHairSideReport } from "./hair-side-report";
 export {

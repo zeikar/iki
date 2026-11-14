@@ -98,7 +98,7 @@ export function paintRuns(png: DecodedPng): PaintRuns {
 }
 
 /** Model space (x right, y up, origin at the canvas centre) to canvas px. */
-function toCanvas(model: IkiModel, pts: Float32Array): Float64Array {
+export function toCanvas(model: IkiModel, pts: Float32Array): Float64Array {
   const hw = model.canvas.width / 2;
   const hh = model.canvas.height / 2;
   const out = new Float64Array(pts.length);
@@ -112,20 +112,20 @@ function toCanvas(model: IkiModel, pts: Float32Array): Float64Array {
 /** A millipixel is far below what a render shows, and keeps the text short. `+ 0` drops a -0. */
 const round = (v: number) => Math.round(v * 1000) / 1000 + 0;
 
-/** The barycentric weights of (x, y) in a triangle, or null outside it. */
-function locate(
-  rest: Float64Array,
+/** The barycentric weights of (x, y) in a triangle of `vertices` (canvas px, rest or posed), or null outside it. */
+export function locate(
+  vertices: Float64Array,
   tri: [number, number, number],
   x: number,
   y: number,
 ): [number, number, number] | null {
   const [a, b, c] = tri;
-  const ax = rest[a * 2];
-  const ay = rest[a * 2 + 1];
-  const bx = rest[b * 2];
-  const by = rest[b * 2 + 1];
-  const cx = rest[c * 2];
-  const cy = rest[c * 2 + 1];
+  const ax = vertices[a * 2];
+  const ay = vertices[a * 2 + 1];
+  const bx = vertices[b * 2];
+  const by = vertices[b * 2 + 1];
+  const cx = vertices[c * 2];
+  const cy = vertices[c * 2 + 1];
   const d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
   if (Math.abs(d) < 1e-12) return null;
   const l1 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / d;
@@ -139,14 +139,14 @@ function locate(
 const QUAD_INDICES = [0, 1, 2, 1, 3, 2];
 
 /** A part's rest triangles with their boxes, computed once per call. */
-interface RestMesh {
+export interface RestMesh {
   indices: number[];
   rest: Float64Array;
   /** minX, minY, maxX, maxY per triangle. */
   boxes: Float64Array;
 }
 
-function restMesh(
+export function restMesh(
   model: IkiModel,
   cache: Map<string, RestMesh>,
   partId: string,
@@ -176,15 +176,18 @@ function restMesh(
   return m;
 }
 
-function landPoints(
-  model: IkiModel,
-  cache: Map<string, RestMesh>,
-  partId: string,
+/** Where a rest point sits in a part's mesh: a triangle and its weights. */
+export interface Located {
+  tri: [number, number, number];
+  w: [number, number, number];
+}
+
+/** Each point's triangle at rest (the first that holds it), or null off the mesh. */
+export function locatePoints(
+  mesh: RestMesh,
   points: ProbePoint[],
-  pose: Record<string, number>,
-): (ProbePoint | null)[] {
-  const { indices, rest, boxes } = restMesh(model, cache, partId);
-  const posed = toCanvas(model, landParts(model, pose, [partId]).get(partId)!);
+): (Located | null)[] {
+  const { indices, rest, boxes } = mesh;
   // A little slack, so the box test does not reject a point sitting on a
   // triangle's edge. `locate`'s own tolerance is in barycentric weight and
   // reaches a few 1e-6 px past the outline of a very large triangle; a point
@@ -207,17 +210,37 @@ function landPoints(
         indices[t * 3 + 2],
       ];
       const w = locate(rest, tri, x, y);
-      if (!w) continue;
-      let px = 0;
-      let py = 0;
-      for (let k = 0; k < 3; k++) {
-        px += w[k] * posed[tri[k] * 2];
-        py += w[k] * posed[tri[k] * 2 + 1];
-      }
-      return [px, py];
+      if (w) return { tri, w };
     }
     return null;
   });
+}
+
+/** A located point on a part's posed vertices (canvas px). */
+export function landLocated(
+  posed: Float64Array,
+  at: Located | null,
+): ProbePoint | null {
+  if (at === null) return null;
+  let px = 0;
+  let py = 0;
+  for (let k = 0; k < 3; k++) {
+    px += at.w[k] * posed[at.tri[k] * 2];
+    py += at.w[k] * posed[at.tri[k] * 2 + 1];
+  }
+  return [px, py];
+}
+
+function landPoints(
+  model: IkiModel,
+  cache: Map<string, RestMesh>,
+  partId: string,
+  points: ProbePoint[],
+  pose: Record<string, number>,
+): (ProbePoint | null)[] {
+  const located = locatePoints(restMesh(model, cache, partId), points);
+  const posed = toCanvas(model, landParts(model, pose, [partId]).get(partId)!);
+  return located.map((at) => landLocated(posed, at));
 }
 
 function invalid(i: number, field: string, what: string): AutoRigInputError {

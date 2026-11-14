@@ -1,0 +1,5 @@
+---
+"@ikijs/mcp": minor
+---
+
+`auto_rig_from_layers` measures each custom part after it writes the model and ends its text with the gate: `CUSTOM <id> FOLDS|TIE|SLIDE|EXPOSED|RIGID|TIP: …` lines, then `CUSTOM GATE pass` or `CUSTOM GATE FAIL: <part LINE, …>`, always the last line. Over the engine's fold poses, each of the part's own stops and the corners of every pair of parameters it is baked on, it reads the part's least triangle area ratio (≥ 0.1), the displacement of its tie against the anchor's where the head does not turn (≤ 0.005 face widths) and where it does (≤ 0.1, and the tie stays within 0.015 of the anchor's paint), the hidden art that shows where the head does not turn (≤ 0.0009 face widths²; where it turns the count is printed without a limit), and, for a `rigid` part, its bend (≤ 0.0025). `TIP` reports where a part's free end lands per baked parameter and never fails. The result's `customParts.gate` carries `ok`, the limits and each measure. The model is written whether the gate passes or not, and folds and physics for the rest of the model stay report-only. `checkCustomGate` and `formatCustomGate` are exported.

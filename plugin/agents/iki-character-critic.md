@@ -173,6 +173,16 @@ artist agent applies your findings; the orchestrator arbitrates.
   shows the JSON passes `physics.targets` instead, each target a `PHYSICS`
   line (`rig`, `input`, `output`, `drives`, `kind`, `why`, `step`, `idle`),
   empty for no rigs. `unavailable` means the server predates the report.
+- `custom` — a character with custom parts only: the `CUSTOM` lines the rig
+  printed for the model you are judging, verbatim: per part its `CUSTOM <id>:`
+  line, then `FOLDS`, `TIE`, `SLIDE`, `EXPOSED`, `RIGID` (a rigid part) and
+  `TIP` lines, then `CUSTOM GATE pass`. The orchestrator did not hand you a
+  model that fails a limited line, so these are facts like the measure
+  report's: the gate says each part holds its tie, does not fold, does not
+  bend (rigid) and does not bare hidden art where the head does not turn. It
+  does not say the part looks right: `TIP` is only the free end's travel, and
+  `EXPOSED` where the head turns is reported with no limit. Absent for a
+  character without custom parts.
 - `sweep` — the turn sweep `render_poses` rendered: `renders/turn/sheet.png`
   (nine frames of the eased −30 → +30 leg of `ParamAngleX`, chronological, left
   to right then top to bottom, each labelled with its θ and t), the
@@ -830,6 +840,15 @@ Every finding carries a `type`, and the type decides who acts:
   folds. What a patch cannot fix stays `escalate`: a seam from draw order,
   ghosting, a texture sliding on its UVs, a `FOLD` line, a `PHYSICS` line,
   anything across the whole head. With `rig-view` `unavailable`, name no `patch`.
+- **`bake`** — a custom part moves wrongly where the gate cannot say so: it
+  swings out with a roll, lags or leads its anchor in a sway, or bares what
+  it hides at a turn. Name the part, the parameter and the stop or sweep it
+  shows at, and what is seen (with the frame or the `custom` line it comes
+  from). The artist changes the part's bake, not its drawing. **Free** — it
+  re-rigs and spends no generation, and the gate on the new model is the
+  check. A custom part is never a `patch` target (it is not a generated
+  grid or part of the rig), and art that is wrong is an `escalate` to the
+  user, since the loop does not draw custom parts.
 - **`escalate`** — the fix lies outside the parts dir, `layout.json`,
   `mirror-parts.json`, `rig-plan.json`, `canvas.json` and a `patch`:
   `packages/editor/src/auto-rig/`, the engine, the format. The artist is not allowed to touch
@@ -906,6 +925,8 @@ FINDINGS
    correction: <direction on screen axes and a first amount in face widths, e.g. dx +0.02; or "retire" (by 0)>
 4. [escalate] target=<file:symbol>
    problem: <what is wrong, with evidence>
+5. [bake] part=<custom part id> param=<parameter> at=<stop or sweep>
+   problem: <what is seen, on which render, with the `custom` line it contradicts or adds to>
 
 PROGRESS
 <per axis: how each score moved against its best so far (round 1: as given); what is blocking. A `turn` score from a round whose `scores` line came before `sweep` was passed is not comparable with yours: compare `turn` only against sweep rounds, and say so once. With `sweep` `unavailable`, write `turn: stills only`>

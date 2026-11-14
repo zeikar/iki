@@ -314,7 +314,7 @@ describe("MCP server integration", () => {
     expect(hairSide.some((line) => / hair_side_L: /.test(line))).toBe(true);
   }, 60_000);
 
-  it("auto_rig_from_layers lists customParts in its schema and prints the CUSTOM lines last, after the HAIRSIDE lines", async () => {
+  it("auto_rig_from_layers lists customParts in its schema and prints the CUSTOM lines after the HAIRSIDE lines, the CUSTOM GATE line last", async () => {
     pair = await createPair();
     const { tools } = await pair.client.listTools();
     const rigTool = tools.find((t) => t.name === "auto_rig_from_layers")!;
@@ -396,14 +396,23 @@ describe("MCP server integration", () => {
     const lines = (
       result.content as { type: string; text: string }[]
     )[0].text.split("\n");
-    expect(lines.at(-1)).toMatch(/^CUSTOM tail: /);
-    expect(lines.filter((l) => /^CUSTOM[ :]/.test(l))).toHaveLength(1);
+    expect(lines.at(-1)).toMatch(/^CUSTOM GATE (pass|FAIL: )/);
+    const partLine = lines.findIndex((l) => /^CUSTOM tail: /.test(l));
     expect(lines.findLastIndex((l) => /^HAIRSIDE[ :]/.test(l))).toBe(
-      lines.length - 2,
+      partLine - 1,
     );
+    // Then the gate's lines, nothing else, to the end.
+    expect(
+      lines
+        .slice(partLine + 1, -1)
+        .every((l) => /^CUSTOM tail (FOLDS|TIE|SLIDE|EXPOSED|TIP)/.test(l)),
+    ).toBe(true);
+    const gate = (sc as unknown as { customParts: { gate: { ok: boolean } } })
+      .customParts.gate;
+    expect(lines.at(-1) === "CUSTOM GATE pass").toBe(gate.ok);
   }, 60_000);
 
-  it("auto_rig_from_layers lists bakes in its schema and prints the BAKE lines after the CUSTOM lines", async () => {
+  it("auto_rig_from_layers lists bakes in its schema and prints the BAKE lines after the CUSTOM lines, before the gate's", async () => {
     pair = await createPair();
     const { tools } = await pair.client.listTools();
     const rigTool = tools.find((t) => t.name === "auto_rig_from_layers")!;
@@ -497,11 +506,15 @@ describe("MCP server integration", () => {
     const lines = (
       result.content as { type: string; text: string }[]
     )[0].text.split("\n");
-    expect(lines.at(-1)).toMatch(
+    const bake = lines.findIndex((l) => /^BAKE /.test(l));
+    expect(lines[bake]).toMatch(
       /^BAKE tail ParamAngleX: \d+ vertices, stops 30, error 0(\.\d+)? px$/,
     );
-    expect(lines.findLastIndex((l) => /^CUSTOM[ :]/.test(l))).toBe(
-      lines.length - 2,
+    expect(lines[bake - 1]).toMatch(/^CUSTOM tail: /);
+    expect(lines[bake + 1]).toMatch(/^CUSTOM tail FOLDS: /);
+    expect(lines.at(-1)).toMatch(/^CUSTOM GATE (pass|FAIL: )/);
+    expect(lines.some((l) => /^CUSTOM tail TIP ParamAngleX: /.test(l))).toBe(
+      true,
     );
   }, 60_000);
 

@@ -75,7 +75,8 @@ defects are not art defects. From one real session, six defects:
 Four of six were code or constants. A critic that can only say "try again" would
 have burned the quota and never fixed them. So findings are typed —
 `regenerate` (billed), `retune` (free), `patch` (free, kept only through a
-blind gate), `escalate` (orchestrator only) — and the artist routes on the
+blind gate), `bake` (free, a custom part's motion, kept only through the custom
+gate), `escalate` (orchestrator only) — and the artist routes on the
 type.
 
 ## This is not really a GAN
@@ -221,7 +222,7 @@ no name for) is opt-in, as a full body is. The user supplies
 seeds a custom part: the seed lines above create neither, so a character
 without custom parts never has them, and on a restart both are kept as they
 are, with `<workdir>/bakes.json` and the `custom/` bake files the artist makes
-(`bare.iki`, `bare.probe.json`, `probe-request.json`, `bake.mjs`). The dispatch passes `custom-parts` (the file's contents) when it exists.
+(`bare.iki`, `bare.probe.json`, `probe-request.json`, `bake.mjs`, `try.iki`). The dispatch passes `custom-parts` (the file's contents) when it exists.
 
 **Restarting on picked parts.** When `parts/` already holds a picked set —
 the plain `<role>.png` files, not only `_a` / `_b` variants — round 1 re-rigs
@@ -275,10 +276,30 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `patches-rejected.json` the same way, its verdict `refused:` and the
    message.
 
+   **An artist that returns `BLOCKED: custom gate` or `CUSTOM: unavailable`**
+   (a character with custom parts: its model failed the per-part gate after
+   two re-derivations, the gate itself threw (`CUSTOM GATE FAIL: gate error`,
+   package code: the artist reports it under `ESCALATED` and retries nothing),
+   or the server returned no gate) ends the round as a
+   refused rig does: no render, no critic, the lines go to the user, Step 2.
+   The artist moved nothing, so the accepted model stands.
+
    **An artist that returns no model otherwise ends the round as a usage
    limit does** — a refused rig leaves nothing to render. Skip the render and
    the critic (there is nothing to score), keep its escalation, and go to
    Step 2.
+
+   **Check the custom gate before anything else this round**, when
+   `custom-parts.json` is non-empty and the artist returned a model: before
+   item 2's reading, any gate (item 3) and any render. The artist's `CUSTOM:`
+   block (the promoted model's; the measuring rig's reading under `BAKES:` is
+   not judged) must end `CUSTOM GATE pass`. A missing block is a fail, and so
+   is any `FAIL` line in it, hidden art showing (`EXPOSED`) included. In a
+   gated round (`PATCHES:` or `RIGPLAN:` reads `proposed`) both the baseline's
+   and the candidate's blocks must read pass: the candidate is never judged or
+   promoted on a fail, and a baseline that fails ends the round. A fail ends
+   the round as a refused rig does: no render, no critic, the block goes to the
+   user, Step 2.
 
 2. **Read the rig's view** once the artist returns a model: call the `iki`
    server's `describe_iki { modelPath }` on `<workdir>/iki-character-base.iki`
@@ -595,7 +616,10 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    a server before 0.25.0), `physics` (item 4's physics report, complete and
    in the form it came: every `PHYSICS` line or the `PHYSICS: no rigs` line,
    or `physics.targets`; or `unavailable` from a server before 0.27.0),
-   `sweep` (`<workdir>/renders/turn/sheet.png`, `<workdir>/renders/turn/kymograph.png`
+   `custom` (a character with custom parts: the artist's `CUSTOM:` block
+   verbatim, the promoted model's `CUSTOM` lines, which the check before item 2
+   found end `CUSTOM GATE pass`; in a gated round only the kept model's block,
+   though the artist's report line carries both models'; absent otherwise), `sweep` (`<workdir>/renders/turn/sheet.png`, `<workdir>/renders/turn/kymograph.png`
    and item 4's `SWEEP` lines, in the form they came; or `unavailable` from a
    server before 0.31.0; the lines include the `SWEEP nod` and `SWEEP corner`
    ones, or `sweep.nod`), `nod` (`<workdir>/renders/face/turn-nod/sheet.png`
@@ -712,6 +736,9 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `RIGPLAN: unavailable`, `plan-catalog` `unavailable`), route every plan
    `retune` as `escalate`, naming the cause: the plugin's pinned `@ikijs/mcp`
    predates 0.30.0 (the adopt commit moves the pin).
+   The critic's `bake` findings go to the artist too, ungated: the custom gate
+   is their gate (the artist's Rig section), and a round of them spends no
+   generation.
    The critic's `patch` findings go to the artist too, free like a `retune`:
    a patch round spends no generation, so it counts toward no billed cap.
    Once patches prove unavailable in a run — an artist's

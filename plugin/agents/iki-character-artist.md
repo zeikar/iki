@@ -206,7 +206,8 @@ and how a new character's round-1 compose corrects the provisional
    `node <repo>/packages/mcp/dist/cli.js` run from the same cwd when you need
    the working-tree build (either way the tool confines output to its cwd). Pass
    the `layers[].path` values the compose result returned; an `outputPath` of
-   `<workdir>/iki-character.iki`, since the default drops the model in the
+   `<workdir>/iki-character.iki` (with custom parts, through `custom/try.iki`:
+   the custom gate, below), since the default drops the model in the
    server's cwd, outside the ignored workdir; and `"quantizeColors": 256` so
    the model the orchestrator renders is the compact one (a
    lossless model is ~2.5× larger: 3.18MB against 1.28MB on the hero).
@@ -294,8 +295,9 @@ and how a new character's round-1 compose corrects the provisional
    Read `<workdir>/custom-parts.json` and, when its list is not empty, pass it
    as `customParts` on every rig of the round (a candidate pair's too), with
    each `path` under `<workdir>/custom/`. The result's one `CUSTOM <id>: …` line
-   per part (or its `customParts.parts` entries) comes last, after the `HAIRSIDE`
-   lines; quote them under `CUSTOM:` in your report. An `INVALID:
+   per part (or its `customParts.parts` entries) comes after the `HAIRSIDE`
+   lines, then the `BAKE` lines and the gate's (below); quote them under
+   `CUSTOM:` in your report. An `INVALID:
    customParts[i]…` about an entry's `anchor`, `tie` or `after` is yours to
    fix in `custom-parts.json`: re-rig ONCE, and if it is refused again report
    both messages under `BLOCKED` and return with no model. One about the PNG
@@ -303,14 +305,50 @@ and how a new character's round-1 compose corrects the provisional
    and return with no model, without a re-rig. Passed `customParts` but the result has no `customParts` field: the
    server predates 0.34.0 and rigged without the parts. Rig nothing more,
    report `CUSTOM: unavailable` and that cause under `ESCALATED`, and return
-   with no model.
+   `BLOCKED` with no model.
+
+   **The custom gate.** The text of a rig with custom parts ends with the
+   gate (the result's `customParts.gate`): per part a `CUSTOM <id> <LINE>: …`
+   line for `FOLDS`, `TIE`, `SLIDE`, `EXPOSED`, `RIGID` (a rigid part) and
+   `TIP`, then `CUSTOM GATE pass` or `CUSTOM GATE FAIL: <part LINE, …>`. A
+   failed gate does not stop the file being written, so the rule is about
+   where the file goes. It covers the models the loop keeps, renders or
+   judges, and only those: `<workdir>/iki-character.iki`, and the
+   `iki-character-base.iki` and `iki-character-candidate.iki` of a gated
+   round. With custom parts, rig each of them to `<workdir>/custom/try.iki`
+   first and `mv` it to its own path only when its `CUSTOM GATE` reads `pass`,
+   so a failing model never replaces the accepted one.
+
+   The retry budget is one for the whole model: after its first rig, at most
+   TWO more rigs for any reason, a gate fail or an `INVALID: bakes…` (Baking,
+   below) alike. On a fail of a model under that rule, fix the bake from the
+   `FAIL` lines (change `bake.mjs`, re-derive) and rig again. A re-derive
+   within those retries re-runs `bake.mjs` and the final rig only: the bare
+   rig and its probe are reused unless the stale rule below fired. Spent, return
+   `BLOCKED: custom gate` with the `CUSTOM` lines verbatim and nothing moved.
+   A candidate that fails the gate where its baseline passed is given up at
+   once, with no retry and no re-derive (both rigs of a pair take one
+   `bakes.json`): delete the candidate file and any candidate model, `mv` the
+   baseline to `<workdir>/iki-character.iki`, and report `refused patch` or the
+   plan move under `ESCALATED` with its `FAIL` lines.
+
+   Two results are not gate fails. A result with no `customParts` field is a
+   server before 0.34.0 (above): `CUSTOM: unavailable`, `BLOCKED`. A last line
+   `CUSTOM GATE FAIL: gate error: <message>` is the gate itself throwing, which
+   is package code: report it under `ESCALATED`, retry nothing, move nothing and
+   return `BLOCKED: custom gate`.
 
    **Baking the custom parts.** An unbaked custom part stays where it was
    placed while the head turns, rolls and nods, so a character with custom
    parts gets a `<workdir>/bakes.json`, made in this order:
    1. Rig the bare model: the round's layers, `rigPlan`, `patches` and
       `customParts`, and no `bakes`, straight to `<workdir>/custom/bare.iki`.
-      It is a measuring model: no later step renders, scores or keeps it.
+      It is a measuring model: no later step renders, scores or keeps it, and
+      it is outside the promotion rule above. Without bakes its gate is
+      expected to fail (the tie comes apart where the anchor moves, hidden art
+      shows): that fail is not a `BLOCKED`, starts no retry and is never moved
+      to a model path. Quote its `CUSTOM GATE` line under `BAKES:` as the
+      unrigged reading.
    2. Call `probe_rig` on it with `outputPath <workdir>/custom/bare.probe.json`,
       and keep the call's arguments in `<workdir>/custom/probe-request.json`
       so the same call replays. Ask for what the program needs: each part's
@@ -320,7 +358,9 @@ and how a new character's round-1 compose corrects the provisional
    3. Run `<workdir>/custom/bake.mjs`, a plain Node program you write (it
       reads `bare.probe.json` and writes `bakes.json`).
    4. Rig with the bakes: pass `bakes.json`'s `bakes` on every rig of the round,
-      a candidate pair's too. Its `BAKE` lines come after the `CUSTOM` lines.
+      a candidate pair's too. Its `BAKE` lines come after the `CUSTOM` lines,
+      and the gate's lines after those; the model goes through the promotion
+      rule.
 
    What a program that works does (the measured twin-tails case):
    - At every stop where the head does not turn (`ParamAngleX` 0) the tie lands
@@ -339,8 +379,9 @@ and how a new character's round-1 compose corrects the provisional
    A failure in steps 2 to 4 that the input explains is yours: a `probe_rig`
    refusal, a `bake.mjs` that exits non-zero, or an `INVALID: bakes…` (the
    input's shape, or a `rigid` part bent). Fix the request or the program,
-   re-derive, and rig again ONCE; if it fails again, report both messages
-   under `BLOCKED` and return with no model. An `INVALID: BAKE ERROR …` is
+   re-derive, and rig again within the retry budget (The custom gate, above);
+   when it is spent, report the messages under `BLOCKED` and return with no
+   model. An `INVALID: BAKE ERROR …` is
    not yours: the input was valid and the rig and the engine disagree, which
    is package code. Report the message under `ESCALATED`, retry nothing, and
    return with no model.
@@ -426,6 +467,11 @@ and how a new character's round-1 compose corrects the provisional
   the feature grid those layers ride (`eyeWarp_*`, `browWarp_*`, `noseWarp`,
   `mouthWarp`). The op was aimed at the old drawing: a drop is not gated and
   is never restored.
+- **`bake`** — a custom part moves wrongly (the part, the parameter and its
+  stop or sweep are named): change `<workdir>/custom/bake.mjs`, re-derive
+  `bakes.json` and re-rig under the promotion rule (Rig, The custom gate).
+  Free, like a `retune`. Never a `patch` target: a custom part is not part of
+  the generated rig.
 - **`escalate`** — do not act. Repeat it verbatim in your report.
 
 ## Pitfalls that have actually bitten
@@ -506,14 +552,14 @@ MEASURE: <"all geometry checks passed", or the remaining warnings and why>
 MODEL: <path to the rigged .iki (with PATCHES or RIGPLAN proposed, the candidate), or "none" — see BLOCKED>
 TURN: <the result's turn.achieved, turn.clamped and turn.strandOverlap ("none" when absent), or "none" when no turn was solved; with PATCHES or RIGPLAN proposed, the baseline's>
 <the result's HAIRSIDE lines verbatim (from a JSON result, its turn.hairSide entries as they are), the baseline's, one per line right after TURN:, when it printed any>
-CUSTOM: <with custom parts, the result's CUSTOM lines verbatim (from a JSON result, its customParts.parts entries as they are), one per line, or "unavailable"; otherwise "none">
-BAKES: <with custom parts, "kept" or "rederived" (Rig, Baking the custom parts), followed by the result's BAKE lines verbatim, one per line; otherwise "none">
+CUSTOM: <with custom parts, the promoted models' CUSTOM lines verbatim (with PATCHES or RIGPLAN proposed, the baseline's then the candidate's), part lines then gate lines, each block ending CUSTOM GATE pass (from a JSON result, its customParts.parts and customParts.gate entries as they are), one per line, or "unavailable"; otherwise "none">
+BAKES: <with custom parts, "kept" or "rederived" (Rig, Baking the custom parts), followed by the result's BAKE lines verbatim and the measuring rig's CUSTOM GATE line (the unrigged reading), one per line; otherwise "none">
 TURN-CANDIDATE: <with PATCHES or RIGPLAN proposed, the candidate's, as TURN: — a patch or a gated plan field moves turn.achieved, so the two differ, and its HAIRSIDE lines follow it as they follow TURN:; otherwise "none">
 RIGPLAN: <the result's RIGPLAN: line — effective values, with clamped and overriddenBy — or "unavailable"; with a gated plan field, "proposed (<field> <from> -> <to>; base <path>; candidate <path>)" before the baseline's line>
 RIGPLAN-CANDIDATE: <with a gated plan field, the candidate's RIGPLAN: line as RIGPLAN: gives it (effective values, with clamped and overriddenBy) — a plan field moves what the rig clamps, so the two differ; otherwise "none">
 PATCHES: <unchanged | dropped <n> for <files> | proposed (ops N -> M; base <path>; candidate <path>) | unavailable; a drop and a proposal both read "dropped …; proposed …"; "proposed" only with a candidate model written — a dropped candidate reads unchanged (or dropped …), its refusals under ESCALATED>
 <the result's PATCH lines verbatim (from a JSON result, its patches entries as they are), the baseline's then the candidate's>
 ESCALATED: <critic findings you did not act on, and any refusal you escalated, verbatim — each patch op you gave up as "refused patch: <the op> — <the message>"; on a full body, a final canvas height over 4096, with H — or "none">
-BLOCKED: <"none", or what stopped the round — for a usage limit, the reset time; for a refused rig, that no model came out; for an accepted op refused, its INVALID: patches[i]… message and the op>
+BLOCKED: <"none", or what stopped the round — for a usage limit, the reset time; for a refused rig, that no model came out; for an accepted op refused, its INVALID: patches[i]… message and the op; for a failed custom gate, "custom gate" and its CUSTOM lines verbatim>
 NOTES: <anything the orchestrator should know>
 ```

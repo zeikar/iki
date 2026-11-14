@@ -46,7 +46,13 @@ import {
   type PhysicsReport,
 } from "@ikijs/engine";
 import { checkBakes, type BakeCheck } from "./bake-report";
+import {
+  checkCustomGate,
+  failedCustomGate,
+  type CustomGateReport,
+} from "./custom-gate";
 import { checkModelFolds } from "./fold-report";
+import { paintRuns, type PaintRuns } from "./probe";
 import { BUST_SIZE, bustPadY } from "./render-poses";
 import {
   decodePng,
@@ -575,8 +581,15 @@ export type AutoRigResult =
        *  server from one that drops the field. `box` is the layer's alpha box
        *  in canvas px; `page` is the atlas page, the last one. `bakes` is
        *  present only when `bakes` was passed: one entry per baked part and
-       *  parameter, as the engine lands it. */
-      customParts?: { parts: CustomPartReport[]; bakes?: BakeCheck[] };
+       *  parameter, as the engine lands it. `gate` is the per-part gate over
+       *  the written model (`ok`, the limits, each part's measures); a failing
+       *  one blocks the character loop's candidate, the model is written
+       *  either way. Absent from a server before 0.34.0. */
+      customParts?: {
+        parts: CustomPartReport[];
+        bakes?: BakeCheck[];
+        gate: CustomGateReport;
+      };
     }
   | { ok: false; error: string };
 
@@ -588,7 +601,7 @@ export interface CustomPartReport {
   page: number;
 }
 
-export type { TurnSolveReport, BakeCheck };
+export type { TurnSolveReport, BakeCheck, CustomGateReport };
 
 /**
  * Run a fallible input/environment-boundary call, re-tagging any throw as an
@@ -768,6 +781,10 @@ export async function autoRigFromLayers(
     // canvas.
     let measurer: LayerSetMeasurer | undefined;
     const crops: AtlasCrop[] = [];
+    // The opaque runs of each custom part's anchor layer and of each custom
+    // layer, read while they are decoded, for the custom gate.
+    const paints = new Map<string, PaintRuns>();
+    const anchorRoles = new Set(customEntries.map((e) => e.anchor));
     for (let i = 0; i < resolvedLayers.length; i++) {
       const { resolved, fileName } = resolvedLayers[i];
       const png = await decodePng(resolved);
@@ -809,6 +826,7 @@ export async function autoRigFromLayers(
         );
       }
       const { bbox } = layer;
+      if (anchorRoles.has(role)) paints.set(role, paintRuns(png));
       const buffer = await cropToBuffer(png.rgba, png.width, png.height, bbox);
       // png.rgba (full-canvas) is dropped at the next iteration — GC reclaims it
       // before the next decode, so peak memory stays ~one canvas + the crops.
@@ -852,6 +870,7 @@ export async function autoRigFromLayers(
         );
       }
       customLayers.push({ fileName: path.basename(resolved), bbox });
+      paints.set(id, paintRuns(png));
       customCrops.push({
         id,
         buffer: await cropToBuffer(png.rgba, png.width, png.height, bbox),
@@ -1057,6 +1076,25 @@ export async function autoRigFromLayers(
     // surfacing as a tool error, never an input refusal — keeps the rig.
     const folds = checkModelFolds(finalModel);
     const physics = checkPhysics(finalModel);
+    // A throw here is an engine or gate bug after the file is on disk: report
+    // it as a failed gate, keeping the path, rather than as a tool error.
+    let gate: CustomGateReport | undefined;
+    if (input.customParts !== undefined) {
+      try {
+        gate = checkCustomGate(
+          finalModel,
+          customEntries.map(({ id, anchor, tie, rigid }) => ({
+            id,
+            anchor,
+            tie,
+            ...(rigid === undefined ? {} : { rigid }),
+          })),
+          paints,
+        );
+      } catch (e) {
+        gate = failedCustomGate(finalModel, e);
+      }
+    }
 
     return {
       ok: true,
@@ -1092,6 +1130,7 @@ export async function autoRigFromLayers(
                 };
               }),
               ...(bakes === undefined ? {} : { bakes }),
+              gate: gate!,
             },
           }),
     };
