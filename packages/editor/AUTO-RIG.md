@@ -723,6 +723,13 @@ nothing.
   cancel the rotation only at the keys. Measured on the twin corpus
   character: 1.04 px midway between keys at 15 and 30, 3.9 px midway between
   1 and 30. A stop where the path matters tightens it. `mirror` fills a missing stop from the one at the mirrored value.
+- **The far side of a turn** — a caller bakes the far tie toward the head's
+  axis by about the distance the near tie rides with the face, as two small
+  added targets beside the measured ones. On the twin corpus character the far
+  ties land 18.7 px (`tail_R` at -30) and 21.6 px (`tail_L` at 30) toward the
+  axis, against 22.8 px (`tail_R` at 30) and 21.8 px (`tail_L` at -30) for the
+  near ties with the face. With the part's `occlusion` the far tail then goes
+  behind the head's hair.
 - **Reading the lattice** — each vertex's wanted displacement is the bilinear
   lattice value at its rest position (outside the box, the nearest edge's),
   summed over the targets that name the part and the parameter. A target
@@ -1115,9 +1122,14 @@ model with a pose forearm adds `Wave` (below the table).
 - A negative MouthForm only flattens a mouth drawn smiling, so on such art
   `angry` and `sad` read as a flat mouth rather than a frown.
 - A custom part is drawn at one fixed order, right after its `after` role's
-  last part. A far twin tail does not go behind the head on a turn yet: it
-  slides with the turn but stays in front of the back hair or whatever it is
-  drawn after.
+  last part. What hides it on a turn is its `occlusion` (see Custom parts),
+  and that has limits. The part is hidden only where the named roles are drawn
+  at least half opaque at the pose, with a hard edge at that contour. The
+  amount follows one parameter, linearly. No custom part can be the cover, only
+  a role, and not a role whose part is clipped or has no mesh (the irises, the
+  pose forearm). Where the part has left, the cover's own art shows. The gate
+  does not limit a fade that starts inside the idle sway; `HIDDEN` reports
+  where it starts.
 - A custom part has no spring of its own: it moves with the head and with
   whatever parameter a bake keys it on, a hair spring's output among them. The
   tie takes no lag.

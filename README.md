@@ -31,9 +31,9 @@ expressions.
 
 > Status: **early, but real.** The runtime renders parameter-driven color quads,
 > atlas-sampled texture parts, warp-mesh and grid deformation, stencil clipping
-> masks, and spring/chain physics. The editor authors parts, deformers, and
-> physics rigs; the generator rigs a character from role-named PNG/PSD layers,
-> including through an MCP server that AI agents can drive.
+> masks and part occlusion, and spring/chain physics. The editor authors parts,
+> deformers, and physics rigs; the generator rigs a character from role-named
+> PNG/PSD layers, including through an MCP server that AI agents can drive.
 
 ## Make a character with AI
 
