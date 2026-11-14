@@ -1,5 +1,20 @@
 # @ikijs/mcp
 
+## 0.35.0
+
+### Minor Changes
+
+- 10a8831: The custom gate excuses a reading only where it can establish that the player hides what the reading measures. For a custom part that declares `occlusion`, at a pose where the part is fully hidden across the stretches to the neighbouring sampled values of the key parameter (the default, the part's bake stops and its occlusion's stops) on both sides, `TIE` and `SLIDE` leave the pose out when the whole ring around the tie lies under the paint of an occluder the player draws at full alpha, and `EXPOSED` does not count a hidden-art pixel under that paint. An occluder that fades (an `opacity` binding, a transform opacity or a colour alpha under 1) gives no cover; an amount under 1 is judged in full; `FOLDS`, `RIGID` and `TIP` read every pose. A new `CUSTOM <id> HIDDEN:` line, after `EXPOSED`, reports the occluders and which give cover, the amount at rest, where it leaves its rest value and reaches 1, and how many poses `TIE` and `SLIDE` left out; it never fails the gate, and a part without `occlusion` reads as before. The `gate` result carries it as `hidden` on the part.
+- c4125fd: `auto_rig_from_layers` takes `occlusion` on a `customParts` entry (`{ by, parameter, stops }`, `by` as roles of the set) and reports it: the result's part carries it, and its `CUSTOM <id>:` line ends with what hides it. `render_poses`'s `hideParts` refuses a part that a part which stays names in its `occlusion.by`, as it does a clip mask. An older server refuses the key as an unknown key.
+
+### Patch Changes
+
+- b45e95a: `render_poses` draws a part's `occlusion` through the bundled engine.
+- Updated dependencies [ebf6499]
+- Updated dependencies [36ce8a1]
+  - @ikijs/editor@0.32.0
+  - @ikijs/format@0.11.0
+
 ## 0.34.0
 
 ### Minor Changes
