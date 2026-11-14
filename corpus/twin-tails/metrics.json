@@ -5,13 +5,13 @@
   },
   "partCount": 25,
   "parameterCount": 22,
-  "atlasBytes": 641026,
-  "modelBytes": 1495951,
-  "modelSha256": "5c983f49a9d344a009388b86c5ae157193149d9c91fbcb54cb35b629116dca4a",
+  "atlasBytes": 632378,
+  "modelBytes": 1493511,
+  "modelSha256": "eff97892978d96e2793f0f3d4bdf2b5c9e90a2b80a8af4c97264286b1948625a",
   "turn": {
     "achieved": {
-      "eyeShift": 0.1032,
-      "farEyeRatio": 0.7256,
+      "eyeShift": 0.1021,
+      "farEyeRatio": 0.7282,
       "silhouetteRatio": 1
     },
     "clamped": [],
@@ -43,11 +43,11 @@
         "peak": -13.701,
         "at": 0.017,
         "final": 0,
-        "displacementPx": 29.927
+        "displacementPx": 29.594
       },
       "idle": {
         "peak": 3.668,
-        "displacementPx": 8.012
+        "displacementPx": 7.923
       }
     },
     {
@@ -69,11 +69,11 @@
         "peak": -8.807,
         "at": 0.017,
         "final": 0,
-        "displacementPx": 19.239
+        "displacementPx": 19.025
       },
       "idle": {
         "peak": 0.022,
-        "displacementPx": 0.048
+        "displacementPx": 0.047
       }
     },
     {
@@ -130,10 +130,10 @@
           "ratio": 0.87,
           "pose": "ParamAngleZ=30 ParamHairBackSway=-20"
         },
-        "tiePx": 0.037,
+        "tiePx": 0.091,
         "slide": {
-          "px": 19.57,
-          "onAnchorPx": 4.631
+          "px": 19.668,
+          "onAnchorPx": 4.623
         },
         "exposed": {
           "hiddenPx": 335,
@@ -148,8 +148,8 @@
           {
             "param": "ParamAngleX",
             "fromBare": [
-              24.207,
-              17.369
+              24.148,
+              17.429
             ],
             "travel": 4.081
           },
@@ -164,16 +164,16 @@
           {
             "param": "ParamAngleZ",
             "fromBare": [
-              102.216,
-              102.022
+              102.22,
+              102.025
             ],
-            "travel": 136.546
+            "travel": 136.545
           },
           {
             "param": "ParamBodyAngleZ",
             "fromBare": [
-              29.235,
-              29.207
+              29.23,
+              29.193
             ],
             "travel": 80.472
           },
@@ -192,12 +192,12 @@
         "ok": true,
         "folds": {
           "ratio": 0.876,
-          "pose": "ParamAngleX=30 ParamAngleY=-30 ParamAngleZ=30 ParamBodyAngleX=-10 ParamBodyAngleY=10 ParamBodyAngleZ=10"
+          "pose": "ParamAngleX=-30 ParamAngleY=-30 ParamAngleZ=30 ParamBodyAngleX=10 ParamBodyAngleY=-10 ParamBodyAngleZ=10"
         },
-        "tiePx": 0.037,
+        "tiePx": 0.091,
         "slide": {
-          "px": 18.554,
-          "onAnchorPx": 3.396
+          "px": 18.652,
+          "onAnchorPx": 3.434
         },
         "exposed": {
           "hiddenPx": 260,
@@ -212,8 +212,8 @@
           {
             "param": "ParamAngleX",
             "fromBare": [
-              16.352,
-              27.051
+              16.412,
+              26.99
             ],
             "travel": 0.222
           },
@@ -228,16 +228,16 @@
           {
             "param": "ParamAngleZ",
             "fromBare": [
-              102.002,
-              102.236
+              102.006,
+              102.24
             ],
             "travel": 136.764
           },
           {
             "param": "ParamBodyAngleZ",
             "fromBare": [
-              29.218,
-              29.225
+              29.212,
+              29.21
             ],
             "travel": 80.561
           },
@@ -256,25 +256,25 @@
         "ok": true,
         "folds": {
           "ratio": 1,
-          "pose": "ParamAngleX=30 ParamAngleY=30 ParamAngleZ=-30 ParamBodyAngleX=10 ParamBodyAngleY=10 ParamBodyAngleZ=10"
+          "pose": "ParamAngleX=-30 ParamAngleY=30 ParamAngleZ=-30 ParamBodyAngleX=10 ParamBodyAngleY=-10 ParamBodyAngleZ=10"
         },
-        "tiePx": 0.969,
+        "tiePx": 1.12,
         "slide": {
-          "px": 0.826,
-          "onAnchorPx": 0.743
+          "px": 0.921,
+          "onAnchorPx": 0.845
         },
         "exposed": {
           "hiddenPx": 1177,
           "noTurnPx2": 79,
-          "turningPx2": 49
+          "turningPx2": 51
         },
         "rigidPx": 0,
         "tip": [
           {
             "param": "ParamAngleX",
             "fromBare": [
-              12.053,
-              21.827
+              12.112,
+              21.888
             ],
             "travel": 44.8
           },
