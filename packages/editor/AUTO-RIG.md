@@ -1085,3 +1085,12 @@ model with a pose forearm adds `Wave` (below the table).
   them: where the bangs come down to the brows, the raise goes under them.
 - A negative MouthForm only flattens a mouth drawn smiling, so on such art
   `angry` and `sad` read as a flat mouth rather than a frown.
+- A custom part is drawn at one fixed order, right after its `after` role's
+  last part. A far twin tail does not go behind the head on a turn yet: it
+  slides with the turn but stays in front of the back hair or whatever it is
+  drawn after.
+- A custom part has no spring of its own: it moves with the head and with
+  whatever parameter a bake keys it on, a hair spring's output among them. The
+  tie takes no lag.
+- A custom layer must arrive canvas-sized. The composer places only its fixed
+  role list, so a newly drawn part has to be put on the canvas by the caller.
