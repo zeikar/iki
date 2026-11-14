@@ -6,8 +6,8 @@
   "partCount": 25,
   "parameterCount": 22,
   "atlasBytes": 641026,
-  "modelBytes": 1491678,
-  "modelSha256": "63ef774039a6e13d11f63fa41f5b598d03d0e276f0e50e4cce8909deb070ecb4",
+  "modelBytes": 1491912,
+  "modelSha256": "b3959e8cd7fe905c661e1ed97da74c03bd376b79ee07000127cb3a236db49182",
   "turn": {
     "achieved": {
       "eyeShift": 0.1032,
@@ -133,21 +133,25 @@
         "tiePx": 0.037,
         "slide": {
           "px": 19.57,
-          "onAnchorPx": 5.863
+          "onAnchorPx": 1.566
         },
         "exposed": {
           "hiddenPx": 335,
           "noTurnPx2": 2,
-          "turningPx2": 36
+          "turningPx2": 20
+        },
+        "hidden": {
+          "atRest": 0,
+          "leftOut": 309
         },
         "tip": [
           {
             "param": "ParamAngleX",
             "fromBare": [
-              4.208,
+              24.207,
               17.369
             ],
-            "travel": 24.081
+            "travel": 4.081
           },
           {
             "param": "ParamAngleY",
@@ -188,26 +192,30 @@
         "ok": true,
         "folds": {
           "ratio": 0.876,
-          "pose": "ParamAngleX=30 ParamAngleY=30 ParamAngleZ=30 ParamBodyAngleX=-10 ParamBodyAngleY=10 ParamBodyAngleZ=10"
+          "pose": "ParamAngleX=30 ParamAngleY=-30 ParamAngleZ=30 ParamBodyAngleX=-10 ParamBodyAngleY=10 ParamBodyAngleZ=10"
         },
         "tiePx": 0.037,
         "slide": {
           "px": 18.554,
-          "onAnchorPx": 5.089
+          "onAnchorPx": 1.837
         },
         "exposed": {
           "hiddenPx": 260,
           "noTurnPx2": 2,
-          "turningPx2": 22
+          "turningPx2": 10
+        },
+        "hidden": {
+          "atRest": 0,
+          "leftOut": 309
         },
         "tip": [
           {
             "param": "ParamAngleX",
             "fromBare": [
               16.352,
-              7.05
+              27.051
             ],
-            "travel": 20.222
+            "travel": 0.222
           },
           {
             "param": "ParamAngleY",

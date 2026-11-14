@@ -5,14 +5,42 @@
       "file": "tail_R.png",
       "anchor": "hair_back",
       "tie": [388, 240],
-      "after": "hair_back"
+      "after": "hair_back",
+      "occlusion": {
+        "by": ["hair_back"],
+        "parameter": "ParamAngleX",
+        "stops": [
+          {
+            "value": -15,
+            "amount": 1
+          },
+          {
+            "value": -5,
+            "amount": 0
+          }
+        ]
+      }
     },
     {
       "id": "tail_L",
       "file": "tail_L.png",
       "anchor": "hair_back",
       "tie": [712, 240],
-      "after": "hair_back"
+      "after": "hair_back",
+      "occlusion": {
+        "by": ["hair_back"],
+        "parameter": "ParamAngleX",
+        "stops": [
+          {
+            "value": 5,
+            "amount": 0
+          },
+          {
+            "value": 15,
+            "amount": 1
+          }
+        ]
+      }
     },
     {
       "id": "hairpin",

@@ -315,6 +315,14 @@ function customPartMetrics(gate) {
         turningPx2: round3(part.exposed.turning?.px2 ?? null),
       },
       ...(part.rigid === undefined ? {} : { rigidPx: round3(part.rigid.px) }),
+      ...(part.hidden === undefined
+        ? {}
+        : {
+            hidden: {
+              atRest: round3(part.hidden.atRest),
+              leftOut: part.hidden.leftOut,
+            },
+          }),
       tip: part.tip.map((tip) => ({
         param: tip.param,
         fromBare: tip.ends.map((end) => round3(end.fromBare)),

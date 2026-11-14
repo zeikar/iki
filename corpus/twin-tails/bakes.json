@@ -16646,6 +16646,36 @@
             [-7.63, 0]
           ]
         }
+      },
+      {
+        "id": "tail_L-far-turn",
+        "why": "The far tie's depth travel on a turn: tail_L moves 20 px toward the head's axis at 30, linear from 0 at the rest pose. The rule of the accepted mock (iki-char/ai-rig-c/mock-order.mjs, 2026-11-13). Adds to the tail's own lattices; no effect on the near side.",
+        "param": "ParamAngleX",
+        "parts": ["tail_L"],
+        "grid": { "cols": 1, "rows": 1 },
+        "stops": {
+          "30": [
+            [-20, 0],
+            [-20, 0],
+            [-20, 0],
+            [-20, 0]
+          ]
+        }
+      },
+      {
+        "id": "tail_R-far-turn",
+        "why": "The far tie's depth travel on a turn: tail_R moves 20 px toward the head's axis at -30, linear from 0 at the rest pose. The rule of the accepted mock (iki-char/ai-rig-c/mock-order.mjs, 2026-11-13). Adds to the tail's own lattices; no effect on the near side.",
+        "param": "ParamAngleX",
+        "parts": ["tail_R"],
+        "grid": { "cols": 1, "rows": 1 },
+        "stops": {
+          "-30": [
+            [20, 0],
+            [20, 0],
+            [20, 0],
+            [20, 0]
+          ]
+        }
       }
     ]
   }
