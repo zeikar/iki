@@ -184,14 +184,21 @@ artist agent applies your findings; the orchestrator arbitrates.
   does not say the part looks right: `TIP` is only the free end's travel, and
   `EXPOSED` where the head turns is reported with no limit. `HIDDEN` is a fact
   too: the occluders, which give the gate cover, the amount at rest, where the
-  fade starts and ends and how many poses `TIE` and `SLIDE` left out (only
-  those fully hidden across the stretches to the neighbouring sampled values on both sides, those being the default, the bake stops and the occlusion's stops); the gate
-  excuses nothing it cannot show the player hides, and it never fails on this
-  line. On the `turn` sheet a part declared hidden should leave behind its
-  cover between the cells either side of the fade, with no jump, and should
-  not fade while the head idles (the fade starts above the idle sway, 3.5 on
-  `ParamAngleX`). A defect there is a `bake` finding, which now also names the
-  occlusion's stops or its `by`. Flat or unfinished art of the cover showing
+  amount leaves its rest value and where it reaches 1, and how many poses `TIE`
+  and `SLIDE` left out (only those fully hidden across the stretches to the
+  neighbouring sampled values on both sides, those being the default, the bake
+  stops and the occlusion's stops); the gate excuses nothing it cannot show the
+  player hides, and it never fails on this line. On the turn sweep's frames
+  (`renders/turn/`, 30 fps) a part declared hidden should pass behind its
+  cover's edge with no jump and no frame where its covered art looks
+  translucent for more than one or two frames, and should not change while the
+  head idles (the amount leaves 0 above the idle sway, 3.5 on `ParamAngleX`).
+  The sheet is too coarse for this; read `HIDDEN`: more than about 2° between
+  where the amount leaves its rest value and where it reaches 1 is a `bake`
+  finding naming the occlusion's stops (twin's switch is 1°; a 10° band from 5
+  to 15 read as a ghost), as is a part that changes while the head idles; a
+  `bake` finding also names the occlusion's `by` where that is the cause. Flat
+  or unfinished art of the cover showing
   where the part left is an `escalate`. Absent for a character without custom
   parts.
 - `roll` — a character with custom parts only: the `roll` sweep's

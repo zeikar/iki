@@ -6,8 +6,8 @@
   "partCount": 25,
   "parameterCount": 22,
   "atlasBytes": 641026,
-  "modelBytes": 1491912,
-  "modelSha256": "b3959e8cd7fe905c661e1ed97da74c03bd376b79ee07000127cb3a236db49182",
+  "modelBytes": 1491910,
+  "modelSha256": "e07608f60847ce6395f2dd5c3fc022f23e948b05f4c2e7ea28f797e9b977108b",
   "turn": {
     "achieved": {
       "eyeShift": 0.1032,
@@ -121,7 +121,7 @@
   ],
   "customParts": {
     "ok": true,
-    "poses": 929,
+    "poses": 971,
     "parts": [
       {
         "id": "tail_R",

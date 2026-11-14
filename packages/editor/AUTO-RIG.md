@@ -677,7 +677,9 @@ layer's), the role whose layer it is fixed against, where it meets that layer
 - **Occlusion** — `occlusion: { by, parameter, stops }` hides the part where
   other parts cover it (`IkiPart.occlusion`, drawn by the engine; the amount
   is linear between the `{ value, amount }` stops, held past the first and
-  last). `by` lists ROLES of the set, as `anchor` and `after` do, and the
+  last). Use the stops as a short switch, amount 0 a degree or more past the
+  idle sway (3.5 on `ParamAngleX`; twin: 5); a long band turns the covered art
+  translucent. `by` lists ROLES of the set, as `anchor` and `after` do, and the
   generator writes the part ids those roles yield (an arm is three parts whose
   ids are the generator's own). Only roles, not another custom part, until a
   character needs one. It is written once
@@ -729,7 +731,8 @@ nothing.
   ties land 18.7 px (`tail_R` at -30) and 21.6 px (`tail_L` at 30) toward the
   axis, against 22.8 px (`tail_R` at 30) and 21.8 px (`tail_L` at -30) for the
   near ties with the face. With the part's `occlusion` the far tail then goes
-  behind the head's hair.
+  behind the head's hair, and this travel under the cover's edge is what hides
+  it progressively.
 - **Reading the lattice** — each vertex's wanted displacement is the bilinear
   lattice value at its rest position (outside the box, the nearest edge's),
   summed over the targets that name the part and the parameter. A target
@@ -1128,8 +1131,8 @@ model with a pose forearm adds `Wave` (below the table).
   amount follows one parameter, linearly. No custom part can be the cover, only
   a role, and not a role whose part is clipped or has no mesh (the irises, the
   pose forearm). Where the part has left, the cover's own art shows. The gate
-  does not limit a fade that starts inside the idle sway; `HIDDEN` reports
-  where it starts.
+  does not limit where the amount starts to rise or how wide the band is;
+  `HIDDEN` reports both.
 - A custom part has no spring of its own: it moves with the head and with
   whatever parameter a bake keys it on, a hair spring's output among them. The
   tie takes no lag.

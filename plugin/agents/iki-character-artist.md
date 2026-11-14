@@ -388,7 +388,14 @@ and how a new character's round-1 compose corrects the provisional
      far-side `ParamAngleX` stops toward the head's axis by about what the near
      tie rides the face (read with `probe_rig`), and declare its `occlusion`
      (needs `@ikijs/mcp` 0.35.0) on that side only, keyed on `ParamAngleX`,
-     starting above the idle sway (3.5). Declare it only for a part that
+     as a short switch: amount 0 a degree or more past the idle sway (3.5 on
+     `ParamAngleX`; twin: 5), 1 about one degree later (twin: 6), where the part
+     barely overlaps its cover, so little changes in that frame. That overlap is
+     the part's root around the tie, which the gate keeps on the anchor's paint;
+     if more of the part lies on the cover at the switch, the pop is a bake or
+     art fix, never a wider band or a tie moved off the paint. The baked travel
+     toward the axis is what slides it under the cover's edge; a longer band
+     turns the covered art translucent, a ghost. Declare it only for a part that
      really goes behind its cover in the turned reference, never to clear a
      `TIE`, `SLIDE` or `EXPOSED` failure: the gate still reads every pose up
      to and including the stop where the part becomes fully hidden.

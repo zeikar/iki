@@ -332,7 +332,7 @@ export function createIkiMcpServer(): McpServer {
                   .passthrough()
                   .optional()
                   .describe(
-                    "Hide the part where the named roles' paint covers it, by an amount keyed on a parameter: `{ by, parameter, stops: [{ value, amount }] }`. Cover is where a role's drawn alpha at that pose is at least 0.5, a hard edge; a role that fades (`mouth_open`, a blush, a pose forearm) covers only while drawn at half strength or more. Needs @ikijs/mcp 0.35.0; an older server refuses the key as an unknown key (`INVALID: customParts[i]…`). An unknown key, a bad stop or a part the key cannot be written for comes back as `INVALID: customParts[i].occlusion…` with nothing written.",
+                    "Hide the part where the named roles' paint covers it, by an amount keyed on a parameter: `{ by, parameter, stops: [{ value, amount }] }`. Cover is where a role's drawn alpha at that pose is at least 0.5, a hard edge; a role that fades (`mouth_open`, a blush, a pose forearm) covers only while drawn at half strength or more. Use the stops as a short switch starting a degree or more past the idle sway, the hiding's progress coming from the part's baked motion. Needs @ikijs/mcp 0.35.0; an older server refuses the key as an unknown key (`INVALID: customParts[i]…`). An unknown key, a bad stop or a part the key cannot be written for comes back as `INVALID: customParts[i].occlusion…` with nothing written.",
                   ),
               })
               .passthrough(),
