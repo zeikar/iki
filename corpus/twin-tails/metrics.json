@@ -3,11 +3,11 @@
     "width": 1100,
     "height": 1100
   },
-  "partCount": 24,
+  "partCount": 25,
   "parameterCount": 22,
-  "atlasBytes": 643162,
-  "modelBytes": 1490509,
-  "modelSha256": "64d5cf578070c494f003e08ef6a013642ede40e95e2f4a3b120f0390932034f8",
+  "atlasBytes": 641026,
+  "modelBytes": 1491678,
+  "modelSha256": "63ef774039a6e13d11f63fa41f5b598d03d0e276f0e50e4cce8909deb070ecb4",
   "turn": {
     "achieved": {
       "eyeShift": 0.1032,
@@ -33,7 +33,8 @@
       "kind": "ok",
       "why": null,
       "drives": [
-        "hair_front"
+        "hair_front",
+        "hairpin"
       ],
       "step": {
         "values": {
@@ -58,7 +59,8 @@
       "kind": "ok",
       "why": null,
       "drives": [
-        "hair_front"
+        "hair_front",
+        "hairpin"
       ],
       "step": {
         "values": {
@@ -119,7 +121,7 @@
   ],
   "customParts": {
     "ok": true,
-    "poses": 675,
+    "poses": 695,
     "parts": [
       {
         "id": "tail_R",
@@ -238,6 +240,59 @@
               95.624
             ],
             "travel": 190.826
+          }
+        ]
+      },
+      {
+        "id": "hairpin",
+        "ok": true,
+        "folds": {
+          "ratio": 1,
+          "pose": "ParamAngleX=30 ParamAngleY=30 ParamAngleZ=-30 ParamBodyAngleX=10 ParamBodyAngleY=10 ParamBodyAngleZ=10"
+        },
+        "tiePx": 0.969,
+        "slide": {
+          "px": 0.826,
+          "onAnchorPx": 0.743
+        },
+        "exposed": {
+          "hiddenPx": 1177,
+          "noTurnPx2": 79,
+          "turningPx2": 49
+        },
+        "rigidPx": 0,
+        "tip": [
+          {
+            "param": "ParamAngleX",
+            "fromBare": [
+              12.053,
+              21.827
+            ],
+            "travel": 44.8
+          },
+          {
+            "param": "ParamAngleY",
+            "fromBare": [
+              32.76,
+              18.2
+            ],
+            "travel": 50.96
+          },
+          {
+            "param": "ParamHairSwayX",
+            "fromBare": [
+              7.63,
+              7.63
+            ],
+            "travel": 15.26
+          },
+          {
+            "param": "ParamHairSwayZ",
+            "fromBare": [
+              7.63,
+              7.63
+            ],
+            "travel": 15.26
           }
         ]
       }

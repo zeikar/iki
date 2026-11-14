@@ -13,6 +13,14 @@
       "anchor": "hair_back",
       "tie": [712, 240],
       "after": "hair_back"
+    },
+    {
+      "id": "hairpin",
+      "file": "hairpin.png",
+      "anchor": "hair_front",
+      "tie": [428, 284],
+      "after": "hair_front",
+      "rigid": true
     }
   ]
 }
