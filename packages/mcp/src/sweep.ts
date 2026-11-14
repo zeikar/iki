@@ -1,11 +1,12 @@
 /**
  * The sweeps `render_poses` renders on request: an eased ±30 `ParamAngleX`
- * turn, or the `turn-nod` box through every `ParamAngleX` × `ParamAngleY`
- * stop, with the hair physics running. This file is their pure pieces — the
- * schedules, the sheet picks, the kymograph row, the flipbook template and the
- * output directory — all decided in Node; the page only draws what the
- * {@link SweepSpec} says. The page script imports this file for TYPES only (it
- * is bundled as a browser IIFE and must never pull in `node:fs`).
+ * turn, the same curve on `ParamAngleZ` (`roll`), or the `turn-nod` box through
+ * every `ParamAngleX` × `ParamAngleY` stop, with the hair physics running. This
+ * file is their pure pieces — the schedules, the sheet picks, the kymograph
+ * row, the flipbook template and the output directory — all decided in Node;
+ * the page only draws what the {@link SweepSpec} says. The page script imports
+ * this file for TYPES only (it is bundled as a browser IIFE and must never pull
+ * in `node:fs`).
  */
 
 import fs from "node:fs";
@@ -20,7 +21,7 @@ export const SWEEP_CLOCK_HZ = 60;
 export const SWEEP_FPS = 30;
 export const SWEEP_DURATION_S = 3;
 export const BOX_DURATION_S = 6;
-export const SWEEP_PRESETS = ["turn", "turn-nod"] as const;
+export const SWEEP_PRESETS = ["turn", "turn-nod", "roll"] as const;
 export type SweepPreset = (typeof SWEEP_PRESETS)[number];
 /** Steps at θ = 0 before step 0, so the hair starts settled. A choice of this sweep. */
 export const SWEEP_WARMUP_S = 0.5;
@@ -154,34 +155,54 @@ export function boxAngles(t: number): { x: number; y: number } {
   return { x: 0, y: 0 };
 }
 
-export function sweepDurationS(preset: SweepPreset): number {
-  return preset === "turn" ? SWEEP_DURATION_S : BOX_DURATION_S;
+/**
+ * What differs between presets, in one place: the angles scripted at time t,
+ * how the sheet's frames are picked, how a cell is labelled, and whether the
+ * eye row is drawn as a kymograph (the turn only: it moves on the others).
+ */
+interface PresetShape {
+  durationS: number;
+  angles: (t: number) => Record<string, number>;
+  sheetFrames: (steps: Record<string, number>[], frames: number) => number[];
+  label: (step: Record<string, number>) => string;
+  kymograph: boolean;
 }
 
-function schedule(preset: SweepPreset): {
-  parameters: string[];
-  steps: Record<string, number>[];
-  durationS: number;
-} {
-  const durationS = sweepDurationS(preset);
-  const n = SWEEP_CLOCK_HZ * durationS;
-  if (preset === "turn") {
-    return {
-      parameters: ["ParamAngleX"],
-      steps: Array.from({ length: n }, (_, j) => ({
-        ParamAngleX: turnTheta(j / SWEEP_CLOCK_HZ),
-      })),
-      durationS,
-    };
-  }
-  return {
-    parameters: ["ParamAngleX", "ParamAngleY"],
-    steps: Array.from({ length: n }, (_, j) => {
-      const { x, y } = boxAngles(j / SWEEP_CLOCK_HZ);
+const legSheet = (id: string) => (steps: Record<string, number>[], n: number) =>
+  turnSheetFrames(steps, n, id);
+
+const SHAPES: Record<SweepPreset, PresetShape> = {
+  turn: {
+    durationS: SWEEP_DURATION_S,
+    angles: (t) => ({ ParamAngleX: turnTheta(t) }),
+    sheetFrames: legSheet("ParamAngleX"),
+    label: (s) => `θ ${signedDeg(s.ParamAngleX)}°`,
+    kymograph: true,
+  },
+  // The roll rides the turn's own curve, so its frames sit at the angles the
+  // turn sheet's do.
+  roll: {
+    durationS: SWEEP_DURATION_S,
+    angles: (t) => ({ ParamAngleZ: turnTheta(t) }),
+    sheetFrames: legSheet("ParamAngleZ"),
+    label: (s) => `Z ${signedDeg(s.ParamAngleZ)}°`,
+    kymograph: false,
+  },
+  "turn-nod": {
+    durationS: BOX_DURATION_S,
+    angles: (t) => {
+      const { x, y } = boxAngles(t);
       return { ParamAngleX: x, ParamAngleY: y };
-    }),
-    durationS,
-  };
+    },
+    sheetFrames: boxSheetFrames,
+    label: (s) =>
+      `X ${signedDeg(s.ParamAngleX)}°  Y ${signedDeg(s.ParamAngleY)}°`,
+    kymograph: false,
+  },
+};
+
+export function sweepDurationS(preset: SweepPreset): number {
+  return SHAPES[preset].durationS;
 }
 
 /**
@@ -215,13 +236,17 @@ function physicsOutputIds(model: IkiModel): string[] {
 }
 
 /** Captured frames on the −30 → +30 leg, the one nearest each of SHEET_THETAS, chronological. */
-function turnSheetFrames(steps: Record<string, number>[], frames: number) {
+function turnSheetFrames(
+  steps: Record<string, number>[],
+  frames: number,
+  id: string,
+) {
   const onLeg: number[] = [];
   for (let k = 0; k < frames; k++) {
     const t = k / SWEEP_FPS;
     if (t >= LEG_FROM_S && t <= LEG_TO_S) onLeg.push(k);
   }
-  const x = (k: number) => steps[CAPTURE_EVERY * k].ParamAngleX;
+  const x = (k: number) => steps[CAPTURE_EVERY * k][id];
   const picked: number[] = [];
   for (const target of SHEET_THETAS) {
     let best = onLeg[0];
@@ -263,7 +288,12 @@ export function sweepSpec(
   preset: SweepPreset,
   crop?: RenderCrop,
 ): SweepSpec {
-  const { parameters, steps, durationS } = schedule(preset);
+  const shape = SHAPES[preset];
+  const { durationS } = shape;
+  const steps = Array.from({ length: SWEEP_CLOCK_HZ * durationS }, (_, j) =>
+    shape.angles(j / SWEEP_CLOCK_HZ),
+  );
+  const parameters = Object.keys(steps[0]);
   const frameCount = durationS * SWEEP_FPS;
   const dw = crop ? crop.dw : BUST_SIZE;
   const dh = crop ? crop.dh : BUST_SIZE;
@@ -275,21 +305,13 @@ export function sweepSpec(
     (SHEET_MAX_SIDE - 2 * m) / (3 * dw),
     (SHEET_MAX_SIDE - 2 * m - 3 * b) / (3 * dh),
   );
-  const frames =
-    preset === "turn"
-      ? turnSheetFrames(steps, frameCount)
-      : boxSheetFrames(steps, frameCount);
-  const labelOf = (k: number): string => {
-    const s = steps[CAPTURE_EVERY * k];
-    const t = (k / SWEEP_FPS).toFixed(2);
-    return preset === "turn"
-      ? `θ ${signedDeg(s.ParamAngleX)}°  t ${t} s`
-      : `X ${signedDeg(s.ParamAngleX)}°  Y ${signedDeg(s.ParamAngleY)}°  t ${t} s`;
-  };
+  const frames = shape.sheetFrames(steps, frameCount);
+  const labelOf = (k: number): string =>
+    `${shape.label(steps[CAPTURE_EVERY * k])}  t ${(k / SWEEP_FPS).toFixed(2)} s`;
 
   const { width: W, height: H } = model.canvas;
   let kymograph: SweepSpec["kymograph"];
-  if (preset === "turn") {
+  if (shape.kymograph) {
     const yModel = eyeRowModelPx(model);
     let row = Math.round(dh / 2);
     let at: "eye row" | "middle" = "middle";
@@ -379,7 +401,7 @@ img { max-width: 48vw; height: auto; background: #444; }
   scrub.max = String(n - 1);
   if (b) { bi.style.display = "block"; }
   function short(id) {
-    return id === "ParamAngleX" ? "X" : id === "ParamAngleY" ? "Y" : id;
+    return id === "ParamAngleX" ? "X" : id === "ParamAngleY" ? "Y" : id === "ParamAngleZ" ? "Z" : id;
   }
   function show(k) {
     i = k;

@@ -41,8 +41,10 @@ orchestrator arbitrates.
   about f067–f068), and
   `turn-nod/sheet.png` (a 3 × 3 grid by angle: columns the turn −30/0/+30,
   rows the nod +30/0/−30, rest in the centre, labelled X, Y and t) with its
-  180 frames `turn-nod/fNNN.png` at 30 fps along the box path; either half
-  `unavailable` on its own.
+  180 frames `turn-nod/fNNN.png` at 30 fps along the box path; on a character
+  with custom parts also `roll/sheet.png` (nine frames of the head's tilt,
+  `ParamAngleZ`, on the turn's curve, labelled with the angle and t) and its 90
+  frames `roll/fNNN.png`; any part `unavailable` on its own.
 - `layout` — the contents of `<workdir>/layout.json`. Use it only to name keys
   and quote the values it sets.
 - `round` — which iteration this is.
@@ -59,7 +61,9 @@ show 180 × 120 canvas px at 720 × 480: ÷ 4. The `motion` frames are the face
 crop, 720 px across: the `MOTION:` line's pixel amounts are frame px, and a
 frame px × (the crop's width in canvas px ÷ 720) is canvas px. The crop is the
 `face` box grown by half the face's width a side, so twice that width
-(`layout.face.w` when set, else 400, the composer's default), at most 1100. `full-rest.png` shows the whole
+(`layout.face.w` when set, else 400, the composer's default), at most 1100; the
+`roll` crop also takes in the custom parts' boxes, so its width is in its
+`manifest.json` `crop`. `full-rest.png` shows the whole
 canvas at the same 560/1100 scale in a wider frame: 1400 px wide (2.5 canvas
 widths, room for a raised arm) and the canvas's height × 560/1100 tall (1880
 for a 3692-px canvas; read the PNG's size), the 1100-px canvas drawn 560 px
@@ -85,7 +89,9 @@ item fresh, and only its bands decide a finding.
 
 With `motion`, watch the turn and the nod as an animator would, before item 9:
 read the `turn` sheet as one motion, the `turn-nod` sheet by column (the nod
-at one turn) and by row (the turn at one nod), and the frames in order, and
+at one turn) and by row (the turn at one nod), the `roll` sheet when given (the
+head's tilt, nine labelled frames, where a hanging part's swing shows) and the
+frames in order, and
 open whatever frames you need side by side or zoomed,
 then name what moves unnaturally — a part pinned while the face slides under
 it, a part stretching or shearing where it should travel, a pop or a jump —

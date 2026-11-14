@@ -345,6 +345,14 @@ the paragraphs below are the interactive one. Its standalone and checkout
 paths both use the Model picker's "Load a .iki file…" entry to load it and drive the same parameters —
 only the load order and how you address them (id vs. panel label) differ.
 
+For a character with custom parts, `render_poses` (0.34.0 on) also takes a
+`roll` sweep in `sweeps` (`ParamAngleZ` on the turn's curve, a nine-frame
+labelled sheet and no kymograph; it adds no `SWEEP` line and changes none)
+and `hideParts`, part ids left out of the drawn frames while the
+reports still read the whole model. A server before 0.34.0 refuses
+`preset: "roll"` as an input validation error and strips `hideParts`, so every
+part is drawn.
+
 The playground frames a full-body model whole by itself, in a view 2.5 × its
 width. To see it at the bust's scale, before loading, set the canvas's CSS size to
 1400 px wide and ceil(560·H/1100) px tall, H being its `canvasHeight`

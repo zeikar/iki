@@ -13,8 +13,12 @@ import {
   renderPoses,
   type RenderPosesInput,
 } from "../src/render-poses";
-import { SHEET_MARGIN, boxAngles, turnTheta } from "../src/sweep";
-import { formatNodReport, formatSweepReport } from "../src/sweep-report";
+import { SHEET_MARGIN, boxAngles, sweepSpec, turnTheta } from "../src/sweep";
+import {
+  checkSweep,
+  formatNodReport,
+  formatSweepReport,
+} from "../src/sweep-report";
 import { autoRigFromLayers } from "../src/tools";
 import { writeFullBodyParts, writePartsSet } from "./helpers/parts";
 
@@ -470,6 +474,51 @@ describe("renderPoses refuses a custom pose list", () => {
       { name: "tall", values: {}, crop: { x: 0, y: 0, w: 90, h: 1024 } },
     ]).poses;
     expect(tall.crop!.dh).toBe(8192);
+  });
+});
+
+// Each refusal comes back before the browser search, as the pose list's do.
+describe("renderPoses refuses hideParts", () => {
+  const clipped = (id: string, masks: string[]) => ({
+    ...part(id, 0, 0),
+    mesh: {
+      vertices: [0, 0, 1, 0, 0, 1],
+      uvs: [0, 0, 1, 0, 0, 1],
+      indices: [0, 1, 2],
+    },
+    clip: { masks },
+  });
+  const m = (): IkiModel => ({
+    ...model(1100, 1100, [], []),
+    parts: [
+      part("face", 0, 0),
+      part("tail_L", 0, 0),
+      part("tail_R", 0, 0),
+      part("mouth", 0, 0),
+      clipped("iris", ["eye"]),
+      { ...clipped("eye", []), clip: undefined },
+    ],
+  });
+
+  const refusal = async (hideParts: string[]) => {
+    const dir = tmpDir();
+    const modelPath = path.join(dir, "m.iki");
+    fs.writeFileSync(modelPath, JSON.stringify(m()));
+    const r = await renderPoses({ modelPath, outDir: dir, hideParts });
+    expect(r.ok).toBe(false);
+    return !r.ok && r.error;
+  };
+
+  it("refuses an id the model lacks", async () => {
+    expect(await refusal(["tail_L", "ghost"])).toBe(
+      'hideParts[1] "ghost" is not a part of the model',
+    );
+  });
+
+  it("refuses a part that masks one that stays", async () => {
+    expect(await refusal(["eye"])).toBe(
+      'hideParts[0] "eye" masks "iris", which stays; hide "iris" too',
+    );
   });
 });
 
@@ -930,6 +979,79 @@ describe.skipIf(findBrowser() === undefined)("renderPoses in a browser", () => {
       const html = fs.readFileSync(nod.flipbook, "utf8");
       expect(html).toContain("f000.png");
       expect(html).toContain("f179.png");
+    }, 120_000);
+
+    it("renders a roll through sweeps: ParamAngleZ on the turn's curve, no kymograph, the sweep lines read off the model", async () => {
+      const { modelPath, model } = await rigged();
+      const out = tmpDir();
+      const r = await renderPoses({
+        modelPath,
+        outDir: out,
+        poses: [{ name: "rest", values: {} }],
+        sweeps: [{ name: "roll", preset: "roll" }],
+      });
+      if (!r.ok) throw new Error(r.error);
+      const roll = r.sweeps![0];
+      expect(roll.preset).toBe("roll");
+      expect(roll).not.toHaveProperty("kymograph");
+      expect(fs.existsSync(path.join(roll.dir, "kymograph.png"))).toBe(false);
+      const manifest = JSON.parse(fs.readFileSync(roll.manifest, "utf8"));
+      expect(manifest.parameters).toEqual(["ParamAngleZ"]);
+      expect(manifest.kymographRow).toBeNull();
+      expect(manifest.frames).toHaveLength(90);
+      for (const f of manifest.frames) {
+        expect(f.values.ParamAngleZ).toBeCloseTo(turnTheta(f.i / 30), 9);
+      }
+      // The same curve, so the same nine frames as the turn's sheet.
+      expect(manifest.sheet.frames).toEqual(
+        sweepSpec(model, "turn").sheet.frames,
+      );
+      expect(manifest.sheet.frames).toHaveLength(9);
+      // The lines are read off the model, not the preset.
+      expect(formatSweepReport(roll.report)).toEqual(
+        formatSweepReport(checkSweep(model)),
+      );
+    }, 120_000);
+
+    it("draws without the hidden parts and still reports the whole model", async () => {
+      const { modelPath, model: rigged_ } = await rigged();
+      const hide = rigged_.parts.find((p) => p.id === "face")?.id;
+      if (!hide) throw new Error("the fixture has no face");
+      const [a, b] = [tmpDir(), tmpDir()];
+      const poses = [{ name: "rest", values: {} }];
+      const shown = await renderPoses({ modelPath, outDir: a, poses });
+      const hidden = await renderPoses({
+        modelPath,
+        outDir: b,
+        poses,
+        hideParts: [hide],
+      });
+      if (!shown.ok || !hidden.ok) throw new Error("render failed");
+      expect(
+        fs
+          .readFileSync(path.join(a, "rest.png"))
+          .equals(fs.readFileSync(path.join(b, "rest.png"))),
+      ).toBe(false);
+      expect(hidden.folds).toEqual(shown.folds);
+      expect(hidden.physics).toEqual(shown.physics);
+
+      // A mask goes with the parts it clips: hiding it alone is refused, all
+      // of them together is not.
+      const mask = rigged_.parts.find((p) =>
+        rigged_.parts.some((q) => q.clip?.masks.includes(p.id)),
+      );
+      if (!mask) throw new Error("the fixture has no clip mask");
+      const clippedByMask = rigged_.parts
+        .filter((q) => q.clip?.masks.includes(mask.id))
+        .map((q) => q.id);
+      expect(clippedByMask.length).toBeGreaterThan(0);
+      const together = await renderPoses({
+        modelPath,
+        outDir: tmpDir(),
+        poses,
+        hideParts: [mask.id, ...clippedByMask],
+      });
+      expect(together.ok).toBe(true);
     }, 120_000);
 
     it("clears a sweep dir's other-preset files when a name is reused", async () => {

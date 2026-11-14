@@ -209,6 +209,44 @@ describe("sweepSpec turn-nod", () => {
   });
 });
 
+describe("sweepSpec roll", () => {
+  const spec = sweepSpec(model(1120, 1120), "roll");
+
+  it("scripts ParamAngleZ on the turn's own curve: zero at 0 and 1.5 s, -30 and +30 at 0.75 and 2.25 s, every step the turn's angle", () => {
+    expect(spec.parameters).toEqual(["ParamAngleZ"]);
+    expect(spec.steps).toHaveLength(180);
+    expect(Object.keys(spec.steps[7])).toEqual(["ParamAngleZ"]);
+    expect(spec.frames).toBe(90);
+    for (const j of [0, 90])
+      expect(spec.steps[j].ParamAngleZ).toBeCloseTo(0, 9);
+    expect(spec.steps[45].ParamAngleZ).toBeCloseTo(-30, 9);
+    expect(spec.steps[135].ParamAngleZ).toBeCloseTo(30, 9);
+    spec.steps.forEach((s, j) =>
+      expect(s.ParamAngleZ).toBeCloseTo(turnTheta(j / 60), 9),
+    );
+  });
+
+  it("picks nine chronological frames on the -30 to +30 leg, labelled by angle and time, and draws no kymograph", () => {
+    const { frames, labels } = spec.sheet;
+    expect(frames).toHaveLength(9);
+    expect([...frames].sort((a, b) => a - b)).toEqual(frames);
+    const thetas = frames.map((k) => spec.steps[2 * k].ParamAngleZ);
+    [-30, -20, -10, -5, 0, 5, 10, 20, 30].forEach((target, i) => {
+      expect(Math.abs(thetas[i] - target)).toBeLessThan(2.5);
+    });
+    expect(labels).toHaveLength(9);
+    expect(labels[0]).toMatch(/^Z −30\.\d° {2}t 0\.\d\d s$/);
+    expect(labels[8]).toMatch(/^Z \+30\.\d° {2}t 2\.\d\d s$/);
+    expect(spec.kymograph).toBeUndefined();
+  });
+
+  it("frames the sheet as the turn's does", () => {
+    expect(spec.sheet.cell).toEqual(
+      sweepSpec(model(1120, 1120), "turn").sheet.cell,
+    );
+  });
+});
+
 describe("the kymograph row", () => {
   // 1120 px canvas drawn at 560: s = 0.5, no padding. Eyes at y = +100 are 460 px from the top.
   it("finds the eye row in model px, then in the standard frame", () => {

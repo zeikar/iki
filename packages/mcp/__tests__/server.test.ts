@@ -991,6 +991,39 @@ describe("MCP server integration", () => {
     const named = await call({ sweeps: [{ name: "x", preset: "nod" }] });
     const [namedError] = named.content as { type: string; text: string }[];
     expect(namedError.text).toContain("sweeps");
+
+    // `roll` goes through `sweeps` only; `sweep` stays `turn`.
+    const roll = await call({ sweeps: [{ name: "roll", preset: "roll" }] });
+    expect(roll.isError).toBeFalsy();
+    const [rolled] = roll.content as { type: string; text: string }[];
+    expect(rolled.text).toMatch(/^INVALID: output dir escapes the working/);
+    const single = await call({ sweep: { name: "roll", preset: "roll" } });
+    expect(single.isError).toBe(true);
+  });
+
+  it("render_poses takes hideParts through the tool schema: a list of ids reaches the handler, anything else is the SDK's input validation error", async () => {
+    pair = await createPair();
+    const { client } = pair;
+    const call = (hideParts: unknown) =>
+      client.callTool({
+        name: "render_poses",
+        arguments: {
+          modelPath: "package.json",
+          outDir: os.tmpdir(),
+          hideParts,
+        },
+      });
+
+    const parsed = await call(["tail_L"]);
+    expect(parsed.isError).toBeFalsy();
+    const [text] = parsed.content as { type: string; text: string }[];
+    expect(text.text).toMatch(/^INVALID: output dir escapes the working/);
+
+    const malformed = await call("tail_L");
+    expect(malformed.isError).toBe(true);
+    const [error] = malformed.content as { type: string; text: string }[];
+    expect(error.text).toMatch(/Input validation error/);
+    expect(error.text).toContain("hideParts");
   });
 
   it("compose_layers_from_parts composes the parts fixture and returns layers + measure", async () => {

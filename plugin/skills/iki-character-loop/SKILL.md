@@ -132,6 +132,10 @@ mkdir -p iki-char/parts iki-char/layers iki-char/renders/debug \
 [ -f iki-char/canvas.json ] || echo '{}' > iki-char/canvas.json
 [ -f iki-char/appeal-declined.json ] || echo '{"declined":[]}' > iki-char/appeal-declined.json
 rm -f iki-char/patches-candidate.json iki-char/rig-plan-candidate.json iki-char/iki-character-candidate.iki
+# Only a character with custom parts (the paragraph below) renders the measuring pair.
+if grep -q '"path"' iki-char/custom-parts.json 2>/dev/null; then
+  mkdir -p iki-char/renders/measure/debug
+fi
 ```
 
 The seed lines only write a file that is missing, so re-entering or
@@ -222,7 +226,7 @@ no name for) is opt-in, as a full body is. The user supplies
 seeds a custom part: the seed lines above create neither, so a character
 without custom parts never has them, and on a restart both are kept as they
 are, with `<workdir>/bakes.json` and the `custom/` bake files the artist makes
-(`bare.iki`, `bare.probe.json`, `probe-request.json`, `bake.mjs`, `try.iki`). The dispatch passes `custom-parts` (the file's contents) when it exists.
+(`bare.iki`, `bare.probe.json`, `probe-request.json`, `bake.mjs`, `try.iki`). The dispatch passes `custom-parts` (the file's contents) when it exists. When `custom-parts.json` lists a part, setup also makes `renders/measure/debug` (the block above): `render_poses` writes only into a directory that exists, and that one call is both the measuring pair's output directory (Step 1, item 4) and the debug directory the critic passes `measure_turn_reference` (`<turn-pair dir>/debug`).
 
 **Restarting on picked parts.** When `parts/` already holds a picked set —
 the plain `<role>.png` files, not only `_a` / `_b` variants — round 1 re-rigs
@@ -580,6 +584,7 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `nod` are `unavailable`.
    The rest shot is untouched by construction, which matters because every
    proportion the critic measures is measured against it.
+
    The poses: `rest`, `turn-m30`, `turn-p30`, `turn-15`, `nod-15`, `blink`,
    `blink-half`, `gaze`, `combined`, `stress` (every head angle at −30, the
    mouth open, both eyes at 0.5, the brows at opposite extremes and each
@@ -591,12 +596,37 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `full-pose-r`, `full-pose-r-angle-m15`, `full-pose-r-angle-p15`,
    `full-pose-r-half`.
 
+   **A character with custom parts** (`custom-parts.json` lists one) renders
+   two things more. Add a `roll` sweep to the face call's `sweeps`,
+   `{ name: "roll", preset: "roll", crop }`, the `crop` the union of the `face`
+   box and every custom part's box in `rig-view`, grown by half `faceWidth` a
+   side (the tails hang below the face, so the face crop alone cuts them off):
+   it goes into `renders/face/roll/` (90 frames, `manifest.json`, `sheet.png` of
+   nine labelled frames, `index.html`; no kymograph). Then one more
+   `render_poses` call for the measuring pair: `poses` `rest`, `turn-m30` and
+   `turn-p30` with the standard values and no `crop`, `hideParts` every custom
+   part's id, `outDir: <workdir>/renders/measure/` (Step 0 made it). The critic
+   measures that pair with `measure_turn_reference`, and a custom part crossing
+   the eye row widens the head the tool reads, as it does on a drawn reference;
+   the rig fits its turn to the role layers alone. `turn-pair` passed to the
+   critic is then that directory's three files, not `renders/`'s. Both need
+   0.34.0+, which the custom gate before item 2 has already shown (a server
+   before it returns no `CUSTOM:` block and the round ended there), so an
+   `INVALID:` or input validation error from either call is that call's own
+   (a bad crop, a missing directory): fix it and render again. Only `roll`
+   depends on the face call, which needs `rig-view` for its crop: when item 4
+   skips that call (`rig-view` `unavailable`), `roll` is passed as
+   `unavailable`. The measuring pair uses no crop and needs nothing from
+   `rig-view`, so it is always rendered and `turn-pair` is always its three
+   files.
+
 5. Dispatch **the critic** (see Host dispatch) with `reference`, `reference-30`, `layers`,
    `renders` (the returned paths other than `mouth-*` and `full-*` and the
    sweep's (`renders/turn` and every file in it); each input
    below is a subset of the returned paths, so a stale file from an earlier
    round is never picked up), `turn-pair` (`<workdir>/renders/rest.png`,
-   `turn-m30.png` and `turn-p30.png`), `mouth-renders` (the 15 `mouth-*.png`
+   `turn-m30.png` and `turn-p30.png`; on a character with custom parts the
+   three files of `<workdir>/renders/measure/`, item 4), `mouth-renders` (the 15 `mouth-*.png`
    crops), `round`, `plan-catalog`, `rig-plan` (the accepted `rig-plan.json`, `{}` when
    none), `rig-plan-report` (the KEPT model's `RIGPLAN:` line or `rigPlan`
    echo, verbatim, in the form it came: the candidate's after an accepted plan
@@ -625,7 +655,9 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    ones, or `sweep.nod`), `nod` (`<workdir>/renders/face/turn-nod/sheet.png`
    and the dir of its frames, `<workdir>/renders/face/turn-nod/`; or
    `unavailable` from a server before 0.32.0, or when item 4 skipped the face
-   call),
+   call), `roll` (a character with custom parts:
+   `<workdir>/renders/face/roll/sheet.png` and the dir of its frames, or
+   `unavailable` when item 4 skipped the face call; absent otherwise),
    `rig-view` (item 2's summary, or
    `unavailable`), `patches` (the accepted array, `<workdir>/patches.json`
    as item 3 left it) and `rejected` (`<workdir>/patches-rejected.json`'s,
@@ -642,7 +674,10 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    `full-rest.png`), `motion` (`<workdir>/renders/face/turn/sheet.png` and
    the dir of its frames, `<workdir>/renders/face/turn/`, plus
    `<workdir>/renders/face/turn-nod/sheet.png` and the dir of its frames,
-   `<workdir>/renders/face/turn-nod/`, either half `unavailable` on its own),
+   `<workdir>/renders/face/turn-nod/`, either half `unavailable` on its own;
+   on a character with custom parts also `<workdir>/renders/face/roll/sheet.png`
+   and the dir of its frames, or `unavailable` when item 4 skipped the face
+   call),
    `layout` (the contents of `<workdir>/layout.json`),
    `round` and `locked` (every key in `<workdir>/appeal-declined.json`, names
    only, `[]` for none) — and nothing else in its prompt: no reference, no
@@ -750,7 +785,9 @@ changing any of them mid-loop or on a restart invalidates every prior score.
    warranted, and if it is, make it as normal code work with a test and a
    changeset. A render-vs-report `escalate` (the critic's Δ beyond ±0.05)
    comes off the palette-quantized model, so confirm it losslessly before
-   deciding: call `auto_rig_from_layers` yourself on the same layers (every
+   deciding (on a character with custom parts the lossless rig is `layers/`
+   alone, which is the same head without the custom parts, so its renders need
+   no `hideParts`): call `auto_rig_from_layers` yourself on the same layers (every
    `<workdir>/layers/*.png` but the previews, `preview.png` and `preview-pose.png`) with the same `rigPlan` and
    `patches` (the accepted array, which moves `turn.achieved`), no
    `quantizeColors`, and `outputPath: <workdir>/iki-character-lossless.iki`;

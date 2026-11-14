@@ -79,7 +79,8 @@ artist agent applies your findings; the orchestrator arbitrates.
 - `turn-pair` — the rig's own rest, `ParamAngleX` −30 and `ParamAngleX` +30
   renders (`rest.png`, `turn-m30.png`, `turn-p30.png` in `<workdir>/renders/`,
   beside an empty `debug/` dir), transparent (which the measurement needs): what
-  you feed `measure_turn_reference`.
+  you feed `measure_turn_reference`. On a character with custom parts they sit
+  in `<workdir>/renders/measure/`, drawn without the custom parts.
 - `body-renders` — a full body only: whole-canvas renders of a canvas 2.5 × the
   model's width, the figure centred with room each side for a raised arm in
   any pose, so a hand never clips at the canvas; rendered the same way: `full-rest`, `full-turn-p30` (`ParamAngleX` 30, the body
@@ -183,6 +184,11 @@ artist agent applies your findings; the orchestrator arbitrates.
   does not say the part looks right: `TIP` is only the free end's travel, and
   `EXPOSED` where the head turns is reported with no limit. Absent for a
   character without custom parts.
+- `roll` — a character with custom parts only: the `roll` sweep's
+  `renders/face/roll/sheet.png` (nine frames of `ParamAngleZ`, the head's tilt,
+  on the turn's eased curve, labelled with the angle and t, cropped to the head
+  and the custom parts) and the dir of its frames. `unavailable` when the
+  orchestrator skipped the face call. Absent for a character without custom parts.
 - `sweep` — the turn sweep `render_poses` rendered: `renders/turn/sheet.png`
   (nine frames of the eased −30 → +30 leg of `ParamAngleX`, chronological, left
   to right then top to bottom, each labelled with its θ and t), the
@@ -282,6 +288,11 @@ number: in every image the red and green boxes must sit on the two irises and
 the blue ticks on the head's edges at the eye row. A box on anything else is a
 wrong window — narrow it and measure again; never quote numbers from a
 misdetected pair.
+
+On a character with custom parts `turn-pair` is rendered without them
+(`hideParts`), because a custom part crossing the eye row widens the head the
+tool reads, as it does on a drawn reference, and the rig fits to the role
+layers alone. Measure that pair as given.
 
 Average the two measurements the way the rig does — `farEyeRatio` and
 `silhouetteRatio` as they are, `eyeShift` as magnitudes (`Math.abs` each
@@ -842,7 +853,8 @@ Every finding carries a `type`, and the type decides who acts:
   anything across the whole head. With `rig-view` `unavailable`, name no `patch`.
 - **`bake`** — a custom part moves wrongly where the gate cannot say so: it
   swings out with a roll, lags or leads its anchor in a sway, or bares what
-  it hides at a turn. Name the part, the parameter and the stop or sweep it
+  it hides at a turn (the `roll` sheet, when given, is where a swing with the
+  tilt shows). Name the part, the parameter and the stop or sweep it
   shows at, and what is seen (with the frame or the `custom` line it comes
   from). The artist changes the part's bake, not its drawing. **Free** — it
   re-rigs and spends no generation, and the gate on the new model is the

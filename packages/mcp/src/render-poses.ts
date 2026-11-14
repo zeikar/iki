@@ -404,6 +404,36 @@ export interface RenderPosesInput {
   sweep?: RequestedSweep;
   /** More sweeps, rendered after `sweep`, each into its own `<outDir>/<name>/`. */
   sweeps?: RequestedSweep[];
+  /**
+   * Part ids left out of the drawn frames of this call, poses and sweeps alike.
+   * The reports still read the whole model.
+   */
+  hideParts?: string[];
+}
+
+/**
+ * `model` without the parts `hideParts` names, for the page to draw. Throws
+ * `AutoRigInputError` for an id the model lacks, or one a part that stays is
+ * clipped to (its mask would vanish and the part would draw unclipped).
+ */
+function withoutParts(model: IkiModel, hideParts: string[]): IkiModel {
+  const hidden = new Set(hideParts);
+  hideParts.forEach((id, i) => {
+    if (!model.parts.some((p) => p.id === id)) {
+      throw new AutoRigInputError(
+        `hideParts[${i}] ${JSON.stringify(id)} is not a part of the model`,
+      );
+    }
+    const kept = model.parts.find(
+      (p) => !hidden.has(p.id) && p.clip?.masks.includes(id),
+    );
+    if (kept) {
+      throw new AutoRigInputError(
+        `hideParts[${i}] ${JSON.stringify(id)} masks ${JSON.stringify(kept.id)}, which stays; hide ${JSON.stringify(kept.id)} too`,
+      );
+    }
+  });
+  return { ...model, parts: model.parts.filter((p) => !hidden.has(p.id)) };
 }
 
 export interface SweepOutput {
@@ -587,6 +617,9 @@ export async function renderPoses(
     const outDir = resolveOutputDir(input.outDir);
     const model = loadIkiModel(readFileSync(modelFile, "utf8"));
     const plan = planRenders(model, input.poses, input.sweep, input.sweeps);
+    const drawn = input.hideParts
+      ? withoutParts(model, input.hideParts)
+      : model;
     const browser = findBrowser();
     if (!browser) return { ok: false, error: NO_BROWSER_MESSAGE };
     const pageScript = readPageScript();
@@ -616,7 +649,7 @@ export async function renderPoses(
       async (evaluate) => {
         await evaluate(pageScript, PAGE_SCRIPT_MS);
         const loaded = (await evaluate(
-          `window.__ikiRender.load(${JSON.stringify(model)}, ${JSON.stringify({ canvas: plan.canvas, view: plan.view })})`,
+          `window.__ikiRender.load(${JSON.stringify(drawn)}, ${JSON.stringify({ canvas: plan.canvas, view: plan.view })})`,
           LOAD_MS,
         )) as { failedTextures: number[] };
         const written: { name: string; path: string }[] = [];
