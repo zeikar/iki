@@ -255,9 +255,17 @@ first, then ears, then head:
   narrow cells the fade would fold).
 - **The ear islands** exist where the plate's outline steps out by 3 % of its
   widest half-width within three rows and back in below, above the chin, at
-  least a tenth of the eye→chin span apart. The head's own outline under an
-  ear is the line between the rows just outside that band; the head island
-  ends along it, and each ear island runs from 0.08 hh inside it (tucked
+  least a tenth of the eye→chin span apart. The band ends on the last row
+  that steps back in within that least height of the first one: a lobe that
+  slopes toward the head reads as a step in before the outline is back on
+  the head. The head's own outline under an
+  ear is the line between the rows just outside that band. On a face drawn
+  without a neck the head island ends 3 px past it (`EAR_EDGE`: a cheek's
+  drawn outline bows a little off that line and has to stay whole on the
+  head, which then carries a few px of the ear's root), with a mesh column
+  where that edge ends; with a neck, the cut's low filter over three columns
+  carries the head about as far. Each ear island runs from 0.08 hh inside the
+  line (tucked
   under the head, so an ear opens no gap beside it) out past the ear. The
   ears sit behind the face, so the far one lags its slide: its outer edge
   moves `earFar` (0, it holds) of it, so the head slides over the ear, and
@@ -1002,9 +1010,12 @@ model with a pose forearm adds `Wave` (below the table).
   bounds the turn by a neck drawn on the torso either: the chin may slide past it,
   and only a render of the turned head shows whether its top stays hidden.
 - An ear's island is cut along a chord under it, not along the drawn
-  outline where the ear meets the cheek (which the alpha does not show). On
-  the far side, where that outline runs outside the chord, it stays with the
-  ear, so there the head's edge slides over the ear unlined.
+  outline where the ear meets the cheek (which the alpha does not show). The
+  head island runs about 3 px past the chord, which keeps a nearly straight
+  cheek's outline on the head. A cheek that bows further out than that
+  leaves its outline with the ear on the far side, so there the head's edge
+  slides over the ear unlined; and the few px of the ear's root the head
+  carries slide with it.
 - The chin's shade slides at most 0.45 of the neck's half-width (on the hero
   0.13 of the chin's 0.19 hh), and not on a nod (looking up uncovers the
   hidden top's shade instead). The cut follows a measured stroke only where

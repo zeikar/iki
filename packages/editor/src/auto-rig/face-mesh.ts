@@ -133,8 +133,9 @@ export function buildFaceMesh(
   };
 
   // Columns at even steps, plus the chin's and the jaw corners' own, so the
-  // cut's V runs through vertices rather than chording off its tip, and the
-  // chin's shade band's ends, so no cell chords the band on past them.
+  // cut's V runs through vertices rather than chording off its tip, the
+  // chin's shade band's ends, so no cell chords the band on past them, and
+  // on a face without a neck the end of the head's edge under an ear.
   const columns = (x0: number, x1: number, n: number): number[] => {
     const xs = Array.from(
       { length: n + 1 },
@@ -148,6 +149,15 @@ export function buildFaceMesh(
       frame.axisX - frame.headMax + 0.5,
       frame.axisX + frame.headMax - 0.5,
     ];
+    // Without a neck, where the head's edge under an ear ends: it is
+    // straight from the head's widest reach (the column above) down to
+    // there, so with a column at its end it follows the cheek's line rather
+    // than chording across the bend into the jaw.
+    const ears = frame.ears;
+    if (ears !== undefined && neck === undefined) {
+      const d = ears.edgeAt(ears.bottom);
+      at.push(frame.axisX - d, frame.axisX + d);
+    }
     if (neck !== undefined) {
       at.push(
         frame.axisX,

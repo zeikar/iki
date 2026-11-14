@@ -6,8 +6,8 @@
   "partCount": 32,
   "parameterCount": 30,
   "atlasBytes": 1472864,
-  "modelBytes": 1924518,
-  "modelSha256": "412a3c668442d451fdd9eb7c84ac9ef31ade0fa6ccaaff3e39c2722beb85e5ee",
+  "modelBytes": 1928825,
+  "modelSha256": "48accf690009987c31299467958f808a179057fcfbf33c547b3789269f17aa82",
   "turn": {
     "achieved": {
       "eyeShift": 0.1589,
@@ -29,7 +29,7 @@
           "deg": 30,
           "eyeToLock": -0.849,
           "lashToLock": -0.849,
-          "eyeToPlate": -2.49
+          "eyeToPlate": -2.644
         }
       },
       "left": {
@@ -44,7 +44,7 @@
           "deg": -30,
           "eyeToLock": -0.849,
           "lashToLock": -0.849,
-          "eyeToPlate": -2.49
+          "eyeToPlate": -2.644
         }
       }
     }

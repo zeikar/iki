@@ -33,7 +33,18 @@ export interface Ears {
   attachAt(y: number): number;
   /** The ears' widest half-width. */
   outer: number;
+  /** Where the head island of a face drawn without a neck ends on row `y`
+   *  of the band, as a half-width: `attachAt` and `EAR_EDGE`. (With a neck
+   *  the cut's low filter over three columns carries it about as far.) */
+  edgeAt(y: number): number;
 }
+
+/** How far outside the line under an ear the head island runs, px. That line
+ *  is straight between the rows just outside the ear, and a cheek's drawn
+ *  outline bows a little off it: with this the outline stays whole on the
+ *  head when the head slides over the ear, and what the head carries past it
+ *  is a few px of the ear's root. */
+export const EAR_EDGE = 3;
 
 export interface HeadFrame {
   canvasW: number;
@@ -145,7 +156,11 @@ const EAR_ROWS = 3;
 /**
  * An ear on the plate's outline: a step out, a band at least a tenth of the
  * eye→chin span tall, and a step back in, all above the chin. The head's own
- * outline under it is the line between the rows just outside the band.
+ * outline under it is the line between the rows just outside the band. The
+ * band ends on the last row that steps back in, not the first: a lobe that
+ * slopes toward the head reads as a step in rows before the outline is back
+ * on the head, and a line ending there would leave a wedge of the ear on the
+ * head's side of it.
  */
 function findEars(
   raw: number[],
@@ -160,7 +175,14 @@ function findEars(
     if (raw[t] - raw[t - EAR_ROWS] < step) continue;
     for (let b = t + minRows; b <= Math.min(lastRow, t + maxRows); b++) {
       if (raw[b - EAR_ROWS] - raw[b] >= step) {
-        return { top: t - EAR_ROWS, bottom: b };
+        // Any further step in within an ear's least height of the first
+        // is the same ear's end (measured from the first, so a steep jaw
+        // below cannot carry the band on down to the chin).
+        let end = b;
+        for (let k = b + 1; k <= Math.min(lastRow, b + minRows); k++) {
+          if (raw[k - EAR_ROWS] - raw[k] >= step) end = k;
+        }
+        return { top: t - EAR_ROWS, bottom: end };
       }
     }
     return undefined;
@@ -281,6 +303,7 @@ export function buildHeadFrame(
     // plate's profile with their band replaced by the head's own outline
     // under them (a line between the rows just outside the band).
     const rawRows = raw;
+    let earRows: { top: number; bottom: number } | undefined;
     const earless = (chin: number): number[] => {
       const rowOf = (y: number) =>
         Math.round(canvasH / 2 - y - faceLayer.bbox.y - 0.5);
@@ -307,7 +330,11 @@ export function buildHeadFrame(
         attachAt: (y: number) =>
           attach(clamp(canvasH / 2 - y - faceLayer.bbox.y - 0.5, top, bottom)),
         outer,
+        edgeAt: (y: number) =>
+          attach(clamp(canvasH / 2 - y - faceLayer.bbox.y - 0.5, top, bottom)) +
+          EAR_EDGE,
       };
+      earRows = { top, bottom };
       return smoothProfile(
         rawRows.map((v, r) => (r > top && r < bottom ? attach(r) : v)),
       );
@@ -476,9 +503,14 @@ export function buildHeadFrame(
       headHalfAt = readRows(head);
       headMax = Math.max(...head);
       if (ears !== undefined) {
+        // Under an ear the head runs EAR_EDGE past its own line.
+        const band = earRows!;
+        const edge = head.map((w, r) =>
+          r >= band.top && r <= band.bottom ? w + EAR_EDGE : w,
+        );
         const bottomOf = (d: number): number => {
-          for (let r = head.length - 1; r >= 0; r--) {
-            if (head[r] >= d) return rowY(r) - 0.5;
+          for (let r = edge.length - 1; r >= 0; r--) {
+            if (edge[r] >= d) return rowY(r) - 0.5;
           }
           return face.y1;
         };

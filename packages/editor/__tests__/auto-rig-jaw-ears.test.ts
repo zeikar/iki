@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type IkiModel } from "@ikijs/format";
 import { generateIkiFromLayerSet, type LayerInput } from "@ikijs/editor";
-import { buildHeadFrame, type HeadFrame } from "../src/auto-rig/head";
+import { buildHeadFrame, EAR_EDGE, type HeadFrame } from "../src/auto-rig/head";
 import { AMPLITUDE, TURN } from "../src/auto-rig/profile";
 import { type GenerateOptions } from "../src/auto-rig/types";
 import { CANVAS, character } from "./helpers/character";
@@ -275,6 +275,78 @@ describe("the ears", () => {
       expect(v[i * 2]).toBeCloseTo(
         part.transform.x + part.mesh!.vertices[i * 2] * part.width,
         3,
+      );
+    }
+  });
+
+  it("ends an ear's band where the outline is back on the head, not on a lobe that slopes in", () => {
+    // The fixture's ears end in one step. A drawn lobe narrows toward the
+    // head first, 2 px a row over its last rows, and only then steps in: the
+    // band must run on to that step, or the line under the ear ends on the
+    // lobe and the head island carries a wedge of ear over the cheek's line.
+    let head: number[] = [];
+    let top = 0;
+    const { frame } = withEars({}, {}, (l) => {
+      if (l.role !== "face") return l;
+      top = l.bbox.y;
+      // withEars left the ear's rows (170…260) 25 px wider than the head.
+      head = l.rowHalfWidths!.map((w, r) =>
+        r >= 170 && r <= 260 ? w - 25 : w,
+      );
+      return {
+        ...l,
+        rowHalfWidths: l.rowHalfWidths!.map((w, r) =>
+          r >= 250 && r <= 260 ? w - 2 * (r - 249) : w,
+        ),
+      };
+    });
+    const ears = frame.ears!;
+    // The band reaches the step itself (crop row 261)...
+    expect(ears.bottom).toBeLessThanOrEqual(500 - top - 261);
+    // ... and the line under the ear ends there on the head's own outline,
+    // not 19 px out on the lobe (its width at row 252, where the lobe's
+    // slope alone first reads as a step in).
+    const row = Math.round(500 - top - ears.bottom - 1);
+    expect(ears.attachAt(ears.bottom)).toBeLessThanOrEqual(head[row] + 0.5);
+  });
+
+  it("runs a neckless head EAR_EDGE past the line under an ear, so the cheek's outline stays on the head", () => {
+    // The fixture's face narrowing evenly below its ears to a blunt chin
+    // (three quarters of its widest, too wide to read as a neck) instead of
+    // settling onto one: the branch the corpus characters, all drawn without
+    // a neck, take.
+    const { frame } = withEars({}, {}, (l) => {
+      if (l.role !== "face") return l;
+      const rows = l.rowHalfWidths!;
+      const from = 270;
+      const chin = 0.75 * Math.max(...rows);
+      return {
+        ...l,
+        rowHalfWidths: rows.map((w, r) =>
+          r <= from
+            ? w
+            : rows[from] +
+              ((chin - rows[from]) * (r - from)) / (rows.length - 1 - from),
+        ),
+      };
+    });
+    expect(frame.neck).toBeUndefined();
+    const ears = frame.ears!;
+    for (const s of [-1, 1]) {
+      let widest = { y: 0, d: 0 };
+      for (let y = ears.bottom + 6; y <= ears.top - 6; y += 4) {
+        const edge = ears.attachAt(y) + EAR_EDGE;
+        expect(ears.edgeAt(y)).toBe(edge);
+        // A column just inside the edge still runs down past this row.
+        expect(
+          frame.cutAt(frame.axisX + s * (edge - 1)),
+          `row ${y}`,
+        ).toBeLessThan(y);
+        if (edge > widest.d) widest = { y, d: edge };
+      }
+      // A column just outside the edge's widest row has ended above it.
+      expect(frame.cutAt(frame.axisX + s * (widest.d + 1.5))).toBeGreaterThan(
+        widest.y,
       );
     }
   });
