@@ -87,7 +87,7 @@ function canvasName(canvas: Canvas): string {
 // Iris width as a fraction of the sclera width. Anime irises fill most of the
 // eye opening and are clipped by the lids — the auto-rig clips iris->sclera at
 // runtime, so a large iris cannot spill. The first sample's 32% iris read as a
-// bead floating in white; the defaults below are the hero bob's, 50px in a
+// bead floating in white; the defaults below are bob's, 50px in a
 // 98px opening (0.51). A caller retunes eye size through
 // `layout.eye_L/eye_R.w` and MUST move `layout.iris_L/iris_R.w` with it to keep
 // that ratio.
@@ -185,7 +185,7 @@ const NOSE_TIP_AT = 0.66;
 // (a front-facing face centred across the canvas, in its top CANVAS rows).
 // They are canvas px from the top-left, so a taller canvas only adds room
 // below them. The face, eyes, irises,
-// lashes, brows, nose and mouth are the hero bob's own tuning; bob wears his
+// lashes, brows, nose and mouth are bob's own tuning; bob wears his
 // blush at its default placement, picked on his face (below). The features'
 // defaults are proportions of the face: resolveLayout carries them with the
 // face's cx, cy and w; the front side locks, tuned on the first character

@@ -44,8 +44,8 @@ a short list of our own values, `PROFILE_VALUES`. Lengths are in the head unit
 angle on each side of rest, so the keyforms at 0 and ±30 carry it exactly and
 a turn and a nod add.
 
-**How the values were picked.** By eye, on two of our own characters (Bob, the
-playground hero, and a long-haired one), in 2026-10. Each value's candidates
+**How the values were picked.** By eye, on two of our own characters (Bob, then
+the playground's hero, and a long-haired one), in 2026-10. Each value's candidates
 were round numbers on a coarse grid; one value changed at a time from a middle
 set, rendered at the turn, nod, tilt and expression extremes, and the
 candidates were compared with their columns shuffled — by a fresh agent that

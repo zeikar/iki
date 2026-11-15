@@ -69,7 +69,7 @@ Models are account-gated: a slug the plan does not carry fails the job with a
 Every part is drawn against one reference, so the set reads as one character:
 parts drawn from a style string alone drift (a photoreal iris on a flat
 cel-shaded face). Draw it **without** `--ref`, into the workdir. The skeleton
-below is the framing the part prompts and the rig assume, as the hero bob and
+below is the framing the part prompts and the rig assume, as bob and
 the long-haired character were drawn:
 
 > Front-facing bust portrait of an ORIGINAL anime `<character>` (not any

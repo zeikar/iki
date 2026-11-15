@@ -136,13 +136,13 @@ idleLabel.append(idleLabelText, idleCheckbox);
 idleRow.append(idleLabel);
 panel.insertBefore(idleRow, controls);
 
-// Model picker for the regression corpus models in public/ (the hero, bob's
-// lip-set bust; mint, mint with side locks and silver-hood, full bodies that
-// declare a Wave; twin-tails, a bust with two baked custom-part tails, the far
-// one going behind the head on a turn), the vector sample, and a local .iki
-// file. Hero leads so the select's default already names the model the page
-// starts on. Built once, like the Idle row, so it survives the per-model
-// control rebuilds.
+// Model picker for the regression corpus models in public/ (the hero,
+// twin-tails, a bust with two baked custom-part tails, the far one going
+// behind the head on a turn; mint, mint with side locks and silver-hood, full
+// bodies that declare a Wave; bob, a bust on the lip set), the vector sample,
+// and a local .iki file. Hero leads so the select's default already names the
+// model the page starts on. Built once, like the Idle row, so it survives the
+// per-model control rebuilds.
 const modelRow = document.createElement("div");
 modelRow.className = "control";
 const modelLabel = document.createElement("label");
@@ -160,7 +160,7 @@ const modelEntries: readonly { value: string; text: string; file?: string }[] =
       text: "Silver Hood — full body",
       file: "silver-hood.iki",
     },
-    { value: "twin-tails", text: "Twin tails — bust", file: "twin-tails.iki" },
+    { value: "bob", text: "Bob — bust", file: "bob.iki" },
     { value: "vector", text: "Vector sample" },
     { value: "file", text: "Load a .iki file…" },
   ];

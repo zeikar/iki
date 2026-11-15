@@ -159,7 +159,7 @@ source, so both eyes and both lashes flip together — free, no regeneration.
 
 **Read `preview.png`** to check alignment. The built-in default layout assumes
 the standard framing prompted above. The face and its features default to the
-hero bob's placement, and the features' defaults are proportions of the face:
+bob's placement, and the features' defaults are proportions of the face:
 move or resize the face with `face.cx` / `cy` / `w` and the eyes, irises,
 lashes, brows, nose, mouth, blush and side locks follow (`face.h` stretches the face
 alone), so fit the face first. If eyes/mouth/brows are still off, edit

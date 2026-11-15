@@ -17,12 +17,12 @@ function expectNear(actual: number, expected: number, within: number): void {
   expect(Math.abs(actual - expected)).toBeLessThan(within);
 }
 
-// --- the shipped hero ---------------------------------------------------------
+// --- a shipped model: bob, the corpus's plain bust -----------------------------
 
-describe("checkPhysics — examples/playground/public/hero.iki", () => {
+describe("checkPhysics — examples/playground/public/bob.iki", () => {
   const bob = loadIkiModel(
     fs.readFileSync(
-      new URL("../../../examples/playground/public/hero.iki", import.meta.url),
+      new URL("../../../examples/playground/public/bob.iki", import.meta.url),
       "utf8",
     ),
   );

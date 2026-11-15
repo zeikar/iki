@@ -7,8 +7,8 @@
  * `quantizeColors` 256, `rig-plan.json` verbatim, the whole `patches.json` list,
  * the `custom-parts.json` entries (their layers under the character's
  * `custom/`), `bakes.json` and no `turnTargets`. Update mode writes the model to
- * `examples/playground/public/<name>.iki` (bob's to `hero.iki`: it is the
- * site's hero) and its metrics to
+ * `examples/playground/public/<name>.iki` (twin-tails' to `hero.iki`: it is
+ * the site's hero) and its metrics to
  * `corpus/<name>/metrics.json`; check mode rigs into `.corpus-check/` and
  * compares against those committed files. The rig is deterministic (two
  * processes give the same bytes), so the comparison is exact: the model by
@@ -39,9 +39,9 @@ process.chdir(rootDir);
 
 const corpusDir = "corpus";
 const demoDir = path.join("examples", "playground", "public");
-// A character whose playground model goes by another name: bob is the hero
-// the landing page and the README GIF show.
-const demoFiles = { bob: "hero.iki" };
+// A character whose playground model goes by another name: twin-tails is the
+// hero the landing page and the README GIF show.
+const demoFiles = { "twin-tails": "hero.iki" };
 const checkDir = ".corpus-check";
 
 const mode = process.argv[2];
