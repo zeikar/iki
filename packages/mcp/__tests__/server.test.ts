@@ -836,6 +836,7 @@ describe("MCP server integration", () => {
       "turn.featureLead",
       "turn.eyeForeshorten",
       "turn.noseLead",
+      "turn.farEar",
       "hair.follow",
       "hair.outlineFollow",
       "hair.sway",

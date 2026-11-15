@@ -27,6 +27,9 @@ export interface RigPlan {
     /** How far the nose leads the plate (turn only — the nod keeps the
      *  profile's nose depth). */
     noseLead?: number;
+    /** How far the far ear's outer edge follows the face (0: it holds and
+     *  the head slides over it; 1: it rides with the face and stays whole). */
+    farEar?: number;
   };
   hair?: {
     /** The front hair's share of the face's turn. */
@@ -166,6 +169,23 @@ export const RIG_PLAN_FIELDS: readonly RigPlanField[] = [
     what: "how far the nose leads the face plate on the turn — turn only, the nod keeps the profile's nose depth",
   },
   {
+    path: "turn.farEar",
+    group: "turn",
+    key: "farEar",
+    kind: "absolute",
+    unit: "share of the face plate's slide",
+    default: PROFILE.TURN.earFar,
+    range: [0, 1],
+    recommended: [0, 0.5],
+    step: 0.1,
+    poses: TURN_POSES,
+    cue: null,
+    fitBy: null,
+    provisional: false,
+    migratedFrom: null,
+    what: "how far the far ear's outer edge follows the face on the turn (0: it holds and the head slides over it, about half of a default-sized ear going under the face; 1: it rides with the face and stays whole)",
+  },
+  {
     path: "hair.follow",
     group: "hair",
     key: "follow",
@@ -241,13 +261,14 @@ export interface ResolvedRigPlan {
     featureLead: number;
     eyeForeshorten: number;
     noseLead: number;
+    farEar: number;
   };
   hair: { follow: number; outlineFollow: number; sway: number };
   eyes: { blink: number };
   /** The profile, derived once per rig. Its `TURN` reaches `buildTurn` and
    *  its `AMPLITUDE` reaches `buildPart` through here; `fields.ts`,
    *  `drivers.ts`, `body.ts`, `face-mesh.ts` and `types.ts` still read the
-   *  module profile (`TURN.earFar`/`earNear`/`mouthTiltDeg`, every `NOD.*`,
+   *  module profile (`TURN.earNear`/`mouthTiltDeg`, every `NOD.*`,
    *  `AMPLITUDE.hiddenNeck`, `ROLL_DEG`, `BODY`). */
   profile: Profile;
 }

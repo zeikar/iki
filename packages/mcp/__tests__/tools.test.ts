@@ -1774,7 +1774,7 @@ describe("autoRigFromLayers", () => {
 
   it("lists the rig plan's fields", () => {
     expect(describeRigPlan().fields).toEqual(RIG_PLAN_FIELDS);
-    expect(RIG_PLAN_FIELDS).toHaveLength(8);
+    expect(RIG_PLAN_FIELDS).toHaveLength(9);
     expect(RIG_PLAN_FIELDS.filter((f) => f.provisional)).toHaveLength(2);
   });
 

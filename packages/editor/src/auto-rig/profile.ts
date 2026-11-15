@@ -37,7 +37,8 @@ export interface ProfileValues {
   backShare: number;
   /** AngleX: the far ear's outer edge moves this share of the plate's slide
    *  (the near ear rides the head). At 0 it holds still and the head slides
-   *  over the ear. */
+   *  over the ear. The default of the rig plan's `turn.farEar`, which is what
+   *  the turn reads. */
   earFar: number;
   /** AngleX: the far ear narrows to 1 − earFore of its width, about its
    *  outer edge. */

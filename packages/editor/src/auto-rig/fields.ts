@@ -50,6 +50,8 @@ export interface TurnModel {
   hairBack: number;
   /** The hair layers' width at full turn, about the axis (the silhouette). */
   shellScale: number;
+  /** The far ear's outer edge's share of the plate's slide. */
+  earFar: number;
   /** The far ear's width at full turn, about its outer edge. */
   earFarScale: number;
   /** Landmarks: each eye white's, lash's, brow's and side lock's box, the
@@ -148,7 +150,7 @@ export function faceField(m: TurnModel): Field {
 /**
  * The ears the plate paints: on the head, but behind the face, so they lag
  * its slide, and nod with it. The far one's outer edge lags most (at the
- * profile's `earFar` of 0 it holds, and the head slides over the ear), and
+ * plan's `turn.farEar` of 0 it holds, and the head slides over the ear), and
  * the ear narrows about it (to `earFarScale` of its width at a full turn,
  * where the head leaves it room): its root follows the head a little, under
  * the cheek, but never further than the head moves on the line
@@ -174,7 +176,7 @@ export function earField(m: TurnModel): Field {
     const attach = ears.attachAt(y);
     const span = Math.max(1, ears.outer - attach);
     if (sideOf(m, x, s) === "far") {
-      const rim = TURN.earFar * m.face;
+      const rim = m.earFar * m.face;
       // How much further than the rim the root goes at a full turn: as far
       // as the ear's narrowing takes it, but no further than the head there
       // — and where the head moves less than the rim, not at all: the ear
@@ -210,14 +212,14 @@ function earRoot(m: TurnModel, face: Field, y: number, s: number): number {
  * Whether the head covers the far ear's slide: on every row of the ear
  * islands (the band and the 2 px they run past it either way), the head
  * moves at least as far along a full turn, either way, on the line under the
- * ear as the far ear's outer edge does (`TURN.earFar` of the plate's slide).
+ * ear as the far ear's outer edge does (`earFar` of the plate's slide).
  * True without ear islands.
  */
 export function farEarCovered(m: TurnModel): boolean {
   const ears = m.frame.ears;
   if (ears === undefined) return true;
   const face = faceField(m);
-  const rim = TURN.earFar * m.face;
+  const rim = m.earFar * m.face;
   const y0 = ears.bottom - 2;
   const y1 = ears.top + 2;
   const n = Math.max(1, Math.ceil(y1 - y0));

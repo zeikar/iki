@@ -279,6 +279,40 @@ describe("the ears", () => {
     }
   });
 
+  it("moves the far ear's outer edge turn.farEar of the plate's slide", () => {
+    const { m, frame } = withEars({}, {}, undefined, {
+      turn: { farEar: 0.5 },
+    });
+    const ear = (x: number, ax: number) =>
+      landedXAt(m, "face", x, 85, X30(ax)) - x;
+    const face = (ax: number) => landedXAt(m, "face", 0.5, 85, X30(ax)) - 0.5;
+    for (const ax of [-30, 30]) {
+      const far = frame.axisX + Math.sign(ax) * (frame.ears!.outer - 0.5);
+      expect(ear(far, ax) / face(ax)).toBeCloseTo(0.5, 2);
+    }
+  });
+
+  it("cuts a hairless silhouette's narrowing sooner the further the far ear follows", () => {
+    // A shellScale of 0.94 fits as asked while the far ear holds; an ear that
+    // rides the whole slide needs the head to move as far on the line under
+    // it, which any narrowing takes away.
+    const held = withEars(
+      { hair: false },
+      { silhouetteRatio: shellRatio(0.94) },
+    );
+    expect(held.report.clamped).not.toContain("silhouetteRatio");
+    const riding = withEars(
+      { hair: false },
+      { silhouetteRatio: shellRatio(0.94) },
+      undefined,
+      { turn: { farEar: 1 } },
+    );
+    expect(riding.report.clamped).toContain("silhouetteRatio");
+    expect(riding.report.achieved.silhouetteRatio).toBeGreaterThan(
+      shellRatio(0.94) + 0.01,
+    );
+  });
+
   it("ends an ear's band where the outline is back on the head, not on a lobe that slopes in", () => {
     // The fixture's ears end in one step. A drawn lobe narrows toward the
     // head first, 2 px a row over its last rows, and only then steps in: the

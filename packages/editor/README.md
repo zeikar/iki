@@ -97,7 +97,7 @@ the turn's amount, the eyes' foreshortening, the hair's width, a feature's own
 shift. With none given the profile itself renders (`DEFAULT_TURN_TARGETS`
 expresses it in the cues' units). `options.rigPlan` tunes a character from the
 profile in three groups (`turn`, `hair`, `eyes`: the whole turn, the
-features' lead, the front hair's follow and its outline's, the blink and the
+features' lead, the far ear's follow, the front hair's follow and its outline's, the blink and the
 hair sway), validated against `RIG_PLAN_FIELDS`. `options.patches` adds displacements to a generated rig's keyform
 stops (`RigPatch`), replayed on every rig and reported through
 `options.onPatchesApplied`; a refused op throws `PatchError`. `options.customParts` adds parts the

@@ -309,6 +309,8 @@ export interface TurnParams {
   follow: number;
   /** Its outer edge's share (the head's outline where it draws it). */
   outline: number;
+  /** The far ear's outer edge's share of the plate's slide. */
+  earFar: number;
   /** The eyes' foreshortening per unit of turn (1 = the profile's, at the
    *  profile's turn). */
   fore: number;
@@ -384,6 +386,7 @@ export function fitTurn(
     lead: plan.turn.featureLead,
     follow: plan.hair.follow,
     outline: plan.hair.outlineFollow,
+    earFar: plan.turn.farEar,
     fore: targets.farEyeRatio === undefined ? plan.turn.eyeForeshorten : 1,
     shell: 1,
     noseLead:
@@ -719,6 +722,7 @@ export function buildTurn(
     hairOuter: q.outline * face,
     hairBack: A * hh * turn.hairBack,
     shellScale: q.shell,
+    earFar: q.earFar,
     earFarScale: 1 + A * (turn.earFarScale - 1),
     ...landmarks,
   };

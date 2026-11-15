@@ -263,8 +263,17 @@ describe("rigPlan", () => {
     }
   });
 
+  it("echoes turn.farEar and refuses one out of range", () => {
+    expect(
+      rig({}, { turn: { farEar: 0.5 } }).plan.effective["turn.farEar"],
+    ).toBe(0.5);
+    expect(() =>
+      rig({}, { turn: { farEar: 1.1 } } as GenerateOptions["rigPlan"]),
+    ).toThrow(/rigPlan\.turn\.farEar 1\.1 is outside \[0, 1\]/);
+  });
+
   it("keeps a consistent catalog", () => {
-    expect(RIG_PLAN_FIELDS).toHaveLength(8);
+    expect(RIG_PLAN_FIELDS).toHaveLength(9);
     expect(
       RIG_PLAN_FIELDS.filter((f) => f.provisional).map((f) => f.path),
     ).toEqual(["turn.eyeForeshorten", "turn.noseLead"]);

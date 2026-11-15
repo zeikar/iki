@@ -50,7 +50,7 @@ You own the character assets. You do not own the packages.
   back drawn facing the other way.
 - `<workdir>/rig-plan.json` — the `rigPlan` you hand to `auto_rig_from_layers`,
   tuning the rig from the profile (`{}` is the profile itself), in three
-  groups: `turn` (`amount`, `featureLead`, `eyeForeshorten`, `noseLead`), `hair` (`follow`, `outlineFollow`,
+  groups: `turn` (`amount`, `featureLead`, `eyeForeshorten`, `noseLead`, `farEar`), `hair` (`follow`, `outlineFollow`,
   `sway`) and `eyes` (`blink`). Each path's default, range, recommended span and
   step are in `plan-catalog`. Change it only on a critic `retune` that names a
   path.

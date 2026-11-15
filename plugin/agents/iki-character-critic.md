@@ -736,7 +736,11 @@ renders (±30 and +15, never the nod) is a `retune` of `rigPlan.turn.noseLead`,
 and the far eye narrowing too much or too little against the near one (your
 `TURN:` `far` reading against the report) is a `retune` of
 `rigPlan.turn.eyeForeshorten`; both one catalog step at a time, inside the
-recommended span. Name at most ONE plan field of any kind per round (a gated
+recommended span. The far ear going almost wholly under the cheek at ±30, or
+staying whole where the head should slide over it, is a `retune` of
+`rigPlan.turn.farEar` (0: the ear holds and the head slides over it; each
+step up keeps more of it showing; hair over the ear's outer half makes what
+is left go under sooner), one catalog step at a time. Name at most ONE plan field of any kind per round (a gated
 one is judged alone, never on top of another plan change), never a field the
 `rig-plan-report` lists as `overriddenBy`, never an increase of one it lists as
 `clamped` past its clamp (a reduction inside the recommended span is allowed),
@@ -773,7 +777,7 @@ At the `ParamAngleY` midpoint (15°) the question is whether the face reads as
 tipping — the features moving further than the plate, the face shortening a
 little looking down — or the whole head slides up and down unchanged. No
 plan field reaches the nod: its keyforms are the profile's own vertical
-displacements, which `rigPlan.turn.amount`, `turn.featureLead`, `turn.eyeForeshorten`, `turn.noseLead`, `hair.follow` and
+displacements, which `rigPlan.turn.amount`, `turn.featureLead`, `turn.eyeForeshorten`, `turn.noseLead`, `turn.farEar`, `hair.follow` and
 `hair.outlineFollow` (the turn's) and `eyes.blink` and `hair.sway` (their own
 parameters) all leave as measured. A nod defect local to one feature (one
 feature sliding against its neighbour, say) is therefore a `patch` at the

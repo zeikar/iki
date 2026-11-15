@@ -270,6 +270,7 @@ export function withEars(
   opts: CharacterOptions = {},
   targets: TurnTargets = {},
   tweak: (l: LayerInput) => LayerInput = (l) => l,
+  rigPlan?: GenerateOptions["rigPlan"],
 ) {
   const { layers, options } = character(opts);
   const face = layers.find((l) => l.role === "face")!;
@@ -283,6 +284,7 @@ export function withEars(
   let report: TurnSolveReport | undefined;
   const m = generateIkiFromLayerSet(eared, CANVAS, {
     ...options,
+    ...(rigPlan === undefined ? {} : { rigPlan }),
     turnTargets,
     onTurnSolved: (r) => {
       report = r;
