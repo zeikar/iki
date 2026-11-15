@@ -50,6 +50,15 @@ function faceRows(h: number): number[] {
   return rows;
 }
 
+/** The face layer's box, canvas px. */
+const FACE = { x: 300, y: 200, w: 401, h: 560 };
+
+/** A face row's run, canvas columns, for its half-width `w`. */
+function faceRun(w: number): [number, number] {
+  const a = Math.floor(FACE.x + FACE.w / 2 - w);
+  return [a, a + 2 * w];
+}
+
 export interface CharacterOptions {
   /** The mouth is the folding lip set (`lipSet`) instead of `mouth` and
    *  `mouth_open`; `"inside"` adds its tongue and teeth. */
@@ -149,6 +158,12 @@ export interface CharacterOptions {
    *  under the chin: a lock that short still hangs under a roll, about its
    *  root. */
   sideLocks?: boolean;
+  /** As `wideBack`, but from the plate's top (row 200) to the temple's end
+   *  (row 329) the bangs end this many px outside the face's outline on each
+   *  side (inside it when negative), over a back hair ending 8 px past them:
+   *  bangs that only just cover the forehead, or leave its sides bare, their
+   *  edges bound to a back hair barely wider. */
+  thinTemple?: number;
 }
 
 /**
@@ -205,7 +220,10 @@ function fullBackRuns(
     | "narrowCap"
     | "tuckedTemple"
     | "tightLock"
-    | "sideLocks",
+    | "sideLocks"
+    | "thinTemple",
+  /** `thinTemple`'s cover. */
+  cover = 0,
 ): {
   front: number[][];
   back: number[][];
@@ -220,7 +238,8 @@ function fullBackRuns(
     crown === "plateTopStep" ||
     crown === "narrowCap" ||
     crown === "tuckedTemple" ||
-    crown === "sideLocks";
+    crown === "sideLocks" ||
+    crown === "thinTemple";
   // The bangs' dome: its half-width on row k, from ±200 on its top row (10)
   // to ±262 on row 90 and below.
   const dome = (k: number) =>
@@ -277,6 +296,11 @@ function fullBackRuns(
       f = [500 - w, 500 + w];
       if (k < 180) b = [500 - w - 45, 500 + w + 45];
     }
+    if (crown === "thinTemple" && k >= FACE.y && k < temple[1]) {
+      const [a, z] = faceRun(faceRows(FACE.h)[k - FACE.y]);
+      f = [a - cover, z + cover];
+      b = [a - cover - 8, z + cover + 8];
+    }
     // A gap in the bangs, inside their outer ends.
     if (crown === "crownGap" && k >= 30 && k <= 60) {
       f = [f[0], 497, 503, f[1]];
@@ -320,6 +344,7 @@ export function character(opts: CharacterOptions = {}): {
     tightLock = false,
     shallowEyes = false,
     sideLocks = false,
+    thinTemple,
   } = opts;
   // The `fullBack` variant an option names, if any.
   const variant = (
@@ -337,11 +362,12 @@ export function character(opts: CharacterOptions = {}): {
       ["tuckedTemple", tuckedTemple],
       ["tightLock", tightLock],
       ["sideLocks", sideLocks],
+      ["thinTemple", thinTemple !== undefined],
     ] as const
   ).find(([, on]) => on)?.[0];
   const shortFringe = shortFringeOnly || shortFringeRuns;
   const fullBack = opts.fullBack === true || variant !== undefined;
-  const face = { x: 300, y: 200, w: 401, h: 560 };
+  const face = FACE;
   const halfWidths = faceRows(face.h);
   const layers: LayerInput[] = [
     layer("body", { x: 90, y: 770, w: 820, h: 230 }),
@@ -351,14 +377,7 @@ export function character(opts: CharacterOptions = {}): {
       // half-width wide, from the axis (canvas column 500.5) less the
       // half-width rounded down — centred on the axis for a half-integer
       // half-width, on column 500 for an integer one.
-      ...(fullBack
-        ? {
-            rowRuns: halfWidths.map((w) => {
-              const a = Math.floor(face.x + face.w / 2 - w);
-              return [a, a + 2 * w];
-            }),
-          }
-        : {}),
+      ...(fullBack ? { rowRuns: halfWidths.map(faceRun) } : {}),
     }),
     layer("eye_R", {
       x: 330,
@@ -439,7 +458,9 @@ export function character(opts: CharacterOptions = {}): {
     };
   }
   if (hair) {
-    const runs = fullBack ? fullBackRuns(variant ?? "full") : undefined;
+    const runs = fullBack
+      ? fullBackRuns(variant ?? "full", thinTemple)
+      : undefined;
     layers.push(
       runs
         ? layer(

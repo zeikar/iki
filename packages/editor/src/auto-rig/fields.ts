@@ -118,9 +118,31 @@ function spin(
   ];
 }
 
-/** The head's own plate: a translation, the chin leading it, its width as
- *  the profile and the fit give it. */
+/**
+ * The head's own plate: a translation, the chin leading it, its width as
+ * the profile and the fit give it — and, above the eyes and the ears, its far
+ * side held back where the front hair over its outline turns less than it
+ * does (`foreheadHold`), so the forehead never comes out from under the
+ * bangs.
+ */
 export function faceField(m: TurnModel): Field {
+  const plate = plateField(m);
+  const floor = foreheadFloor(m);
+  // Built on the first point above the floor: the turn solve reads the plate
+  // on the eyes' rows and below, where it holds nothing.
+  let hold: ForeheadHold | null | undefined;
+  return (x, y, ax, ay) => {
+    const d = plate(x, y, ax, ay);
+    if (ax === 0 || y <= floor) return d;
+    if (hold === undefined) hold = foreheadHold(m, floor) ?? null;
+    if (hold === null) return d;
+    const s = Math.sign(ax);
+    return [d[0] - (s * Math.abs(ax) * hold(x, y, s)) / 30, d[1]];
+  };
+}
+
+/** The plate without its forehead's hold. */
+function plateField(m: TurnModel): Field {
   const f = m.frame;
   return (x, y, ax, ay) => {
     const s = Math.sign(ax);
@@ -144,6 +166,126 @@ export function faceField(m: TurnModel): Field {
       down: NOD.faceTop.down + (NOD.chin.down - NOD.faceTop.down) * t,
     };
     return [dx, nodDy(v, ay, f.hh)];
+  };
+}
+
+/** The head island's cell size, px: its mesh's columns and rows lie about
+ *  this far apart. */
+export function faceCellPx(frame: HeadFrame): number {
+  return Math.min(FACE_CELL_PX, (2 * frame.wMax) / 14);
+}
+export const FACE_CELL_PX = 28;
+
+/** Over how much of a gap between the front hair's edge and the plate's
+ *  outline outside it, hh, the forehead's hold fades out: where the plate
+ *  shows past the hair at rest its outline is the head's, and turns whole. */
+const FOREHEAD_FADE = 0.04;
+
+/** How far the far side of the plate is held back at a full turn toward s,
+ *  px, at (x, y). */
+type ForeheadHold = (x: number, y: number, s: number) => number;
+
+/** The row the forehead's hold ends at, model y: the eyes' top, or the ears'
+ *  where they start higher. From there down the plate turns whole — the far
+ *  eye's room, the ears' roots and the features are read against it there. */
+function foreheadFloor(m: TurnModel): number {
+  const f = m.frame;
+  const eyes = [m.boxes.eye_L, m.boxes.eye_R].filter(
+    (e): e is Box => e !== undefined,
+  );
+  const eyeTop = eyes.length > 0 ? Math.max(...eyes.map((e) => e.y1)) : f.eyeY;
+  return Math.max(eyeTop, f.ears === undefined ? -Infinity : f.ears.top + 2);
+}
+
+/**
+ * The forehead under the front hair: on a pixel row above `floor` where the
+ * front hair's outer edge lies at or outside the plate's outline, the outline
+ * on the far side lands no further out at a full turn than that edge does,
+ * less a pixel of the cover it has at rest — the hair holds the head's
+ * outline (`hairOuter`), the plate slides under it, and a cover thinner than
+ * the difference would let the forehead out past the bangs. Where the plate
+ * already shows past the hair at rest the hold fades out over FOREHEAD_FADE
+ * hh of that gap. `undefined` without the face's and the front hair's runs,
+ * or where no row asks for a hold.
+ *
+ * The render interpolates linearly over the head island's cells, whose rows
+ * are not level from column to column. So a row's hold reaches the rows
+ * within a cell of it whole, and fades evenly to nothing two cells further
+ * on — rows that ask for nothing themselves are held too — and it is whole
+ * from a cell inside that row's outline out; from there in it eases to
+ * nothing over the span out from the eyes' outer corner, where the front
+ * hair's own follow starts to ease, or over two cells, or twice the hold,
+ * where that is wider, so the eased span keeps half its width — but never
+ * from across the axis: a row whose outline lies within a cell of the axis
+ * holds nothing, and one too near it for that span holds half of what span
+ * it has, less than it asks for. A point takes the largest hold the rows
+ * around it give, less toward `floor`: none there, all of it two cells above.
+ */
+function foreheadHold(m: TurnModel, floor: number): ForeheadHold | undefined {
+  const f = m.frame;
+  const top = f.face.y1;
+  const count = Math.floor(top - floor);
+  if (
+    count <= 0 ||
+    f.faceRuns(top - 0.5) === undefined ||
+    f.hairRuns("hair_front", top - 0.5) === undefined
+  ) {
+    return undefined;
+  }
+  const plate = plateField(m);
+  const front = hairFrontField(m);
+  const { inner } = hairFrontBends(f, m.boxes);
+  const cell = faceCellPx(f);
+  const fade = FOREHEAD_FADE * f.hh;
+  const sides = [-1, 1] as const;
+  // Per side and pixel row under the plate's top: the hold the row asks for
+  // (0: none), where it is whole from, as an offset from the axis, and the
+  // span it eases over inside that.
+  const hold = sides.map(() => new Float64Array(count));
+  const whole = sides.map(() => new Float64Array(count));
+  const span = sides.map(() => new Float64Array(count));
+  let any = false;
+  for (let i = 0; i < count; i++) {
+    const y = top - i - 0.5;
+    const faceRuns = f.faceRuns(y)!;
+    const hairRuns = f.hairRuns("hair_front", y)!;
+    sides.forEach((side, k) => {
+      const edge = outerEdge(faceRuns, f.axisX, side);
+      const hair = outerEdge(hairRuns, f.axisX, side);
+      if (edge === undefined || hair === undefined) return;
+      const end = side * (edge - f.axisX) - cell;
+      if (end <= 0) return;
+      const cover = side * (hair - edge);
+      const room = Math.max(0, cover);
+      const goes = side * plate(edge - side * 0.5, y, 30 * side, 0)[0];
+      const held = side * front(hair - side * 0.5, y, 30 * side, 0)[0];
+      const need =
+        clamp(1 + cover / fade, 0, 1) *
+        Math.max(0, goes - held - room + Math.min(1, room));
+      if (need <= 0) return;
+      const over = Math.min(end, Math.max(2 * cell, end - inner, 2 * need));
+      hold[k][i] = Math.min(need, over / 2);
+      whole[k][i] = end;
+      span[k][i] = over;
+      any = true;
+    });
+  }
+  if (!any) return undefined;
+  const reach = Math.ceil(cell);
+  return (x, y, s) => {
+    const u = s * (x - f.axisX);
+    if (s === 0 || u <= 0 || y <= floor) return 0;
+    const k = s < 0 ? 0 : 1;
+    const i = clamp(Math.floor(top - y), 0, count - 1);
+    let h = 0;
+    const j1 = Math.min(count - 1, i + 3 * reach);
+    for (let j = Math.max(0, i - 3 * reach); j <= j1; j++) {
+      if (hold[k][j] === 0) continue;
+      const near = clamp((3 * reach - Math.abs(i - j)) / (2 * reach), 0, 1);
+      const across = clamp((u - (whole[k][j] - span[k][j])) / span[k][j], 0, 1);
+      h = Math.max(h, hold[k][j] * near * across);
+    }
+    return h * clamp((y - floor) / (2 * cell), 0, 1);
   };
 }
 

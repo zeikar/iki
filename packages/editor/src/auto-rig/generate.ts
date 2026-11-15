@@ -105,6 +105,8 @@ import { bake, lattice, X_STOPS, Y_STOPS, type Lattice } from "./grid";
 import {
   chinSlide,
   earField,
+  FACE_CELL_PX,
+  faceCellPx,
   familyField,
   hairFrontBends,
   neckField,
@@ -160,7 +162,7 @@ import {
 /** Mesh cells per role. The plate's head island carries the chin's lead and
  *  the jaw's narrowing; the hair only sways and hangs. */
 const MESH_CELLS: Record<string, Cells> = {
-  face: { px: 28, min: 4, max: 24 },
+  face: { px: FACE_CELL_PX, min: 4, max: 24 },
   // The front hair eases from riding the face to holding the outline.
   hair_front: { px: 32, min: 3, max: 24 },
   // A side lock's rows come from `sideLockGrid`: even ones, plus the root
@@ -570,7 +572,7 @@ function buildPart(
   let region: Region[] | undefined;
   let headStart = 0;
   if (spec.role === "face") {
-    const px = Math.min(MESH_CELLS.face.px, (2 * frame.wMax) / 14);
+    const px = faceCellPx(frame);
     const fm = buildFaceMesh(frame, b, { ...MESH_CELLS.face, px }, NECK_CELLS);
     mesh = fm.mesh;
     region = fm.region;
