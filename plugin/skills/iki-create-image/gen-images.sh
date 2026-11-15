@@ -17,7 +17,10 @@
 # --check runs only the preflight (codex installed, logged in, image tool on)
 # and prints the model the jobs would run on.
 #
-# Outputs land in <work_dir>/; per-job transcripts in <work_dir>/.gen-logs/.
+# Outputs land in <work_dir>/; per-job transcripts in <work_dir>/.gen-logs/
+# under the job's output path (`variants/face-b.png` ->
+# `.gen-logs/variants/face-b.png.stdout`), so batches running in one work dir
+# at once keep their jobs apart.
 #
 # NOTE: `-i` puts the reference in front of the model, which then writes the
 # image_generation prompt. Whether that carries pixel-level style through to the
@@ -82,7 +85,11 @@ echo
 
 run_one() {
   local idx=$1 prompt=$2 output=$3
-  local tag; tag=$(printf '%03d' "$idx")
+  # The job's transcripts go by its output's path under the log dir, not by
+  # its number in the batch: two batches running in one work dir would then
+  # write the same log, and each would read the other's session out of it and
+  # collect the same image.
+  local tag=$output
   local text
 
   if [ -n "$ref" ]; then
@@ -104,7 +111,9 @@ match the colours and line weight exactly."
     echo "  [ok]   #$idx  $output  ($(wc -c <"$work_dir/$output" | tr -d ' ') bytes)"
     return 0
   fi
-  echo "  [fail] #$idx  $output  (rc=$rc) — see $log_dir/$tag.stdout"
+  local why="rc=$rc"
+  [ $rc -eq 124 ] && why="stopped after ${CODEX_IMAGE_TIMEOUT}s"
+  echo "  [fail] #$idx  $output  ($why) — see $log_dir/$tag.stdout"
   return 1
 }
 

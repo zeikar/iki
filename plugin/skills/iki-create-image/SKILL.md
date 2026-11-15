@@ -27,7 +27,10 @@ skill's directory; Claude Code also exposes that directory as
 
 All four shell out to `codex exec` with Codex's built-in `image_generation`
 tool, write into `<work_dir>` (which must already exist) and keep each job's
-transcript in `<work_dir>/.gen-logs/`. **Billed, minutes per image** — confirm
+transcript in `<work_dir>/.gen-logs/`: `gen-images.sh` under the job's output
+path (`.gen-logs/variants/face-b.png.stdout`), so two batches may run in one
+workdir at once as long as their output paths differ, and each reference
+script under its reference's name (`.gen-logs/reference-30.stdout`). **Billed, minutes per image** — confirm
 the user is OK spending before the first job. Run them as background Bash jobs
 and let the completion notice say when a batch is done; do not sleep-poll.
 
@@ -139,7 +142,11 @@ hand-off below is the other way on.
 
 The model is told not to save anything: the scripts take each image from where
 the image tool stores it, `~/.codex/generated_images/<session>/`, and copy it to
-its path (the job's log notes `[gen] collected …`). Asked to save it itself,
+its path (the job's log notes `[gen] collected …`) — the first one, when
+the model drew more than once. A job that runs past ten minutes
+(`CODEX_IMAGE_TIMEOUT`, in seconds) is stopped, on a machine that has
+`timeout`; what it had drawn by then is still collected, and it is marked
+`[fail]` only when that is nothing. Asked to save it itself,
 `gpt-6-luna` answered with the path without copying, or wrote the image back
 out as base64 chunks. A job marked `[fail]` leaves an older file at its path as
 it was; read its log. When the log ends in `[gen] copy failed`, the image was
