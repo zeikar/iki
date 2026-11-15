@@ -194,9 +194,10 @@ describe("the head turn", () => {
 
     it("rides the edge with the face where the back reaches past it and far inside it", () => {
       // Under the eyes, the back solid to ±310 over every row the edge passes
-      // over on the nod (42 px down to 23 px up, one mesh row either side):
-      // 48 px past the edge less the 3.1 px drift, and far inside it, both
-      // more than the face's 31.2 px follow, so both edges may ride it whole.
+      // over on the nod (33 px down to 18 px up, one mesh row either side):
+      // 48 px past the edge plus the back hair's 9.3 px turn, and far inside
+      // it, both more than the face's 31.2 px follow, so both edges may ride
+      // it whole.
       // The mesh carries the ride's kink at the edge between two columns, so
       // the edge lands a little short of it (today's hold is 0.041 hh).
       const y = rowY(530);
@@ -216,8 +217,12 @@ describe("the head turn", () => {
       const gap = rowY(680);
       // On the cap, under its first vertex row below the plate's top (row
       // 210), which moves with the back hair: the back's outer end 5 px
-      // inside the bangs' edge. Nothing bounds this edge, but the cap's blend
-      // ramps out across it.
+      // inside the bangs' edge. Nothing bounds this edge, but the cap's ramp
+      // eases out across it. At the edge itself today's hold lies only 1.4 px
+      // off the back hair's motion (9.3 px with the turn), too near to tell
+      // the ease from the keyforms' rounding; so the ease is read at the
+      // vertex column 26 px inside it on each side, where they lie 7 px
+      // apart.
       const temple = rowY(270);
       for (const ax of [-30, -15, 15, 30]) {
         const s = Math.sign(ax);
@@ -227,33 +232,65 @@ describe("the head turn", () => {
             edge(today, "hair_front", x, gap, ax),
           );
           // Today's hold turns further than the back hair, and the ramp
-          // leaves the edge between the two, off today's.
-          const held = edge(today, "hair_front", x, temple, ax);
-          const back = edge(full, "hair_back", x, temple, ax);
-          const ramped = edge(full, "hair_front", x, temple, ax);
-          expect(s * (back - held), `temple, ${label}`).toBeLessThan(-1);
-          expect(s * (ramped - held), `temple, ${label}`).toBeLessThan(-1);
-          expect(s * (ramped - back), `temple, ${label}`).toBeGreaterThan(
-            -ROUNDING,
-          );
+          // leaves the strand between the two, off today's.
+          const xi = x - Math.sign(x) * 26;
+          const at = `temple, x ${xi}, AngleX ${ax}`;
+          const held = edge(today, "hair_front", xi, temple, ax);
+          const back = edge(full, "hair_back", xi, temple, ax);
+          const ramped = edge(full, "hair_front", xi, temple, ax);
+          expect(s * (back - held), at).toBeLessThan(-1);
+          expect(s * (ramped - held), at).toBeLessThan(-1);
+          expect(s * (ramped - back), at).toBeGreaterThan(-ROUNDING);
+        }
+      }
+    });
+
+    it("turns an uncovered edge alike with or without runs, never less than the back hair", () => {
+      // The gap band: no back hair behind the edge. At a front hair's follow
+      // of a half, and at one under the back hair's own share, where the
+      // follow itself is held up to the shell's turn.
+      for (const follow of [0.5, 0.2]) {
+        const rigPlan = { hair: { follow } };
+        const withRuns = rig({ fullBack: true }, {}, { rigPlan }).model;
+        const bare = rig(
+          { fullBack: true },
+          {},
+          { rigPlan, drop: ALL_RUNS },
+        ).model;
+        const gap = rowY(680);
+        for (const ax of [-30, 30]) {
+          for (const x of [-262, 262, 0]) {
+            const at = (m: IkiModel) =>
+              (Math.sign(ax) * (edge(m, "hair_front", x, gap, ax) - x)) / HH;
+            expect(at(withRuns), `follow ${follow}, x ${x}`).toBeCloseTo(
+              at(bare),
+              3,
+            );
+            expect(
+              at(withRuns),
+              `follow ${follow}, x ${x}`,
+            ).toBeGreaterThanOrEqual(TURN.hairBack - 1e-3);
+          }
         }
       }
     });
 
     it("rides the far edge only over the back's run past it, not out to a stroke beyond a gap", () => {
-      // The back solid from inside the edge to 20 px past it (±282), then
+      // The back solid from inside the edge to 8 px past it (±270), then
       // 30 px empty, then a 4 px stroke, over every row the edge passes over
-      // on the nod.
+      // on the nod: the far edge rides the run's 8 px plus the back hair's
+      // own turn, well short of the face's follow, which caps a ride out to
+      // the stroke.
       const y = rowY(830);
       for (const ax of [-30, -22.5, -15, 15, 22.5, 30]) {
         const s = Math.sign(ax);
         const a = Math.abs(ax) / 30;
         const far = edge(full, "hair_front", 262 * s, y, ax);
-        const runEnd = edge(full, "hair_back", 282 * s, y, ax);
+        const runEnd = edge(full, "hair_back", 270 * s, y, ax);
         // At most the keyforms' rounding (1e-4 of a part's width) past it.
         expect(s * (far - runEnd), `AngleX ${ax}`).toBeLessThan(0.1);
         expect(s * (far - 262 * s), `AngleX ${ax}`).toBeCloseTo(
-          a * (20 - DRIFT),
+          a * (8 - DRIFT),
           0,
         );
         // The near edge, over the run's 544 px inside it, rides the face's
@@ -393,10 +430,11 @@ describe("the head turn", () => {
 
     it("never turns the cap's outer edge further outside the back hair than the nod alone puts it, following less where the back hair reaches less", () => {
       // The bangs' dome lies inside the eyes' outer corners, over a back-hair
-      // dome only 45 px wider down to row 179: looking up, a row's edge meets
-      // back rows that reach about 37 px past it, more than the bangs' motion
-      // against the back hair at the profile's follow (34 px), less than at
-      // hairFollow 2 (65 px). The nod alone keeps every edge inside. The
+      // dome only 32 px wider down to row 190: looking up, a row's edge meets
+      // back rows that reach about 26 px past it, more than the bangs' motion
+      // against the back hair at the profile's follow (22 px: the face's
+      // 31 px less the back hair's own 9 px turn), less than at hairFollow 2
+      // (53 px). The nod alone keeps every edge inside. The
       // dome's top rows turn as the cap's top row: at hairFollow 2 they slide
       // further than the back hair above them reaches and draw the head's top
       // outline themselves, so the bound reads the cap from the plate's top
@@ -485,12 +523,15 @@ describe("the head turn", () => {
     });
 
     it("cuts a cap row under the plate's top out toward its edge, keeping the axis's follow and three quarters of each cell", () => {
-      // At hairFollow 2 the temple's edges outrun the solid band's back hair
-      // under them looking down (48 px past them): their rows give up a cut
-      // that grows out from the axis's cell, and blend not at all. Inside
-      // the eyes' outer corners today's follow is the same in every column,
-      // so a cell's width at a full turn is its rest width there.
-      const opts = { narrowCap: true };
+      // tightSolid at hairFollow 2: the temple's edges outrun the solid
+      // band's back hair under them looking down (36 px past them, plus its
+      // own 9 px turn, against their 62 px follow): their rows give up a cut
+      // that grows out from the axis's cell, and blend not at all. Nothing
+      // above them binds, so no cap row's ease ramps down over them (on
+      // narrowCap the cap's top row holds its far side, and its ease does).
+      // Inside the eyes' outer corners today's follow is the same in every
+      // column, so a cell's width at a full turn is its rest width there.
+      const opts = { tightSolid: true };
       const rigPlan = { hair: { follow: 2 } };
       const { model: m } = rig(opts, {}, { rigPlan });
       const held = rig(opts, {}, { rigPlan, drop: ALL_RUNS }).model;
@@ -648,12 +689,16 @@ describe("the head turn", () => {
       // instead, so none of it falls over an iris row. The span between the
       // cap and the irises is 7.5 px, too thin to take a row, so the ramp is
       // as short as the existing rows allow. The turn keeps the eyes' shift
-      // (0.1943, as without the ramp; 0.1379 with it ended below the irises)
-      // and no iris under a strand.
+      // and no iris under a strand. The shift is read against the head's
+      // outline, the back hair's at ±310, which turns with the head by
+      // TURN.hairBack: 0.1843 against a still outline, so 0.1541 (as without
+      // the ramp); the ramp ended below the irises took 0.056 off it.
       const { report, model } = rig({ fullBack: true, shallowEyes: true });
       const { ys, last } = capRows(model);
       expect(Math.round(500 - ys[last])).toBe(370);
-      expect(report!.achieved.eyeShift).toBeGreaterThan(0.19);
+      expect(report!.achieved.eyeShift).toBeGreaterThan(
+        0.18 - (TURN.hairBack * HH) / 310,
+      );
       expect(report!.strandOverlap).toBeUndefined();
       // No vertex row at or below the irises' top pixel row's centre blends.
       const held = rig(
@@ -675,19 +720,23 @@ describe("the head turn", () => {
 
     it("spreads the cap's blend over rows between the cap and the irises", () => {
       // The ramp needs rows to fall over: tuckedTemple at hairFollow 2 has the
-      // front hair's cap edges riding with the back hair at -3 px where the
-      // face's follow would take them 62 px, and one 40 px cell between the
-      // cap's last row and the irises' top would jump all 65 px in it. With
-      // the mesh refined to three rows there, no adjacent pair of vertex rows
-      // at the cap's held edges steps over 0.45 of that (the widest is 26 px,
-      // into the first row the ride lifts); nor, from the plate's top down,
-      // at the axis, where the bangs ride the face.
-      const JUMP = 0.45 * 65;
+      // front hair's cap edges riding with the back hair (its 9.3 px turn)
+      // where the face's follow would take them 62 px, and one 40 px cell
+      // between the cap's last row and the irises' top would jump all 53 px
+      // of the difference in it. With the mesh refined to three rows there,
+      // no adjacent pair of vertex rows at the cap's held edges, from the
+      // plate's top down to the row above `zero`, steps over 0.45 of that;
+      // nor, from the plate's top down, at the axis, where the bangs ride the
+      // face. The step into `zero` is left out: there the ramp has ended and
+      // the ride switches on, where the back hair under the tuck reaches past
+      // the edge again (34 px at the held edge), which is the fixture's art,
+      // not the ramp's fall.
+      const JUMP = 0.45 * (2 * TURN.face - TURN.hairBack) * HH;
       for (const [name, opts, rigPlan] of [
         ["tuckedTemple", { tuckedTemple: true }, { hair: { follow: 2 } }],
       ] as const) {
         const { model } = rig(opts, {}, { rigPlan });
-        const { ys, last } = capRows(model);
+        const { ys, last, zero, plateTop } = capRows(model);
         const irisTop = Math.max(
           ...["iris_L", "iris_R"].map((id) => {
             const p = model.parts.find((q) => q.id === id)!;
@@ -696,18 +745,23 @@ describe("the head turn", () => {
         );
         const between = ys.filter((y, r) => r > last && y > irisTop);
         expect(between.length, name).toBeGreaterThanOrEqual(3);
-        const { plateTop } = capRows(model);
         for (const ax of [-30, 30]) {
           for (const x of [...heldAt(ax), 0]) {
             let widest = 0;
+            let steps = 0;
             for (let r = 1; r < ys.length; r++) {
-              if (x === 0 && ys[r - 1] > plateTop) continue;
+              if (ys[r - 1] > plateTop) continue;
+              if (x !== 0 && r >= zero) continue;
               const dx =
                 edge(model, "hair_front", x, ys[r], ax) -
                 edge(model, "hair_front", x, ys[r - 1], ax);
               widest = Math.max(widest, Math.abs(dx));
+              steps++;
             }
-            expect(widest, `${name}, x ${x}, AngleX ${ax}`).toBeLessThan(JUMP);
+            const label = `${name}, x ${x}, AngleX ${ax}`;
+            // Every step under the cap's last row down to `zero` read.
+            expect(steps, label).toBeGreaterThan(zero - last - 1);
+            expect(widest, label).toBeLessThan(JUMP);
           }
         }
       }
@@ -1198,8 +1252,10 @@ describe("the head turn", () => {
         const s = y - landedYAt(rigged, "hair_front", c + 0.5 - 500, y, down);
         let n = 0;
         for (let i = 0; i + 0.5 < s + slack; i++) {
+          // A row above the back hair's crop paints nothing, as the rig
+          // reads it (`capSlide`).
           const row = Math.floor(top + i + 0.5 - backNod) - back.bbox.y;
-          if (!inRuns(back.rowRuns![row], c)) n++;
+          if (!inRuns(back.rowRuns![row] ?? [], c)) n++;
         }
         return n;
       };

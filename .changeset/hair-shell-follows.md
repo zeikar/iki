@@ -1,0 +1,6 @@
+---
+"@ikijs/editor": minor
+"@ikijs/mcp": minor
+---
+
+The back hair follows the head. The head's shell used to stand nearly still (`backShare` 0.1: a slight drift against the turn, a tenth of the face's nod), so on a turn the front hair's held top lagged its strands over the face and kinked them, and looking down the bangs dropped inside a crown that stayed, which made the head taller. `backShare` is now 0.3 and with the head on both axes: the back hair turns 0.036 hh with the face plate's 0.12 and nods 0.054 / 0.03 hh with its 0.18 / 0.10. The front hair's held edges move with it, and the outline the front hair draws never turns less than the back hair does (`hair.outlineFollow` 0 used to hold it still). Under the front hair's cap, the rows down to the eyes now ease out a cap row's whole hold, its cut as well as its blend; a row held by its cut alone used to hand the cut back in the one row under it. Every model rigged again from the same layers changes: its hair's outline shifts a little with the head, and the front hair rides the face further out. `DEFAULT_TURN_TARGETS.eyeShift`, which is read against that outline, is 0.18 (was 0.23). A custom part anchored on a hair layer has to have its `bakes` measured again: stops are total landed displacements, so ones measured before miss the anchor by its new motion and fail the gate's TIE.

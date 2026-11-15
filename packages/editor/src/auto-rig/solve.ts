@@ -696,6 +696,8 @@ export function buildTurn(
     Math.max(1, eyes.length);
   const farScale = 1 + q.fore * A * (turn.eyeFarScale - 1);
   const farCorner = lead(turn.eyeFar) - (1 - farScale) * eyeHalf;
+  // The back hair, the head's shell: its own turn.
+  const shell = A * hh * turn.hairBack;
   return {
     frame,
     face,
@@ -717,10 +719,13 @@ export function buildTurn(
     mouth: q.mouth ?? lead(turn.mouth),
     mouthWidth: 1 + A * (turn.mouthWidth - 1),
     tilt: A,
-    hairFront: q.follow * face,
-    hairFar: Math.max(q.follow * face, farCorner),
-    hairOuter: q.outline * face,
-    hairBack: A * hh * turn.hairBack,
+    // The front hair lies on the head in front of its shell: neither over
+    // the face nor at the outline it draws does it turn less than the back
+    // hair behind it.
+    hairFront: Math.max(q.follow * face, shell),
+    hairFar: Math.max(q.follow * face, shell, farCorner),
+    hairOuter: Math.max(q.outline * face, shell),
+    hairBack: shell,
     shellScale: q.shell,
     earFar: q.earFar,
     earFarScale: 1 + A * (turn.earFarScale - 1),

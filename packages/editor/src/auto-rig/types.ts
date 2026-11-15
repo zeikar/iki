@@ -101,7 +101,7 @@ export class LayerGeometryError extends Error {
  * The profile's own turn (`profile.ts`), in the cues' units — what a rig with
  * no `turnTargets` renders on a head whose silhouette at the eye row is back
  * hair about 1 hh (eye row → chin) wide. eyeShift: the eye pair's mean shift
- * at ±30 less the back hair's drift, over a 1 hh head half-width.
+ * at ±30 less the back hair's own turn, over a 1 hh head half-width.
  * farEyeRatio: the far eye's width over the near one's. silhouetteRatio: the
  * silhouette holds its width.
  *

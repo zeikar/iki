@@ -35,7 +35,8 @@ export interface RigPlan {
     /** The front hair's share of the face's turn. */
     follow?: number;
     /** Its outer edge's share, where the front hair draws the head's outline
-     *  and no back hair paints behind that edge (0: the outline holds;
+     *  and no back hair paints behind that edge (never less than the back
+     *  hair's own turn: at 0 the outline turns only as the back hair does;
      *  `follow` rides it whole). Where back hair does, the edge rides
      *  further, as far as that back hair stays behind it through the turn and
      *  the nod, up to the front hair's follow there (over the far eye's rows,
@@ -200,7 +201,7 @@ export const RIG_PLAN_FIELDS: readonly RigPlanField[] = [
     fitBy: null,
     provisional: false,
     migratedFrom: "hairFollow",
-    what: "the front hair's share of the face's turn",
+    what: "the front hair's share of the face's turn (never less than the back hair's own turn, 0.3 of the face's: a share under that has no effect)",
   },
   {
     path: "hair.outlineFollow",
@@ -217,7 +218,7 @@ export const RIG_PLAN_FIELDS: readonly RigPlanField[] = [
     fitBy: null,
     provisional: false,
     migratedFrom: "outlineFollow",
-    what: "the front hair's outer edge's share where it draws the head's outline (0: the outline holds, though where back hair paints behind it, it may ride further, as far as that back hair reaches; at hair.follow the front hair's side strands ride whole)",
+    what: "the front hair's outer edge's share where it draws the head's outline (never less than the back hair's own turn: at 0 the outline turns only as the back hair does, though where back hair paints behind it, it may ride further, as far as that back hair reaches; at hair.follow the front hair's side strands ride whole)",
   },
   {
     path: "hair.sway",

@@ -726,7 +726,8 @@ field's recommended span: a turn too weak or
 too strong is `rigPlan.turn.amount`; features leading too much or too little,
 `rigPlan.turn.featureLead`; the front hair following too much or too little,
 `rigPlan.hair.follow` (where the front hair draws the head's outline,
-`rigPlan.hair.outlineFollow` stays at 0 — the outline holds — so a
+`rigPlan.hair.outlineFollow` stays at 0 — the outline turns only as the
+back hair does — so a
 retune only returns it there; back hair painted behind that edge may add
 motion on top of it). Judge `featureLead` by the eye pair's lead over the face
 plate, not the nose's: the nose's lead over the plate is its own field, so

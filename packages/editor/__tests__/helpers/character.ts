@@ -92,17 +92,26 @@ export interface CharacterOptions {
   wideBack?: boolean;
   /** As `wideBack`, but on the crown band the bangs are a dome inside the
    *  eyes' outer corners — half-width 100 on row 10, widening 0.3 px per row
-   *  to 160 on row 210 — over a back-hair dome painted 45 px past the bangs'
-   *  edge on every row from row 0 to 179: looking up, a row's edge meets
-   *  back rows that reach about 37 px past it. From row 180 the back is
-   *  solid ±320 into the temple, so the temple's rows, looking up, meet back
-   *  hair past their edges. */
+   *  to 160 on row 210 — over a back-hair dome painted 32 px past the bangs'
+   *  edge on every row from row 0 to 190: looking up (18 px on the nod), a
+   *  row's edge meets back rows that reach about 26 px past it, the cap's
+   *  rows from the plate's top (row 200) among them. From row 191 the back
+   *  is solid ±320 into the temple, so the temple's rows, looking up, meet
+   *  back hair past their edges. On the solid band the back is solid ±298,
+   *  36 px past the bangs' edges. */
   narrowCap?: boolean;
+  /** As `wideBack`, but on the solid band the back is solid ±298, 36 px past
+   *  the bangs' edges (as `narrowCap`'s): at hairFollow 2 the temple's rows,
+   *  looking down, outrun it, while the crown and the cap's top row, backed
+   *  58 px past their edges, bind nothing above them. */
+  tightSolid?: boolean;
   /** As `wideBack`, but on the temple's last 30 rows (300–329), just above
    *  the eyes, the back hair is tucked in behind the bangs, its outer end 5 px
    *  inside their edge as on `fullBack`'s temple: the bangs' rows from 258
    *  down pass over it looking down, while the rows above them, backed 58 px
-   *  past their edges, never do. */
+   *  past their edges, never do. The tuck runs on over the solid band's first
+   *  6 rows (330–335), as `fullBack`'s does, so the rows the cap's ramp falls
+   *  over still meet it looking up. */
   tuckedTemple?: boolean;
   /** As `fullBack`, but the eyes are 30 px tall (rows 418–448, about the same
    *  centre), so their top (row 418) lies 22 px under the irises' (row 396). */
@@ -139,7 +148,7 @@ export interface CharacterOptions {
   tuft?: boolean;
   /** As `fullBack`, but the back hair's top dips 4 px under the bangs' top
    *  (row 10) over a ±15 px band of columns at the axis, as at a parting:
-   *  less than the back hair's own nod (4.7 px), so it binds the cap's
+   *  less than the back hair's own nod (14.0 px), so it binds the cap's
    *  slide only through the back hair's posed place, its nod lower. */
   dip?: boolean;
   /** As `fullBack`, but over columns 255–285, on the dome's shoulder, the
@@ -160,9 +169,13 @@ export interface CharacterOptions {
   sideLocks?: boolean;
   /** As `wideBack`, but from the plate's top (row 200) to the temple's end
    *  (row 329) the bangs end this many px outside the face's outline on each
-   *  side (inside it when negative), over a back hair ending 8 px past them:
+   *  side (inside it when negative), over a back hair ending 4 px past them:
    *  bangs that only just cover the forehead, or leave its sides bare, their
-   *  edges bound to a back hair barely wider. */
+   *  edges bound to a back hair barely wider. Bound that tightly, every
+   *  temple row's edges move with the back hair on the turn (8 px past let
+   *  the cap's last row, at the temple's end, meet its bound by its cut
+   *  alone, and the edges over the temple's last rows ease off the back
+   *  hair's motion). */
   thinTemple?: number;
 }
 
@@ -177,18 +190,23 @@ export interface CharacterOptions {
  *   both `crown` and `temple`;
  * - under `narrowCap`, `temple` as `wideBack`'s, and on `crown` the bangs a
  *   dome ±100 on row 10 widening 0.3 px per row (±160 by row 210), the back
- *   a dome 45 px wider from row 0 to 179, then solid ±320;
+ *   a dome 32 px wider from row 0 to 190, then solid ±320; on `solid` the
+ *   back solid ±298;
  * - under `tuckedTemple`, `temple` as `wideBack`'s but for its last 30 rows,
  *   `fullBack`'s;
  * - `solid`: from the brows down, the eye row (433.5) among them: the back
- *   one solid run ±310 behind the locks (as it is below the bangs' crop);
+ *   one solid run ±310 behind the locks (as it is below the bangs' crop) —
+ *   but on its first 6 rows (330–335) `temple`'s tuck under `fullBack`,
+ *   `tuft`, `dip`, `shoulderDip` and `tuckedTemple`, so the rows the cap's
+ *   ramp falls over, looking up 18 px on the nod, still meet it;
  *   under `tightLock`, the locks' outer edges at ±200 (columns 300 and 701)
  *   and the back solid 2 px past them; under `sideLocks`, from here down the
  *   bangs a fringe only, columns 347–653;
  * - `gap`: as on bob's row 366, a 3 px sliver of back 2 px outside the
  *   bangs' edge, then nothing until 8 px inside it;
- * - `stroke`: as on the hero's row 610, the back solid from inside the
- *   bangs' edge to 20 px past it, then empty for 30 px, then a 4 px stroke.
+ * - `stroke`: after the hero's row 610, the back solid from inside the
+ *   bangs' edge to 8 px past it (its end plus the back hair's turn well
+ *   short of the face's follow), then empty for 30 px, then a 4 px stroke.
  */
 const FULL_BACK_ROWS = {
   crown: [0, 210],
@@ -202,7 +220,7 @@ const FULL_BACK_ROWS = {
  *  crop holds canvas rows 10–969, the back's rows 0–999. The back's crown is
  *  as `crown` names: `fullBack`'s, or the `tuft`, `dip` or `shoulderDip`
  *  option's; `wide`, `crownGap`, `faceGap`, `besideFaceGap`, `plateTopGap`,
- *  `plateTopStep`, `narrowCap`, `tuckedTemple` and `sideLocks` are the
+ *  `plateTopStep`, `narrowCap`, `tightSolid`, `tuckedTemple` and `sideLocks` are the
  *  `wideBack` option's and those built on it;
  *  `tightLock` is `fullBack`'s crown over its own solid band. */
 function fullBackRuns(
@@ -218,6 +236,7 @@ function fullBackRuns(
     | "plateTopGap"
     | "plateTopStep"
     | "narrowCap"
+    | "tightSolid"
     | "tuckedTemple"
     | "tightLock"
     | "sideLocks"
@@ -229,6 +248,7 @@ function fullBackRuns(
   back: number[][];
 } {
   const { temple, solid, gap, stroke } = FULL_BACK_ROWS;
+  const tuckEnd = temple[1] + 6;
   const wide =
     crown === "wide" ||
     crown === "crownGap" ||
@@ -237,6 +257,7 @@ function fullBackRuns(
     crown === "plateTopGap" ||
     crown === "plateTopStep" ||
     crown === "narrowCap" ||
+    crown === "tightSolid" ||
     crown === "tuckedTemple" ||
     crown === "sideLocks" ||
     crown === "thinTemple";
@@ -275,7 +296,7 @@ function fullBackRuns(
     } else if (k >= gap[0] && k < gap[1]) {
       b = [233, 236, 246, 754, 764, 767];
     } else if (k >= stroke[0] && k < stroke[1]) {
-      b = [184, 188, 218, 782, 812, 816];
+      b = [196, 200, 230, 770, 800, 804];
     } else if (crown === "tightLock" && k >= solid[0] && k < solid[1]) {
       f = [300, 347, 654, 701];
       b = [298, 703];
@@ -287,19 +308,29 @@ function fullBackRuns(
       else if (k >= 203 && k < temple[1]) f = [300, 700];
       if (k >= 240 && k <= 247) b = [243, 757];
     }
-    if (crown === "tuckedTemple" && k >= temple[1] - 30 && k < temple[1])
+    if (crown === "tuckedTemple" && k >= temple[1] - 30 && k < tuckEnd)
+      b = [243, 757];
+    // The temple's tuck reaches past the band's end: the rows the cap's
+    // ramp falls over still meet it looking up on the nod.
+    if (!wide && crown !== "tightLock" && k >= temple[1] && k < tuckEnd)
       b = [243, 757];
     if (crown === "narrowCap" && k < temple[0]) {
       // The bangs' dome, inside the eyes' outer corners, and the back's
-      // dome 45 px wider on every row from row 0 to 179 (then wideBack's).
+      // dome 32 px wider on every row from row 0 to 190 (then wideBack's).
       const w = Math.round(100 + 0.3 * (k - 10));
       f = [500 - w, 500 + w];
-      if (k < 180) b = [500 - w - 45, 500 + w + 45];
+      if (k < 191) b = [500 - w - 32, 500 + w + 32];
     }
+    if (
+      (crown === "narrowCap" || crown === "tightSolid") &&
+      k >= solid[0] &&
+      k < solid[1]
+    )
+      b = [202, 798];
     if (crown === "thinTemple" && k >= FACE.y && k < temple[1]) {
       const [a, z] = faceRun(faceRows(FACE.h)[k - FACE.y]);
       f = [a - cover, z + cover];
-      b = [a - cover - 8, z + cover + 8];
+      b = [a - cover - 4, z + cover + 4];
     }
     // A gap in the bangs, inside their outer ends.
     if (crown === "crownGap" && k >= 30 && k <= 60) {
@@ -340,6 +371,7 @@ export function character(opts: CharacterOptions = {}): {
     plateTopGap = false,
     plateTopStep = false,
     narrowCap = false,
+    tightSolid = false,
     tuckedTemple = false,
     tightLock = false,
     shallowEyes = false,
@@ -359,6 +391,7 @@ export function character(opts: CharacterOptions = {}): {
       ["plateTopGap", plateTopGap],
       ["plateTopStep", plateTopStep],
       ["narrowCap", narrowCap],
+      ["tightSolid", tightSolid],
       ["tuckedTemple", tuckedTemple],
       ["tightLock", tightLock],
       ["sideLocks", sideLocks],

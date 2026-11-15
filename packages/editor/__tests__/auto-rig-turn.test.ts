@@ -5,7 +5,13 @@ import {
   generateIkiFromLayerSet,
   type TurnSolveReport,
 } from "@ikijs/editor";
-import { BODY, NOD, ROLL_DEG, TURN } from "../src/auto-rig/profile";
+import {
+  BODY,
+  NOD,
+  PROFILE_VALUES,
+  ROLL_DEG,
+  TURN,
+} from "../src/auto-rig/profile";
 import { CANVAS, character } from "./helpers/character";
 import { type ParamValues } from "./helpers/render-oracle";
 import {
@@ -216,7 +222,15 @@ describe("the head turn", () => {
     }
   });
 
-  it("rides the front hair on the face, holds the outline it draws, and keeps the back hair behind", () => {
+  it("rides the front hair on the face, turns the outline it draws as the head's shell, and the back hair with the head", () => {
+    // The shell follows the head, the way it turns: a share of the plate's
+    // slide, not a drift against it.
+    expect(TURN.hairBack).toBeCloseTo(
+      PROFILE_VALUES.backShare * PROFILE_VALUES.slide,
+      10,
+    );
+    expect(TURN.hairBack).toBeGreaterThan(0);
+    expect(TURN.hairBack).toBeLessThan(TURN.face);
     for (const ax of [-30, 30]) {
       const s = Math.sign(ax);
       const p = X30(ax);
@@ -226,9 +240,10 @@ describe("the head turn", () => {
       // TURN.hairFollow × the plate's TURN.face.
       expect(shift(0, 250)).toBeCloseTo(TURN.hairFollow * TURN.face, 2);
       expect(shift(-150, -300)).toBeCloseTo(TURN.hairFollow * TURN.face, 2);
-      // The outline it draws at the eye row holds.
-      expect(Math.abs(shift(-261, EYE_Y))).toBeLessThan(0.005);
-      expect(Math.abs(shift(260, EYE_Y))).toBeLessThan(0.005);
+      // The outline it draws at the eye row turns as the shell does, the
+      // back hair's share.
+      expect(shift(-261, EYE_Y)).toBeCloseTo(TURN.hairBack, 2);
+      expect(shift(260, EYE_Y)).toBeCloseTo(TURN.hairBack, 2);
       // The crown rides with the cap.
       expect(shift(0, 490)).toBeCloseTo(TURN.hairFollow * TURN.face, 2);
       const rest = landVertices(model, "hair_back");

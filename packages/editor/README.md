@@ -72,10 +72,10 @@ The rig turns the head by parallax, not a reshaped face, with values of our
 own picked by eye (`auto-rig/profile.ts`, `AUTO-RIG.md`). The face plate
 translates, the chin leading it; the features lead the plate by their depth
 (the nose most, then the eyes, brows and mouth), the eyes foreshortening mildly
-about their own centres; the front hair rides the face where it lies over it and holds the head's
-outline where it draws it — though on its cap the turn never carries its outer
+about their own centres; the front hair rides the face where it lies over it and turns the head's
+outline, where it draws it, only as the back hair turns — though on its cap the turn never carries its outer
 edge further outside the back hair painted behind it than the nod alone does —
-and the back hair stays behind; the neck and the
+and the back hair, the head's shell, follows the head by 0.3 of the face's turn and nod; the neck and the
 ears the face layer paints are cut off into islands of the plate's own mesh,
 drawn behind the head — the neck stays (only the chin's shade slides across
 it), the ears lag the face, the far one held while the head slides partly over it (about half of an ear of the default size). AngleZ rolls the head 14° about the chin.
@@ -176,7 +176,7 @@ row's alpha ≥ 128 runs as a flat list of canvas columns `[start, end, …]`, e
 end exclusive), measured for `face`, `hair_front`, `hair_back`, `hair_side_L`
 and `hair_side_R` so the turn and the nod can tell where back hair is painted
 behind the front hair and the rig can tell where a side lock first shows under
-the bangs; absent, the front hair keeps its outline hold and its crown's ease
+the bangs; absent, the front hair's outline turns only as the back hair does and it keeps its crown's ease
 to the back hair on the turn, and that ease looking down on the nod, while a
 side lock's root band ends a quarter of the way down its box.
 

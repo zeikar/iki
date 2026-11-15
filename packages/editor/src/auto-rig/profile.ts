@@ -3,7 +3,8 @@
  * parameter. The rules are a 2D rig's usual ones. A turn is parallax, not a
  * reshaped face: the face plate translates, the features in front of it lead
  * it by their depth (the nose most), the chin leads it too, the front hair
- * rides the face, the back hair drifts a little the other way, and the torso,
+ * rides the face, the back hair (the head's shell) follows the head a
+ * little, and the torso,
  * which the head hangs from, follows it only a little (`body.ts`). A nod is
  * the same parallax vertically; a roll turns the head about the chin. Every
  * curve is linear in its parameter, so one keyform per extreme carries it
@@ -32,8 +33,8 @@ export interface ProfileValues {
    *  widens to 1 + fore / 2; each eye's and brow's lead scales with its eye's
    *  width. */
   fore: number;
-  /** The back hair takes this share of the plate's motion: against it on the
-   *  turn, with it on the nod. */
+  /** The back hair, the head's shell, takes this share of the plate's motion,
+   *  with it, on the turn and on the nod. */
   backShare: number;
   /** AngleX: the far ear's outer edge moves this share of the plate's slide
    *  (the near ear rides the head). At 0 it holds still and the head slides
@@ -107,7 +108,7 @@ export const PROFILE_VALUES: ProfileValues = {
   noseDepth: 2,
   hairFollow: 1,
   fore: 0.2,
-  backShare: 0.1,
+  backShare: 0.3,
   earFar: 0,
   earFore: 0.1,
   nodDown: 0.18,
@@ -162,7 +163,8 @@ export function deriveProfile(v: ProfileValues) {
      *  takes it only down to its root, `hairSideField`) rides the face at this
      *  share of its translation. */
     hairFollow: v.hairFollow,
-    /** The head's outline at the eye row holds: where the front hair draws
+    /** The head's outline at the eye row turns only as the back hair does
+     *  (`hairBack`, which this share never undercuts): where the front hair draws
      *  it, its outer edge follows the face this much on a row where no back
      *  hair paints behind that edge. Where back hair does, the edge rides
      *  further, as far as that back hair stays behind it through the turn and
@@ -171,8 +173,8 @@ export function deriveProfile(v: ProfileValues) {
      *  rows above the eyes) it follows less where the turn would otherwise
      *  carry it further outside its back hair than the nod alone does. */
     outlineFollow: 0,
-    /** The back hair's slight counter-motion. */
-    hairBack: -v.backShare * v.slide,
+    /** The back hair turns with the head, a share of the plate's slide. */
+    hairBack: v.backShare * v.slide,
     /** The ears lag the plate: the far one's outer edge moves this share of
      *  its slide; the near one rides the head. */
     earFar: v.earFar,

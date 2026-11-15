@@ -2,8 +2,8 @@
  * The head's motion as one displacement field per family, read off the
  * profile (`profile.ts`). A turn is parallax: the plate translates,
  * each feature leads it by its own amount (and the eyes foreshorten about
- * their own centres), the front hair rides it, the back hair drifts slightly
- * against it, and the neck under the jaw does not move. A nod is the same,
+ * their own centres), the front hair rides it, the back hair follows it a
+ * little, and the neck under the jaw does not move. A nod is the same,
  * vertically. Every field is linear in each parameter on each side of rest,
  * so the keyforms at 0 and ±30 carry it exactly, and a turn and a nod add.
  */
@@ -533,7 +533,8 @@ export function hairFrontBends(
  * The front hair: over the face its bangs and the inner parts of its side
  * locks ride the face (and over the far eye, as far as that eye's corner
  * goes); out at the head's outline its outer edge follows only as far as
- * `hairOuter` — the outline is the back hair's, and holds —
+ * `hairOuter`, never less than the back hair's own turn — the outline is
+ * the head's shell, and turns as it does —
  * the lock easing between. On a row where the back hair paints behind that
  * edge at every turn and nod angle, the edge rides further, up to the face's
  * follow, and on its cap less — the cap's blend easing out over the rows
@@ -606,8 +607,9 @@ function hairFrontField(m: TurnModel): Field {
   );
   const followOf = (x: number, y: number, s: number) =>
     followAt(x, y, s) + (ride === undefined ? 0 : ride.lift(x, y, s));
-  // The back hair's own motion against the turn.
-  const drift = Math.abs(m.hairBack);
+  // The back hair's own motion, as a drift against the turn (negative: it
+  // follows the head).
+  const drift = -m.hairBack;
   // On the cap the follow gives up its local cut, then blends toward the
   // back hair's own motion (a follow of −drift).
   const boundOf = (x: number, y: number, s: number) => {
@@ -909,8 +911,9 @@ interface CapEdge {
  * the edge's rest column: `c_in` the least it reaches inside the edge,
  * `c_out` the least past it (both 0 where the back hair is transparent there
  * on any of them, or where the edge rises above the back hair's top looking
- * up). Both layers take the shell's width term, and the back hair drifts
- * against the turn by |hairBack|; above the chin both roll rigidly with the
+ * up). Both layers take the shell's width term, and the back hair moves
+ * with the turn by `hairBack` (`drift` is that, against the turn, so it is
+ * negative); above the chin both roll rigidly with the
  * head, so the roll changes nothing between them.
  *
  * `lift`: how much further than `followAt` the edge rides where the back
@@ -976,7 +979,12 @@ interface CapEdge {
  * that keeps the rows it has, so the ramp there is as short as they allow), so a
  * strand leans
  * across those rows instead of bending in one; a cap row with no bound edge
- * of its own ramps too. That vertex row and those under it keep today's
+ * of its own ramps too. What falls is the cap row's whole ease at that
+ * column — the share of the way from today's hold to the back hair's motion
+ * that its cut and its blend give up together — and a row under it takes
+ * that share, less with distance, as a blend (its own cut, if it has one,
+ * counting toward it): a cap row that meets its bound by its cut alone
+ * still leans the rows under it, rather than handing the cut back in one. That vertex row and those under it keep today's
  * motion, where the far eye's lock and the turn solve's far-iris bound
  * (`strand.y`) read it; the pixel rows between that row and the one above
  * take a fading share of the row above's blend — its blend times their
@@ -1018,7 +1026,7 @@ function outerRide(
   ) {
     return undefined;
   }
-  const drift = Math.abs(m.hairBack);
+  const drift = -m.hairBack;
   const sides = [-1, 1] as const;
   const n = ys.length;
   const count = Math.round(top - ys[n - 1]);
@@ -1206,6 +1214,8 @@ function outerRide(
   // Per vertex row and direction: the motion against the back hair at each
   // vertex column before the blend.
   const motion: (number[] | undefined)[] = new Array(n * 2);
+  // The same before the cut: today's hold against the back hair.
+  const held: (number[] | undefined)[] = new Array(n * 2);
   // The vertex columns from the axis out on each side (one at the axis
   // starts both), as the blend spreads along them.
   const outward = sides.map((side) => {
@@ -1277,16 +1287,9 @@ function outerRide(
         }
       }
       motion[r * 2 + j] = after.map((v) => v + drift);
+      held[r * 2 + j] = today.map((v) => v + drift);
       for (let c = 0; c < nc; c++)
         cuts[(r * 2 + j) * nc + c] = after[c] - today[c];
-    });
-  }
-  // Every other row's motion against the back hair: today's.
-  for (let r = 0; r < n; r++) {
-    sides.forEach((s, j) => {
-      motion[r * 2 + j] ??= xs.map(
-        (x) => followAt(x, ys[r], s) + liftAt(x, ys[r], s) + drift,
-      );
     });
   }
   const at = (r: number, j: number, c: number) => (r * 2 + j) * nc + c;
@@ -1311,6 +1314,16 @@ function outerRide(
     zero < n
       ? ys[zero]
       : Math.min(Math.max(eyeTop, irisTop - 0.5), ys[n - 1] - 1);
+  // Every other row's motion against the back hair: today's. And for every
+  // row, today's own, before any cut.
+  for (let r = 0; r < n; r++) {
+    sides.forEach((s, j) => {
+      motion[r * 2 + j] ??= xs.map(
+        (x) => followAt(x, ys[r], s) + liftAt(x, ys[r], s) + drift,
+      );
+      held[r * 2 + j] ??= motion[r * 2 + j];
+    });
+  }
   // Column by column: going up, no cap row blends less than the one under
   // it; then the ramp; then each row's blend spreads
   // along it (`spreadBlend`). Each only raises a blend, so the passes settle,
@@ -1332,11 +1345,23 @@ function outerRide(
         for (let q = 0; q < r && q <= last; q++) {
           if (wr[q] < 1) continue;
           const k = (ys[r] - endY) / (ys[q] - endY);
-          for (let c = 0; c < nc; c++)
-            blend[at(r, j, c)] = Math.max(
-              blend[at(r, j, c)],
-              blend[at(q, j, c)] * k,
-            );
+          const [mq, hq] = [motion[q * 2 + j]!, held[q * 2 + j]!];
+          const [mr, hr] = [motion[r * 2 + j]!, held[r * 2 + j]!];
+          for (let c = 0; c < nc; c++) {
+            // The share of the way from today's hold to the back hair's
+            // motion that row q gives up here, by its cut and its blend
+            // together (its blend alone where today's hold is no further
+            // along than the back hair) ...
+            const bq = blend[at(q, j, c)];
+            const ease =
+              hq[c] > 0 ? clamp(1 - ((1 - bq) * mq[c]) / hq[c], 0, 1) : bq;
+            // ... and the blend that brings row r's own share, its cut
+            // included, up to k of it.
+            const want = ease * k;
+            const br =
+              mr[c] > 0 && hr[c] > 0 ? 1 - ((1 - want) * hr[c]) / mr[c] : want;
+            blend[at(r, j, c)] = Math.max(blend[at(r, j, c)], br);
+          }
         }
       }
     }
@@ -1354,9 +1379,7 @@ function outerRide(
     if (blend.every((v, i) => v === was[i])) break;
   }
   const cutRow = (r: number, j: number, x: number) =>
-    r > last
-      ? 0
-      : along(cuts.subarray((r * 2 + j) * nc, (r * 2 + j + 1) * nc), x);
+    r > last ? 0 : along(cuts.subarray(at(r, j, 0), at(r, j, nc)), x);
   return {
     lift: liftAt,
     // Between vertex rows, as the render interpolates; a vertex reads its own
