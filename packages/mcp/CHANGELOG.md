@@ -1,5 +1,18 @@
 # @ikijs/mcp
 
+## 0.36.0
+
+### Minor Changes
+
+- 4b84c14: New rig-plan field `turn.farEar`: how far the far ear's outer edge follows the face on a head turn, as a share of the face plate's slide (0 to 1, default 0). At 0 the ear holds and the head slides over it, so about half of a default-sized ear goes under the face; at 1 it rides with the face and stays whole. The default is unchanged, so a rig with no rig plan comes out the same.
+
+### Patch Changes
+
+- 416cef6: An ear the face layer paints is cut off the head where the head's outline is. The ear's band ended on the first row that stepped back in, which on a lobe sloping toward the head is still on the lobe, so the line under the ear ran out over it and the head island carried a wedge of the ear (up to 10 px on the twin-tailed character) that slid over the held ear on a turn. The band now ends on the last row that steps in within an ear's least height of the first. On a face drawn without a neck the head island also runs 3 px past that line, with a mesh column where the edge ends, so a cheek's drawn outline stays whole on the head instead of being halved along the cut. A model rigged again from the same layers differs at its ears' roots, and its far ear shows less at a full turn where the wedge used to stand in for it.
+- Updated dependencies [416cef6]
+- Updated dependencies [4b84c14]
+  - @ikijs/editor@0.33.0
+
 ## 0.35.1
 
 ### Patch Changes
