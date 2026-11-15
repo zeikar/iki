@@ -5,9 +5,9 @@
   },
   "partCount": 30,
   "parameterCount": 30,
-  "atlasBytes": 1493436,
-  "modelBytes": 1868466,
-  "modelSha256": "bdc8c1d5dcc710c1df4c3d9bd99dd233fccf29d4c5e5a5726d55a69ba08067a4",
+  "atlasBytes": 1493808,
+  "modelBytes": 1883250,
+  "modelSha256": "a6c977294b7c3f099b84c3feb8504b3e67a8545e4cb2a86f33438f389f5e1986",
   "turn": {
     "achieved": {
       "eyeShift": 0.1314,
@@ -42,11 +42,11 @@
         "peak": -13.701,
         "at": 0.017,
         "final": 0,
-        "displacementPx": 31.394
+        "displacementPx": 31.4
       },
       "idle": {
         "peak": 3.668,
-        "displacementPx": 8.405
+        "displacementPx": 8.406
       }
     },
     {
@@ -67,7 +67,7 @@
         "peak": -8.807,
         "at": 0.017,
         "final": 0,
-        "displacementPx": 20.182
+        "displacementPx": 20.186
       },
       "idle": {
         "peak": 0.022,
