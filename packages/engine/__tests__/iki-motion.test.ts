@@ -1,11 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   IkiDeformer,
   IkiModel,
   IkiPhysics,
   IkiPhysicsChain,
 } from "@ikijs/format";
-import { StandardParameter } from "@ikijs/format";
+import { IDLE_MOTION_GROUP, StandardParameter } from "@ikijs/format";
 import { IdleMotion, IkiMotion } from "@ikijs/engine";
 
 // --- Test harness (makeSink copied from physics-motion.test.ts) --------------
@@ -231,5 +231,69 @@ describe("IkiMotion", () => {
     for (const series of emissions.values()) {
       expect(series).toHaveLength(3);
     }
+  });
+
+  describe("gaze target", () => {
+    // Degrees the head turns and nods per unit of gaze — NOT imported from impl.
+    const HEAD_FOLLOW_DEG = 10;
+    const FRAME_MS = 16;
+
+    // IkiMotion's idle draws from Math.random. A constant one gives two
+    // instances the same draws, so a difference between them is the target.
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    /** Run `m` for 10 s, setting `target` (if any) before the first update. */
+    function run(
+      m: IkiModel,
+      target?: [number, number],
+    ): Map<string, number[]> {
+      const { sink, emissions } = makeSink();
+      const motion = new IkiMotion(m, () => 0, sink);
+      if (target) motion.setGazeTarget(...target);
+      for (let t = 0; t <= 10000; t += FRAME_MS) motion.update(t);
+      return emissions;
+    }
+
+    it("reaches the sink as the eyes and the head", () => {
+      vi.spyOn(Math, "random").mockReturnValue(0.37);
+      const a = run(model(), [1, 0.5]);
+      const b = run(model(), [-1, -0.5]);
+      const last = (m: Map<string, number[]>, id: string) => m.get(id)!.at(-1)!;
+      expect(last(a, StandardParameter.EyeballX)).toBeCloseTo(1, 5);
+      expect(last(a, StandardParameter.EyeballY)).toBeCloseTo(0.5, 5);
+      expect(
+        last(a, StandardParameter.AngleX) - last(b, StandardParameter.AngleX),
+      ).toBeCloseTo(2 * HEAD_FOLLOW_DEG, 3);
+      expect(
+        last(a, StandardParameter.AngleY) - last(b, StandardParameter.AngleY),
+      ).toBeCloseTo(HEAD_FOLLOW_DEG, 3);
+    });
+
+    it("moves nothing under a declared Idle group: idle's head and gaze are dropped", () => {
+      vi.spyOn(Math, "random").mockReturnValue(0.37);
+      const withIdle = model({
+        motions: {
+          [IDLE_MOTION_GROUP]: [
+            {
+              description: "hold the turn",
+              duration: 1,
+              fadeIn: 0,
+              fadeOut: 0,
+              curves: [{ parameter: StandardParameter.AngleX, keys: [[0, 5]] }],
+            },
+          ],
+        },
+      });
+      const targeted = run(withIdle, [1, 0.5]);
+      expect(targeted).toEqual(run(withIdle));
+      expect(targeted.has(StandardParameter.EyeballX)).toBe(false);
+      expect(targeted.has(StandardParameter.EyeballY)).toBe(false);
+      expect(targeted.has(StandardParameter.AngleY)).toBe(false);
+      expect(new Set(targeted.get(StandardParameter.AngleX))).toEqual(
+        new Set([5]),
+      );
+    });
   });
 });

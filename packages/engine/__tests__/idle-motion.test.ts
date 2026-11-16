@@ -522,6 +522,184 @@ describe("gaze", () => {
 });
 
 // ---------------------------------------------------------------------------
+// host gaze target
+// ---------------------------------------------------------------------------
+
+describe("host gaze target", () => {
+  const FRAME_MS = 16;
+  const TEN_S = timestamps(0, 10000 / FRAME_MS + 1, FRAME_MS);
+
+  /**
+   * Drive like {@link drive}, calling `host(idle, t)` before each update so a
+   * test can set or clear the target at chosen times.
+   */
+  function driveHost(
+    ts: number[],
+    rng: () => number,
+    host: (idle: IdleMotion, t: number) => void,
+  ): Map<string, number[]> {
+    const { sink, emissions } = makeSink();
+    const idle = new IdleMotion(sink, { rng });
+    for (const t of ts) {
+      host(idle, t);
+      idle.update(t);
+    }
+    return emissions;
+  }
+
+  /** The frame index of timestamp `ms` in a run starting at 0. */
+  const at = (ms: number) => ms / FRAME_MS;
+
+  it("pulls EyeballX/Y to the target and holds it across scheduled retargets", () => {
+    for (const seed of [1, 7, 42]) {
+      const held = driveHost(TEN_S, lcg(seed), (idle, t) => {
+        if (t === 0) idle.setGazeTarget(0.3, -0.2);
+      });
+      const free = drive(TEN_S, lcg(seed));
+      const xs = held.get(StandardParameter.EyeballX)!.slice(at(1008));
+      const ys = held.get(StandardParameter.EyeballY)!.slice(at(1008));
+      for (const v of xs) expect(v).toBeCloseTo(0.3, 5);
+      for (const v of ys) expect(v).toBeCloseTo(-0.2, 5);
+      // Over the same window the same rng retargets the free eyes.
+      const freeXs = free.get(StandardParameter.EyeballX)!.slice(at(1008));
+      expect(Math.max(...freeXs) - Math.min(...freeXs)).toBeGreaterThan(0.1);
+    }
+  });
+
+  it("turns and nods the head by the follow gain, up to its full ±1 reach", () => {
+    // Two runs on the same rng and opposite targets: the springs are linear,
+    // so their difference is the follow alone, the noise cancelled out.
+    const a = driveHost(TEN_S, lcg(3), (idle, t) => {
+      if (t === 0) idle.setGazeTarget(1, 0.5);
+    });
+    const b = driveHost(TEN_S, lcg(3), (idle, t) => {
+      if (t === 0) idle.setGazeTarget(-1, -0.5);
+    });
+    const last = (m: Map<string, number[]>, id: string) => m.get(id)!.at(-1)!;
+    expect(
+      last(a, StandardParameter.AngleX) - last(b, StandardParameter.AngleX),
+    ).toBeCloseTo(2 * HEAD_FOLLOW_X_DEG, 3);
+    expect(
+      last(a, StandardParameter.AngleY) - last(b, StandardParameter.AngleY),
+    ).toBeCloseTo(HEAD_FOLLOW_Y_DEG, 3);
+    // The roll does not follow the gaze.
+    expect(a.get(StandardParameter.AngleZ)).toEqual(
+      b.get(StandardParameter.AngleZ),
+    );
+  });
+
+  it("clamps each value to [-1, 1]", () => {
+    const over = driveHost(TEN_S, lcg(5), (idle, t) => {
+      if (t === 0) idle.setGazeTarget(3, -2);
+    });
+    const edge = driveHost(TEN_S, lcg(5), (idle, t) => {
+      if (t === 0) idle.setGazeTarget(1, -1);
+    });
+    expect(over).toEqual(edge);
+    expect(over.get(StandardParameter.EyeballX)!.at(-1)).toBeCloseTo(1, 5);
+    expect(over.get(StandardParameter.EyeballY)!.at(-1)).toBeCloseTo(-1, 5);
+  });
+
+  it("ignores a pair with NaN or Infinity in it", () => {
+    const bad: [number, number][] = [
+      [NaN, 0.5],
+      [0.5, Infinity],
+      [-Infinity, NaN],
+    ];
+    // Over a set target: the target stays.
+    const pelted = driveHost(TEN_S, lcg(9), (idle, t) => {
+      if (t === 0) idle.setGazeTarget(0.3, 0.2);
+      if (t === 2000) for (const [x, y] of bad) idle.setGazeTarget(x, y);
+    });
+    const kept = driveHost(TEN_S, lcg(9), (idle, t) => {
+      if (t === 0) idle.setGazeTarget(0.3, 0.2);
+    });
+    expect(pelted).toEqual(kept);
+    // With no target: none is set, the scheduled gaze runs on.
+    const unset = driveHost(TEN_S, lcg(9), (idle, t) => {
+      if (t === 0) for (const [x, y] of bad) idle.setGazeTarget(x, y);
+    });
+    expect(unset).toEqual(drive(TEN_S, lcg(9)));
+  });
+
+  it("on clear, the eyes go back to the scheduled pick at once and later picks drive them", () => {
+    // Draws: blink at 6 s, first retarget at 3.3 s, three noise seeds, then the
+    // retarget's eye-contact coin (over the odds = a look), x and y at the box
+    // corner (-0.8, -0.5), and the next wait (3.3 s, so the pick holds to 6.6 s).
+    const script = [1, 1, 0.3, 0.6, 0.9, 0.99, 0, 0, 1];
+    const ts = timestamps(0, 12000 / FRAME_MS + 1, FRAME_MS);
+    const hosted = driveHost(ts, cyclingRng(script), (idle, t) => {
+      if (t === 0) idle.setGazeTarget(1, 1);
+      if (t === 4000) idle.clearGazeTarget();
+    });
+    const free = drive(ts, cyclingRng(script));
+    const xs = hosted.get(StandardParameter.EyeballX)!;
+    const ys = hosted.get(StandardParameter.EyeballY)!;
+    // Held on the host target past the 3.3 s retarget, up to the clear.
+    expect(xs[at(3984)]).toBeCloseTo(1, 5);
+    expect(ys[at(3984)]).toBeCloseTo(1, 5);
+    // 0.6 s after the clear, long before the next retarget, the eyes are on
+    // the pick the schedule made while the host held them.
+    expect(xs[at(4592)]).toBeCloseTo(-GAZE_X_MAX, 3);
+    expect(ys[at(4592)]).toBeCloseTo(-GAZE_Y_MAX, 3);
+    // From there on they track the run that never had a host target, through
+    // the later retargets.
+    const freeXs = free.get(StandardParameter.EyeballX)!;
+    const freeYs = free.get(StandardParameter.EyeballY)!;
+    for (let k = at(5008); k < xs.length; k++) {
+      expect(xs[k]).toBeCloseTo(freeXs[k], 5);
+      expect(ys[k]).toBeCloseTo(freeYs[k], 5);
+    }
+    expect(
+      Math.max(...freeXs.slice(at(5008))) - Math.min(...freeXs.slice(at(5008))),
+    ).toBeGreaterThan(0.1);
+  });
+
+  it("host calls draw nothing: after set and clear, every pick is drawn on the same frame", () => {
+    // The frame being driven, read by the recording rngs.
+    let frame = -1;
+    /** An lcg that records the frame index of each draw. */
+    function recording(seed: number): { rng: () => number; frames: number[] } {
+      const next = lcg(seed);
+      const frames: number[] = [];
+      return {
+        rng: () => {
+          frames.push(frame);
+          return next();
+        },
+        frames,
+      };
+    }
+    const ts = timestamps(0, 20000 / FRAME_MS + 1, FRAME_MS);
+    for (const seed of [1, 7, 42]) {
+      const a = recording(seed);
+      const b = recording(seed);
+      frame = -1;
+      const hosted = driveHost(ts, a.rng, (idle, t) => {
+        frame = at(t);
+        if (t === 1008) idle.setGazeTarget(-0.9, 0.7);
+        if (t === 2000) idle.setGazeTarget(0.4, -0.6);
+        if (t === 6000) idle.clearGazeTarget();
+      });
+      frame = -1;
+      const free = driveHost(ts, b.rng, (_, t) => {
+        frame = at(t);
+      });
+      expect(a.frames).toEqual(b.frames);
+      // The draws ran on through the hold: picks were made inside it.
+      const during = a.frames.filter((f) => f > at(1008) && f < at(6000));
+      expect(during.length).toBeGreaterThan(0);
+      // So, once the springs settle, the two runs write the same gaze.
+      const xs = hosted.get(StandardParameter.EyeballX)!;
+      const freeXs = free.get(StandardParameter.EyeballX)!;
+      for (let k = at(7008); k < xs.length; k++) {
+        expect(xs[k]).toBeCloseTo(freeXs[k], 5);
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // head sway
 // ---------------------------------------------------------------------------
 

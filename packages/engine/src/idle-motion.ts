@@ -172,6 +172,9 @@ export interface IdleMotionOptions {
  * chasing a seeded two-octave noise, so it drifts, settles and pauses; on the
  * turn and nod it also follows the gaze, behind the eyes. The noise seeds are
  * drawn from the rng once, in the constructor; the gaze targets as it jumps.
+ * A host can hold the gaze on a point of its own (a pointer, a face tracker)
+ * with {@link setGazeTarget}; the scheduled jumps resume on
+ * {@link clearGazeTarget}.
  *
  * Usage:
  *   const idle = new IdleMotion(player.setParameter.bind(player));
@@ -210,12 +213,15 @@ export class IdleMotion {
   private nextBlinkAtMs: number;
   private blinkStartMs = -1; // -1 means not currently blinking
 
-  // Gaze state: the target starts at eye contact, (0, 0), until the first retarget.
+  // Gaze state: the scheduled pick starts at eye contact, (0, 0), until the
+  // first retarget. A host target, while set, replaces the pick as what the
+  // eyes and head chase; the schedule keeps picking underneath it.
   private readonly eyeX = new Spring(EYE_SPRING_OMEGA, EYE_SPRING_ZETA);
   private readonly eyeY = new Spring(EYE_SPRING_OMEGA, EYE_SPRING_ZETA);
   private gazeTargetX = 0;
   private gazeTargetY = 0;
   private nextGazeRetargetMs: number;
+  private hostGaze: { x: number; y: number } | undefined = undefined;
 
   // Head state: one noise seed and one spring per axis (X turn, Y nod, Z roll).
   private readonly headSeedX: number;
@@ -304,6 +310,32 @@ export class IdleMotion {
     this.sink(StandardParameter.AmbientSway, this.ambientSway());
   }
 
+  /**
+   * Hold the gaze on (`x`, `y`), in EyeballX/Y units (+ is the viewer's right
+   * and up), until {@link clearGazeTarget}: the eyes chase it on their stiff
+   * springs and the head follows it on the turn and nod, as it follows a
+   * scheduled pick. Each value is clamped to [-1, 1], so the follow can reach
+   * past the scheduled picks' ±0.8 / ±0.5 box. A pair with a non-finite value
+   * is ignored and changes nothing, the same boundary rule as
+   * ParameterStore.set.
+   *
+   * The scheduled retargets keep running and drawing from the rng while a host
+   * target is set, so the rng sequence does not depend on host calls.
+   */
+  setGazeTarget(x: number, y: number): void {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    this.hostGaze = { x: clamp(x, -1, 1), y: clamp(y, -1, 1) };
+  }
+
+  /**
+   * Drop the host target: the eyes and head turn back to the current
+   * scheduled pick at once (a pointer leaving does not leave the eyes frozen
+   * until the next retarget), and later picks drive them as before.
+   */
+  clearGazeTarget(): void {
+    this.hostGaze = undefined;
+  }
+
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
@@ -360,7 +392,7 @@ export class IdleMotion {
   /**
    * Step each head spring toward its axis noise at the internal clock, plus,
    * on the turn and nod, the gaze target scaled to degrees. Only the noise
-   * fades in: the gaze target starts at (0, 0), so it has no start value to
+   * fades in: the scheduled pick starts at (0, 0), so it has no start value to
    * lurch to, and its first jump is no larger than any later one.
    */
   private advanceHead(dt: number): void {
@@ -370,14 +402,14 @@ export class IdleMotion {
       easeIn *
         HEAD_NOISE_AMP_X_DEG *
         fbm(this.headSeedX, seconds * HEAD_NOISE_RATE_X_HZ) +
-        HEAD_FOLLOW_X_DEG * this.gazeTargetX,
+        HEAD_FOLLOW_X_DEG * (this.hostGaze?.x ?? this.gazeTargetX),
       dt,
     );
     this.headY.step(
       easeIn *
         HEAD_NOISE_AMP_Y_DEG *
         fbm(this.headSeedY, seconds * HEAD_NOISE_RATE_Y_HZ) +
-        HEAD_FOLLOW_Y_DEG * this.gazeTargetY,
+        HEAD_FOLLOW_Y_DEG * (this.hostGaze?.y ?? this.gazeTargetY),
       dt,
     );
     this.headZ.step(
@@ -397,7 +429,10 @@ export class IdleMotion {
     );
   }
 
-  /** Step the eye springs toward the gaze target; retarget on the internal clock. */
+  /**
+   * Step the eye springs toward the gaze target, the host's while set, else
+   * the scheduled pick; retarget on the internal clock either way.
+   */
   private advanceGaze(dt: number): void {
     // Retarget check reads clockMs so a clamped pause can't skip retargets.
     if (this.clockMs >= this.nextGazeRetargetMs) {
@@ -412,7 +447,7 @@ export class IdleMotion {
         this.clockMs +
         lerp(GAZE_RETARGET_MIN_MS, GAZE_RETARGET_MAX_MS, this.rng());
     }
-    this.eyeX.step(this.gazeTargetX, dt);
-    this.eyeY.step(this.gazeTargetY, dt);
+    this.eyeX.step(this.hostGaze?.x ?? this.gazeTargetX, dt);
+    this.eyeY.step(this.hostGaze?.y ?? this.gazeTargetY, dt);
   }
 }

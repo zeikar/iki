@@ -163,6 +163,25 @@ export class IkiMotion {
   }
 
   /**
+   * Hold the idle gaze on (`x`, `y`) until {@link clearGazeTarget}: the eyes
+   * go there and the head follows on the turn and nod, as
+   * {@link IdleMotion.setGazeTarget} describes (clamped to [-1, 1]; a pair
+   * with a non-finite value is ignored).
+   *
+   * Under a declared `Idle` motion group this moves nothing: idle's head and
+   * gaze writes are dropped, so a host that wants the eyes on a point writes
+   * EyeballX/Y itself after {@link update}.
+   */
+  setGazeTarget(x: number, y: number): void {
+    this.idle.setGazeTarget(x, y);
+  }
+
+  /** Drop the host gaze target; the idle's own gaze resumes. */
+  clearGazeTarget(): void {
+    this.idle.clearGazeTarget();
+  }
+
+  /**
    * Advance everything to the same wall-clock timestamp (milliseconds), in
    * this order:
    *
