@@ -1,28 +1,17 @@
 /**
  * The landing page's live hero: the model the playground opens, played by the
- * engine over the still render, its head and eyes following the mouse. The
- * still stays whenever this cannot run — reduced motion, no WebGL2, a failed
- * fetch or texture — so the page never shows an empty frame.
+ * engine over the still render. The eyes go to the mouse and the head follows
+ * through the engine's idle (setGazeTarget). The still stays whenever this
+ * cannot run — reduced motion, no WebGL2, a failed fetch or texture — so the
+ * page never shows an empty frame.
  */
 import { IkiMotion, IkiPlayer } from "@ikijs/engine";
-import {
-  StandardParameter,
-  parseIkiModel,
-  type IkiParameter,
-} from "@ikijs/format";
+import { parseIkiModel, type IkiParameter } from "@ikijs/format";
 
-// Full pointer deflection turns the head this many degrees. Short of the ±30
-// limit so the idle sway still shows on top — Charivo's render-iki host uses
-// the same headroom.
-const HEAD_RANGE_DEG = 26;
 // Where the face sits in the model canvas, as fractions of its size. The
 // pointer is measured from here, so the character looks at the cursor rather
 // than at the canvas centre.
 const FACE = { x: 0.5, y: 0.44 };
-// Seconds to cover ~63% of the way to a new target: the eyes snap to the
-// cursor and the head follows, which is what reads as looking at it.
-const EYE_EASE_S = 0.08;
-const HEAD_EASE_S = 0.3;
 
 interface Gaze {
   x: number;
@@ -111,47 +100,22 @@ async function play(
     };
   }
 
-  // Eased toward the pointer while it is on the page and back to rest when it
-  // leaves; `eyeWeight` hands the eyes from the idle drift to the cursor.
-  const head: Gaze = { x: 0, y: 0 };
-  const eyes: Gaze = { x: 0, y: 0 };
-  let eyeWeight = 0;
-
-  // The blend runs in the sink, before the player, so the hair springs lag
-  // the turned head rather than the idle one.
   const motion = new IkiMotion(
     model,
     (id) => player.getParameter(id),
-    (id, value) => player.setParameter(id, blend(id, value)),
+    (id, value) => player.setParameter(id, value),
   );
-  function blend(id: string, value: number): number {
-    switch (id) {
-      case StandardParameter.AngleX:
-        return value + HEAD_RANGE_DEG * head.x;
-      case StandardParameter.AngleY:
-        return value + HEAD_RANGE_DEG * head.y;
-      case StandardParameter.EyeballX:
-        return value + (eyes.x - value) * eyeWeight;
-      case StandardParameter.EyeballY:
-        return value + (eyes.y - value) * eyeWeight;
-      default:
-        return value;
-    }
-  }
 
   // The panel under the hero says its values produced the frame above, so it
   // reads the live pose while the live hero shows; the still brings back its own.
   const rows = paramRows(model.parameters);
 
-  let last = performance.now();
   let rafId = 0;
   function frame(now: number): void {
-    const dt = Math.min(0.1, (now - last) / 1000);
-    last = now;
-    const target = pointer ? gazeAt(pointer) : { x: 0, y: 0 };
-    ease(head, target, HEAD_EASE_S, dt);
-    ease(eyes, target, EYE_EASE_S, dt);
-    eyeWeight += ((pointer ? 1 : 0) - eyeWeight) * easeStep(EYE_EASE_S, dt);
+    if (pointer) {
+      const g = gazeAt(pointer);
+      motion.setGazeTarget(g.x, g.y);
+    } else motion.clearGazeTarget();
     motion.update(now);
     // From the moment the canvas starts fading in over the still.
     if (figure.classList.contains("is-live")) {
@@ -161,7 +125,6 @@ async function play(
   }
 
   function resume(): void {
-    last = performance.now();
     // Registered before start() so each pose lands in the frame it is computed.
     rafId = requestAnimationFrame(frame);
     player.start();
@@ -217,16 +180,6 @@ function showValue(row: ParamRow, value: number): void {
   // Two decimals with a true minus sign, as the page's still values are set.
   const digits = Math.abs(value).toFixed(2);
   row.val.textContent = value < 0 && digits !== "0.00" ? `−${digits}` : digits;
-}
-
-function ease(value: Gaze, target: Gaze, seconds: number, dt: number): void {
-  const k = easeStep(seconds, dt);
-  value.x += (target.x - value.x) * k;
-  value.y += (target.y - value.y) * k;
-}
-
-function easeStep(seconds: number, dt: number): number {
-  return 1 - Math.exp(-dt / seconds);
 }
 
 function clamp(v: number): number {
