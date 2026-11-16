@@ -8,7 +8,14 @@ const BLINK_CLOSE_MS = 60;
 const BLINK_HOLD_MS = 20;
 const BLINK_DURATION_MS = 180;
 const BREATH_PERIOD_MS = 3500;
-const GAZE_RADIUS = 0.3;
+const GAZE_X_MAX = 0.8;
+const GAZE_Y_MAX = 0.5;
+const GAZE_RETARGET_MIN_MS = 800;
+const GAZE_RETARGET_MAX_MS = 3300;
+const GAZE_EYE_CONTACT_P = 0.4;
+// Head degrees per unit of gaze target, turn and nod.
+const HEAD_FOLLOW_X_DEG = 10;
+const HEAD_FOLLOW_Y_DEG = 10;
 
 const EMITTED_IDS = new Set([
   StandardParameter.EyeOpenLeft,
@@ -23,8 +30,11 @@ const EMITTED_IDS = new Set([
 ]);
 
 // Head-idle noise amplitudes matching the impl's intent — NOT imported from impl.
-const HEAD_X_MAX_DEG = 6;
-const HEAD_Y_MAX_DEG = 4;
+const HEAD_NOISE_X_DEG = 6;
+const HEAD_NOISE_Y_DEG = 4;
+// The turn and nod add the gaze follow on top of their noise.
+const HEAD_X_MAX_DEG = HEAD_NOISE_X_DEG + HEAD_FOLLOW_X_DEG * GAZE_X_MAX;
+const HEAD_Y_MAX_DEG = HEAD_NOISE_Y_DEG + HEAD_FOLLOW_Y_DEG * GAZE_Y_MAX;
 const HEAD_Z_MAX_DEG = 4;
 // The springs chasing the noise may overshoot it a little.
 const SPRING_OVERSHOOT = 1.1;
@@ -213,7 +223,7 @@ describe("blink envelope", () => {
 describe("blink", () => {
   /**
    * With rng()[0]=0: nextBlinkAtMs = lerp(1500, 6000, 0) = 1500.
-   * With rng()[1]=1: nextGazeRetargetMs = lerp(1200, 3000, 1) = 3000 (safely after blink).
+   * With rng()[1]=1: nextGazeRetargetMs = lerp(800, 3300, 1) = 3300 (safely after blink).
    * dt is clamped to 100ms, so advancing clock by 1500ms needs 15 steps.
    * After the first (anchor) update: prevNowMs = 0, clockMs stays 0.
    * Then 15 updates of 100ms → clockMs = 1500 → blink triggers.
@@ -222,7 +232,7 @@ describe("blink", () => {
    */
   it("eye values dip near 0 at mid-blink and return to 1 after, asymmetrically", () => {
     const { sink, emissions } = makeSink();
-    // rng call order: [0]=blinkAt (0→1500ms), [1]=gazeAt (1→3000ms, past our test window)
+    // rng call order: [0]=blinkAt (0→1500ms), [1]=gazeAt (1→3300ms, past our test window)
     // [2..4]=head noise seeds, [5]=next blinkAt after blink ends (0.5→safe interval)
     const rng = cyclingRng([0, 1, 0.5]);
     const motion = new IdleMotion(sink, { rng });
@@ -341,19 +351,173 @@ describe("breath", () => {
 // ---------------------------------------------------------------------------
 
 describe("gaze", () => {
-  it("every (x, y) gaze emission stays within radius 0.3 + small tolerance", () => {
-    const eps = 0.01;
-    const emissions = drive(
-      timestamps(0, 200, 16), // ~200 frames at ~60fps equivalent
-      cyclingRng([0, 0.5]), // triggers retargets
-    );
+  const FRAME_MS = 16;
+  const TEN_MIN = timestamps(0, 600000 / FRAME_MS + 1, FRAME_MS);
+  const SEEDS = [1, 7, 42];
+  const runs = SEEDS.map((seed) => drive(TEN_MIN, lcg(seed)));
+  // Per-frame eye movement under this is still. A hold (0.8 s at least) is
+  // far longer than a landing (~0.3 s), so the eyes are still before every
+  // jump, and the jump's first frame moves well over it.
+  const STILL = 1e-4;
+  // A settled position this close to (0, 0) is eye contact.
+  const CONTACT = 1e-5;
+  // A jump needs this many still frames before it (100 ms): a landing's
+  // overshoot turns back through one still frame, a real hold is 0.8 s.
+  const SETTLED_FRAMES = 6;
+
+  type Hold = { frame: number; x: number; y: number };
+
+  /**
+   * The points a run's eyes hold, in order: the frame the eyes left for each
+   * (the retarget's frame; 0 for the rest pose they start on) and where they
+   * settled, read on the last still frame before the next jump. The last,
+   * unfinished hold is left out. A retarget to the point already held (eye
+   * contact twice) shows no jump, so it extends the hold.
+   */
+  function holdsOf(emissions: Map<string, number[]>): Hold[] {
     const xs = emissions.get(StandardParameter.EyeballX)!;
     const ys = emissions.get(StandardParameter.EyeballY)!;
-
-    for (let i = 0; i < xs.length; i++) {
-      const r = Math.hypot(xs[i], ys[i]);
-      expect(r).toBeLessThanOrEqual(GAZE_RADIUS + eps);
+    const moves = (k: number) =>
+      Math.abs(xs[k] - xs[k - 1]) >= STILL ||
+      Math.abs(ys[k] - ys[k - 1]) >= STILL;
+    const out: Hold[] = [];
+    let start = 0;
+    for (let k = 1; k < xs.length; k++) {
+      const settled =
+        k === 1 ||
+        (k > SETTLED_FRAMES &&
+          Array.from({ length: SETTLED_FRAMES }, (_, i) => k - 1 - i).every(
+            (j) => !moves(j),
+          ));
+      if (moves(k) && settled) {
+        out.push({ frame: start, x: xs[k - 1], y: ys[k - 1] });
+        start = k;
+      }
     }
+    return out;
+  }
+  const seen = runs.map(holdsOf);
+  const isContact = (h: Hold) =>
+    Math.abs(h.x) < CONTACT && Math.abs(h.y) < CONTACT;
+
+  it("stays within ±0.8 / ±0.5, give or take a little spring overshoot", () => {
+    const OVERSHOOT = 0.01;
+    for (const emissions of runs) {
+      for (const v of emissions.get(StandardParameter.EyeballX)!) {
+        expect(Math.abs(v)).toBeLessThanOrEqual(GAZE_X_MAX + OVERSHOOT);
+      }
+      for (const v of emissions.get(StandardParameter.EyeballY)!) {
+        expect(Math.abs(v)).toBeLessThanOrEqual(GAZE_Y_MAX + OVERSHOOT);
+      }
+    }
+    // Where the eyes settle ranges over the box, not a small disk at its center.
+    const all = seen.flat();
+    for (const h of all) {
+      expect(Math.abs(h.x)).toBeLessThanOrEqual(GAZE_X_MAX + CONTACT);
+      expect(Math.abs(h.y)).toBeLessThanOrEqual(GAZE_Y_MAX + CONTACT);
+    }
+    expect(Math.max(...all.map((h) => Math.abs(h.x)))).toBeGreaterThan(0.7);
+    expect(Math.max(...all.map((h) => Math.abs(h.y)))).toBeGreaterThan(0.4);
+  });
+
+  it("stays in range and settles at the 100 ms frame cap", () => {
+    // Every frame a clamped 100 ms step: the stiff eye springs must not ring.
+    const slow = drive(timestamps(0, 1201, 100), lcg(3));
+    const xs = slow.get(StandardParameter.EyeballX)!;
+    for (const v of xs) {
+      expect(Math.abs(v)).toBeLessThanOrEqual(GAZE_X_MAX + 0.01);
+    }
+    // Each hold ends still: 0.8 s is long enough to land at any frame rate.
+    const still = xs.filter((v, i) => i > 0 && Math.abs(v - xs[i - 1]) < 1e-4);
+    expect(still.length).toBeGreaterThan(xs.length / 2);
+  });
+
+  it("returns to eye contact, (0, 0), on about 40 % of retargets", () => {
+    // A jump away from a point off-center always shows, so the share of
+    // those that land on (0, 0) is the eye-contact odds.
+    let fromOff = 0;
+    let toContact = 0;
+    for (const hs of seen) {
+      for (let i = 1; i < hs.length; i++) {
+        if (isContact(hs[i - 1])) continue;
+        fromOff++;
+        if (isContact(hs[i])) toContact++;
+      }
+    }
+    expect(fromOff).toBeGreaterThan(300);
+    expect(toContact / fromOff).toBeGreaterThan(GAZE_EYE_CONTACT_P - 0.08);
+    expect(toContact / fromOff).toBeLessThan(GAZE_EYE_CONTACT_P + 0.08);
+  });
+
+  it("holds each point for 0.8–3.3 s between retargets", () => {
+    const offCenter: number[] = [];
+    for (const hs of seen) {
+      for (let i = 1; i < hs.length; i++) {
+        const ms = (hs[i].frame - hs[i - 1].frame) * FRAME_MS;
+        // A retarget fires on the first frame at or past its time.
+        expect(ms).toBeGreaterThanOrEqual(GAZE_RETARGET_MIN_MS);
+        // Eye contact may be held across two retargets, so only an off-center
+        // hold is one interval for sure.
+        if (!isContact(hs[i - 1])) offCenter.push(ms);
+      }
+    }
+    for (const ms of offCenter) {
+      expect(ms).toBeLessThan(GAZE_RETARGET_MAX_MS + FRAME_MS);
+    }
+    // Spread across the range, not one fixed beat.
+    expect(Math.min(...offCenter)).toBeLessThan(1000);
+    expect(Math.max(...offCenter)).toBeGreaterThan(3100);
+  });
+
+  it("lands within 5 % of the jump by 0.3 s after every retarget", () => {
+    const LAND_FRAMES = Math.round(300 / FRAME_MS);
+    runs.forEach((emissions, i) => {
+      const xs = emissions.get(StandardParameter.EyeballX)!;
+      const ys = emissions.get(StandardParameter.EyeballY)!;
+      const hs = seen[i];
+      for (let j = 1; j < hs.length; j++) {
+        const h = hs[j];
+        const k = h.frame + LAND_FRAMES;
+        const jump = Math.hypot(h.x - hs[j - 1].x, h.y - hs[j - 1].y);
+        expect(Math.hypot(h.x - xs[k], h.y - ys[k])).toBeLessThanOrEqual(
+          0.05 * jump,
+        );
+      }
+    });
+  });
+
+  it("leads the head: the turn reaches half its follow later than the eyes reach half their jump", () => {
+    // Two runs on the same head-noise seeds whose first retarget (at 0.8 s)
+    // differs: eye contact in one, a look to (0.8, 0) in the other. The springs
+    // are linear, so the difference between the runs is the response to the
+    // gaze alone, the noise cancelled out.
+    // Draws: blink at 6 s, first retarget at 0.8 s, three noise seeds, then the
+    // retarget's eye-contact coin (under the odds = contact), its x and y, and
+    // the next wait (3.3 s, past the window).
+    const contact = cyclingRng([1, 0, 0.3, 0.6, 0.9, 0, 1]);
+    const look = cyclingRng([1, 0, 0.3, 0.6, 0.9, 0.99, 1, 0.5, 1]);
+    const ts = timestamps(0, 3000 / 8 + 1, 8);
+    const a = drive(ts, contact);
+    const b = drive(ts, look);
+    const diff = (id: string) => {
+      const sa = a.get(id)!;
+      return b.get(id)!.map((v, i) => v - sa[i]);
+    };
+    const eye = diff(StandardParameter.EyeballX);
+    const head = diff(StandardParameter.AngleX);
+    // Nothing differs before the retarget; after it the eyes go to 0.8 and the
+    // head to 0.8 of its follow, the same way (a look right turns it right).
+    const firstMove = eye.findIndex((v) => v !== 0);
+    expect(firstMove).toBe(800 / 8);
+    expect(head.slice(0, firstMove).every((v) => v === 0)).toBe(true);
+    expect(eye.at(-1)!).toBeCloseTo(GAZE_X_MAX, 3);
+    expect(head.at(-1)!).toBeCloseTo(HEAD_FOLLOW_X_DEG * GAZE_X_MAX, 1);
+    const eyeHalf = eye.findIndex((v) => v >= GAZE_X_MAX / 2);
+    const headHalf = head.findIndex(
+      (v) => v >= (HEAD_FOLLOW_X_DEG * GAZE_X_MAX) / 2,
+    );
+    expect(eyeHalf).toBeGreaterThan(firstMove);
+    expect(headHalf).toBeGreaterThan(eyeHalf);
   });
 });
 
@@ -372,6 +536,51 @@ describe("head idle", () => {
     [StandardParameter.AngleZ, HEAD_Z_MAX_DEG],
   ] as const;
   const runs = new Map(SEEDS.map((seed) => [seed, drive(TWO_MIN, lcg(seed))]));
+
+  /**
+   * An idle on `seed` with its gaze held on the viewer, the head on its noise
+   * alone: the seeded draws build it, then every draw while it runs is 0, so
+   * each retarget is eye contact again.
+   */
+  function noiseOnlyMotion(
+    seed: number,
+    sink: (id: string, value: number) => void,
+  ): IdleMotion {
+    const seeded = lcg(seed);
+    let running = false;
+    const motion = new IdleMotion(sink, {
+      rng: () => (running ? 0 : seeded()),
+    });
+    running = true;
+    return motion;
+  }
+  const noiseOnly = SEEDS.map((seed) => {
+    const { sink, emissions } = makeSink();
+    const motion = noiseOnlyMotion(seed, sink);
+    for (const t of TWO_MIN) motion.update(t);
+    return emissions;
+  });
+
+  it("the noise alone stays within its own amplitude, give or take spring overshoot", () => {
+    const NOISE_AXES = [
+      [StandardParameter.AngleX, HEAD_NOISE_X_DEG],
+      [StandardParameter.AngleY, HEAD_NOISE_Y_DEG],
+      [StandardParameter.AngleZ, HEAD_Z_MAX_DEG],
+    ] as const;
+    for (const emissions of noiseOnly) {
+      for (const id of [
+        StandardParameter.EyeballX,
+        StandardParameter.EyeballY,
+      ]) {
+        expect(emissions.get(id)!.every((v) => v === 0)).toBe(true);
+      }
+      for (const [id, amp] of NOISE_AXES) {
+        for (const v of emissions.get(id)!) {
+          expect(Math.abs(v)).toBeLessThanOrEqual(amp * SPRING_OVERSHOOT);
+        }
+      }
+    }
+  });
 
   it("each axis stays within its amplitude, give or take spring overshoot", () => {
     for (const emissions of runs.values()) {
@@ -412,7 +621,9 @@ describe("head idle", () => {
   });
 
   it("never jumps between frames, even across a huge dt", () => {
-    const MAX_JUMP_DEG = 0.5;
+    // The gaze follow's widest swing, 16° across the box, peaks near 50°/s:
+    // under 1° a 16 ms frame.
+    const MAX_JUMP_DEG = 1;
     for (const emissions of runs.values()) {
       for (const [id] of AXES) {
         const series = emissions.get(id)!;
@@ -424,33 +635,39 @@ describe("head idle", () => {
       }
     }
     // 60-second freeze mid-run: dt clamps to 100 ms, one spring step at most.
+    // On the noise alone: mid gaze-follow swing, a 100 ms step may rightly
+    // move the head several degrees, so this would pass by seed luck.
+    const FREEZE_JUMP_DEG = 0.5;
     const { sink, emissions } = makeSink();
-    const motion = new IdleMotion(sink, { rng: lcg(5) });
+    const motion = noiseOnlyMotion(5, sink);
     for (let t = 0; t <= 5000; t += FRAME_MS) motion.update(t);
     const before = AXES.map(([id]) => emissions.get(id)!.at(-1)!);
     motion.update(65000);
     AXES.forEach(([id], i) => {
       const after = emissions.get(id)!.at(-1)!;
-      expect(Math.abs(after - before[i])).toBeLessThan(MAX_JUMP_DEG);
+      expect(Math.abs(after - before[i])).toBeLessThan(FREEZE_JUMP_DEG);
     });
   });
 
   it("roll is the gentlest axis: it stays at or under the turn's envelope", () => {
     // A tilt of n degrees reads far larger than a turn of n degrees, so the
     // idle must never roll further than it may yaw.
-    expect(HEAD_Z_MAX_DEG).toBeLessThanOrEqual(HEAD_X_MAX_DEG);
+    // The turn's own noise, that is: its gaze follow is a look, not a drift.
+    expect(HEAD_Z_MAX_DEG).toBeLessThanOrEqual(HEAD_NOISE_X_DEG);
     for (const emissions of runs.values()) {
       for (const v of emissions.get(StandardParameter.AngleZ)!) {
-        expect(Math.abs(v)).toBeLessThanOrEqual(HEAD_X_MAX_DEG);
+        expect(Math.abs(v)).toBeLessThanOrEqual(HEAD_NOISE_X_DEG);
       }
     }
   });
 
   it("does not lurch on start: the first 2 s move no faster than the steady idle", () => {
     // The springs start at 0 and the noise rarely does; a head that snapped
-    // to its first noise value would outrun everything after it.
+    // to its first noise value would outrun everything after it. The gaze
+    // follow's swings would hide that on the turn and nod, so the gaze is held
+    // on the viewer.
     const START_FRAMES = 2000 / FRAME_MS;
-    for (const emissions of runs.values()) {
+    for (const emissions of noiseOnly) {
       for (const [id] of AXES) {
         const series = emissions.get(id)!;
         const speeds = series

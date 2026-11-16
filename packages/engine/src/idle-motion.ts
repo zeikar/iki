@@ -18,12 +18,24 @@ const BLINK_DURATION_MS = BLINK_CLOSE_MS + BLINK_HOLD_MS + BLINK_OPEN_MS; // 180
 
 const BREATH_PERIOD_MS = 3500;
 
-const GAZE_RADIUS = 0.3;
-const GAZE_RETARGET_MIN_MS = 1200;
-const GAZE_RETARGET_MAX_MS = 3000;
-// Fraction of the gap to close each millisecond of clamped dt.
-// Chosen so a typical 16ms frame moves ~1.5 % of remaining distance.
-const GAZE_EASE_RATE = 0.001;
+// --- Tuning: gaze ----------------------------------------------------------------
+// The eyes hold a point, then jump: each retarget comes after a uniform wait.
+const GAZE_RETARGET_MIN_MS = 800;
+const GAZE_RETARGET_MAX_MS = 3300;
+// Share of retargets that come back to the viewer, (0, 0) exactly.
+const GAZE_EYE_CONTACT_P = 0.4;
+// Half-widths of the uniform box the other retargets land in, gaze units.
+const GAZE_X_MAX = 0.8;
+const GAZE_Y_MAX = 0.5;
+// The eye springs: stiff, so a jump lands within ~0.3 s, and damped close to
+// critical so it barely overshoots.
+const EYE_SPRING_OMEGA = 16;
+const EYE_SPRING_ZETA = 0.9;
+// Degrees the head turns (X) and nods (Y) per unit of gaze target. The soft
+// head spring chases the same target as the stiff eye one, so the eyes lead
+// and the head follows. Same signs: + is the viewer's right and up for both.
+const HEAD_FOLLOW_X_DEG = 10;
+const HEAD_FOLLOW_Y_DEG = 10;
 
 // --- Tuning: the head idle -----------------------------------------------------
 // Retune these by eye. Each head axis is a soft spring chasing its own seeded
@@ -79,15 +91,6 @@ export function blinkEnvelope(phase: number): number {
     return 1 - (1 - t) * (1 - t);
   }
   return 1;
-}
-
-/** Pick a random point within a disk of `radius` using the injected rng. */
-function randomInDisk(rng: () => number, radius: number): [number, number] {
-  // Polar sampling: bounded, no rejection loop, safe with any [0,1) rng.
-  // r = sqrt(u) gives uniform area distribution; θ spans the full circle.
-  const r = Math.sqrt(rng()) * radius;
-  const theta = rng() * 2 * Math.PI;
-  return [r * Math.cos(theta), r * Math.sin(theta)];
 }
 
 /** Draw a 32-bit integer seed from a [0, 1) rng. */
@@ -164,10 +167,11 @@ export interface IdleMotionOptions {
  * Pure-logic idle-animation driver. Animates the nine "life" parameters
  * (eyes, breath, gaze, head, ambient sway) on an internal clock so
  * tab-backgrounding or irregular frame delivery can't produce teleports or
- * snap-close blinks. The head is one soft spring per axis chasing a seeded
- * two-octave noise, so it drifts, settles and pauses; the noise seeds are
- * drawn from the rng once, in the constructor, so the head is a function of
- * the rng's first draws and the clock.
+ * snap-close blinks. The eyes hold a point, then jump to the next, or back
+ * to the viewer, on stiff springs. The head is one soft spring per axis
+ * chasing a seeded two-octave noise, so it drifts, settles and pauses; on the
+ * turn and nod it also follows the gaze, behind the eyes. The noise seeds are
+ * drawn from the rng once, in the constructor; the gaze targets as it jumps.
  *
  * Usage:
  *   const idle = new IdleMotion(player.setParameter.bind(player));
@@ -206,9 +210,9 @@ export class IdleMotion {
   private nextBlinkAtMs: number;
   private blinkStartMs = -1; // -1 means not currently blinking
 
-  // Gaze state
-  private gazeCurrentX = 0;
-  private gazeCurrentY = 0;
+  // Gaze state: the target starts at eye contact, (0, 0), until the first retarget.
+  private readonly eyeX = new Spring(EYE_SPRING_OMEGA, EYE_SPRING_ZETA);
+  private readonly eyeY = new Spring(EYE_SPRING_OMEGA, EYE_SPRING_ZETA);
   private gazeTargetX = 0;
   private gazeTargetY = 0;
   private nextGazeRetargetMs: number;
@@ -287,8 +291,8 @@ export class IdleMotion {
     this.advanceGaze(dt);
 
     this.sink(StandardParameter.Breath, breath);
-    this.sink(StandardParameter.EyeballX, this.gazeCurrentX);
-    this.sink(StandardParameter.EyeballY, this.gazeCurrentY);
+    this.sink(StandardParameter.EyeballX, this.eyeX.value);
+    this.sink(StandardParameter.EyeballY, this.eyeY.value);
 
     // The head idle keeps the character (and any hair physics reading
     // AngleX/Y/Z) from freezing solid between blinks. Models without these
@@ -353,20 +357,27 @@ export class IdleMotion {
     );
   }
 
-  /** Step each head spring toward its axis noise at the internal clock. */
+  /**
+   * Step each head spring toward its axis noise at the internal clock, plus,
+   * on the turn and nod, the gaze target scaled to degrees. Only the noise
+   * fades in: the gaze target starts at (0, 0), so it has no start value to
+   * lurch to, and its first jump is no larger than any later one.
+   */
   private advanceHead(dt: number): void {
     const seconds = this.clockMs / 1000;
     const easeIn = smoothstep(this.clockMs / HEAD_NOISE_EASE_IN_MS);
     this.headX.step(
       easeIn *
         HEAD_NOISE_AMP_X_DEG *
-        fbm(this.headSeedX, seconds * HEAD_NOISE_RATE_X_HZ),
+        fbm(this.headSeedX, seconds * HEAD_NOISE_RATE_X_HZ) +
+        HEAD_FOLLOW_X_DEG * this.gazeTargetX,
       dt,
     );
     this.headY.step(
       easeIn *
         HEAD_NOISE_AMP_Y_DEG *
-        fbm(this.headSeedY, seconds * HEAD_NOISE_RATE_Y_HZ),
+        fbm(this.headSeedY, seconds * HEAD_NOISE_RATE_Y_HZ) +
+        HEAD_FOLLOW_Y_DEG * this.gazeTargetY,
       dt,
     );
     this.headZ.step(
@@ -386,22 +397,22 @@ export class IdleMotion {
     );
   }
 
-  /** Ease gaze current toward target; pick a new target on the internal clock. */
+  /** Step the eye springs toward the gaze target; retarget on the internal clock. */
   private advanceGaze(dt: number): void {
     // Retarget check reads clockMs so a clamped pause can't skip retargets.
     if (this.clockMs >= this.nextGazeRetargetMs) {
-      const [tx, ty] = randomInDisk(this.rng, GAZE_RADIUS);
-      this.gazeTargetX = tx;
-      this.gazeTargetY = ty;
+      if (this.rng() < GAZE_EYE_CONTACT_P) {
+        this.gazeTargetX = 0;
+        this.gazeTargetY = 0;
+      } else {
+        this.gazeTargetX = lerp(-GAZE_X_MAX, GAZE_X_MAX, this.rng());
+        this.gazeTargetY = lerp(-GAZE_Y_MAX, GAZE_Y_MAX, this.rng());
+      }
       this.nextGazeRetargetMs =
         this.clockMs +
         lerp(GAZE_RETARGET_MIN_MS, GAZE_RETARGET_MAX_MS, this.rng());
     }
-
-    // Exponential ease toward target. The ease factor is derived from the
-    // CLAMPED dt so a paused tab moves at most one normal step, never a teleport.
-    const factor = 1 - Math.pow(1 - GAZE_EASE_RATE, dt);
-    this.gazeCurrentX = lerp(this.gazeCurrentX, this.gazeTargetX, factor);
-    this.gazeCurrentY = lerp(this.gazeCurrentY, this.gazeTargetY, factor);
+    this.eyeX.step(this.gazeTargetX, dt);
+    this.eyeY.step(this.gazeTargetY, dt);
   }
 }
