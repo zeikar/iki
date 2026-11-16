@@ -5,7 +5,7 @@ Where Iki is and where it is going. The short version lives in
 deliberately deferred.
 
 1. **Format + runtime** (parameter-driven color quads) — done
-   - **Idle motion** — host-agnostic `IdleMotion` driver (auto-blink / breath / gaze drift / head sway on all three axes / the ambient sway hair physics follows) shipped by the engine, consumed by the playground and the editor preview — done
+   - **Idle motion** — host-agnostic `IdleMotion` driver (auto-blink with a brow dip / breath / gaze saccades the head follows / head drift on all three axes / the ambient sway hair physics follows; `setGazeTarget` for a host pointer) shipped by the engine, consumed by the playground and the editor preview — done
 2. **Charivo adapter** — [`@charivo/render-iki`](https://github.com/zeikar/charivo/tree/main/packages/render-iki) implementing the renderer contract — working as a private local-dogfood package in the Charivo repo
 3. **Textures** — atlas + UV-rect texture sampling, `color` as tint multiplier — done
    > Atlas authors should add padding / extruded borders between sub-rects to avoid LINEAR-filter bleeding.

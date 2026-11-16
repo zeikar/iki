@@ -1,0 +1,12 @@
+---
+"@ikijs/engine": minor
+"@ikijs/mcp": patch
+---
+
+The procedural idle moves like someone sitting still rather than a loop. `IdleMotion`, and so `IkiMotion`, drops its fixed sines: the head drifts on seeded two-octave value noise through soft springs (up to about ±6° on the turn and ±4° on the nod and roll, faded in over the first 4 s), so it settles and pauses; the gaze holds a point, then jumps on stiff springs every 0.8–3.3 s, back to the viewer on 40 % of the jumps, and the head turns and nods after it (10° per unit of gaze), so the eyes lead and the head follows; 18 % of blinks come in pairs 70 ms apart; and each breath rises over the first 40 % of its cycle, falls back to 0 by 88 % of it and rests, draws its own length in 3.2–4.6 s, and lifts the head 1° at full breath. Under a declared `Idle` group the breath lift and the gaze follow go with the rest of the procedural head.
+
+New `IdleMotionOptions.parameters`, the model's declared parameters. When they include `ParamBrowLY` / `ParamBrowRY`, idle writes that brow every frame: its rest, dipping 0.06 below it with each blink. `IkiMotion` passes `model.parameters`, so a model that declares brows now has them in `drivenParameterIds` and written by idle, also under an `Idle` group (an `Idle` curve on a brow is written over the dip). A host that drives the brows itself writes them after `update()`. Known limit: under an expression that holds the eyes shut, the brows still dip on each idle blink.
+
+New `setGazeTarget(x, y)` / `clearGazeTarget()` on `IdleMotion` and `IkiMotion`: hold the idle's gaze on a point of the host's (a pointer, a face tracker), in `EyeballX/Y` units clamped to ±1, with the head following it as it follows the idle's own picks; a non-finite pair is ignored. On clear the gaze returns to the idle's current pick. Under a declared `Idle` group it moves nothing, and a host writes `EyeballX/Y` itself after `update()` as before.
+
+What a host sees change: `ParamBreath` rests at 0 (was 0.5) on the first frame and between breaths. The idle head now turns well past the old sway's ±3.5°, so a host that adds its own head motion on top of the idle (a pointer turning the head) stacks it on a larger drift plus the gaze follow; send the pointer through `setGazeTarget` instead. A seeded idle draws a different sequence from the same rng. `@ikijs/mcp` bundles the engine for the physics report `auto_rig_from_layers` and `render_poses` return, whose idle run goes behind the seeded procedural idle: its idle peaks, times and moves come out different for the same model.

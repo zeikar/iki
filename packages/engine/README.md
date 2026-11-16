@@ -51,22 +51,22 @@ values, `setView` throws on a non-finite centre or a non-positive size.
 
 ## API
 
-| Export                                           | What it is                                                                                                          |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `IkiPlayer`                                      | The renderer: `load` / `start` / `stop` / `setParameter` / `setView` / `getParameter` / `getParameters` / `destroy` |
-| `IkiView`                                        | `{ x, y, width, height }`: the framing `setView` takes, centre and size in model units                              |
-| `IkiLoadResult`                                  | `{ failedTextures, superseded }` returned by `load()`                                                               |
-| `ParameterStore`                                 | The clamped parameter map the player drives                                                                         |
-| `IkiMotion`                                      | Idle, clips, expressions, physics and chains, stepped as one; `playExpression` / `stopExpression` / `playMotion`    |
-| `IdleMotion`                                     | Auto-blink / breath / gaze-drift / head-sway driver, plus the ambient sway hair physics follows                     |
-| `PhysicsMotion`                                  | Spring-mass-damper secondary motion (`model.physics`)                                                               |
-| `HairChainMotion`                                | Multi-segment angular chain with gravity (`model.physicsChains`)                                                    |
-| `checkFolds`                                     | A report-only `FoldReport`: per warp grid and mesh part, flip / collapse / ok and its least area ratio and pose     |
-| `foldPoses`                                      | The `FoldPose[]` `checkFolds` checks by default: rest, every parameter's extremes, angle corners × eyes/mouth/arms  |
-| `checkPhysics`                                   | A report-only `PhysicsReport`: per rig and chain segment, ok / frozen / unstable, step and idle amplitude, px moved |
-| `landParts`                                      | Where named parts land at a pose, model space, by the renderer's own path (for a host's geometry readouts)          |
-| `occlusionAmount`                                | How far an `occlusion` hides a part at a parameter value (what the player draws)                                    |
-| `translate` `rotate` `scale` `multiply` `toMat3` | The 2D affine helpers the engine itself uses                                                                        |
+| Export                                           | What it is                                                                                                                                             |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `IkiPlayer`                                      | The renderer: `load` / `start` / `stop` / `setParameter` / `setView` / `getParameter` / `getParameters` / `destroy`                                    |
+| `IkiView`                                        | `{ x, y, width, height }`: the framing `setView` takes, centre and size in model units                                                                 |
+| `IkiLoadResult`                                  | `{ failedTextures, superseded }` returned by `load()`                                                                                                  |
+| `ParameterStore`                                 | The clamped parameter map the player drives                                                                                                            |
+| `IkiMotion`                                      | Idle, clips, expressions, physics and chains, stepped as one; `playExpression` / `stopExpression` / `playMotion` / `setGazeTarget` / `clearGazeTarget` |
+| `IdleMotion`                                     | Procedural idle: blinks with a brow dip, breath, gaze the head follows, head drift, the ambient sway hair physics follows                              |
+| `PhysicsMotion`                                  | Spring-mass-damper secondary motion (`model.physics`)                                                                                                  |
+| `HairChainMotion`                                | Multi-segment angular chain with gravity (`model.physicsChains`)                                                                                       |
+| `checkFolds`                                     | A report-only `FoldReport`: per warp grid and mesh part, flip / collapse / ok and its least area ratio and pose                                        |
+| `foldPoses`                                      | The `FoldPose[]` `checkFolds` checks by default: rest, every parameter's extremes, angle corners × eyes/mouth/arms                                     |
+| `checkPhysics`                                   | A report-only `PhysicsReport`: per rig and chain segment, ok / frozen / unstable, step and idle amplitude, px moved                                    |
+| `landParts`                                      | Where named parts land at a pose, model space, by the renderer's own path (for a host's geometry readouts)                                             |
+| `occlusionAmount`                                | How far an `occlusion` hides a part at a parameter value (what the player draws)                                                                       |
+| `translate` `rotate` `scale` `multiply` `toMat3` | The 2D affine helpers the engine itself uses                                                                                                           |
 
 ## Motion drivers
 
@@ -101,9 +101,25 @@ To stop, stop calling `update()` — the drivers leave the pose where it was,
 and `motion.drivenParameterIds` lists every parameter they wrote for a host
 that wants to restore it. The three peer drivers are also exported
 individually (`IdleMotion`, `PhysicsMotion`, `HairChainMotion`): the two physics
-drivers take the same `read`/`sink` pair, `IdleMotion` only the `sink`, and each
-is stepped with `update(nowMs)` in that order. Clips and expressions play only
-inside `IkiMotion`.
+drivers take the same `read`/`sink` pair, `IdleMotion` the `sink` plus options
+(`rng`, a seedable substitute for `Math.random`; `parameters`, the model's
+declared parameters, which turn on the brow dip), and each is stepped with
+`update(nowMs)` in that order. Clips and expressions play only inside
+`IkiMotion`.
+
+`IdleMotion` writes the blink (`EyeOpen` L/R, some blinks in quick pairs),
+`Breath` (a quicker inhale than exhale, then a rest at 0, each cycle its own
+length), the gaze (`EyeballX/Y`), the head (`AngleX/Y/Z`) and `AmbientSway`,
+plus `BrowLY` / `BrowRY` on a model whose `parameters` declare them: each brow
+dips a little below its rest with each blink. The eyes lead and the head
+follows: the gaze holds a point, then jumps to the next or back to the viewer,
+and the head, drifting on its own seeded noise, turns and nods after it and
+lifts slightly with each breath. To make the character look at something — a
+pointer, a face tracker — call `setGazeTarget(x, y)` (on `IkiMotion` or
+`IdleMotion`, in `EyeballX/Y` units, clamped to ±1): the eyes go there and the
+head follows, as it follows the idle's own picks, until `clearGazeTarget()`.
+A host that adds its own head motion to the idle's output stacks it on that
+drift and follow; send a pointer through `setGazeTarget` instead.
 
 Both physics drivers integrate on a fixed 1/60 s sub-step with a clamped frame
 delta, so a backgrounded tab or a long hitch cannot snap the rig.
@@ -151,9 +167,12 @@ Each `update(now)` runs in a fixed order: `IdleMotion`, then the `Idle` loop
 and the one-shot over it, then expressions, then physics and chains. Physics
 reads the head the stages before it just wrote, and owns its outputs: a clip or
 expression that writes one is overwritten in the same update. The host writes
-the signals it owns (lip-sync, a gaze override) after `update()`, and the last
-write wins: an expression that opens the mouth writes `MouthOpen` on every
-update, so lip-sync written before `update()` would be overwritten.
+the signals it owns (lip-sync, brows it drives itself) after `update()`, and
+the last write wins: an expression that opens the mouth writes `MouthOpen` on
+every update, so lip-sync written before `update()` would be overwritten. A
+gaze goes through `setGazeTarget` instead, so the head follows it; only a model
+with an `Idle` group, where that moves nothing, needs `EyeballX/Y` written
+after `update()`.
 
 A clip or expression composes over a base, never over a parameter's current
 value. The base is what an earlier stage wrote in the same update, else the
@@ -163,9 +182,11 @@ else writes rests at its default once the expressions let go of it (a stop, or
 a replace by one that doesn't drive it) or a one-shot ends.
 
 A model that declares an `Idle` motion group loops its clips in place of the
-procedural head sway and gaze (`AngleX/Y/Z`, `EyeballX/Y`); blink, breath and
-the ambient sway stay procedural, and the format rejects an `Idle` curve on
-`EyeOpen`, `Breath` or `AmbientSway`. A head or gaze parameter the `Idle`
+procedural head and gaze (`AngleX/Y/Z`, `EyeballX/Y`), and the head's breath
+pitch and gaze follow go with them, so `setGazeTarget` moves nothing. Blink,
+breath, the ambient sway and the brows' blink dip stay procedural; the format
+rejects an `Idle` curve on `EyeOpen`, `Breath` or `AmbientSway`, and an `Idle`
+curve on a brow is written over the dip. A head or gaze parameter the `Idle`
 clips don't animate is left unwritten by idle; a one-shot or an expression can
 still drive it.
 

@@ -8,7 +8,7 @@ import { clamp } from "./math";
 import { ParameterStore } from "./parameter-store";
 import { PhysicsMotion } from "./physics-motion";
 
-/** IdleMotion's head sway and gaze: what a declared Idle group replaces. */
+/** IdleMotion's head and gaze: what a declared Idle group replaces. */
 const HEAD_AND_GAZE: ReadonlySet<string> = new Set([
   StandardParameter.AngleX,
   StandardParameter.AngleY,
@@ -52,14 +52,15 @@ const HEAD_AND_GAZE: ReadonlySet<string> = new Set([
  * fade-in. A parameter nothing else writes therefore rests at its default.
  *
  * Idle replacement: when the model declares an `Idle` motion group, its clips
- * loop in place of the procedural head sway and gaze — IdleMotion's AngleX/Y/Z
- * and EyeballX/Y writes are dropped. A head or gaze parameter the Idle clips
- * don't animate is left unwritten by idle and rests where it is (a one-shot or
- * an expression can still drive it). Blink (EyeOpen L/R), Breath and the
- * ambient sway stay procedural: the format rejects an Idle curve on them.
- * The brows' blink dip stays too, as part of the blink; an Idle curve on a
- * brow is written over it.
- * Without an `Idle` group the procedural idle runs whole.
+ * loop in place of the procedural head and gaze — IdleMotion's AngleX/Y/Z
+ * and EyeballX/Y writes are dropped, and with the head its breath pitch and
+ * its follow of the gaze, so {@link setGazeTarget} moves nothing. A head or
+ * gaze parameter the Idle clips don't animate is left unwritten by idle and
+ * rests where it is (a one-shot or an expression can still drive it). Blink
+ * (EyeOpen L/R), Breath and the ambient sway stay procedural: the format
+ * rejects an Idle curve on them. The brows' blink dip stays too, as part of
+ * the blink; an Idle curve on a brow is written over it. Without an `Idle`
+ * group the procedural idle runs whole.
  *
  * The host schedules; this class has no timers, rAF, DOM, or Date.now.
  *
@@ -203,9 +204,12 @@ export class IkiMotion {
    *    a physics output). Physics outputs are physics-owned: a clip or
    *    expression that writes one is overwritten here.
    *
-   * The host writes the signals it owns (lip-sync MouthOpen, gaze overrides)
-   * AFTER update(); the last write wins. That is how lip-sync beats an
-   * expression that opens the mouth.
+   * The host writes the signals it owns (lip-sync MouthOpen, brows it drives
+   * itself) AFTER update(); the last write wins. That is how lip-sync beats
+   * an expression that opens the mouth, and how a host's brow beats idle's
+   * blink dip. A host pointer goes through {@link setGazeTarget} instead, so
+   * the head follows it; only on a model with an `Idle` group, where that
+   * moves nothing, does the host write EyeballX/Y itself after update().
    *
    * The clips and expressions advance by `clamp(now − prev, 0, MAX_DT_MS)`,
    * 0 on the first update. A non-finite `nowMs` is a dropped frame: idle and

@@ -197,25 +197,41 @@ export interface IdleMotionOptions {
 }
 
 /**
- * Pure-logic idle-animation driver. Animates the nine "life" parameters
- * (eyes, breath, gaze, head, ambient sway), plus the brows' blink dip when
- * the model declares them, on an internal clock so tab-backgrounding or
- * irregular frame delivery can't produce teleports or snap-close blinks.
- * Some blinks come in quick pairs. The brow dip follows idle's blink, not
- * the eye shown: under an expression that holds the eyes shut, the brows
- * still dip a little on each idle blink. The
- * eyes hold a point, then jump to the next, or back to the viewer, on stiff
- * springs. The head is one soft spring per axis chasing a seeded two-octave
- * noise, so it drifts, settles and pauses; on the turn and nod it also follows the gaze, behind the eyes.
- * The nod also lifts a little with each breath; that lift is part of the
- * head channel, so a declared `Idle` motion group drops it with the rest of
- * the head (see IkiMotion), while Breath itself stays. Each breath rises
- * faster than it falls, then rests, and draws its own cycle length. The noise
- * seeds are drawn from the rng once, in the constructor; the gaze targets as
- * it jumps; each breath's length as the one before it ends.
- * A host can hold the gaze on a point of its own (a pointer, a face tracker)
- * with {@link setGazeTarget}; the scheduled jumps resume on
- * {@link clearGazeTarget}.
+ * Pure-logic idle-animation driver: the "life" a model shows when nothing
+ * else moves it. It writes, through the sink, the nine standard ids EyeOpen
+ * L/R, Breath, EyeballX/Y, AngleX/Y/Z and AmbientSway, plus BrowLY/RY when
+ * the model declares them (see {@link IdleMotionOptions.parameters});
+ * `drivenParameterIds` lists them in write order.
+ *
+ * - Blink: both eyes together, at random intervals, some in quick pairs.
+ *   Each declared brow dips a little below its rest as the lids close. The
+ *   dip follows idle's blink, not the eye shown: under an expression that
+ *   holds the eyes shut, the brows still dip a little on each idle blink.
+ * - Breath: rises faster than it falls, then rests at 0, each cycle drawing
+ *   its own length so the rhythm never ticks.
+ * - Eyes lead, head follows: the gaze holds a point, then jumps to the next
+ *   (or back to the viewer) on stiff springs. The head is one soft spring
+ *   per axis chasing a seeded two-octave noise, so it drifts, settles and
+ *   pauses; on the turn and nod it also chases the gaze target, so it
+ *   arrives after the eyes. The nod lifts a little with each breath. That
+ *   lift and the follow are part of the head channel, so a declared `Idle`
+ *   motion group drops them with the rest of the head (see IkiMotion).
+ * - AmbientSway: two slow sines for hair physics to follow in idle.
+ *
+ * A host holds the gaze on a point of its own (a pointer, a face tracker)
+ * with {@link setGazeTarget}, which drives the eyes and the head follow as a
+ * scheduled pick does; the scheduled jumps resume on {@link clearGazeTarget}.
+ *
+ * Everything runs on an internal clock that advances by the clamped frame
+ * delta, so tab-backgrounding or irregular frame delivery can't produce
+ * teleports or snap-close blinks. The blink and breath shapes, the head
+ * noise (once seeded) and the ambient sway are pure functions of that clock.
+ * The rng draws the first blink and gaze retarget, the three head noise
+ * seeds and the first breath length in the constructor, then each blink
+ * interval and double-blink coin, each gaze retarget (target and wait) and
+ * each breath length as it runs. Host gaze calls draw nothing, so they leave
+ * the sequence unchanged. The tuning constants (timings, amplitudes, spring
+ * stiffness) are module-private, at the top of this file.
  *
  * Usage:
  *   const idle = new IdleMotion(player.setParameter.bind(player), {
