@@ -749,8 +749,9 @@ layer's), the role whose layer it is fixed against, where it meets that layer
 - **Occlusion** — `occlusion: { by, parameter, stops }` hides the part where
   other parts cover it (`IkiPart.occlusion`, drawn by the engine; the amount
   is linear between the `{ value, amount }` stops, held past the first and
-  last). Use the stops as a short switch, amount 0 a degree or more past the
-  idle sway (3.5 on `ParamAngleX`; twin: 5); a long band turns the covered art
+  last). Use the stops as a short switch, amount 0 a degree or more off
+  rest (twin: 5) so the rest pose never sits on the switch, and the idle turning
+  the head through it is expected; a long band turns the covered art
   translucent. `by` lists ROLES of the set, as `anchor` and `after` do, and the
   generator writes the part ids those roles yield (an arm is three parts whose
   ids are the generator's own). Only roles, not another custom part, until a

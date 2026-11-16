@@ -99,7 +99,7 @@ on one `MOTION:` line, each with its frames and roughly how many pixels. Some
 of it is the rig's design, not a fault: the back hair follows the head only
 partly (about a third of the face's turn and nod, the hair's outline with
 it), the body hardly at all, the features lead the face plate, the
-nose most, and the far eye narrows. A custom part that passes behind the head on a turn is intended; a jump, a stretch where its covered art looks translucent for more than a frame or two, or a part changing while the head idles, is what to mark. The hair keeps swinging into each nod
+nose most, and the far eye narrows. A custom part that passes behind the head on a turn is intended; a jump, a stretch where its covered art looks translucent for more than a frame or two, or a part that flickers or changes with the head at rest (a clean switch on an idle turn is not one), is what to mark. The hair keeps swinging into each nod
 leg — the physics follows the turn, not the nod, and a turn leg ends where a
 nod leg begins, so the hair settles through the first half of each outer
 column and is mid-swing on the corner cells and the (0,+30) cell — the

@@ -388,8 +388,9 @@ and how a new character's round-1 compose corrects the provisional
      far-side `ParamAngleX` stops toward the head's axis by about what the near
      tie rides the face (read with `probe_rig`), and declare its `occlusion`
      (needs `@ikijs/mcp` 0.35.0) on that side only, keyed on `ParamAngleX`,
-     as a short switch: amount 0 a degree or more past the idle sway (3.5 on
-     `ParamAngleX`; twin: 5), 1 about one degree later (twin: 6), where the part
+     as a short switch: amount 0 a degree or more off rest (twin: 5) so the rest pose never sits
+     on the switch (the idle turns the head to about 12° on `ParamAngleX`, so
+     the part switching on an idle turn is expected), 1 about one degree later (twin: 6), where the part
      barely overlaps its cover, so little changes in that frame. That overlap is
      the part's root around the tie, which the gate keeps on the anchor's paint;
      if more of the part lies on the cover at the switch, the pop is a bake or

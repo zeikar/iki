@@ -191,12 +191,13 @@ artist agent applies your findings; the orchestrator arbitrates.
   player hides, and it never fails on this line. On the turn sweep's frames
   (`renders/turn/`, 30 fps) a part declared hidden should pass behind its
   cover's edge with no jump and no frame where its covered art looks
-  translucent for more than one or two frames, and should not change while the
-  head idles (the amount leaves 0 above the idle sway, 3.5 on `ParamAngleX`).
+  translucent for more than one or two frames, and should not flicker at rest
+  (the amount leaves 0 a degree or more off rest); a clean switch on one of
+  the idle's larger turns (about 12° on `ParamAngleX`) is expected, not a finding.
   The sheet is too coarse for this; read `HIDDEN`: more than about 2° between
   where the amount leaves its rest value and where it reaches 1 is a `bake`
   finding naming the occlusion's stops (twin's switch is 1°; a 10° band from 5
-  to 15 read as a ghost), as is a part that changes while the head idles; a
+  to 15 read as a ghost), as is a part that flickers at rest; a
   `bake` finding also names the occlusion's `by` where that is the cause. Flat
   or unfinished art of the cover showing
   where the part left is an `escalate`. Absent for a character without custom
