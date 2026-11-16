@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { StandardParameter as P } from "@ikijs/format";
 import { generateIkiFromLayerSet } from "@ikijs/editor";
 import { IkiMotion } from "@ikijs/engine";
@@ -20,9 +20,23 @@ function store(): Map<string, number> {
   return new Map(model.parameters.map((p) => [p.id, p.default]));
 }
 
+/** A small LCG; every driver is freshly seeded so a run is reproducible. */
+function seeded(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 2 ** 32;
+  };
+}
+
+// IdleMotion captures Math.random when built and draws from it on every
+// update, so the spy stays on until the test ends.
+afterEach(() => vi.restoreAllMocks());
+
 /** A fresh IkiMotion over a raw store; `drop` ids are ignored when IkiMotion
  *  writes them, so a scripted value in the store survives its update. */
 function driver(drop: ReadonlySet<string> = new Set()) {
+  vi.spyOn(Math, "random").mockImplementation(seeded(1));
   const values = store();
   let dropping = false;
   const motion = new IkiMotion(
