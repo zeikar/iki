@@ -178,6 +178,7 @@ export function idleRun(model: IkiModel): Map<string, Reading> {
   const store = new ParameterStore(model.parameters);
   const idle = new IdleMotion((id, v) => store.set(id, v), {
     rng: lcg(IDLE_SEED),
+    parameters: model.parameters,
   });
   return run(
     model,

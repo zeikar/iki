@@ -83,7 +83,7 @@ describe("checkPhysics — examples/playground/public/bob.iki", () => {
   it("reads each output's idle peak as a size, the sway going both ways", () => {
     // The ambient sway and the head turning after the gaze drive hairSway in
     // idle; hairTilt lags the idle's slow roll alone, so it barely stirs.
-    expectNear(target("hairSway").idle.peak, 4.88, 0.05);
+    expectNear(target("hairSway").idle.peak, 4.52, 0.05);
     expectNear(target("hairTilt").idle.peak, 0.02, 0.05);
     expectNear(target("hairBack").idle.peak, 4.03, 0.05);
   });

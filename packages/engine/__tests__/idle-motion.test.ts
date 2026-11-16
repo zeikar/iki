@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { StandardParameter } from "@ikijs/format";
+import { type IkiParameter, StandardParameter } from "@ikijs/format";
 import { IdleMotion } from "@ikijs/engine";
 import { blinkEnvelope } from "../src/idle-motion";
 
@@ -13,6 +13,9 @@ const GAZE_Y_MAX = 0.5;
 const GAZE_RETARGET_MIN_MS = 800;
 const GAZE_RETARGET_MAX_MS = 3300;
 const GAZE_EYE_CONTACT_P = 0.4;
+const DOUBLE_BLINK_P = 0.18;
+const DOUBLE_BLINK_GAP_MS = 70;
+const BROW_BLINK_DIP = 0.06;
 // Head degrees per unit of gaze target, turn and nod.
 const HEAD_FOLLOW_X_DEG = 10;
 const HEAD_FOLLOW_Y_DEG = 10;
@@ -27,6 +30,18 @@ const EMITTED_IDS = new Set([
   StandardParameter.AngleY,
   StandardParameter.AngleZ,
   StandardParameter.AmbientSway,
+]);
+
+// A model's declared brow Y parameters, the ones the blink dip writes.
+const BROWS = [
+  { id: StandardParameter.BrowLeftY, min: -1, max: 1, default: 0 },
+  { id: StandardParameter.BrowRightY, min: -1, max: 1, default: 0 },
+];
+// The ids idle writes for a model that declares both brows.
+const EMITTED_IDS_WITH_BROWS = new Set([
+  ...EMITTED_IDS,
+  StandardParameter.BrowLeftY,
+  StandardParameter.BrowRightY,
 ]);
 
 // Head-idle noise amplitudes matching the impl's intent — NOT imported from impl.
@@ -56,9 +71,13 @@ function makeSink(): {
  * Drive an IdleMotion through `timestamps`, collecting all emissions.
  * Returns emissions after all updates.
  */
-function drive(timestamps: number[], rng: () => number): Map<string, number[]> {
+function drive(
+  timestamps: number[],
+  rng: () => number,
+  parameters?: IkiParameter[],
+): Map<string, number[]> {
   const { sink, emissions } = makeSink();
-  const motion = new IdleMotion(sink, { rng });
+  const motion = new IdleMotion(sink, { rng, parameters });
   for (const t of timestamps) {
     motion.update(t);
   }
@@ -121,12 +140,47 @@ describe("sink-only contract", () => {
     expect([...emissions.keys()]).toEqual([...ids]);
   });
 
-  it("first update emits resting pose: eyes=1, breath=0.5, gaze=0,0, sway=0,0, ambient=0", () => {
+  it("with the brows declared, emits them too and publishes them after the eyes, in write order", () => {
+    const ids = new IdleMotion(() => {}, { parameters: BROWS })
+      .drivenParameterIds;
+    expect(new Set(ids)).toEqual(EMITTED_IDS_WITH_BROWS);
+    expect(ids).toHaveLength(EMITTED_IDS_WITH_BROWS.size);
+    expect(ids.slice(0, 4)).toEqual([
+      StandardParameter.EyeOpenLeft,
+      StandardParameter.EyeOpenRight,
+      StandardParameter.BrowLeftY,
+      StandardParameter.BrowRightY,
+    ]);
+    const emissions = drive(timestamps(0, 10, 100), cyclingRng([0.5]), BROWS);
+    expect([...emissions.keys()]).toEqual([...ids]);
+  });
+
+  it("writes only the brows the model declares, and none for other parameters", () => {
+    const left = [BROWS[0], { id: "ParamOther", min: 0, max: 1, default: 0 }];
+    const ids = new IdleMotion(() => {}, { parameters: left })
+      .drivenParameterIds;
+    expect(new Set(ids)).toEqual(
+      new Set([...EMITTED_IDS, StandardParameter.BrowLeftY]),
+    );
+    const emissions = drive(timestamps(0, 10, 100), cyclingRng([0.5]), left);
+    expect([...emissions.keys()]).toEqual([...ids]);
+    // Declaring no brow leaves the list as it was.
+    const none = new IdleMotion(() => {}, { parameters: [left[1]] })
+      .drivenParameterIds;
+    expect(none).toEqual(new IdleMotion(() => {}).drivenParameterIds);
+  });
+
+  it("first update emits resting pose: eyes=1, brows=0, breath=0.5, gaze=0,0, sway=0,0, ambient=0", () => {
     const { sink, emissions } = makeSink();
-    const motion = new IdleMotion(sink, { rng: cyclingRng([0.5]) });
+    const motion = new IdleMotion(sink, {
+      rng: cyclingRng([0.5]),
+      parameters: BROWS,
+    });
     motion.update(1000);
     expect(emissions.get(StandardParameter.EyeOpenLeft)![0]).toBe(1);
     expect(emissions.get(StandardParameter.EyeOpenRight)![0]).toBe(1);
+    expect(emissions.get(StandardParameter.BrowLeftY)![0]).toBe(0);
+    expect(emissions.get(StandardParameter.BrowRightY)![0]).toBe(0);
     expect(emissions.get(StandardParameter.Breath)![0]).toBe(0.5);
     expect(emissions.get(StandardParameter.EyeballX)![0]).toBe(0);
     expect(emissions.get(StandardParameter.EyeballY)![0]).toBe(0);
@@ -136,12 +190,17 @@ describe("sink-only contract", () => {
     expect(emissions.get(StandardParameter.AmbientSway)![0]).toBe(0);
   });
 
-  it("every update (including first) emits exactly all 9 ids", () => {
-    // Verify counts are equal across all 7 params after N updates.
+  it("every update (including first) emits exactly all its ids, brows included", () => {
     const N = 20;
-    const emissions = drive(timestamps(0, N, 100), cyclingRng([0.5]));
-    const counts = [...emissions.values()].map((v) => v.length);
-    expect(counts.every((c) => c === N)).toBe(true);
+    for (const parameters of [undefined, BROWS]) {
+      const emissions = drive(
+        timestamps(0, N, 100),
+        cyclingRng([0.5]),
+        parameters,
+      );
+      const counts = [...emissions.values()].map((v) => v.length);
+      expect(counts.every((c) => c === N)).toBe(true);
+    }
   });
 });
 
@@ -313,6 +372,116 @@ describe("blink", () => {
     const left = emissions.get(StandardParameter.EyeOpenLeft)!;
     const right = emissions.get(StandardParameter.EyeOpenRight)!;
     expect(left).toEqual(right);
+  });
+});
+
+describe("double blink", () => {
+  const FRAME_MS = 10;
+  const TEN_MIN = timestamps(0, 600000 / FRAME_MS + 1, FRAME_MS);
+  const SEEDS = [1, 7, 42, 99, 2024];
+
+  type Blink = { start: number; end: number };
+
+  /**
+   * Each blink a run made, read off EyeOpenLeft: the frame before its first
+   * closed sample (phase 0 writes 1) to the frame after its last (the frame
+   * the finish is seen on), in ms. On 10 ms frames neither edge is rounded.
+   */
+  function blinksOf(emissions: Map<string, number[]>): Blink[] {
+    const eye = emissions.get(StandardParameter.EyeOpenLeft)!;
+    const out: Blink[] = [];
+    for (let k = 1; k < eye.length; k++) {
+      if (eye[k] < 1 && eye[k - 1] === 1) {
+        out.push({ start: (k - 1) * FRAME_MS, end: -1 });
+      }
+      if (eye[k] === 1 && eye[k - 1] < 1) out.at(-1)!.end = k * FRAME_MS;
+    }
+    return out.filter((b) => b.end >= 0);
+  }
+
+  const gaps = SEEDS.map((seed) => {
+    const blinks = blinksOf(drive(TEN_MIN, lcg(seed)));
+    return blinks.slice(1).map((b, i) => b.start - blinks[i].end);
+  });
+
+  it("a second blink starts 70 ms after the first reopens; every other gap is the usual 1.5–6 s", () => {
+    for (const g of gaps.flat()) {
+      if (g < 1000) {
+        expect(g).toBe(DOUBLE_BLINK_GAP_MS);
+      } else {
+        expect(g).toBeGreaterThanOrEqual(1500);
+        expect(g).toBeLessThanOrEqual(6000 + FRAME_MS);
+      }
+    }
+  });
+
+  it("about 18 % of blinks are followed by a second, and no pair runs to three", () => {
+    let firsts = 0;
+    let doubles = 0;
+    for (const g of gaps) {
+      for (let i = 0; i < g.length; i++) {
+        const short = g[i] === DOUBLE_BLINK_GAP_MS;
+        // A short gap after a short gap would be a third blink in the chain.
+        if (short) expect(g[i - 1]).not.toBe(DOUBLE_BLINK_GAP_MS);
+        // The blink before a gap that follows a pair is that pair's second:
+        // it draws no coin, so it does not count as a first.
+        if (i > 0 && g[i - 1] === DOUBLE_BLINK_GAP_MS) continue;
+        firsts++;
+        if (short) doubles++;
+      }
+    }
+    expect(firsts).toBeGreaterThan(500);
+    expect(doubles / firsts).toBeGreaterThan(DOUBLE_BLINK_P - 0.05);
+    expect(doubles / firsts).toBeLessThan(DOUBLE_BLINK_P + 0.05);
+  });
+});
+
+describe("brow blink dip", () => {
+  const FRAME_MS = 16;
+  const TWO_MIN = timestamps(0, 120000 / FRAME_MS + 1, FRAME_MS);
+
+  it("each brow is −0.06 × (1 − its eye) at every step, so it drops with the blink", () => {
+    for (const seed of [1, 7, 42]) {
+      const emissions = drive(TWO_MIN, lcg(seed), BROWS);
+      const left = emissions.get(StandardParameter.EyeOpenLeft)!;
+      const right = emissions.get(StandardParameter.EyeOpenRight)!;
+      const browL = emissions.get(StandardParameter.BrowLeftY)!;
+      const browR = emissions.get(StandardParameter.BrowRightY)!;
+      expect(browL).toHaveLength(TWO_MIN.length);
+      left.forEach((eye, k) => {
+        expect(browL[k]).toBeCloseTo(-BROW_BLINK_DIP * (1 - eye), 12);
+        expect(browR[k]).toBeCloseTo(-BROW_BLINK_DIP * (1 - right[k]), 12);
+      });
+      // Blinks shut the eyes, so the dip reaches its full depth.
+      expect(Math.min(...browL)).toBeCloseTo(-BROW_BLINK_DIP, 12);
+    }
+  });
+
+  it("dips from each brow's own resting value: its default, clamped into range", () => {
+    const raised = [
+      { id: StandardParameter.BrowLeftY, min: 0, max: 1, default: 0.5 },
+      // Out of range: rests at the clamped 0.8, as the player's store does.
+      { id: StandardParameter.BrowRightY, min: -1, max: 0.8, default: 2 },
+    ];
+    const emissions = drive(TWO_MIN, lcg(1), raised);
+    const eye = emissions.get(StandardParameter.EyeOpenLeft)!;
+    const browL = emissions.get(StandardParameter.BrowLeftY)!;
+    const browR = emissions.get(StandardParameter.BrowRightY)!;
+    expect(browL[0]).toBe(0.5);
+    expect(browR[0]).toBe(0.8);
+    eye.forEach((e, k) => {
+      expect(browL[k]).toBeCloseTo(0.5 - BROW_BLINK_DIP * (1 - e), 12);
+      expect(browR[k]).toBeCloseTo(0.8 - BROW_BLINK_DIP * (1 - e), 12);
+    });
+    expect(Math.min(...browL)).toBeCloseTo(0.5 - BROW_BLINK_DIP, 12);
+  });
+
+  it("declaring the brows changes nothing else idle writes", () => {
+    const plain = drive(TWO_MIN, lcg(3));
+    const withBrows = drive(TWO_MIN, lcg(3), BROWS);
+    for (const id of EMITTED_IDS) {
+      expect(withBrows.get(id)).toEqual(plain.get(id));
+    }
   });
 });
 
@@ -953,10 +1122,10 @@ describe("determinism", () => {
     const rngValues = [0, 0.3, 0.7, 0.1, 0.9, 0.5, 0.2, 0.6, 0.4, 0.8];
     const ts = timestamps(0, 60, 33);
 
-    const emissionsA = drive(ts, cyclingRng(rngValues));
-    const emissionsB = drive(ts, cyclingRng(rngValues));
+    const emissionsA = drive(ts, cyclingRng(rngValues), BROWS);
+    const emissionsB = drive(ts, cyclingRng(rngValues), BROWS);
 
-    for (const id of EMITTED_IDS) {
+    for (const id of EMITTED_IDS_WITH_BROWS) {
       expect(emissionsA.get(id)).toEqual(emissionsB.get(id));
     }
   });

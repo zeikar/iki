@@ -153,8 +153,9 @@ function animatedModel(): IkiModel {
 /**
  * Ramps on all three layers, so a value says how far each has advanced: the
  * Idle loop on AngleX (10 per s), the one-shot "Look" on AngleY (3, then 10
- * per s), and "rise" adding 1 to BrowLY over a 1 s eased fade-in. With the
- * Idle group the procedural head is dropped, so nothing else writes those ids.
+ * per s), and "rise" adding 1 to MouthOpen over a 1 s eased fade-in. With the
+ * Idle group the procedural head is dropped, and idle never writes the mouth,
+ * so nothing else writes those ids.
  */
 function timedModel(): IkiModel {
   return model({
@@ -164,7 +165,7 @@ function timedModel(): IkiModel {
     expressions: [
       expression(
         "rise",
-        [{ parameter: StandardParameter.BrowLeftY, value: 1 }],
+        [{ parameter: StandardParameter.MouthOpen, value: 1 }],
         { fadeIn: 1 },
       ),
     ],
@@ -241,17 +242,17 @@ describe("IkiMotion animations API", () => {
     );
 
     expect(motion.drivenParameterIds).toEqual([
-      // Idle replaces the procedural head and gaze; blink, breath and the
-      // ambient sway stay.
+      // Idle replaces the procedural head and gaze; blink, the declared
+      // brow's blink dip, breath and the ambient sway stay.
       StandardParameter.EyeOpenLeft,
       StandardParameter.EyeOpenRight,
+      StandardParameter.BrowLeftY,
       StandardParameter.Breath,
       StandardParameter.AmbientSway,
       // Curve parameters, group by group.
       StandardParameter.AngleX,
       StandardParameter.AngleY,
-      // Expression parameters; EyeOpenLeft is already listed.
-      StandardParameter.BrowLeftY,
+      // Expression parameters (EyeOpenLeft and BrowLeftY) are already listed.
       RIG_OUT,
       SEG0_OUT,
     ]);
@@ -259,7 +260,7 @@ describe("IkiMotion animations API", () => {
 });
 
 describe("IkiMotion frame order", () => {
-  it("writes blink, breath and the ambient sway, the clips, the expression, then the rig and the chain, each id once", () => {
+  it("writes blink, the brow dip, breath and the ambient sway, the clips, the expression, then the rig and the chain, each id once", () => {
     const { motion, step } = harness(animatedModel());
     motion.playMotion("Nod", 0);
     motion.playExpression("smile");
@@ -267,14 +268,15 @@ describe("IkiMotion frame order", () => {
     for (const now of [1000, 1016, 1032]) {
       const written = idsOf(step(now));
       expect(written).toEqual([
-        // The smile's EyeOpenLeft is flushed in idle's slot, not after the clips.
+        // The smile's EyeOpenLeft and BrowLeftY are flushed in idle's slots,
+        // not after the clips.
         StandardParameter.EyeOpenLeft,
         StandardParameter.EyeOpenRight,
+        StandardParameter.BrowLeftY,
         StandardParameter.Breath,
         StandardParameter.AmbientSway,
         StandardParameter.AngleX,
         StandardParameter.AngleY,
-        StandardParameter.BrowLeftY,
         RIG_OUT,
         SEG0_OUT,
       ]);
@@ -328,33 +330,66 @@ describe("IkiMotion frame order", () => {
       model({
         expressions: [
           expression(
-            "raise",
-            [{ parameter: StandardParameter.BrowLeftY, value: 0.3 }],
+            "open",
+            [{ parameter: StandardParameter.MouthOpen, value: 0.3 }],
             { fadeIn: 0, fadeOut: 0.25 },
           ),
         ],
       }),
     );
-    const rest = 0; // BrowLY's default; nothing else writes it.
-    motion.playExpression("raise");
+    const rest = 0; // MouthOpen's default; idle never writes it.
+    motion.playExpression("open");
 
     let now = 1000;
     for (let i = 0; i < 600; i++, now += 16) {
       step(now);
-      expect(store.get(StandardParameter.BrowLeftY)).toBe(rest + 0.3);
+      expect(store.get(StandardParameter.MouthOpen)).toBe(rest + 0.3);
     }
 
     motion.stopExpression();
     const released: number[] = [];
     for (let i = 0; i < 100; i++, now += 16) {
       for (const [id, value] of step(now)) {
-        if (id === StandardParameter.BrowLeftY) released.push(value);
+        if (id === StandardParameter.MouthOpen) released.push(value);
       }
     }
     // The 0.25 s release spans 16 frames of 16 ms; its last write is the base.
     expect(released).toHaveLength(16);
     expect(released.at(-1)).toBe(rest);
-    expect(store.get(StandardParameter.BrowLeftY)).toBe(rest);
+    expect(store.get(StandardParameter.MouthOpen)).toBe(rest);
+  });
+
+  it("an add on a brow composes over the blink's brow dip", () => {
+    // Pin Math.random so the first blink lands 1.5 s in.
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const { motion, step } = harness(
+        model({
+          expressions: [
+            expression(
+              "raise",
+              [{ parameter: StandardParameter.BrowLeftY, value: 0.3 }],
+              CUT,
+            ),
+          ],
+        }),
+      );
+      motion.playExpression("raise");
+      const eyes: number[] = [];
+      for (let now = 1000; now <= 4000; now += 16) {
+        const writes = step(now);
+        const eye = only(writes, StandardParameter.EyeOpenLeft);
+        eyes.push(eye);
+        // Brow dip local literal (0.06 per unit of eye closure) — NOT imported.
+        expect(only(writes, StandardParameter.BrowLeftY)).toBeCloseTo(
+          0.3 - 0.06 * (1 - eye),
+          12,
+        );
+      }
+      expect(Math.min(...eyes)).toBe(0); // a blink shut the eyes
+    } finally {
+      random.mockRestore();
+    }
   });
 
   it("an expression composes with the blink: multiply keeps it, overwrite replaces it", () => {
@@ -475,6 +510,7 @@ describe("IkiMotion Idle replacement", () => {
       new Set([
         StandardParameter.EyeOpenLeft,
         StandardParameter.EyeOpenRight,
+        StandardParameter.BrowLeftY,
         StandardParameter.Breath,
         StandardParameter.AmbientSway,
         StandardParameter.AngleX,
@@ -482,13 +518,14 @@ describe("IkiMotion Idle replacement", () => {
     );
   });
 
-  it("without an Idle group, idle writes all nine procedural ids every update", () => {
+  it("without an Idle group, idle writes all nine procedural ids and the declared brow every update", () => {
     // A declared group that is not Idle replaces nothing.
     const { step } = harness(
       model({ motions: { Nod: [clip(StandardParameter.AngleY, 5)] } }),
     );
-    const idleIds = new IdleMotion(() => {}).drivenParameterIds;
-    expect(idleIds).toHaveLength(9);
+    const idleIds = new IdleMotion(() => {}, { parameters: PARAMS })
+      .drivenParameterIds;
+    expect(idleIds).toHaveLength(10);
 
     for (const now of [1000, 1016, 1032]) {
       expect(idsOf(step(now))).toEqual(idleIds);
@@ -515,7 +552,7 @@ describe("IkiMotion Idle replacement", () => {
     for (const id of [
       StandardParameter.AngleX,
       StandardParameter.AngleY,
-      StandardParameter.BrowLeftY,
+      StandardParameter.MouthOpen,
     ]) {
       expect(only(a, id)).toBe(only(b, id));
     }
@@ -537,7 +574,7 @@ describe("IkiMotion player clock", () => {
   function expectAdvancedBy(writes: Write[], s: number): void {
     expect(only(writes, StandardParameter.AngleX)).toBeCloseTo(10 * s, 9);
     expect(only(writes, StandardParameter.AngleY)).toBeCloseTo(3 + 10 * s, 9);
-    expect(only(writes, StandardParameter.BrowLeftY)).toBeCloseTo(
+    expect(only(writes, StandardParameter.MouthOpen)).toBeCloseTo(
       smoothstep(s),
       9,
     );

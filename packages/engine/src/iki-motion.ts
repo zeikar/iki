@@ -57,6 +57,8 @@ const HEAD_AND_GAZE: ReadonlySet<string> = new Set([
  * don't animate is left unwritten by idle and rests where it is (a one-shot or
  * an expression can still drive it). Blink (EyeOpen L/R), Breath and the
  * ambient sway stay procedural: the format rejects an Idle curve on them.
+ * The brows' blink dip stays too, as part of the blink; an Idle curve on a
+ * brow is written over it.
  * Without an `Idle` group the procedural idle runs whole.
  *
  * The host schedules; this class has no timers, rAF, DOM, or Date.now.
@@ -112,9 +114,12 @@ export class IkiMotion {
     const idleKeeps: (id: string) => boolean = this.clips.hasIdleLoop
       ? (id) => !HEAD_AND_GAZE.has(id)
       : () => true;
-    this.idle = new IdleMotion((id, value) => {
-      if (idleKeeps(id)) this.frame.set(id, value);
-    });
+    this.idle = new IdleMotion(
+      (id, value) => {
+        if (idleKeeps(id)) this.frame.set(id, value);
+      },
+      { parameters: model.parameters },
+    );
     this.physics = new PhysicsMotion(rigs, model.parameters, read, sink);
     this.chains = new HairChainMotion(
       chains,
@@ -185,8 +190,8 @@ export class IkiMotion {
    * Advance everything to the same wall-clock timestamp (milliseconds), in
    * this order:
    *
-   * 1. Idle writes blink, breath, the ambient sway (and head and gaze, unless
-   *    replaced) into this update's frame.
+   * 1. Idle writes blink, the declared brows' blink dip, breath, the ambient
+   *    sway (and head and gaze, unless replaced) into this update's frame.
    * 2. The clip stage writes the `Idle` loop, then the one-shot over it.
    * 3. The expression stage writes the active expression, fading in from the
    *    pose it replaced, or a stop fading back to base.

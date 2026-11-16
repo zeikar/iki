@@ -1,4 +1,4 @@
-import { StandardParameter } from "@ikijs/format";
+import { type IkiParameter, StandardParameter } from "@ikijs/format";
 import { MAX_DT_MS } from "./frame-clock";
 import { clamp, lerp, smoothstep } from "./math";
 
@@ -15,6 +15,13 @@ const BLINK_CLOSE_MS = 60;
 const BLINK_HOLD_MS = 20;
 const BLINK_OPEN_MS = 100;
 const BLINK_DURATION_MS = BLINK_CLOSE_MS + BLINK_HOLD_MS + BLINK_OPEN_MS; // 180
+// Share of blinks followed by a second one, a short beat after the first
+// reopens. The second never draws the coin, so a pair never runs to three.
+const DOUBLE_BLINK_P = 0.18;
+const DOUBLE_BLINK_GAP_MS = 70;
+// How far the brows drop below their resting value (BrowLY/RY units) with the
+// lids fully shut; the dip scales with how closed each eye is.
+const BROW_BLINK_DIP = 0.06;
 
 const BREATH_PERIOD_MS = 3500;
 
@@ -161,23 +168,34 @@ class Spring {
 export interface IdleMotionOptions {
   /** Inject a deterministic rng for testing. Defaults to Math.random. */
   rng?: () => number;
+  /**
+   * The model's declared parameters. When they include BrowLeftY or
+   * BrowRightY, that brow dips a little below its resting value (the default,
+   * clamped into range) with each blink; otherwise idle writes no brow.
+   */
+  parameters?: readonly IkiParameter[];
 }
 
 /**
  * Pure-logic idle-animation driver. Animates the nine "life" parameters
- * (eyes, breath, gaze, head, ambient sway) on an internal clock so
- * tab-backgrounding or irregular frame delivery can't produce teleports or
- * snap-close blinks. The eyes hold a point, then jump to the next, or back
- * to the viewer, on stiff springs. The head is one soft spring per axis
- * chasing a seeded two-octave noise, so it drifts, settles and pauses; on the
- * turn and nod it also follows the gaze, behind the eyes. The noise seeds are
+ * (eyes, breath, gaze, head, ambient sway), plus the brows' blink dip when
+ * the model declares them, on an internal clock so tab-backgrounding or
+ * irregular frame delivery can't produce teleports or snap-close blinks.
+ * Some blinks come in quick pairs. The brow dip follows idle's blink, not
+ * the eye shown: under an expression that holds the eyes shut, the brows
+ * still dip a little on each idle blink. The
+ * eyes hold a point, then jump to the next, or back to the viewer, on stiff
+ * springs. The head is one soft spring per axis chasing a seeded two-octave
+ * noise, so it drifts, settles and pauses; on the turn and nod it also follows the gaze, behind the eyes. The noise seeds are
  * drawn from the rng once, in the constructor; the gaze targets as it jumps.
  * A host can hold the gaze on a point of its own (a pointer, a face tracker)
  * with {@link setGazeTarget}; the scheduled jumps resume on
  * {@link clearGazeTarget}.
  *
  * Usage:
- *   const idle = new IdleMotion(player.setParameter.bind(player));
+ *   const idle = new IdleMotion(player.setParameter.bind(player), {
+ *     parameters: model.parameters, // for the brows' blink dip
+ *   });
  *   // inside your rAF loop:
  *   idle.update(performance.now());
  *
@@ -190,19 +208,11 @@ export class IdleMotion {
    * stops driving — keep in step with those two methods; the test suite
    * pins this list to the actual emissions.
    */
-  readonly drivenParameterIds: readonly string[] = [
-    StandardParameter.EyeOpenLeft,
-    StandardParameter.EyeOpenRight,
-    StandardParameter.Breath,
-    StandardParameter.EyeballX,
-    StandardParameter.EyeballY,
-    StandardParameter.AngleX,
-    StandardParameter.AngleY,
-    StandardParameter.AngleZ,
-    StandardParameter.AmbientSway,
-  ];
+  readonly drivenParameterIds: readonly string[];
   private readonly sink: (id: string, value: number) => void;
   private readonly rng: () => number;
+  /** The declared brow Y ids the blink dip writes, with their resting values. */
+  private readonly brows: readonly { id: string; rest: number }[];
 
   // Internal clock: advances by clamped dt, NOT by raw wall-clock jumps.
   // This is the only clock blink/breath/gaze scheduling reads.
@@ -212,6 +222,8 @@ export class IdleMotion {
   // Blink state
   private nextBlinkAtMs: number;
   private blinkStartMs = -1; // -1 means not currently blinking
+  // Whether the blink scheduled (or running) is the second of a pair.
+  private blinkIsSecond = false;
 
   // Gaze state: the scheduled pick starts at eye contact, (0, 0), until the
   // first retarget. A host target, while set, replaces the pick as what the
@@ -239,6 +251,22 @@ export class IdleMotion {
     // Math.random is the single allowed default reference; all other uses go
     // through this.rng so tests can inject a deterministic substitute.
     this.rng = options?.rng ?? Math.random;
+    this.brows = [StandardParameter.BrowLeftY, StandardParameter.BrowRightY]
+      .map((id) => options?.parameters?.find((p) => p.id === id))
+      .filter((p) => p !== undefined)
+      .map((p) => ({ id: p.id, rest: clamp(p.default, p.min, p.max) }));
+    this.drivenParameterIds = [
+      StandardParameter.EyeOpenLeft,
+      StandardParameter.EyeOpenRight,
+      ...this.brows.map((b) => b.id),
+      StandardParameter.Breath,
+      StandardParameter.EyeballX,
+      StandardParameter.EyeballY,
+      StandardParameter.AngleX,
+      StandardParameter.AngleY,
+      StandardParameter.AngleZ,
+      StandardParameter.AmbientSway,
+    ];
 
     // Schedule the first blink and gaze retarget relative to clock zero.
     this.nextBlinkAtMs = lerp(
@@ -292,6 +320,11 @@ export class IdleMotion {
     const eyeVal = this.advanceBlink();
     this.sink(StandardParameter.EyeOpenLeft, eyeVal);
     this.sink(StandardParameter.EyeOpenRight, eyeVal);
+    // Each brow follows its own eye's openness; the unified blink makes the
+    // two the same. Written as dip × (eye − 1) so an open eye adds +0.
+    for (const { id, rest } of this.brows) {
+      this.sink(id, rest + BROW_BLINK_DIP * (eyeVal - 1));
+    }
 
     const breath = this.advanceBreath();
     this.advanceGaze(dt);
@@ -343,6 +376,7 @@ export class IdleMotion {
   private emitRestingPose(): void {
     this.sink(StandardParameter.EyeOpenLeft, 1);
     this.sink(StandardParameter.EyeOpenRight, 1);
+    for (const { id, rest } of this.brows) this.sink(id, rest);
     // Breath at phase 0: sin(0) = 0 → 0.5 + 0.5*0 = 0.5
     this.sink(StandardParameter.Breath, 0.5);
     this.sink(StandardParameter.EyeballX, 0);
@@ -362,11 +396,16 @@ export class IdleMotion {
     if (this.blinkStartMs >= 0) {
       const phase = (clockMs - this.blinkStartMs) / BLINK_DURATION_MS;
       if (phase >= 1) {
-        // Blink finished — schedule the next one on the internal clock.
+        // Blink finished — schedule the next one on the internal clock: the
+        // second of a pair after a short beat, else after the usual interval.
+        // Only a first blink draws the coin.
         this.blinkStartMs = -1;
+        this.blinkIsSecond = !this.blinkIsSecond && this.rng() < DOUBLE_BLINK_P;
         this.nextBlinkAtMs =
           clockMs +
-          lerp(BLINK_INTERVAL_MIN_MS, BLINK_INTERVAL_MAX_MS, this.rng());
+          (this.blinkIsSecond
+            ? DOUBLE_BLINK_GAP_MS
+            : lerp(BLINK_INTERVAL_MIN_MS, BLINK_INTERVAL_MAX_MS, this.rng()));
         return 1;
       }
       return blinkEnvelope(phase);
