@@ -25,26 +25,37 @@ const GAZE_RETARGET_MAX_MS = 3000;
 // Chosen so a typical 16ms frame moves ~1.5 % of remaining distance.
 const GAZE_EASE_RATE = 0.001;
 
-// Head sway: sums of slow sines with near-coprime periods, so the drift never
-// visibly repeats. Degrees — small against the ±30° standard AngleX/Y/Z range,
-// but enough continuous head motion to keep hair physics from sleeping.
-const SWAY_X_AMP_A_DEG = 2.2;
-const SWAY_X_PERIOD_A_MS = 6100;
-const SWAY_X_AMP_B_DEG = 1.3;
-const SWAY_X_PERIOD_B_MS = 9700;
-const SWAY_Y_AMP_DEG = 1.6;
-const SWAY_Y_PERIOD_MS = 7300;
-// Roll is the smallest and slowest of the three: an idle head barely tilts,
-// and a tilt reads much larger than a turn of the same degrees.
-const SWAY_Z_AMP_DEG = 1.1;
-const SWAY_Z_PERIOD_MS = 11300;
+// --- Tuning: the head idle -----------------------------------------------------
+// Retune these by eye. Each head axis is a soft spring chasing its own seeded
+// noise, so the head drifts, settles and pauses instead of tracing a sine.
+//
+// Peak noise in degrees per axis — small against the ±30° standard AngleX/Y/Z
+// range. Roll stays under the turn: a tilt reads much larger than a turn of
+// the same degrees. The spring can overshoot these by a few percent.
+const HEAD_NOISE_AMP_X_DEG = 6;
+const HEAD_NOISE_AMP_Y_DEG = 4;
+const HEAD_NOISE_AMP_Z_DEG = 4;
+// Noise lattice points per second. Distinct rates so the axes never move in step.
+const HEAD_NOISE_RATE_X_HZ = 0.18;
+const HEAD_NOISE_RATE_Y_HZ = 0.15;
+const HEAD_NOISE_RATE_Z_HZ = 0.12;
+// Angular frequency (rad/s) and damping ratio of the head springs: soft enough
+// to round off the noise, damped enough that a stop barely overshoots.
+const HEAD_SPRING_OMEGA = 7.4;
+const HEAD_SPRING_ZETA = 0.72;
+// The springs start at 0 but the noise rarely does; fading the targets in over
+// this long keeps the head from lurching to its first noise value on load.
+// Under ~4 s the fade outruns the noise's own steady speed on some seeds.
+const HEAD_NOISE_EASE_IN_MS = 4000;
+// Longest spring integration slice. Semi-implicit Euler holds while ω·h stays
+// well under 2, so 8 ms keeps even a stiff ω = 16 stable at the 100 ms dt cap.
+const SPRING_SUBSTEP_MS = 8;
 
-// Ambient sway: the drift hair physics follows in idle, where the head sway
+// Ambient sway: the drift hair physics follows in idle, where the head idle
 // alone barely moves it. Two near-coprime periods (29:43) inside 2.5–5 s, away
-// from the breath and the head sines above so nothing beats in step; the
-// amplitudes sum to exactly ±1, the parameter's range. Zero phase, so the
-// resting pose writes 0 and it takes no rng draw (the blink and gaze
-// schedules keep their sequence).
+// from the breath period so the two never beat in step; the amplitudes sum to
+// exactly ±1, the parameter's range. Zero phase, so the resting pose writes 0
+// and it takes no rng draw (the blink and gaze schedules keep their sequence).
 const AMBIENT_AMP_A = 0.6;
 const AMBIENT_PERIOD_A_MS = 2900;
 const AMBIENT_AMP_B = 0.4;
@@ -79,6 +90,69 @@ function randomInDisk(rng: () => number, radius: number): [number, number] {
   return [r * Math.cos(theta), r * Math.sin(theta)];
 }
 
+/** Draw a 32-bit integer seed from a [0, 1) rng. */
+function drawSeed(rng: () => number): number {
+  return Math.floor(rng() * 0x100000000) | 0;
+}
+
+/** Lattice value in [-1, 1) for integer `i`, a fixed integer mix of seed and index. */
+function latticeValue(seed: number, i: number): number {
+  let h = Math.imul(i, 0x27d4eb2d) ^ seed;
+  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
+  h = Math.imul(h ^ (h >>> 12), 0x297a2d39);
+  h ^= h >>> 15;
+  return (h >>> 0) / 0x80000000 - 1;
+}
+
+/**
+ * 1D value noise in [-1, 1): lattice values eased with smoothstep, so the
+ * slope is zero at every lattice point — the head eases into each one.
+ */
+function valueNoise(seed: number, x: number): number {
+  const i = Math.floor(x);
+  return lerp(
+    latticeValue(seed, i),
+    latticeValue(seed, i + 1),
+    smoothstep(x - i),
+  );
+}
+
+/**
+ * Two octaves of value noise, the second at double rate and half amplitude,
+ * divided by the summed amplitudes so the result stays within ±1. Every
+ * first-octave lattice point is also a second-octave one, so both slopes
+ * vanish together there and the head comes to a real pause.
+ */
+function fbm(seed: number, x: number): number {
+  return (
+    (valueNoise(seed, x) + 0.5 * valueNoise(seed ^ 0x5bd1e995, 2 * x)) / 1.5
+  );
+}
+
+/** A damped spring chasing a moving target. */
+class Spring {
+  value = 0;
+  velocity = 0;
+
+  constructor(
+    private readonly omega: number,
+    private readonly zeta: number,
+  ) {}
+
+  /** Advance `dtMs` toward `target` by semi-implicit Euler in short slices. */
+  step(target: number, dtMs: number): void {
+    const slices = Math.ceil(dtMs / SPRING_SUBSTEP_MS);
+    const h = dtMs / slices / 1000;
+    for (let s = 0; s < slices; s++) {
+      const accel =
+        this.omega * this.omega * (target - this.value) -
+        2 * this.zeta * this.omega * this.velocity;
+      this.velocity += accel * h;
+      this.value += this.velocity * h;
+    }
+  }
+}
+
 // --- Public API ---------------------------------------------------------------
 
 export interface IdleMotionOptions {
@@ -88,9 +162,12 @@ export interface IdleMotionOptions {
 
 /**
  * Pure-logic idle-animation driver. Animates the nine "life" parameters
- * (eyes, breath, gaze, head sway, ambient sway) on an internal clock so
+ * (eyes, breath, gaze, head, ambient sway) on an internal clock so
  * tab-backgrounding or irregular frame delivery can't produce teleports or
- * snap-close blinks.
+ * snap-close blinks. The head is one soft spring per axis chasing a seeded
+ * two-octave noise, so it drifts, settles and pauses; the noise seeds are
+ * drawn from the rng once, in the constructor, so the head is a function of
+ * the rng's first draws and the clock.
  *
  * Usage:
  *   const idle = new IdleMotion(player.setParameter.bind(player));
@@ -136,6 +213,14 @@ export class IdleMotion {
   private gazeTargetY = 0;
   private nextGazeRetargetMs: number;
 
+  // Head state: one noise seed and one spring per axis (X turn, Y nod, Z roll).
+  private readonly headSeedX: number;
+  private readonly headSeedY: number;
+  private readonly headSeedZ: number;
+  private readonly headX = new Spring(HEAD_SPRING_OMEGA, HEAD_SPRING_ZETA);
+  private readonly headY = new Spring(HEAD_SPRING_OMEGA, HEAD_SPRING_ZETA);
+  private readonly headZ = new Spring(HEAD_SPRING_OMEGA, HEAD_SPRING_ZETA);
+
   constructor(
     sink: (id: string, value: number) => void,
     options?: IdleMotionOptions,
@@ -156,6 +241,10 @@ export class IdleMotion {
       GAZE_RETARGET_MAX_MS,
       this.rng(),
     );
+    // Drawn after the blink and gaze schedules so those keep their draws.
+    this.headSeedX = drawSeed(this.rng);
+    this.headSeedY = drawSeed(this.rng);
+    this.headSeedZ = drawSeed(this.rng);
   }
 
   /**
@@ -201,12 +290,13 @@ export class IdleMotion {
     this.sink(StandardParameter.EyeballX, this.gazeCurrentX);
     this.sink(StandardParameter.EyeballY, this.gazeCurrentY);
 
-    // Head sway keeps the character (and any hair physics reading AngleX/Y/Z)
-    // from freezing solid between blinks. Models without these parameters
-    // ignore the writes (ParameterStore drops unknown ids).
-    this.sink(StandardParameter.AngleX, this.swayX());
-    this.sink(StandardParameter.AngleY, this.swayY());
-    this.sink(StandardParameter.AngleZ, this.swayZ());
+    // The head idle keeps the character (and any hair physics reading
+    // AngleX/Y/Z) from freezing solid between blinks. Models without these
+    // parameters ignore the writes (ParameterStore drops unknown ids).
+    this.advanceHead(dt);
+    this.sink(StandardParameter.AngleX, this.headX.value);
+    this.sink(StandardParameter.AngleY, this.headY.value);
+    this.sink(StandardParameter.AngleZ, this.headZ.value);
     this.sink(StandardParameter.AmbientSway, this.ambientSway());
   }
 
@@ -221,7 +311,7 @@ export class IdleMotion {
     this.sink(StandardParameter.Breath, 0.5);
     this.sink(StandardParameter.EyeballX, 0);
     this.sink(StandardParameter.EyeballY, 0);
-    // Sway sines are all 0 at clock 0 — the head starts centered.
+    // The head springs start at rest at 0 — the head starts centered.
     this.sink(StandardParameter.AngleX, 0);
     this.sink(StandardParameter.AngleY, 0);
     this.sink(StandardParameter.AngleZ, 0);
@@ -263,26 +353,27 @@ export class IdleMotion {
     );
   }
 
-  /** Horizontal head sway in degrees, pure function of the internal clock. */
-  private swayX(): number {
-    const t = 2 * Math.PI * this.clockMs;
-    return (
-      SWAY_X_AMP_A_DEG * Math.sin(t / SWAY_X_PERIOD_A_MS) +
-      SWAY_X_AMP_B_DEG * Math.sin(t / SWAY_X_PERIOD_B_MS)
+  /** Step each head spring toward its axis noise at the internal clock. */
+  private advanceHead(dt: number): void {
+    const seconds = this.clockMs / 1000;
+    const easeIn = smoothstep(this.clockMs / HEAD_NOISE_EASE_IN_MS);
+    this.headX.step(
+      easeIn *
+        HEAD_NOISE_AMP_X_DEG *
+        fbm(this.headSeedX, seconds * HEAD_NOISE_RATE_X_HZ),
+      dt,
     );
-  }
-
-  /** Vertical head sway in degrees, pure function of the internal clock. */
-  private swayY(): number {
-    return (
-      SWAY_Y_AMP_DEG * Math.sin((2 * Math.PI * this.clockMs) / SWAY_Y_PERIOD_MS)
+    this.headY.step(
+      easeIn *
+        HEAD_NOISE_AMP_Y_DEG *
+        fbm(this.headSeedY, seconds * HEAD_NOISE_RATE_Y_HZ),
+      dt,
     );
-  }
-
-  /** Head roll sway in degrees, pure function of the internal clock. */
-  private swayZ(): number {
-    return (
-      SWAY_Z_AMP_DEG * Math.sin((2 * Math.PI * this.clockMs) / SWAY_Z_PERIOD_MS)
+    this.headZ.step(
+      easeIn *
+        HEAD_NOISE_AMP_Z_DEG *
+        fbm(this.headSeedZ, seconds * HEAD_NOISE_RATE_Z_HZ),
+      dt,
     );
   }
 

@@ -22,10 +22,12 @@ const EMITTED_IDS = new Set([
   StandardParameter.AmbientSway,
 ]);
 
-// Head-sway envelope bounds matching the impl's intent — NOT imported from impl.
-const SWAY_X_MAX_DEG = 2.2 + 1.3;
-const SWAY_Y_MAX_DEG = 1.6;
-const SWAY_Z_MAX_DEG = 1.1;
+// Head-idle noise amplitudes matching the impl's intent — NOT imported from impl.
+const HEAD_X_MAX_DEG = 6;
+const HEAD_Y_MAX_DEG = 4;
+const HEAD_Z_MAX_DEG = 4;
+// The springs chasing the noise may overshoot it a little.
+const SPRING_OVERSHOOT = 1.1;
 
 /** Build a capturing sink → Map<id, emitted values in order>. */
 function makeSink(): {
@@ -51,6 +53,15 @@ function drive(timestamps: number[], rng: () => number): Map<string, number[]> {
     motion.update(t);
   }
   return emissions;
+}
+
+/** A seeded 32-bit LCG in [0, 1): realistic, distinct draws for every seed. */
+function lcg(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 2 ** 32;
+  };
 }
 
 /** RNG returning values from a fixed array, cycling when exhausted. */
@@ -212,7 +223,7 @@ describe("blink", () => {
   it("eye values dip near 0 at mid-blink and return to 1 after, asymmetrically", () => {
     const { sink, emissions } = makeSink();
     // rng call order: [0]=blinkAt (0→1500ms), [1]=gazeAt (1→3000ms, past our test window)
-    // [2]=next blinkAt after blink ends (0.5→safe interval)
+    // [2..4]=head noise seeds, [5]=next blinkAt after blink ends (0.5→safe interval)
     const rng = cyclingRng([0, 1, 0.5]);
     const motion = new IdleMotion(sink, { rng });
 
@@ -350,60 +361,106 @@ describe("gaze", () => {
 // head sway
 // ---------------------------------------------------------------------------
 
-describe("head sway", () => {
-  it("stays within the summed sine amplitudes on both axes", () => {
-    const eps = 0.001;
-    // 12s of driving at 50ms — covers more than one period of every sway sine.
-    const emissions = drive(timestamps(0, 240, 50), cyclingRng([0.5]));
-    for (const v of emissions.get(StandardParameter.AngleX)!) {
-      expect(Math.abs(v)).toBeLessThanOrEqual(SWAY_X_MAX_DEG + eps);
-    }
-    for (const v of emissions.get(StandardParameter.AngleY)!) {
-      expect(Math.abs(v)).toBeLessThanOrEqual(SWAY_Y_MAX_DEG + eps);
-    }
-    for (const v of emissions.get(StandardParameter.AngleZ)!) {
-      expect(Math.abs(v)).toBeLessThanOrEqual(SWAY_Z_MAX_DEG + eps);
+describe("head idle", () => {
+  const SEEDS = [1, 2, 3, 7, 42, 99, 123, 2024];
+  const FRAME_MS = 16;
+  // Two minutes of 16 ms frames: dozens of noise lattice cells on every axis.
+  const TWO_MIN = timestamps(0, 120000 / FRAME_MS + 1, FRAME_MS);
+  const AXES = [
+    [StandardParameter.AngleX, HEAD_X_MAX_DEG],
+    [StandardParameter.AngleY, HEAD_Y_MAX_DEG],
+    [StandardParameter.AngleZ, HEAD_Z_MAX_DEG],
+  ] as const;
+  const runs = new Map(SEEDS.map((seed) => [seed, drive(TWO_MIN, lcg(seed))]));
+
+  it("each axis stays within its amplitude, give or take spring overshoot", () => {
+    for (const emissions of runs.values()) {
+      for (const [id, amp] of AXES) {
+        for (const v of emissions.get(id)!) {
+          expect(Math.abs(v)).toBeLessThanOrEqual(amp * SPRING_OVERSHOOT);
+        }
+      }
     }
   });
 
-  it("actually sways: all three axes visit both sides of center", () => {
-    const emissions = drive(timestamps(0, 240, 50), cyclingRng([0.5]));
-    const xs = emissions.get(StandardParameter.AngleX)!;
-    const ys = emissions.get(StandardParameter.AngleY)!;
-    const zs = emissions.get(StandardParameter.AngleZ)!;
-    expect(Math.max(...xs)).toBeGreaterThan(1);
-    expect(Math.min(...xs)).toBeLessThan(-1);
-    expect(Math.max(...ys)).toBeGreaterThan(0.5);
-    expect(Math.min(...ys)).toBeLessThan(-0.5);
-    expect(Math.max(...zs)).toBeGreaterThan(0.5);
-    expect(Math.min(...zs)).toBeLessThan(-0.5);
+  it("each axis visits both sides of center over two minutes", () => {
+    for (const emissions of runs.values()) {
+      for (const [id, amp] of AXES) {
+        const series = emissions.get(id)!;
+        expect(Math.max(...series)).toBeGreaterThan(amp / 4);
+        expect(Math.min(...series)).toBeLessThan(-amp / 4);
+      }
+    }
   });
 
-  it("roll is the gentlest axis: its envelope stays under the turn's", () => {
-    // A tilt of n degrees reads far larger than a turn of n degrees, so the
-    // idle must never roll as far as it yaws.
-    expect(SWAY_Z_MAX_DEG).toBeLessThan(SWAY_Y_MAX_DEG);
-    const emissions = drive(timestamps(0, 240, 50), cyclingRng([0.5]));
-    const maxZ = Math.max(
-      ...emissions.get(StandardParameter.AngleZ)!.map(Math.abs),
-    );
-    const maxX = Math.max(
-      ...emissions.get(StandardParameter.AngleX)!.map(Math.abs),
-    );
-    expect(maxZ).toBeLessThan(maxX);
+  it("pauses: every axis holds near-still for stretches, not one constant drift", () => {
+    const STILL_DEG_PER_S = 0.1;
+    const STILL_FRAMES = Math.ceil(300 / FRAME_MS);
+    for (const emissions of runs.values()) {
+      for (const [id] of AXES) {
+        const series = emissions.get(id)!;
+        let run = 0;
+        let pauses = 0;
+        for (let i = 1; i < series.length; i++) {
+          const speed = Math.abs(series[i] - series[i - 1]) / (FRAME_MS / 1000);
+          run = speed < STILL_DEG_PER_S ? run + 1 : 0;
+          if (run === STILL_FRAMES) pauses++;
+        }
+        expect(pauses).toBeGreaterThanOrEqual(3);
+      }
+    }
   });
 
-  it("a huge dt pause cannot teleport the head", () => {
+  it("never jumps between frames, even across a huge dt", () => {
+    const MAX_JUMP_DEG = 0.5;
+    for (const emissions of runs.values()) {
+      for (const [id] of AXES) {
+        const series = emissions.get(id)!;
+        for (let i = 1; i < series.length; i++) {
+          expect(Math.abs(series[i] - series[i - 1])).toBeLessThan(
+            MAX_JUMP_DEG,
+          );
+        }
+      }
+    }
+    // 60-second freeze mid-run: dt clamps to 100 ms, one spring step at most.
     const { sink, emissions } = makeSink();
-    const motion = new IdleMotion(sink, { rng: cyclingRng([0.5]) });
-    motion.update(0); // anchor
-    motion.update(16);
-    const before = emissions.get(StandardParameter.AngleX)!.at(-1)!;
-    // 60-second freeze: dt clamps to 100ms, so the sway phase advances one
-    // normal step at most.
-    motion.update(60016);
-    const after = emissions.get(StandardParameter.AngleX)!.at(-1)!;
-    expect(Math.abs(after - before)).toBeLessThan(0.5);
+    const motion = new IdleMotion(sink, { rng: lcg(5) });
+    for (let t = 0; t <= 5000; t += FRAME_MS) motion.update(t);
+    const before = AXES.map(([id]) => emissions.get(id)!.at(-1)!);
+    motion.update(65000);
+    AXES.forEach(([id], i) => {
+      const after = emissions.get(id)!.at(-1)!;
+      expect(Math.abs(after - before[i])).toBeLessThan(MAX_JUMP_DEG);
+    });
+  });
+
+  it("roll is the gentlest axis: it stays at or under the turn's envelope", () => {
+    // A tilt of n degrees reads far larger than a turn of n degrees, so the
+    // idle must never roll further than it may yaw.
+    expect(HEAD_Z_MAX_DEG).toBeLessThanOrEqual(HEAD_X_MAX_DEG);
+    for (const emissions of runs.values()) {
+      for (const v of emissions.get(StandardParameter.AngleZ)!) {
+        expect(Math.abs(v)).toBeLessThanOrEqual(HEAD_X_MAX_DEG);
+      }
+    }
+  });
+
+  it("does not lurch on start: the first 2 s move no faster than the steady idle", () => {
+    // The springs start at 0 and the noise rarely does; a head that snapped
+    // to its first noise value would outrun everything after it.
+    const START_FRAMES = 2000 / FRAME_MS;
+    for (const emissions of runs.values()) {
+      for (const [id] of AXES) {
+        const series = emissions.get(id)!;
+        const speeds = series
+          .slice(1)
+          .map((v, i) => Math.abs(v - series[i]) / (FRAME_MS / 1000));
+        const startPeak = Math.max(...speeds.slice(0, START_FRAMES));
+        const steadyPeak = Math.max(...speeds.slice(START_FRAMES));
+        expect(startPeak).toBeLessThanOrEqual(steadyPeak);
+      }
+    }
   });
 });
 

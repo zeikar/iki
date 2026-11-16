@@ -83,9 +83,9 @@ describe("checkPhysics — examples/playground/public/bob.iki", () => {
   it("reads each output's idle peak as a size, the sway going both ways", () => {
     // The ambient sway drives hairSway in idle; hairTilt lags the idle's slow
     // roll alone, so it barely stirs.
-    expectNear(target("hairSway").idle.peak, 3.67, 0.05);
+    expectNear(target("hairSway").idle.peak, 3.65, 0.05);
     expectNear(target("hairTilt").idle.peak, 0.02, 0.05);
-    expectNear(target("hairBack").idle.peak, 4.17, 0.05);
+    expectNear(target("hairBack").idle.peak, 4.03, 0.05);
   });
 
   it("is deterministic", () => {

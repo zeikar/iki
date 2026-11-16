@@ -25,7 +25,7 @@ const FRAME_MS = FIXED_DT_S * 1000 * (1 + 1e-9);
 /** Frames after the seed frame: 5 s of step (the defaults settle in ~2 s), 30 s of idle. */
 const STEP_FRAMES = 300;
 const IDLE_FRAMES = 1800;
-/** Any constant keeps two checks equal; it only matters for a gaze- or eye-driven rig. */
+/** Any constant keeps two checks equal. It shapes every rig's idle input: the head's noise is seeded from it, as are the blink and gaze schedules. */
 const IDLE_SEED = 1;
 /** An anchor turn, or a lead over another, under this many radians is float noise (a uniform scale over a rotated anchor). */
 const MIN_TURN = 1e-9;
