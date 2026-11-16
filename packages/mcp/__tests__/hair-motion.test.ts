@@ -207,7 +207,7 @@ describe("hair springs on the real driver", () => {
             sweep(name, axes, from, to, ms, start);
         }
     console.log(JSON.stringify(peaks));
-    // The front's ambient (3.5) rides on a 16.3 head swing, so its sweep peak
+    // The front's ambient (3.7) rides on a 16.3 head swing, so its sweep peak
     // (19.8) holds the range, not the margin; the back keeps the margin.
     for (const kind of Object.values(peaks))
       for (const [id, v] of Object.entries(kind))

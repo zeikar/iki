@@ -45,8 +45,8 @@
         "displacementPx": 29.747
       },
       "idle": {
-        "peak": 3.668,
-        "displacementPx": 7.964
+        "peak": 3.697,
+        "displacementPx": 8.027
       }
     },
     {
@@ -70,8 +70,8 @@
         "displacementPx": 19.123
       },
       "idle": {
-        "peak": 0.022,
-        "displacementPx": 0.047
+        "peak": 0.015,
+        "displacementPx": 0.033
       }
     },
     {
@@ -97,8 +97,8 @@
         "displacementPx": 26.073
       },
       "idle": {
-        "peak": 4.174,
-        "displacementPx": 9.068
+        "peak": 4.026,
+        "displacementPx": 8.745
       }
     }
   ],
