@@ -23,7 +23,15 @@ const DOUBLE_BLINK_GAP_MS = 70;
 // lids fully shut; the dip scales with how closed each eye is.
 const BROW_BLINK_DIP = 0.06;
 
-const BREATH_PERIOD_MS = 3500;
+// A breath rises over the first 40 % of its cycle, falls by 88 %, and rests
+// at empty for the rest: inhaling is quicker than exhaling, with a pause
+// before the next. Each cycle draws its own length, so the rhythm never ticks.
+const BREATH_IN_END = 0.4;
+const BREATH_OUT_END = 0.88;
+const BREATH_PERIOD_MIN_MS = 3200;
+const BREATH_PERIOD_MAX_MS = 4600;
+// Degrees the head lifts (AngleY) at full breath.
+const BREATH_PITCH_DEG = 1;
 
 // --- Tuning: gaze ----------------------------------------------------------------
 // The eyes hold a point, then jump: each retarget comes after a uniform wait.
@@ -71,9 +79,9 @@ const HEAD_NOISE_EASE_IN_MS = 4000;
 const SPRING_SUBSTEP_MS = 8;
 
 // Ambient sway: the drift hair physics follows in idle, where the head idle
-// alone barely moves it. Two near-coprime periods (29:43) inside 2.5–5 s, away
-// from the breath period so the two never beat in step; the amplitudes sum to
-// exactly ±1, the parameter's range. Zero phase, so the resting pose writes 0
+// alone barely moves it. Two near-coprime periods (29:43) inside 2.5–5 s; the
+// breath draws a new length each cycle, so the two never stay in step. The
+// amplitudes sum to exactly ±1, the parameter's range. Zero phase, so the resting pose writes 0
 // and it takes no rng draw (the blink and gaze schedules keep their sequence).
 const AMBIENT_AMP_A = 0.6;
 const AMBIENT_PERIOD_A_MS = 2900;
@@ -98,6 +106,18 @@ export function blinkEnvelope(phase: number): number {
     return 1 - (1 - t) * (1 - t);
   }
   return 1;
+}
+
+/**
+ * Breath value over one cycle, `phase` ∈ [0, 1]: a smoothstep rise from 0 to 1
+ * by BREATH_IN_END, a smoothstep fall back to 0 by BREATH_OUT_END, then 0.
+ * Exported for the shape tests; not part of the package entry.
+ */
+export function breathEnvelope(phase: number): number {
+  if (phase < BREATH_IN_END) return smoothstep(phase / BREATH_IN_END);
+  return (
+    1 - smoothstep((phase - BREATH_IN_END) / (BREATH_OUT_END - BREATH_IN_END))
+  );
 }
 
 /** Draw a 32-bit integer seed from a [0, 1) rng. */
@@ -186,8 +206,13 @@ export interface IdleMotionOptions {
  * still dip a little on each idle blink. The
  * eyes hold a point, then jump to the next, or back to the viewer, on stiff
  * springs. The head is one soft spring per axis chasing a seeded two-octave
- * noise, so it drifts, settles and pauses; on the turn and nod it also follows the gaze, behind the eyes. The noise seeds are
- * drawn from the rng once, in the constructor; the gaze targets as it jumps.
+ * noise, so it drifts, settles and pauses; on the turn and nod it also follows the gaze, behind the eyes.
+ * The nod also lifts a little with each breath; that lift is part of the
+ * head channel, so a declared `Idle` motion group drops it with the rest of
+ * the head (see IkiMotion), while Breath itself stays. Each breath rises
+ * faster than it falls, then rests, and draws its own cycle length. The noise
+ * seeds are drawn from the rng once, in the constructor; the gaze targets as
+ * it jumps; each breath's length as the one before it ends.
  * A host can hold the gaze on a point of its own (a pointer, a face tracker)
  * with {@link setGazeTarget}; the scheduled jumps resume on
  * {@link clearGazeTarget}.
@@ -234,6 +259,10 @@ export class IdleMotion {
   private gazeTargetY = 0;
   private nextGazeRetargetMs: number;
   private hostGaze: { x: number; y: number } | undefined = undefined;
+
+  // Breath state: the current cycle's start and length on the internal clock.
+  private breathStartMs = 0;
+  private breathPeriodMs: number;
 
   // Head state: one noise seed and one spring per axis (X turn, Y nod, Z roll).
   private readonly headSeedX: number;
@@ -283,6 +312,8 @@ export class IdleMotion {
     this.headSeedX = drawSeed(this.rng);
     this.headSeedY = drawSeed(this.rng);
     this.headSeedZ = drawSeed(this.rng);
+    // Last, so every draw above keeps its place in the sequence.
+    this.breathPeriodMs = this.drawBreathPeriod();
   }
 
   /**
@@ -336,7 +367,7 @@ export class IdleMotion {
     // The head idle keeps the character (and any hair physics reading
     // AngleX/Y/Z) from freezing solid between blinks. Models without these
     // parameters ignore the writes (ParameterStore drops unknown ids).
-    this.advanceHead(dt);
+    this.advanceHead(dt, breath);
     this.sink(StandardParameter.AngleX, this.headX.value);
     this.sink(StandardParameter.AngleY, this.headY.value);
     this.sink(StandardParameter.AngleZ, this.headZ.value);
@@ -377,8 +408,8 @@ export class IdleMotion {
     this.sink(StandardParameter.EyeOpenLeft, 1);
     this.sink(StandardParameter.EyeOpenRight, 1);
     for (const { id, rest } of this.brows) this.sink(id, rest);
-    // Breath at phase 0: sin(0) = 0 → 0.5 + 0.5*0 = 0.5
-    this.sink(StandardParameter.Breath, 0.5);
+    // Breath at phase 0: the start of an inhale, empty.
+    this.sink(StandardParameter.Breath, 0);
     this.sink(StandardParameter.EyeballX, 0);
     this.sink(StandardParameter.EyeballY, 0);
     // The head springs start at rest at 0 — the head starts centered.
@@ -422,19 +453,33 @@ export class IdleMotion {
     return 1;
   }
 
+  /**
+   * Returns the breath value (0..1), starting the next cycle, with a freshly
+   * drawn length, once the current one has run out. One clamped dt (≤ 100 ms)
+   * is far shorter than any cycle, so a step crosses at most one boundary.
+   */
   private advanceBreath(): number {
-    return (
-      0.5 + 0.5 * Math.sin((2 * Math.PI * this.clockMs) / BREATH_PERIOD_MS)
+    if (this.clockMs - this.breathStartMs >= this.breathPeriodMs) {
+      this.breathStartMs += this.breathPeriodMs;
+      this.breathPeriodMs = this.drawBreathPeriod();
+    }
+    return breathEnvelope(
+      (this.clockMs - this.breathStartMs) / this.breathPeriodMs,
     );
+  }
+
+  private drawBreathPeriod(): number {
+    return lerp(BREATH_PERIOD_MIN_MS, BREATH_PERIOD_MAX_MS, this.rng());
   }
 
   /**
    * Step each head spring toward its axis noise at the internal clock, plus,
-   * on the turn and nod, the gaze target scaled to degrees. Only the noise
-   * fades in: the scheduled pick starts at (0, 0), so it has no start value to
-   * lurch to, and its first jump is no larger than any later one.
+   * on the turn and nod, the gaze target scaled to degrees, and on the nod the
+   * breath's lift. Only the noise fades in: the scheduled pick starts at
+   * (0, 0), so it has no start value to lurch to, and its first jump is no
+   * larger than any later one; the breath starts empty, at 0.
    */
-  private advanceHead(dt: number): void {
+  private advanceHead(dt: number, breath: number): void {
     const seconds = this.clockMs / 1000;
     const easeIn = smoothstep(this.clockMs / HEAD_NOISE_EASE_IN_MS);
     this.headX.step(
@@ -448,7 +493,8 @@ export class IdleMotion {
       easeIn *
         HEAD_NOISE_AMP_Y_DEG *
         fbm(this.headSeedY, seconds * HEAD_NOISE_RATE_Y_HZ) +
-        HEAD_FOLLOW_Y_DEG * (this.hostGaze?.y ?? this.gazeTargetY),
+        HEAD_FOLLOW_Y_DEG * (this.hostGaze?.y ?? this.gazeTargetY) +
+        BREATH_PITCH_DEG * breath,
       dt,
     );
     this.headZ.step(

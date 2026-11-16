@@ -44,11 +44,11 @@ const SEG1_OUT = "ParamLockSeg1";
 const PARAMS = [
   { id: StandardParameter.EyeOpenLeft, min: 0, max: 1, default: 1 },
   { id: StandardParameter.EyeOpenRight, min: 0, max: 1, default: 1 },
-  // Breath defaults to 0 here ON PURPOSE (the standard model uses 0.5): the
-  // order test below needs idle's resting write (0.5) to differ from the
+  // Breath defaults to 1 here ON PURPOSE (the standard model uses 0.5): the
+  // order test below needs idle's resting write (0) to differ from the
   // default, or physics-first and idle-first both emit 0 and cannot be told
   // apart.
-  { id: StandardParameter.Breath, min: 0, max: 1, default: 0 },
+  { id: StandardParameter.Breath, min: 0, max: 1, default: 1 },
   { id: StandardParameter.EyeballX, min: -1, max: 1, default: 0 },
   { id: StandardParameter.EyeballY, min: -1, max: 1, default: 0 },
   { id: StandardParameter.AngleX, min: -30, max: 30, default: 0 },
@@ -181,12 +181,13 @@ describe("IkiMotion", () => {
       (id, value) => live.set(id, value),
     );
 
-    // Idle writes Breath = 0.5 first, so the spring seeds at target
-    // signedNormalized(0.5) = 0.5 and emits 0 + 0.5 × 10. Physics-first would
-    // seed at 0 and emit 0 — this fails for the right reason if order flips.
+    // Idle writes Breath = 0 first, so the spring seeds at target
+    // signedNormalized(0) = (0 − 1) / 1 = −1 and emits 0 + −1 × 10. Physics-first
+    // would read the default 1, seed at 0 and emit 0 — this fails for the right
+    // reason if order flips.
     motion.update(1000);
 
-    expect(live.get(RIG_OUT)).toBeCloseTo(5);
+    expect(live.get(RIG_OUT)).toBeCloseTo(-10);
   });
 
   it("drivenParameterIds = idle ∪ rig outputs ∪ chain outputs, deduplicated, insertion-ordered", () => {

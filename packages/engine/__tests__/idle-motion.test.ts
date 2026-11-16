@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { type IkiParameter, StandardParameter } from "@ikijs/format";
 import { IdleMotion } from "@ikijs/engine";
-import { blinkEnvelope } from "../src/idle-motion";
+import { blinkEnvelope, breathEnvelope } from "../src/idle-motion";
 
 // Local timing literals matching the impl's intent — NOT imported from impl.
 const BLINK_CLOSE_MS = 60;
 const BLINK_HOLD_MS = 20;
 const BLINK_DURATION_MS = 180;
-const BREATH_PERIOD_MS = 3500;
+const BREATH_IN_END = 0.4;
+const BREATH_OUT_END = 0.88;
+const BREATH_PERIOD_MIN_MS = 3200;
+const BREATH_PERIOD_MAX_MS = 4600;
+// Degrees the nod lifts at full breath.
+const BREATH_PITCH_DEG = 1;
 const GAZE_X_MAX = 0.8;
 const GAZE_Y_MAX = 0.5;
 const GAZE_RETARGET_MIN_MS = 800;
@@ -49,7 +54,9 @@ const HEAD_NOISE_X_DEG = 6;
 const HEAD_NOISE_Y_DEG = 4;
 // The turn and nod add the gaze follow on top of their noise.
 const HEAD_X_MAX_DEG = HEAD_NOISE_X_DEG + HEAD_FOLLOW_X_DEG * GAZE_X_MAX;
-const HEAD_Y_MAX_DEG = HEAD_NOISE_Y_DEG + HEAD_FOLLOW_Y_DEG * GAZE_Y_MAX;
+// The nod also lifts with each breath.
+const HEAD_Y_MAX_DEG =
+  HEAD_NOISE_Y_DEG + HEAD_FOLLOW_Y_DEG * GAZE_Y_MAX + BREATH_PITCH_DEG;
 const HEAD_Z_MAX_DEG = 4;
 // The springs chasing the noise may overshoot it a little.
 const SPRING_OVERSHOOT = 1.1;
@@ -170,7 +177,7 @@ describe("sink-only contract", () => {
     expect(none).toEqual(new IdleMotion(() => {}).drivenParameterIds);
   });
 
-  it("first update emits resting pose: eyes=1, brows=0, breath=0.5, gaze=0,0, sway=0,0, ambient=0", () => {
+  it("first update emits resting pose: eyes=1, brows=0, breath=0, gaze=0,0, sway=0,0, ambient=0", () => {
     const { sink, emissions } = makeSink();
     const motion = new IdleMotion(sink, {
       rng: cyclingRng([0.5]),
@@ -181,7 +188,7 @@ describe("sink-only contract", () => {
     expect(emissions.get(StandardParameter.EyeOpenRight)![0]).toBe(1);
     expect(emissions.get(StandardParameter.BrowLeftY)![0]).toBe(0);
     expect(emissions.get(StandardParameter.BrowRightY)![0]).toBe(0);
-    expect(emissions.get(StandardParameter.Breath)![0]).toBe(0.5);
+    expect(emissions.get(StandardParameter.Breath)![0]).toBe(0);
     expect(emissions.get(StandardParameter.EyeballX)![0]).toBe(0);
     expect(emissions.get(StandardParameter.EyeballY)![0]).toBe(0);
     expect(emissions.get(StandardParameter.AngleX)![0]).toBe(0);
@@ -292,7 +299,8 @@ describe("blink", () => {
   it("eye values dip near 0 at mid-blink and return to 1 after, asymmetrically", () => {
     const { sink, emissions } = makeSink();
     // rng call order: [0]=blinkAt (0→1500ms), [1]=gazeAt (1→3300ms, past our test window)
-    // [2..4]=head noise seeds, [5]=next blinkAt after blink ends (0.5→safe interval)
+    // [2..4]=head noise seeds, [5]=breath period (0.5→3900ms, past the window),
+    // [6]=double-blink coin after the blink ends (past the window's checks)
     const rng = cyclingRng([0, 1, 0.5]);
     const motion = new IdleMotion(sink, { rng });
 
@@ -489,29 +497,94 @@ describe("brow blink dip", () => {
 // breath
 // ---------------------------------------------------------------------------
 
-describe("breath", () => {
-  it("all emitted values are in [0, 1]", () => {
-    // Step 50ms to get dense coverage over 3500ms (70+ updates)
-    const emissions = drive(timestamps(0, 80, 50), cyclingRng([0.5]));
-    const breathSeries = emissions.get(StandardParameter.Breath)!;
-    for (const v of breathSeries) {
+describe("breath envelope", () => {
+  it("is 0 at both ends, outside [0, 1], and from the end of the fall on", () => {
+    expect(breathEnvelope(0)).toBe(0);
+    expect(breathEnvelope(1)).toBe(0);
+    expect(breathEnvelope(-0.5)).toBe(0);
+    expect(breathEnvelope(1.5)).toBe(0);
+    for (let i = 0; i <= 1000; i++) {
+      const phase = BREATH_OUT_END + (i / 1000) * (1 - BREATH_OUT_END);
+      expect(breathEnvelope(phase)).toBe(0);
+    }
+    expect(breathEnvelope(BREATH_OUT_END - 1e-6)).toBeGreaterThan(0);
+  });
+
+  it("peaks at 1 where the rise ends, and nowhere else", () => {
+    expect(breathEnvelope(BREATH_IN_END)).toBe(1);
+    expect(breathEnvelope(BREATH_IN_END - 1e-6)).toBeLessThan(1);
+    expect(breathEnvelope(BREATH_IN_END + 1e-6)).toBeLessThan(1);
+  });
+
+  it("rises monotonically, then falls monotonically, staying in [0, 1]", () => {
+    let prev = breathEnvelope(0);
+    for (let i = 1; i <= 1000; i++) {
+      const v = breathEnvelope((i / 1000) * BREATH_IN_END);
+      expect(v).toBeGreaterThanOrEqual(prev);
+      prev = v;
+    }
+    for (let i = 1; i <= 1000; i++) {
+      const phase =
+        BREATH_IN_END + (i / 1000) * (BREATH_OUT_END - BREATH_IN_END);
+      const v = breathEnvelope(phase);
+      expect(v).toBeLessThanOrEqual(prev);
       expect(v).toBeGreaterThanOrEqual(0);
-      expect(v).toBeLessThanOrEqual(1);
+      prev = v;
+    }
+  });
+});
+
+describe("breath", () => {
+  const FRAME_MS = 16;
+  const TWO_MIN = timestamps(0, 120000 / FRAME_MS + 1, FRAME_MS);
+  const runs = [1, 7, 42].map(
+    (seed) => drive(TWO_MIN, lcg(seed)).get(StandardParameter.Breath)!,
+  );
+
+  it("all emitted values are in [0, 1], reaching both", () => {
+    for (const series of runs) {
+      for (const v of series) {
+        expect(v).toBeGreaterThanOrEqual(0);
+        expect(v).toBeLessThanOrEqual(1);
+      }
+      expect(Math.max(...series)).toBeGreaterThan(0.99);
+      expect(series.filter((v) => v === 0).length).toBeGreaterThan(0);
     }
   });
 
-  it("breath spans a full cycle within one period (min ≈ 0, max ≈ 1)", () => {
-    // Drive for 2 full breath periods + some extra, 50ms steps
-    const steps = Math.ceil((2 * BREATH_PERIOD_MS) / 50) + 10;
-    const emissions = drive(timestamps(0, steps, 50), cyclingRng([0.5]));
-    const breathSeries = emissions.get(StandardParameter.Breath)!;
+  it("each cycle lasts 3.2–4.6 s, and the lengths vary", () => {
+    for (const series of runs) {
+      // A cycle starts on the frame its inhale leaves 0: the rest at the end
+      // of each cycle writes exact zeros, so these frames are unambiguous.
+      const starts: number[] = [];
+      for (let k = 1; k < series.length; k++) {
+        if (series[k] > 0 && series[k - 1] === 0) starts.push(k * FRAME_MS);
+      }
+      const lengths = starts.slice(1).map((t, i) => t - starts[i]);
+      expect(lengths.length).toBeGreaterThan(20);
+      for (const ms of lengths) {
+        // Each start is seen up to one frame late.
+        expect(ms).toBeGreaterThanOrEqual(BREATH_PERIOD_MIN_MS - FRAME_MS);
+        expect(ms).toBeLessThanOrEqual(BREATH_PERIOD_MAX_MS + FRAME_MS);
+      }
+      expect(Math.max(...lengths) - Math.min(...lengths)).toBeGreaterThan(500);
+    }
+  });
 
-    const min = Math.min(...breathSeries);
-    const max = Math.max(...breathSeries);
-
-    // With 50ms resolution the extremes land within ~1% of theoretical 0 and 1
-    expect(min).toBeLessThan(0.05);
-    expect(max).toBeGreaterThan(0.95);
+  it("wraps cleanly at the 100 ms frame cap: still one breath per cycle", () => {
+    // Each step crosses at most one cycle boundary and draws one period.
+    const series = drive(timestamps(0, 1201, 100), lcg(3)).get(
+      StandardParameter.Breath,
+    )!;
+    let rises = 0;
+    for (let k = 1; k < series.length; k++) {
+      if (series[k] > 0 && series[k - 1] === 0) rises++;
+    }
+    // 120 s over 3.2–4.6 s cycles.
+    expect(rises).toBeGreaterThanOrEqual(
+      Math.floor(120000 / BREATH_PERIOD_MAX_MS),
+    );
+    expect(rises).toBeLessThanOrEqual(Math.ceil(120000 / BREATH_PERIOD_MIN_MS));
   });
 });
 
@@ -660,11 +733,12 @@ describe("gaze", () => {
     // differs: eye contact in one, a look to (0.8, 0) in the other. The springs
     // are linear, so the difference between the runs is the response to the
     // gaze alone, the noise cancelled out.
-    // Draws: blink at 6 s, first retarget at 0.8 s, three noise seeds, then the
-    // retarget's eye-contact coin (under the odds = contact), its x and y, and
-    // the next wait (3.3 s, past the window).
-    const contact = cyclingRng([1, 0, 0.3, 0.6, 0.9, 0, 1]);
-    const look = cyclingRng([1, 0, 0.3, 0.6, 0.9, 0.99, 1, 0.5, 1]);
+    // Draws: blink at 6 s, first retarget at 0.8 s, three noise seeds, the
+    // first breath (4.6 s, past the window), then the retarget's eye-contact
+    // coin (under the odds = contact), its x and y, and the next wait (3.3 s,
+    // past the window).
+    const contact = cyclingRng([1, 0, 0.3, 0.6, 0.9, 1, 0, 1]);
+    const look = cyclingRng([1, 0, 0.3, 0.6, 0.9, 1, 0.99, 1, 0.5, 1]);
     const ts = timestamps(0, 3000 / 8 + 1, 8);
     const a = drive(ts, contact);
     const b = drive(ts, look);
@@ -792,10 +866,11 @@ describe("host gaze target", () => {
   });
 
   it("on clear, the eyes go back to the scheduled pick at once and later picks drive them", () => {
-    // Draws: blink at 6 s, first retarget at 3.3 s, three noise seeds, then the
-    // retarget's eye-contact coin (over the odds = a look), x and y at the box
-    // corner (-0.8, -0.5), and the next wait (3.3 s, so the pick holds to 6.6 s).
-    const script = [1, 1, 0.3, 0.6, 0.9, 0.99, 0, 0, 1];
+    // Draws: blink at 6 s, first retarget at 3.3 s, three noise seeds, the
+    // first breath (4.6 s), then the retarget's eye-contact coin (over the
+    // odds = a look), x and y at the box corner (-0.8, -0.5), and the next wait
+    // (3.3 s, so the pick holds to 6.6 s).
+    const script = [1, 1, 0.3, 0.6, 0.9, 1, 0.99, 0, 0, 1];
     const ts = timestamps(0, 12000 / FRAME_MS + 1, FRAME_MS);
     const hosted = driveHost(ts, cyclingRng(script), (idle, t) => {
       if (t === 0) idle.setGazeTarget(1, 1);
@@ -911,7 +986,8 @@ describe("head idle", () => {
   it("the noise alone stays within its own amplitude, give or take spring overshoot", () => {
     const NOISE_AXES = [
       [StandardParameter.AngleX, HEAD_NOISE_X_DEG],
-      [StandardParameter.AngleY, HEAD_NOISE_Y_DEG],
+      // The nod's breath lift is not gaze, so it stays in.
+      [StandardParameter.AngleY, HEAD_NOISE_Y_DEG + BREATH_PITCH_DEG],
       [StandardParameter.AngleZ, HEAD_Z_MAX_DEG],
     ] as const;
     for (const emissions of noiseOnly) {
@@ -1025,6 +1101,61 @@ describe("head idle", () => {
         expect(startPeak).toBeLessThanOrEqual(steadyPeak);
       }
     }
+  });
+
+  it("lifts the nod with each breath, up to its 1° pitch, behind the breath", () => {
+    // Two runs on the same noise seeds with the gaze held on the viewer,
+    // differing only in the first breath's length (3.2 s vs 4.6 s): the
+    // springs are linear, so the AngleY difference is the response to the
+    // breath difference alone, the noise cancelled out.
+    function run(firstBreath: number): Map<string, number[]> {
+      const seeded = lcg(11);
+      let draws = 0;
+      const { sink, emissions } = makeSink();
+      // Draws: blink, gaze, three noise seeds, then the first breath; every
+      // draw after that is 0 (eye contact, 3.2 s breaths) in both runs.
+      const motion = new IdleMotion(sink, {
+        rng: () => {
+          draws++;
+          if (draws <= 5) return seeded();
+          return draws === 6 ? firstBreath : 0;
+        },
+      });
+      for (const t of timestamps(0, 20000 / FRAME_MS + 1, FRAME_MS)) {
+        motion.update(t);
+      }
+      return emissions;
+    }
+    const a = run(1);
+    const b = run(0);
+    const diff = (id: string) => {
+      const sb = b.get(id)!;
+      return a.get(id)!.map((v, i) => v - sb[i]);
+    };
+    const breath = diff(StandardParameter.Breath);
+    const nod = diff(StandardParameter.AngleY);
+    expect(Math.max(...breath.map(Math.abs))).toBeGreaterThan(0.9);
+    // Full breath lifts the nod by about its pitch, give or take the spring.
+    const peak = Math.max(...nod.map(Math.abs));
+    expect(peak).toBeGreaterThan(0.8 * BREATH_PITCH_DEG);
+    expect(peak).toBeLessThanOrEqual(BREATH_PITCH_DEG * SPRING_OVERSHOOT);
+    // The nod rises and falls with the breath: same sign, a strong positive
+    // correlation once the spring's lag (a few frames) is allowed for.
+    const LAG = 8;
+    const x = breath.slice(0, -LAG);
+    const y = nod.slice(LAG);
+    const mean = (v: number[]) => v.reduce((s, e) => s + e, 0) / v.length;
+    const mx = mean(x);
+    const my = mean(y);
+    let sxy = 0;
+    let sxx = 0;
+    let syy = 0;
+    for (let i = 0; i < x.length; i++) {
+      sxy += (x[i] - mx) * (y[i] - my);
+      sxx += (x[i] - mx) ** 2;
+      syy += (y[i] - my) ** 2;
+    }
+    expect(sxy / Math.sqrt(sxx * syy)).toBeGreaterThan(0.9);
   });
 });
 
