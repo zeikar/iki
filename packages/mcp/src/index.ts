@@ -98,9 +98,11 @@ export {
 } from "./illustration-grid";
 export {
   cutLayersFromIllustration,
+  formatCutReport,
   type CutCheck,
   type CutCustomPart,
   type CutLayer,
+  type CutMeasure,
   type CutLayersFromIllustrationInput,
   type CutLayersFromIllustrationResult,
 } from "./illustration-cut";

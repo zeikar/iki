@@ -294,10 +294,21 @@ async function lashOffSclera(
  * part's core was a speck, and the nose check reports it as given. Left out —
  * compose found no speck, or `measure_layers` — that check judges the `nose`
  * layer file against its crop instead, as `auto_rig_from_layers` does.
+ * `inPlace` is for layers cut in place out of one picture
+ * (`cut_layers_from_illustration`): every part is as the picture draws it,
+ * so each check whose only remedy is re-laying-out or regenerating a
+ * generated part is left out (an edge or straight cut in the art, a sclera's
+ * aspect, the iris's size and place, an eyewhite drawn facing the other way,
+ * a speck nose, and the lip set's art: see `lipWarnings`), and so are the
+ * arm, pose forearm and side lock checks, whose roles a cut never writes.
+ * What stays is what the rig refuses (a lip set partial, mixed or on another
+ * canvas, a lash whose top row is off its sclera's), the missing optional
+ * roles, and the lip set's opening facts.
  */
 export async function measureDir(
   absDir: string,
   noseSpeck?: NoseSpeck,
+  { inPlace = false }: { inPlace?: boolean } = {},
 ): Promise<MeasureReport> {
   const files = fs
     .readdirSync(absDir)
@@ -338,8 +349,9 @@ export async function measureDir(
   //    so redrawing it reproduced the clip exactly.
   for (const [role, m] of Object.entries(layers)) {
     // A lip layer's straight edges are the split's cuts, not the art's; the
-    // lip checks read what the rig does with them.
-    if (isLipLayerRole(role)) continue;
+    // lip checks read what the rig does with them. In place, an edge is the
+    // picture's own.
+    if (inPlace || isLipLayerRole(role)) continue;
     const edges: [string, number, number, number][] = [
       ["top", m.edgeTop, m.w, m.marginTop],
       ["left", m.edgeLeft, m.h, m.marginLeft],
@@ -386,7 +398,7 @@ export async function measureDir(
     // `body` bends as one drawing, so no pose opens a cut in it; its top is
     // deliberately cut flat where the jaw covers it, and stays under the jaw
     // because the head rides the body.
-    if (role === "body" || isLipLayerRole(role)) continue;
+    if (inPlace || role === "body" || isLipLayerRole(role)) continue;
     if (
       m.flatCutRun > FLAT_CUT_MAX_FRAC * m.w &&
       m.flatCutRun >= FLAT_CUT_MIN_PX
@@ -403,19 +415,19 @@ export async function measureDir(
   }
 
   // 1c. The arms: each needs a body, and its shoulder cap the torso under it.
-  warnings.push(...(await armWarnings(absDir, layers)));
+  if (!inPlace) warnings.push(...(await armWarnings(absDir, layers)));
 
   // 1d. The pose forearms: each needs its arm, and its elbow end the arm's elbow.
-  warnings.push(...(await forearmPoseWarnings(absDir, layers)));
+  if (!inPlace) warnings.push(...(await forearmPoseWarnings(absDir, layers)));
 
   // 1e. The lip set: the fold's contract per column, the opening's size, the
   //     line's weight, key green left, an interior with holes.
-  const lip = await lipWarnings(absDir, layers);
+  const lip = await lipWarnings(absDir, layers, inPlace);
   warnings.push(...lip.warnings);
 
   // 1f. The side locks: root under the bangs, off the eye corner, paint behind
   //     the near lean, one lock drawn.
-  warnings.push(...(await hairSideWarnings(absDir, layers)));
+  if (!inPlace) warnings.push(...(await hairSideWarnings(absDir, layers)));
 
   // 2/3/4. Eye stack geometry, per side.
   for (const side of ["L", "R"]) {
@@ -425,7 +437,7 @@ export async function measureDir(
     if (!eye) continue;
 
     const aspect = eye.h / eye.w;
-    if (aspect < EYE_ASPECT_MIN) {
+    if (!inPlace && aspect < EYE_ASPECT_MIN) {
       warnings.push(
         `eye_${side}: sclera aspect h/w=${aspect.toFixed(2)} is flatter than ${EYE_ASPECT_MIN} — ` +
           `a round iris cannot sit inside it. Free fix first: set layout.eye_${side}.h and ` +
@@ -437,7 +449,7 @@ export async function measureDir(
 
     if (iris) {
       const ratio = iris.w / eye.w;
-      if (ratio < IRIS_RATIO_MIN || ratio > IRIS_RATIO_MAX) {
+      if (!inPlace && (ratio < IRIS_RATIO_MIN || ratio > IRIS_RATIO_MAX)) {
         warnings.push(
           `iris_${side}: width is ${pct(ratio)} of the sclera (target ${IRIS_RATIO_MIN}-${IRIS_RATIO_MAX}) — ` +
             `retune layout.iris_${side}.w (keep it a fraction of the eye width), no regeneration needed.`,
@@ -446,8 +458,8 @@ export async function measureDir(
       const dx = iris.bboxCx - eye.massCx;
       const dy = iris.bboxCy - eye.massCy;
       if (
-        Math.abs(dx) > IRIS_OFFSET_MAX_X ||
-        Math.abs(dy) > IRIS_OFFSET_MAX_Y
+        !inPlace &&
+        (Math.abs(dx) > IRIS_OFFSET_MAX_X || Math.abs(dy) > IRIS_OFFSET_MAX_Y)
       ) {
         warnings.push(
           `iris_${side}: sits (${dx.toFixed(1)}, ${dy.toFixed(1)}) px from the white's centre of mass — ` +
@@ -506,7 +518,7 @@ export async function measureDir(
         // eye_R is the screen-left eye: its outer corner is its left end.
         const [bareOuter, bareInner] =
           side === "R" ? [bareLeft, bareRight] : [bareRight, bareLeft];
-        if ((bareOuter - bareInner) / eye.w > EYE_FACING_TOL_FRAC) {
+        if (!inPlace && (bareOuter - bareInner) / eye.w > EYE_FACING_TOL_FRAC) {
           warnings.push(
             `eye_${side}: its lash stops ${pct(bareOuter / eye.w)} of the eye width short of the outer corner ` +
               `and ${pct(bareInner / eye.w)} short of the nose side — the eyewhite is drawn facing the other way, ` +
@@ -526,7 +538,7 @@ export async function measureDir(
   //    which also catches a core that only resampling made a speck.
   if (noseSpeck !== undefined) {
     warnings.push(noseSpeckWarning(noseSpeck, "compose"));
-  } else if (layers.nose !== undefined) {
+  } else if (!inPlace && layers.nose !== undefined) {
     const nose = await decodePng(path.join(absDir, "nose.png"));
     const core = denseCoreOf(nose.rgba, nose.width, nose.height);
     if (core !== null) {
@@ -581,6 +593,11 @@ export async function measureLayers(
   }
 }
 
+/** The lip set's opening as one line of a report. */
+export function formatLipFacts({ opening, deadZone }: LipFacts): string {
+  return `lips: opening ${opening.width} px wide, ${opening.height} px tall at its centre under a ${opening.line} px line — no slit below MouthOpen ${deadZone.toFixed(2)}`;
+}
+
 /**
  * Render a measurement as plain text: the per-layer table first (numbers to
  * argue with), then the checks that fired. Takes the report itself rather than
@@ -612,11 +629,7 @@ export function formatMeasureReport(
   }
 
   if (result.lips !== undefined) {
-    const { opening, deadZone } = result.lips;
-    lines.push(
-      "",
-      `lips: opening ${opening.width} px wide, ${opening.height} px tall at its centre under a ${opening.line} px line — no slit below MouthOpen ${deadZone.toFixed(2)}`,
-    );
+    lines.push("", formatLipFacts(result.lips));
   }
 
   lines.push("", "# checks", "");

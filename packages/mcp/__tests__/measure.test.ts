@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { armGeometry, createLayerSetMeasurer } from "@ikijs/editor";
-import { formatMeasureReport, measureLayers } from "../src/measure";
+import { formatMeasureReport, measureDir, measureLayers } from "../src/measure";
 
 /**
  * Every fixture is real painted pixels encoded as a PNG, because the checks are
@@ -52,6 +52,11 @@ async function writeLayer(
   await sharp(buf, { raw: { width, height, channels: 4 } })
     .png()
     .toFile(path.join(dir, name));
+}
+
+/** The warnings a cut in place reads off `dir` (`measureDir`'s `inPlace`). */
+async function inPlaceWarnings(dir: string): Promise<string[]> {
+  return (await measureDir(dir, undefined, { inPlace: true })).warnings;
 }
 
 /** Filled ellipse with an alpha bbox of exactly `w`x`h` centred on (cx, cy);
@@ -190,6 +195,8 @@ describe("measureLayers", () => {
     expect(dotted[0]).toMatch(
       /^nose: the layer's dense core is 3x3 in its 42x52 crop .* speck/,
     );
+    // Cut in place, the nose is as drawn: nothing to regenerate.
+    expect(warned(await inPlaceWarnings(speck), /^nose:/)).toBe(false);
 
     // An opaque core half the feather's width is the drawing, not a speck.
     const drawn = tmpDir();
@@ -211,6 +218,8 @@ describe("measureLayers", () => {
     const result = await measureOk(dir);
     expect(warned(result.warnings, /iris_L: width is 33%/)).toBe(true);
     expect(result.passed).toBe(false);
+    // Cut in place, the iris is as drawn: no layout to retune.
+    expect(warned(await inPlaceWarnings(dir), /iris_L: width/)).toBe(false);
   });
 
   it("flags an iris that drifted sideways off the white's centre of mass", async () => {
@@ -226,6 +235,9 @@ describe("measureLayers", () => {
     expect(
       warned(result.warnings, /iris_L: sits \(4\.0, 0\.0\) px from the white/),
     ).toBe(true);
+    // Cut in place, the iris sits where the picture drew it.
+    const inPlace = await measureDir(dir, undefined, { inPlace: true });
+    expect(warned(inPlace.warnings, /iris_L: sits/)).toBe(false);
   });
 
   it("flags a lash that drifted off its sclera", async () => {
@@ -242,6 +254,10 @@ describe("measureLayers", () => {
         /^lash_L: \d+ of its \d+ opaque px lie off eye_L's sclera/,
       ),
     ).toBe(true);
+    // A fold that tears is the rig's to show, cut in place or not.
+    expect(warned(await inPlaceWarnings(dir), /^lash_L: .* lie off/)).toBe(
+      true,
+    );
   });
 
   it("names the free move for a flush edge and the redraw for a cropped one", async () => {
@@ -318,6 +334,9 @@ describe("measureLayers", () => {
     expect(facing[0]).toMatch(/^eye_L: .*facing the other way/);
     // The free fix, named so it can be applied as written.
     expect(facing[0]).toMatch(/mirrorParts: \["eyewhite\.png"\]/);
+    // Cut in place, the eye is as the picture drew it: nothing to mirror.
+    const inPlace = await measureDir(dir, undefined, { inPlace: true });
+    expect(warned(inPlace.warnings, /facing/)).toBe(false);
   });
 
   it("reads a long thin wing as the outer corner, whichever end it is on", async () => {
@@ -406,6 +425,7 @@ describe("measureLayers", () => {
 
     const result = await measureOk(dir);
     expect(warned(result.warnings, /eye_L: sclera aspect/)).toBe(true);
+    expect(warned(await inPlaceWarnings(dir), /sclera aspect/)).toBe(false);
   });
 
   it("flags art that runs to its own edge, once the run is long enough", async () => {
@@ -419,6 +439,10 @@ describe("measureLayers", () => {
         /hair_front: .* top edge is opaque/,
       ),
     ).toBe(true);
+    // Cut in place, an edge is the picture's own; the missing roles stay.
+    const inPlace = await inPlaceWarnings(wide);
+    expect(warned(inPlace, /edge is opaque|straight flat edge/)).toBe(false);
+    expect(warned(inPlace, /^body: missing/)).toBe(true);
 
     // Same square edges, but a 30px run is a round part's tangent, not a crop.
     const narrow = tmpDir();

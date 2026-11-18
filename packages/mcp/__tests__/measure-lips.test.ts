@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
-import { formatMeasureReport, measureLayers } from "../src/measure";
+import { formatMeasureReport, measureDir, measureLayers } from "../src/measure";
 import { CAVITY, KEY_GREEN, TEETH, TONGUE } from "./helpers/parts";
 import { UPPER_THIN } from "../../editor/src/auto-rig/mouth";
 
@@ -243,6 +243,44 @@ describe("measure_layers: the lip set", () => {
 
     expect(
       (await warningsOf(await writeSet({ lowerCanvas: 300 }))).join("\n"),
+    ).toMatch(/canvas/);
+  });
+
+  it("cut in place, holds back every check whose remedy is the set's sources, and keeps what the rig refuses", async () => {
+    const inPlace = async (dir: string) => {
+      const r = await measureDir(dir, undefined, { inPlace: true });
+      return r.warnings.filter((w) => !/: missing — /.test(w));
+    };
+    const heldBack: Variant[] = [
+      { teeth: [62, 137, 91, 95] },
+      { line: [60, 139, 88, 90] },
+      { lowerFrom: 120 },
+      { line: [60, 139, 92, 92] },
+      { inner: [60, 139, 93, 98] },
+      { line: [60, 99, 90, 92] },
+      { innerGap: [90, 99] },
+      { line: [0, 199, 90, 92], inner: [75, 124, 93, 117] },
+      { green: true },
+      { hollow: [100, 106] },
+    ];
+    for (const v of heldBack) {
+      const dir = await writeSet(v);
+      expect(await warningsOf(dir), JSON.stringify(v)).not.toEqual([]);
+      expect(await inPlace(dir), JSON.stringify(v)).toEqual([]);
+    }
+    const facts = await measureDir(await writeSet(), undefined, {
+      inPlace: true,
+    });
+    expect(facts.lips?.opening).toEqual({ width: 80, height: 25, line: 3 });
+
+    expect(
+      (await inPlace(await writeSet({ omit: "lip_lower" }))).join("\n"),
+    ).toMatch(/partial/);
+    const mixed = await writeSet();
+    await writeLayer(mixed, "mouth.png", block(70, 130, 95, 110, SKIN));
+    expect((await inPlace(mixed)).join("\n")).toMatch(/cannot be mixed/);
+    expect(
+      (await inPlace(await writeSet({ lowerCanvas: 300 }))).join("\n"),
     ).toMatch(/canvas/);
   });
 

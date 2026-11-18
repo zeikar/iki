@@ -25,6 +25,7 @@ import { measureTurnReference, formatTurnReport } from "./measure-turn";
 import { renderPoses } from "./render-poses";
 import { probeRig, type ProbeInput } from "./probe";
 import { viewIllustrationGrid } from "./illustration-grid";
+import { cutLayersFromIllustration, formatCutReport } from "./illustration-cut";
 
 /** Injected by tsup (and vitest) from this package's package.json version. */
 declare const __MCP_VERSION__: string;
@@ -847,6 +848,149 @@ export function createIkiMcpServer(): McpServer {
         const text = r.ok
           ? `${r.path}\ncrop ${r.crop.x},${r.crop.y} ${r.crop.w}x${r.crop.h} on the ${r.canvas.width}x${r.canvas.height} canvas, zoom ${r.zoom}, step ${r.step}`
           : `INVALID: ${r.error}`;
+        return { content: [{ type: "text", text }], structuredContent: r };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: "text", text: `Unexpected error: ${error}` }],
+          structuredContent: { ok: false, error },
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "cut_layers_from_illustration",
+    {
+      description:
+        "Cuts ONE finished front-facing character picture (PNG, JPEG or WebP) into in-place role layers for auto_rig_from_layers, from landmarks you read off `view_illustration_grid` (no ML: every part is found from your landmarks and colour samples). The picture is scaled to the 1100 px wide layer canvas (height by its aspect), the canvas `view_illustration_grid` shows; a transparent picture is used as is, an opaque one has its flat backdrop keyed from the border's colour (a border that is not one flat colour is refused). FRAME: canvas px, origin top-left, x right, y down; a coordinate names a pixel; `L` is the character's left, the viewer's right (but `mouth.cornerL` is the viewer's left end). Writes into `outputDir`, every layer a canvas-sized PNG with the paint where the picture has it: hair_back, body, face, nose, mouth, eye_L/eye_R (the sclera), iris_L/iris_R, lash_lower_L/lash_lower_R, lash_L/lash_R, brow_L/brow_R and hair_front (a feature that is not found writes no layer), each custom part as `custom/<id>.png` (never a role layer: pass them as auto_rig_from_layers' `customParts`, tied at their `tie`), and preview-labels.png (the labels over the picture) and preview-landmarks.png (the landmarks over it), which measure_layers skips. What a layer hides when the rig moves it (the forehead under the bangs, the hair behind the face, the neck behind the chin, the skin under each feature) is filled from the paint around it. A role this cut does not write is removed from `outputDir` if an earlier run left it. With `mouthKeyed` + `mouthInterior` (the composer's lip-set inputs) the lip set is written instead of `mouth`: mouth_inner, lip_lower, lip_upper, and mouth_teeth / mouth_tongue when the interior has light paint, scaled uniformly so the set's own corners (its line's ends) are as far apart as `mouth.cornerL` and `mouth.cornerR` and centred on their midpoint, not turned; the drawn mouth still leaves the face. Text result: the written files one per line, then one line per check, `CHECK <id>: pass|WARN|FAIL <value> (limit <limit>) <hint>` (WARN a warn-level check that did not pass, FAIL a fail-level one; `none` for no value or no limit; the hint names the landmark to move), then measure_layers' checks on the written directory that a cut can act on, as `MEASURE:` lines: what auto_rig_from_layers refuses (a lip set partial, mixed with `mouth` or on another canvas, the lip layers' opening unreadable, a lash whose top row is off its sclera's), a missing optional role (body, hair_back, nose), and with a lip set its opening's facts (`lips: opening …`); the checks whose only remedy is re-laying-out or regenerating a generated part (art edges and straight cuts, eye aspect, iris size and place, an eyewhite to mirror, a speck nose, the lip set's own art) are left out, the parts being as drawn; and last `CUT pass` or `CUT FAIL: <failed check ids>`. The checks: `stack` (fail): the layers stacked in role order against the picture, the share of canvas pixels off by more than 24 levels outside the mouth's box, limit 0.003, the box's own share counted apart since the mouth is replaced; `seeds` (fail): seeds and samples on the backdrop or on the wrong class, limit 0; `opening.L|R` (fail when the eye box clips the drawn eye, saying how far to grow it; warn when the eye covers under 0.2 of a loose box); `iris.L|R` (warn): the iris ellipse against the coloured disc found, their overlap (intersection over union) with limit 0.7 and their centres' offset; `eye.L|R` (warn): the eye's share of white, limit 0.06, under which it is cut as drawn closed (lash over the sclera, no iris); `brow.L|R` (warn): a brow band that holds no brow; `mouth` (fail): nothing drawn in `mouth.box` and no lip set; `fills.<region>` (warn): per fill, the share made up over 40 px from any paint it is filled from, limit 0.25, or no limit for the fills made up by construction; `frontHairWidth` (warn): hair_front's width over the face's on the eye row, limit 1 (wider clamps the turn); `pockets` (warn): backdrop-coloured paint the border's flood cannot reach, and the gaps between strands keyed on their own. Limits: a picture over 16,777,216 px or whose canvas would be over 4096 px tall, a landmark list over 2000 points, over 32 samples per class, over 16 custom parts or 16 bodyOnly polygons. A refusal writes nothing and comes back as `INVALID: …`: bad landmarks as `INVALID: landmarks.<path> …`, an output dir that is missing or outside the working directory, a missing or corrupt picture or lip-set file, one of `mouthKeyed` / `mouthInterior` without the other, a lip set whose key fails (named as the composer names it), corners too close for the lip set's outline to close (naming the least distance that cuts), or a lip set placed past the canvas's edge.",
+      inputSchema: {
+        imagePath: z
+          .string()
+          .describe(
+            "The finished picture (PNG, JPEG or WebP; resolved against cwd).",
+          ),
+        outputDir: z
+          .string()
+          .describe(
+            "Existing directory to write the layers into (resolved against cwd; confined to the working directory). Reused across rounds: same-named files are overwritten.",
+          ),
+        landmarks: z
+          .object({
+            samples: z
+              .unknown()
+              .optional()
+              .describe(
+                "Required. `{ hair: { base, shadow?, highlight? }, skin: { base, shadow? } }`, each a list of PTS (base 1 or more): points on flat patches of each tone. A pixel is hair or skin by which set it is nearer in colour; a sample on a line or on the other class's paint moves that paint across the whole picture. At most 32 points per class.",
+              ),
+            eyes: z
+              .unknown()
+              .optional()
+              .describe(
+                "Required. `{ L, R }`, each `{ box: [x0, y0, x1, y1], iris: { cx, cy, rx, ry } }`: `box` the whole drawn eye, lashes included (inclusive corners; one that clips the eye fails `opening`), `iris` the drawn disc as an ellipse, its centre inside the box (one wider than the disc pulls white or lash into the iris). L is the character's left eye, on the viewer's right.",
+              ),
+            brows: z
+              .unknown()
+              .optional()
+              .describe(
+                "Optional, each side optional: `{ L?, R? }`, each `{ line, halfWidth?, tailHalfWidth? }`: `line` the brow's centreline as PTS, tail first, 2 or more; `halfWidth` the band's half-width (8 when omitted), `tailHalfWidth` at the tail (5). A brow left out stays painted on the face; a brow drawn through the bangs passes under the strand.",
+              ),
+            nose: z
+              .unknown()
+              .optional()
+              .describe(
+                "Optional: `{ box: [x0, y0, x1, y1] }` around the drawn nose; left out, the nose stays on the face.",
+              ),
+            mouth: z
+              .unknown()
+              .optional()
+              .describe(
+                "Required: `{ box: [x0, y0, x1, y1], cornerL: [x, y], cornerR: [x, y] }`: `box` the whole drawn mouth, `cornerL` the VIEWER's left end of the mouth line and `cornerR` its right end (cornerL's x the smaller), both inside the box. A lip set's corners land on them.",
+              ),
+            frontHair: z
+              .unknown()
+              .optional()
+              .describe(
+                "Required: polygon PTS, 3 or more, round the bangs and the strands beside the face: its hair is hair_front. Keep it to the face's width (wider warns `frontHairWidth`); the hair outside it is hair_back.",
+              ),
+            skull: z
+              .unknown()
+              .optional()
+              .describe(
+                "Required: polygon PTS, 3 or more, round the head's skin, the part under the hair included: skin is filled under the bangs inside it.",
+              ),
+            shellLower: z
+              .unknown()
+              .optional()
+              .describe(
+                "Required: PTS, 2 or more, x strictly ascending: the back hair's lower edge behind the face; hair is filled behind the face and the bangs down to it.",
+              ),
+            skinSeeds: z
+              .unknown()
+              .optional()
+              .describe(
+                "Required: PTS, 1 or more, on the face's skin (cheeks, forehead, one on each ear): the face is flooded from them over skin, stopped by lines.",
+              ),
+            bodySeeds: z
+              .unknown()
+              .optional()
+              .describe(
+                "Required: PTS, 1 or more, on the neck and the clothes: the body is flooded from them.",
+              ),
+            backgroundSeeds: z
+              .unknown()
+              .optional()
+              .describe(
+                "Optional PTS: backdrop the figure encloses (a gap between the neck and a tail), which the border's flood cannot reach; the `pockets` check names them.",
+              ),
+            paintSeeds: z
+              .unknown()
+              .optional()
+              .describe(
+                "Optional PTS: backdrop-coloured paint the hair rings that is paint (a pale clip between two locks), never keyed as a gap.",
+              ),
+            neckTopY: z
+              .unknown()
+              .optional()
+              .describe(
+                "Required: the canvas row the neck is carried up to behind the chin (a little above the jaw's lowest row).",
+              ),
+            bodyOnly: z
+              .unknown()
+              .optional()
+              .describe(
+                "Optional: polygons (PTS, 3 or more each, at most 16) where paint the samples call hair belongs to the body: a dark jacket under near-black hair.",
+              ),
+            customParts: z
+              .unknown()
+              .optional()
+              .describe(
+                "Optional, at most 16: parts cut out of the back hair as `custom/<id>.png` (twin tails, a ponytail). Each `{ id, tie, polygon }` (the back hair inside the polygon) or `{ id, tie, side, line, below, ribbonBox? }` (the back hair on `side` (`left` or `right`, as the viewer sees it) of `line`, PTS top to bottom with y strictly ascending, where the part leaves the head's hair; under the line's last point, everything on that side of the column x = `below`; `ribbonBox` [x0, y0, x1, y1] around a ribbon or tie goes with the part). `id` a plain identifier no role takes; `tie` [x, y] where the part hangs from the head. A part left in the back hair widens the head the turn is fitted to.",
+              ),
+          })
+          .passthrough()
+          .describe(
+            "Where the picture's parts are, in canvas px read off `view_illustration_grid` (PTS: a list of [x, y] points, each a pixel on the canvas, at most 2000 per list). Required keys: samples, eyes, mouth, frontHair, skull, shellLower, skinSeeds, bodySeeds, neckTopY; optional: brows, nose, backgroundSeeds, paintSeeds, bodyOnly, customParts. Checked as a whole by the tool, which refuses the first fault as `INVALID: landmarks.<path> …`, the path to the field (an unknown key included).",
+          ),
+        mouthKeyed: z
+          .string()
+          .optional()
+          .describe(
+            "The lip set's open mouth, its inside painted flat #00FF00 (the composer's mouth_keyed.png; resolved against cwd). Needs `mouthInterior`.",
+          ),
+        mouthInterior: z
+          .string()
+          .optional()
+          .describe(
+            "The lip set's cavity, teeth and tongue alone (the composer's mouth_interior.png; resolved against cwd). Needs `mouthKeyed`.",
+          ),
+      },
+    },
+    async (args) => {
+      try {
+        const r = await cutLayersFromIllustration(args);
+        const text = r.ok ? formatCutReport(r) : `INVALID: ${r.error}`;
         return { content: [{ type: "text", text }], structuredContent: r };
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);

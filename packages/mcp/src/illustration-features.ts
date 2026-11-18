@@ -1381,8 +1381,8 @@ export interface FeatureCut {
 /**
  * The eyes, the brows, the nose and the drawn closed mouth as layers, and
  * the skin to fill the face with under them. With `lipSet`, a generated lip
- * set stands for the mouth: the drawn mouth still leaves the face, and a
- * mouth box with nothing drawn in it is no fault.
+ * set stands for the mouth: the drawn mouth still leaves the face but is
+ * written as no layer, and a mouth box with nothing drawn in it is no fault.
  */
 export function cutFeatures(ctx: CutContext, lipSet = false): FeatureCut {
   const { pic, lm, labels } = ctx;
@@ -1434,7 +1434,8 @@ export function cutFeatures(ctx: CutContext, lipSet = false): FeatureCut {
   const mouthPixels = count(mouth);
   checks.push(mouthCheck(mouthPixels, lipSet));
   if (mouthPixels > 0) {
-    roles.set("mouth", paintOf(pic, mouth));
+    // The rig refuses `mouth` beside the lip set, which stands for it.
+    if (!lipSet) roles.set("mouth", paintOf(pic, mouth));
     holes = or(holes, mouth);
   }
   const sources = skinSources(ctx, holes);

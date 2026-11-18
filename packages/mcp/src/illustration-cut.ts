@@ -10,7 +10,12 @@
  * (`illustration-landmarks.ts`), and checked: the report says, in numbers,
  * whether the layers stack back into the picture, whether each seed and
  * sample sits on the paint it should, how much of each fill was made up far
- * from any paint, and whether the front hair is wider than the face.
+ * from any paint, and whether the front hair is wider than the face; and
+ * `measure_layers`' own checks on the written directory follow.
+ *
+ * The drawn mouth is a closed line. Given a generated lip set (the
+ * composer's keyed open mouth and interior), the composer cuts it and it is
+ * placed on the drawn mouth's corners in place of that line.
  *
  * Frame: canvas px, origin top-left, x right, y down, CANVAS wide; every
  * layer is a canvas-sized PNG with the paint where the picture has it.
@@ -19,7 +24,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
-import { ORDER } from "./compose";
+import {
+  hasCoverage,
+  ORDER,
+  readLipSources,
+  sizedPart,
+  trimmedPart,
+  type LipSources,
+} from "./compose";
+import { KEYED_SRC, splitLipSet } from "./compose-lips";
 import {
   and,
   andNot,
@@ -77,9 +90,12 @@ import {
 import {
   AutoRigInputError,
   confineToWorkingDirectory,
+  resolveInputPath,
   resolveOutputDir,
   writeFileAtomic,
 } from "./limits";
+import { formatLipFacts, measureDir } from "./measure";
+import type { LipFacts } from "./measure-lips";
 
 export interface CutLayersFromIllustrationInput {
   /** The finished picture (PNG, JPEG or WebP), resolved against cwd. */
@@ -88,9 +104,13 @@ export interface CutLayersFromIllustrationInput {
   landmarks: unknown;
   /** An existing directory under the working directory. */
   outputDir: string;
-  /** Not supported yet: a generated lip set placed on the drawn mouth. */
+  /** The lip set's open mouth, its inside painted flat #00FF00 (what the
+   *  composer reads as `mouth_keyed.png`). With `mouthInterior` the lip set
+   *  is written in place of the drawn mouth, its corners on
+   *  `landmarks.mouth`'s; one without the other is refused. */
   mouthKeyed?: string;
-  /** Not supported yet: see `mouthKeyed`. */
+  /** The lip set's cavity, teeth and tongue (the composer's
+   *  `mouth_interior.png`); see `mouthKeyed`. */
   mouthInterior?: string;
 }
 
@@ -101,6 +121,15 @@ export interface CutLayer {
    *  for a layer with none. */
   box: Box | null;
   pixels: number;
+}
+
+/** `measureLayers`' report on the written directory, less the checks whose
+ *  only remedy is re-laying-out or regenerating a generated part (see
+ *  `measureDir`'s `inPlace`). */
+export interface CutMeasure {
+  warnings: string[];
+  /** The lip set's opening as the rig reads it, with a lip set. */
+  lips?: LipFacts;
 }
 
 export interface CutCustomPart {
@@ -121,6 +150,7 @@ export type CutLayersFromIllustrationResult =
       customParts: CutCustomPart[];
       previews: { labels: string; landmarks: string };
       checks: CutCheck[];
+      measure: CutMeasure;
       /** No fail-level check failed. */
       passed: boolean;
     }
@@ -430,12 +460,12 @@ function bodyLayer(ctx: CutContext, opaque: Mask, fills: FillRegion[]) {
 }
 
 /** The face, the features, the hair, the body and the custom parts, with
- *  their fills. */
-function buildLayers(ctx: CutContext): BuiltLayers {
+ *  their fills. With `lipSet` the drawn mouth leaves the face as no layer. */
+function buildLayers(ctx: CutContext, lipSet: boolean): BuiltLayers {
   const { pic } = ctx;
   const fills: FillRegion[] = [];
   const opaque = Uint8Array.from(pic.alpha, (a) => (a >= OPAQUE_ALPHA ? 1 : 0));
-  const features = cutFeatures(ctx);
+  const features = cutFeatures(ctx, lipSet);
   const face = faceLayer(ctx, opaque, fills, features);
   const { hairBack, parts } = hairLayers(ctx, opaque, fills);
   const body = bodyLayer(ctx, opaque, fills);
@@ -451,6 +481,175 @@ function buildLayers(ctx: CutContext): BuiltLayers {
     fills,
     features,
   };
+}
+
+// ---- the lip set ----
+
+/** The layer each of the composer's lip-set buffers is written as. */
+const LIP_LAYERS = {
+  mouth_inner: "inner",
+  mouth_tongue: "tongue",
+  mouth_teeth: "teeth",
+  lip_lower: "lower",
+  lip_upper: "upper",
+} as const;
+
+/** The rows of a frame's first and last columns, each its paint's
+ *  alpha-weighted mean, as edge coordinates (a pixel's centre at +0.5): the
+ *  ends of a trimmed mouth's line, where its corners are. */
+async function endRows(png: Buffer): Promise<[number, number]> {
+  const { data, info } = await sharp(png)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const row = (x: number) => {
+    let sum = 0;
+    let weight = 0;
+    for (let y = 0; y < info.height; y++) {
+      const a = data[(y * info.width + x) * 4 + 3];
+      sum += a * (y + 0.5);
+      weight += a;
+    }
+    return sum / weight;
+  };
+  return [row(0), row(info.width - 1)];
+}
+
+/**
+ * The lip set, cut by the composer from the keyed mouth and the interior,
+ * placed so its own corners (the trimmed frame's end columns, which are the
+ * line's ends and go to `lip_upper`) land on landmarks.mouth's: scaled
+ * uniformly by the two corners' distance, their midpoint on the drawn
+ * corners'. Not turned: on a tilted drawn mouth the set lies level, centred
+ * on the tilt. `mouth_tongue` / `mouth_teeth` only when the interior has
+ * light paint for them, as the composer writes them.
+ */
+async function lipSetLayers(
+  ctx: CutContext,
+  lips: LipSources,
+): Promise<Map<string, LayerPaint>> {
+  const { pic, lm } = ctx;
+  const canvas = { width: pic.width, height: pic.height };
+  const cfg = { src: KEYED_SRC };
+  // Never null: the keyed part is in memory.
+  const trimmed = (await trimmedPart(
+    "mouth_inner",
+    cfg,
+    "",
+    lips.keyedPng,
+    false,
+  ))!;
+  const [rowA, rowB] = await endRows(trimmed.data);
+  const { cornerL, cornerR } = lm.mouth;
+  const drawn = Math.hypot(cornerR[0] - cornerL[0], cornerR[1] - cornerL[1]);
+  const own = Math.hypot(trimmed.w - 1, rowB - rowA);
+  const corners = "landmarks.mouth.cornerL/cornerR";
+  /** The set sized `w` px wide and split by the composer. */
+  const cutAt = async (w: number) => {
+    let part;
+    try {
+      part = await sizedPart("mouth_inner", { ...cfg, w }, trimmed, canvas);
+    } catch (e) {
+      // The composer names its layout key; here the size comes from the
+      // corners.
+      if (e instanceof AutoRigInputError) {
+        throw new AutoRigInputError(
+          e.message.replace(
+            "layout.mouth_inner.w:",
+            `${corners}: the lip set scaled to the corners,`,
+          ),
+        );
+      }
+      throw e;
+    }
+    return {
+      part,
+      split: await splitLipSet(part.buf, part.w, part.h, lips.interior),
+    };
+  };
+  /** Whether the set cuts at `w` px wide. */
+  const cutsAt = async (w: number) => {
+    try {
+      await cutAt(w);
+      return true;
+    } catch (e) {
+      if (e instanceof AutoRigInputError) return false;
+      throw e;
+    }
+  };
+  const w = Math.max(1, Math.round((trimmed.w * drawn) / own));
+  let cut;
+  try {
+    cut = await cutAt(w);
+  } catch (e) {
+    // Scaled down, the key's outline can thin past closing, which its own
+    // message blames on the drawing. If it cuts at its drawn size, the
+    // corners are what is too close: name the least distance that cuts.
+    if (!(e instanceof AutoRigInputError) || w >= trimmed.w) throw e;
+    if (!(await cutsAt(trimmed.w))) throw e;
+    let lo = w;
+    let hi = trimmed.w;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (await cutsAt(mid)) hi = mid;
+      else lo = mid;
+    }
+    // The least distance whose width rounds to `hi`.
+    const least = Math.ceil(((hi - 0.5) * own) / trimmed.w);
+    throw new AutoRigInputError(
+      `${corners} are ${Number(drawn.toFixed(1))} px apart, too close for the lip set: scaled that small, its outline thins past closing round the opening (the drawing itself cuts at its own size, so it needs no regenerating). It cuts from ${least} px apart: check the corners sit on the drawn mouth line's two ends; on a mouth drawn smaller than that, leave mouthKeyed and mouthInterior out to keep the drawn mouth`,
+    );
+  }
+  const { part, split } = cut;
+  // Read off the resized frame, not scaled from the trimmed one: the
+  // resampler moves a row by a fraction of a pixel, which rounds to a row.
+  const [landedA, landedB] = await endRows(part.buf);
+  const left = Math.round((cornerL[0] + cornerR[0]) / 2 + 0.5 - part.w / 2);
+  const top = Math.round(
+    (cornerL[1] + cornerR[1]) / 2 + 0.5 - (landedA + landedB) / 2,
+  );
+  // Clipped by the canvas, a lip layer loses rows the fold reads, or is
+  // lost whole and the set is partial, which the rig refuses.
+  if (
+    left < 0 ||
+    top < 0 ||
+    left + part.w > pic.width ||
+    top + part.h > pic.height
+  ) {
+    throw new AutoRigInputError(
+      `${corners} place the lip set, ${part.w}x${part.h} px, at (${left}, ${top}), past the ${pic.width}x${pic.height} canvas: the set reaches ${Math.round((landedA + landedB) / 2)} px above its corners and ${part.h - Math.round((landedA + landedB) / 2)} px below them. Check the corners sit on the drawn mouth line's two ends (corners too far apart make the set too big); with no room on the canvas round the mouth, leave mouthKeyed and mouthInterior out to keep the drawn mouth`,
+    );
+  }
+
+  const out = new Map<string, LayerPaint>();
+  for (const [role, key] of Object.entries(LIP_LAYERS)) {
+    const buf = split[key];
+    if ((key === "tongue" || key === "teeth") && !(await hasCoverage(buf))) {
+      continue;
+    }
+    const rgba = await sharp({
+      create: {
+        width: pic.width,
+        height: pic.height,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .composite([{ input: buf, left, top }])
+      .raw()
+      .toBuffer();
+    const n = pic.width * pic.height;
+    const layer: LayerPaint = {
+      rgb: new Float32Array(n * 3),
+      alpha: new Float32Array(n),
+    };
+    for (let i = 0; i < n; i++) {
+      for (let c = 0; c < 3; c++) layer.rgb[i * 3 + c] = rgba[i * 4 + c];
+      layer.alpha[i] = rgba[i * 4 + 3] / 255;
+    }
+    out.set(role, layer);
+  }
+  return out;
 }
 
 // ---- checks ----
@@ -916,13 +1115,26 @@ export async function cutLayersFromIllustration(
   try {
     // First, so a refused target costs no decode.
     const outDir = resolveOutputDir(input.outputDir);
-    if (input.mouthKeyed !== undefined || input.mouthInterior !== undefined) {
+    if (
+      (input.mouthKeyed === undefined) !==
+      (input.mouthInterior === undefined)
+    ) {
       throw new AutoRigInputError(
-        "mouthKeyed and mouthInterior are not supported yet: leave them out, and the drawn mouth stays on the face",
+        input.mouthKeyed === undefined
+          ? "mouthInterior needs mouthKeyed: the lip set is cut from the keyed open mouth, and the interior is fitted into its opening; give both, or neither to keep the drawn mouth"
+          : "mouthKeyed needs mouthInterior: the drawn interior is fitted into the keyed opening; give both, or neither to keep the drawn mouth",
       );
     }
     const source = await readPictureOnCanvas(input.imagePath);
     const lm = validateLandmarks(input.landmarks, source);
+    // Keyed before the cut, so a key that fails costs no cut.
+    const lips =
+      input.mouthKeyed === undefined || input.mouthInterior === undefined
+        ? undefined
+        : await readLipSources(
+            resolveInputPath(input.mouthKeyed, "mouthKeyed"),
+            resolveInputPath(input.mouthInterior, "mouthInterior"),
+          );
     const pass = async (backgroundSeeds: Point[]) => {
       const pic = await matteIllustration(source, { backgroundSeeds });
       const { classifier, reads } = classifierFor(pic, lm);
@@ -949,7 +1161,10 @@ export async function cutLayersFromIllustration(
       keyed,
     };
 
-    const built = buildLayers(ctx);
+    const built = buildLayers(ctx, lips !== undefined);
+    const lipLayers = lips
+      ? await lipSetLayers(ctx, lips)
+      : new Map<string, LayerPaint>();
     const checks: CutCheck[] = [
       stackCheck(ctx, stackOrder(built)),
       seedsCheck(ctx),
@@ -974,7 +1189,7 @@ export async function cutLayersFromIllustration(
         .toBuffer();
     const roleFiles: { role: string; layer: LayerPaint; data: Buffer }[] = [];
     for (const role of ORDER) {
-      const layer = built.roles.get(role);
+      const layer = built.roles.get(role) ?? lipLayers.get(role);
       if (layer) roleFiles.push({ role, layer, data: await png(layer) });
     }
     const partFiles = await Promise.all(
@@ -1003,6 +1218,15 @@ export async function cutLayersFromIllustration(
         customDir,
       );
     }
+    // An earlier cut into the same dir may have written a role this one does
+    // not (the drawn `mouth` before a lip set, or the set before the drawn
+    // mouth): left behind it would be measured and rigged with these, and
+    // the rig refuses the mouth beside the lip set. Only the fixed role
+    // names, under the confined outDir, are ever removed.
+    for (const role of ORDER) {
+      if (roleFiles.some((f) => f.role === role)) continue;
+      fs.rmSync(path.join(outDir, `${role}.png`), { force: true });
+    }
     const layers: CutLayer[] = roleFiles.map(({ role, layer, data }) => {
       const file = path.join(outDir, `${role}.png`);
       writeFileAtomic(file, data);
@@ -1020,6 +1244,22 @@ export async function cutLayersFromIllustration(
     writeFileAtomic(labelsPath, previews.labels);
     writeFileAtomic(landmarksPath, previews.landmarks);
 
+    let measure: CutMeasure;
+    try {
+      const report = await measureDir(outDir, undefined, { inPlace: true });
+      measure = {
+        warnings: report.warnings,
+        ...(report.lips && { lips: report.lips }),
+      };
+    } catch (e) {
+      // The layers are written: a dir the measure refuses (a stray PNG it
+      // cannot decode, too many files) is reported, not a refusal.
+      if (!(e instanceof AutoRigInputError)) throw e;
+      measure = {
+        warnings: [`the written layers could not be measured: ${e.message}`],
+      };
+    }
+
     return {
       ok: true,
       outputDir: outDir,
@@ -1028,6 +1268,7 @@ export async function cutLayersFromIllustration(
       customParts,
       previews: { labels: labelsPath, landmarks: landmarksPath },
       checks,
+      measure,
       passed: checks.every((c) => c.pass || c.level === "warn"),
     };
   } catch (e) {
@@ -1046,4 +1287,41 @@ function coverage(
     Math.round(a * 255) > 0 ? 1 : 0,
   );
   return { box: maskBox(size, on), pixels: count(on) };
+}
+
+/**
+ * A cut as the tool's text: the written files one per line, a `CHECK` line
+ * per check (`WARN` a warn-level check that did not pass, `FAIL` a
+ * fail-level one), the `MEASURE:` lines, and last `CUT pass` or `CUT FAIL:`
+ * with the failed fail-level checks.
+ */
+export function formatCutReport(
+  r: Extract<CutLayersFromIllustrationResult, { ok: true }>,
+): string {
+  const show = (v: number | null) => (v === null ? "none" : `${v}`);
+  const checks = r.checks.map((c) => {
+    const verdict = c.pass ? "pass" : c.level === "warn" ? "WARN" : "FAIL";
+    const apart = c.apart
+      ? `; the mouth's box, counted apart: ${pct(c.apart.mouthBox)} of it off`
+      : "";
+    return `CHECK ${c.id}: ${verdict} ${show(c.value)} (limit ${show(c.limit)}) ${c.hint}${apart}`;
+  });
+  const measure = [
+    ...(r.measure.lips ? [formatLipFacts(r.measure.lips)] : []),
+    ...(r.measure.warnings.length > 0
+      ? r.measure.warnings
+      : ["all geometry checks passed"]),
+  ].map((line) => `MEASURE: ${line}`);
+  const failed = r.checks
+    .filter((c) => !c.pass && c.level === "fail")
+    .map((c) => c.id);
+  return [
+    ...r.layers.map((l) => l.path),
+    ...r.customParts.map((p) => p.path),
+    r.previews.labels,
+    r.previews.landmarks,
+    ...checks,
+    ...measure,
+    failed.length === 0 ? "CUT pass" : `CUT FAIL: ${failed.join(", ")}`,
+  ].join("\n");
 }

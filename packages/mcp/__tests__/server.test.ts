@@ -9,7 +9,17 @@ import { IKI_FORMAT_VERSION } from "@ikijs/format";
 import { detectAlphaBbox } from "@ikijs/editor";
 import { createIkiMcpServer } from "../src/server";
 import { decodePng } from "../src/node-images";
-import { writeLipParts, writePartsSet } from "./helpers/parts";
+import {
+  writeInterior,
+  writeKeyedMouth,
+  writeLipParts,
+  writePartsSet,
+} from "./helpers/parts";
+import {
+  characterLandmarks,
+  PINK_ON_PEACH,
+  writeCharacter,
+} from "./helpers/illustration-character";
 import { FAR_IRIS_W, IRIS_W, writeTurnPair } from "./helpers/turn-pair";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
@@ -994,6 +1004,96 @@ describe("MCP server integration", () => {
     expect(unreadable.isError).toBeFalsy();
     const [bad] = unreadable.content as { type: string; text: string }[];
     expect(bad.text).toMatch(/^INVALID: failed to read picture .*corrupt\.png/);
+  });
+
+  it("cut_layers_from_illustration is registered, cuts with a lip set and prints files, CHECK, MEASURE and CUT lines, and refuses bad landmarks as INVALID: landmarks.<path>", async () => {
+    pair = await createPair();
+    const { tools } = await pair.client.listTools();
+    expect(tools.map((t) => t.name)).toContain("cut_layers_from_illustration");
+    const dir = tmpDir();
+    const imagePath = path.join(dir, "character.png");
+    await writeCharacter(imagePath, PINK_ON_PEACH);
+    await writeKeyedMouth(dir);
+    await writeInterior(dir);
+    const outputDir = path.join(dir, "layers");
+    fs.mkdirSync(outputDir);
+    const landmarks = characterLandmarks();
+    landmarks.mouth = {
+      box: [480, 540, 620, 580],
+      cornerL: [490, 561],
+      cornerR: [610, 561],
+    };
+    const result = await pair.client.callTool({
+      name: "cut_layers_from_illustration",
+      arguments: {
+        imagePath,
+        outputDir,
+        landmarks,
+        mouthKeyed: path.join(dir, "mouth_keyed.png"),
+        mouthInterior: path.join(dir, "mouth_interior.png"),
+      },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({ ok: true, passed: true });
+    const [text] = result.content as { type: string; text: string }[];
+    const lines = text.text.split("\n");
+    const real = fs.realpathSync(outputDir);
+    expect(lines).toContain(path.join(real, "lip_upper.png"));
+    expect(lines).toContain(path.join(real, "custom", "tail_R.png"));
+    expect(lines).toContain(path.join(real, "preview-labels.png"));
+    expect(lines).not.toContain(path.join(real, "mouth.png"));
+    expect(fs.existsSync(path.join(real, "lip_upper.png"))).toBe(true);
+    expect(lines.find((l) => l.startsWith("CHECK stack:"))).toMatch(
+      /^CHECK stack: pass [\d.e-]+ \(limit 0\.003\) .*the mouth's box, counted apart/,
+    );
+    expect(lines.find((l) => l.startsWith("CHECK mouth:"))).toMatch(
+      /^CHECK mouth: pass \d+ \(limit 1\) /,
+    );
+    expect(
+      lines.some((l) => /^CHECK fills\.\S+: pass \S+ \(limit none\)/.test(l)),
+    ).toBe(true);
+    expect(
+      lines.some((l) => /^MEASURE: lips: opening \d+ px wide/.test(l)),
+    ).toBe(true);
+    // The files, then the checks, then the measure, then the verdict.
+    const firstCheck = lines.findIndex((l) => l.startsWith("CHECK "));
+    const firstMeasure = lines.findIndex((l) => l.startsWith("MEASURE: "));
+    expect(lines.slice(0, firstCheck).every((l) => l.startsWith(real))).toBe(
+      true,
+    );
+    expect(
+      lines
+        .slice(firstCheck, firstMeasure)
+        .every((l) => l.startsWith("CHECK ")),
+    ).toBe(true);
+    expect(
+      lines.slice(firstMeasure, -1).every((l) => l.startsWith("MEASURE: ")),
+    ).toBe(true);
+    expect(lines.at(-1)).toBe("CUT pass");
+
+    // Past the schema to the tool's own check, unknown keys and all.
+    const bad = characterLandmarks();
+    bad.eyes.L.iris.rx = -1;
+    for (const [landmarksArg, message] of [
+      [bad, /^INVALID: landmarks\.eyes\.L\.iris\.rx must be a positive number/],
+      [
+        { ...characterLandmarks(), extra: 1 },
+        /^INVALID: landmarks\.extra is not one of/,
+      ],
+      [
+        { ...characterLandmarks(), samples: undefined },
+        /^INVALID: landmarks\.samples is missing/,
+      ],
+    ] as const) {
+      const refused = await pair.client.callTool({
+        name: "cut_layers_from_illustration",
+        arguments: { imagePath, outputDir: tmpDir(), landmarks: landmarksArg },
+      });
+      expect(refused.isError).toBeFalsy();
+      expect(refused.structuredContent).toMatchObject({ ok: false });
+      const [msg] = refused.content as { type: string; text: string }[];
+      expect(msg.text).toMatch(message);
+    }
   });
 
   it("render_poses refuses an outDir outside the working directory", async () => {

@@ -675,7 +675,7 @@ async function coreAndBoundsOf(
 }
 
 /** Whether a part keeps a pixel the auto-rig counts as coverage. */
-async function hasCoverage(png: Buffer): Promise<boolean> {
+export async function hasCoverage(png: Buffer): Promise<boolean> {
   const { data, info } = await sharp(png)
     .ensureAlpha()
     .raw()
@@ -731,7 +731,7 @@ interface Trimmed {
  * the resize, to learn the width that fits it to its arm.
  * Missing optional part -> null; missing required part -> AutoRigInputError.
  */
-async function trimmedPart(
+export async function trimmedPart(
   role: LayerRole,
   cfg: Omit<RoleLayout, "cx" | "cy" | "w">,
   partsDir: string,
@@ -805,7 +805,7 @@ async function trimmedPart(
  * decision (`noseSizingOf`) always comes back as `nose`, and no other role
  * has one.
  */
-async function sizedPart(
+export async function sizedPart(
   role: LayerRole,
   cfg: Omit<RoleLayout, "cx" | "cy">,
   trimmed: Trimmed,
@@ -1236,26 +1236,59 @@ function hasTransparency(rgba: Buffer): boolean {
   return false;
 }
 
+/** The lip set's two sources, keyed and prepared: the keyed open mouth as a
+ *  PNG at source resolution, and the interior trimmed with its cavity's
+ *  colour. */
+export interface LipSources {
+  keyedPng: Buffer;
+  interior: { png: Buffer; cavity: [number, number, number] };
+}
+
+/**
+ * Decode, key and prepare the lip set's two files. Both are decoded at source
+ * resolution, because the key reads the antialiasing of the source's own
+ * pixels (./compose-lips); a part with no alpha has its white ground keyed
+ * first.
+ */
+export async function readLipSources(
+  keyedPath: string,
+  interiorPath: string,
+): Promise<LipSources> {
+  const k = await decodePng(keyedPath);
+  const keyedRgba = keyGreen(
+    hasTransparency(k.rgba) ? k.rgba : keyWhiteToAlpha(k.rgba),
+    k.width,
+    k.height,
+  );
+  const i = await decodePng(interiorPath);
+  const interior = await prepInterior(
+    hasTransparency(i.rgba)
+      ? i.rgba
+      : keyBorderWhite(i.rgba, i.width, i.height),
+    i.width,
+    i.height,
+  );
+  return {
+    keyedPng: await sharp(keyedRgba, {
+      raw: { width: k.width, height: k.height, channels: 4 },
+    })
+      .png()
+      .toBuffer(),
+    interior,
+  };
+}
+
 /**
  * The lip set's two sources, keyed and prepared, or `undefined` for the legacy
  * mouth. Opt-in like the arms: both files present is the set, neither is the
  * legacy route, and one without the other, or either beside the legacy
  * drawings, is refused (auto_rig_from_layers refuses the mix; the composer
- * refuses it first, naming what to remove). Both are decoded here, at source
- * resolution, because the key reads the antialiasing of the source's own
- * pixels (./compose-lips); a part with no alpha has its white ground keyed
- * first.
+ * refuses it first, naming what to remove).
  */
 async function prepLipSources(
   partsDir: string,
   mirrored: Set<string>,
-): Promise<
-  | {
-      keyedPng: Buffer;
-      interior: { png: Buffer; cavity: [number, number, number] };
-    }
-  | undefined
-> {
+): Promise<LipSources | undefined> {
   const has = (name: string) => fs.existsSync(path.join(partsDir, name));
   const keyed = has(KEYED_SRC);
   const interior = has(INTERIOR_SRC);
@@ -1277,26 +1310,13 @@ async function prepLipSources(
     );
   }
 
-  const k = await decodePng(path.join(partsDir, KEYED_SRC));
-  const keyedRgba = keyGreen(
-    hasTransparency(k.rgba) ? k.rgba : keyWhiteToAlpha(k.rgba),
-    k.width,
-    k.height,
+  const lips = await readLipSources(
+    path.join(partsDir, KEYED_SRC),
+    path.join(partsDir, INTERIOR_SRC),
   );
-  const i = await decodePng(path.join(partsDir, INTERIOR_SRC));
-  const prepared = await prepInterior(
-    hasTransparency(i.rgba)
-      ? i.rgba
-      : keyBorderWhite(i.rgba, i.width, i.height),
-    i.width,
-    i.height,
-  );
+  const prepared = lips.interior;
   return {
-    keyedPng: await sharp(keyedRgba, {
-      raw: { width: k.width, height: k.height, channels: 4 },
-    })
-      .png()
-      .toBuffer(),
+    keyedPng: lips.keyedPng,
     interior: mirrored.has(INTERIOR_SRC)
       ? { ...prepared, png: await sharp(prepared.png).flop().png().toBuffer() }
       : prepared,

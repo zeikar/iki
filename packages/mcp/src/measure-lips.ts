@@ -66,10 +66,14 @@ const columns = (cols: number[]) =>
  * Warn of a lip set the rig refuses or would fold badly, and report the
  * opening it reads. `layers` holds the measured, non-empty layers of `absDir`
  * by role; a set with no lip layer is a legacy mouth and says nothing.
+ * `inPlace` (a set a cut placed on a drawn mouth) keeps only what the rig
+ * refuses and the opening's facts: every other check's remedy is recomposing
+ * or regenerating the set's sources, which the cut's own checks do not reach.
  */
 export async function lipWarnings(
   absDir: string,
   layers: Record<string, LayerStats>,
+  inPlace = false,
 ): Promise<{ warnings: string[]; lips?: LipFacts }> {
   const warnings: string[] = [];
   const present = LIP_ROLES.filter((role) => layers[role] !== undefined);
@@ -129,10 +133,11 @@ export async function lipWarnings(
   for (const role of inside) {
     const b = box(layers[role]);
     if (
-      b.x0 < cavity.x0 ||
-      b.x1 > cavity.x1 ||
-      b.y0 < cavity.y0 ||
-      b.y1 > cavity.y1
+      !inPlace &&
+      (b.x0 < cavity.x0 ||
+        b.x1 > cavity.x1 ||
+        b.y0 < cavity.y0 ||
+        b.y1 > cavity.y1)
     ) {
       warnings.push(
         `${role}: its box leaves mouth_inner's — the cavity clips it away there. Recompose from ` +
@@ -204,23 +209,23 @@ export async function lipWarnings(
     "mouth_keyed.png",
     "with a closed outline and solid lips under it",
   );
-  if (noInterior.length > 0) {
+  if (!inPlace && noInterior.length > 0) {
     warnings.push(
       `mouth_inner: no interior in ${columns(noInterior)} of the opening — the fold has nothing to scale there. ${recompose("mouth_interior.png", "as one solid cavity")}`,
     );
   }
-  if (gap.length > 0) {
+  if (!inPlace && gap.length > 0) {
     warnings.push(
       `lip_upper: a gap between the line and the interior in ${columns(gap)} — the face shows through it ` +
         `at rest (the interior's top must reach the line's ink). ${regenKeyed}`,
     );
   }
-  if (noLine.length > 0) {
+  if (!inPlace && noLine.length > 0) {
     warnings.push(
       `lip_upper: no line above the interior in ${columns(noLine)} — nothing closes the mouth there. ${regenKeyed}`,
     );
   }
-  if (skinGap.length > 0) {
+  if (!inPlace && skinGap.length > 0) {
     warnings.push(
       `lip_lower: a gap between the interior and the skin in ${columns(skinGap)} — the face shows through ` +
         `it once the mouth opens (the skin must reach the interior's bottom). ${regenKeyed}`,
@@ -229,14 +234,14 @@ export async function lipWarnings(
 
   const width = opening.x1 - opening.x0 + 1;
   const centre = opening.at(opening.centre);
-  if (width < MIN_OPENING_WIDTH * upper.w) {
+  if (!inPlace && width < MIN_OPENING_WIDTH * upper.w) {
     warnings.push(
       `mouth_inner: the opening is ${width} px wide, ${Math.round((100 * width) / upper.w)}% of lip_upper's ${upper.w} px ` +
         `(under ${Math.round(100 * MIN_OPENING_WIDTH)}%) — too narrow to fold; the slit stays a hairline. ` +
         `Regenerate mouth_keyed.png with the mouth open wider. Billed.`,
     );
   }
-  if (centre.H < MIN_OPENING_ROWS) {
+  if (!inPlace && centre.H < MIN_OPENING_ROWS) {
     // measure_layers sees only the layers, so a set layout.mouth_inner.h is
     // named in the message; a w past the canvas is not suggested at all.
     const w = Math.ceil((upper.w * MIN_OPENING_ROWS) / centre.H);
@@ -251,21 +256,21 @@ export async function lipWarnings(
         `${retune === null ? "R" : "r"}egenerate mouth_keyed.png with the mouth open taller. Billed.`,
     );
   }
-  if (opening.w < MIN_LINE_ROWS) {
+  if (!inPlace && opening.w < MIN_LINE_ROWS) {
     warnings.push(
       `lip_upper: the upper line is ${opening.w} px at the opening's centre (under ${MIN_LINE_ROWS}) — a hairline ` +
         `closes to nothing. Regenerate mouth_keyed.png ` +
         `with a bolder upper line, never thinner than the reference's mouth line. Billed.`,
     );
   }
-  if (green.length > 0) {
+  if (!inPlace && green.length > 0) {
     warnings.push(
       `${green.join("/")}: opaque green left (key green, g exceeds r and b by over ${GREEN_EXCESS}) — it shows as a ` +
         `green fringe on the lips. Regenerate mouth_keyed.png with the green only inside the opening, or ` +
         `mouth_interior.png without green in it. Billed.`,
     );
   }
-  if (area > 0 && hollow > INTERIOR_GAP_FRACTION * area) {
+  if (!inPlace && area > 0 && hollow > INTERIOR_GAP_FRACTION * area) {
     warnings.push(
       `mouth_inner: ${Math.round((100 * hollow) / area)}% of the opening is transparent inside the interior's ` +
         `own span (over ${Math.round(100 * INTERIOR_GAP_FRACTION)}%) — the face shows through it. ` +
