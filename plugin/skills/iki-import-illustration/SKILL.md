@@ -72,14 +72,16 @@ picture would work, before reading a single landmark:
   the picture by other means.
 - **A browser** (Chrome, Edge or Chromium) for `render_poses` (Step 9); set
   `CHROME_PATH` for a non-standard install.
-- **A workdir inside the server's cwd.** The tools write only under the
-  working directory, and every output folder must exist before the call:
+- **A working directory of your choice under the project**, for example
+  `iki-char/` (this file writes `iki-char/`; put yours in its place). The
+  tools refuse to write outside the directory the MCP server runs in (the
+  project), and every output folder must exist before the call:
   ```bash
-  mkdir -p iki-char/grid iki-char/layers iki-char/renders
+  mkdir -p iki-char/grid iki-char/layers iki-char/renders iki-char/renders/close
   cp <the user's picture> iki-char/picture.png   # keep its own extension if JPEG or WebP
   ```
-  Keep everything under `iki-char/`: in the `iki` repo it is gitignored; in any
-  other project, add `iki-char/` to `.gitignore` before the first run. The
+  Keep it out of version control (`iki-char/` is already gitignored in the
+  `iki` repo; elsewhere add yours to `.gitignore` before the first run). The
   user's picture and everything cut from it are theirs: never commit them.
 
 ## The frame
@@ -131,6 +133,7 @@ a zoomed view of its own part:
 | each brow                    | 4      | 10      | the brow with 15 px around it         |
 | the nose, the mouth          | 6      | 5 or 10 | the feature with 15 to 20 px around   |
 | each tail or ponytail root   | 3 to 4 | 10      | the knot or ribbon and the hair round |
+| the neck and the clothes     | 2      | 20      | the chin down to the canvas's bottom  |
 
 ```jsonc
 // view_illustration_grid
@@ -143,9 +146,10 @@ a zoomed view of its own part:
 }
 ```
 
-Keep each view under about 1500 px a side (`w` × `zoom`, `h` × `zoom`): a
-bigger image is shrunk when you look at it, which undoes the zoom. The labels
-along the top and left edges are canvas px; count from the nearest labelled line.
+Keep each view under about 1500 px a side (`w` × `zoom`, `h` × `zoom`; split a
+bigger crop into two views): a bigger image is shrunk when you look at it,
+which undoes the zoom. The labels along the top and left edges are canvas px;
+count from the nearest labelled line.
 
 ### Step 3 — Write `iki-char/landmarks.json`
 
@@ -275,7 +279,8 @@ key is refused.
 }
 ```
 
-Each shape is drawn and labelled with its key (`eyes.L.iris`, `skinSeeds[2]`).
+Each shape is drawn in its key's colour between a dark and a light stroke, so it
+reads over any paint, and labelled with its key (`eyes.L.iris`, `skinSeeds[2]`).
 Go part by part at the same zooms as Step 2: does each eye box hold the whole
 eye with its lash wings and lower lashes, does each iris ellipse sit on the
 disc, does each brow line run along its brow's middle, are the mouth corners
@@ -308,28 +313,47 @@ Every round, do all three:
 
 1. **Read every `CHECK` line and the last line** (The checks, below). Every hint
    names the landmark to move, often with the numbers.
-2. **Open `iki-char/layers/preview-labels.png`** and say, region by region,
-   what each colour is. Each label is tinted over the picture at 60 %:
-   peach = face, red = front hair, purple = back hair, blue = body, green = the
-   features lifted off the face (eyes, brows, nose, mouth), and the custom
-   parts in order cyan, green, yellow, magenta (a second custom part's green is
-   close to the features': tell them apart by where they are). Untinted means
-   keyed as backdrop, in no layer. Every painted pixel takes some label (paint
-   no flood reached takes its nearest one), so look for paint under the wrong
-   colour: skin tinted as hair or hair as face (a sample on the wrong paint), an
-   ear tinted purple or blue (no skin seed on it), a tail tinted purple (not cut
-   out as a custom part), a garment tinted purple (hair samples reaching it:
-   `bodyOnly`), and figure paint left untinted.
+2. **Read `iki-char/layers/preview-labels.png`**: each label tinted over the
+   picture at 60 %: peach = face, red = front hair, purple = back hair, blue =
+   body, green = the features lifted off the face (eyes, brows, nose, mouth),
+   and the custom parts in order cyan, green, yellow, magenta (a second custom
+   part's green is close to the features': tell them apart by where they are).
+   Untinted means keyed as backdrop, in no layer. It is canvas-sized, so look
+   at it once whole, then through `view_illustration_grid` (its `imagePath`,
+   the same canvas px) at zoom 3 to 4 on the places that go wrong: each ear,
+   each eye's corners, both shoulders, and every place the hair meets the
+   neck or the clothes. Every painted pixel takes some label (paint no flood
+   reached takes its nearest one), so look for paint under the wrong colour:
+
+   | you see                                      | it means                                                                                                  | do                                                                                                                   |
+   | -------------------------------------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+   | a shoulder's or a garment's edge tinted hair | its outline touches the hair and went with it: it rides the head and shows as a ghost line on a turn      | a `bodyOnly` polygon round that stretch of outline, clear of the hair                                                |
+   | a whole garment tinted hair                  | its colour is nearer the hair samples                                                                     | a `bodyOnly` polygon over the garment                                                                                |
+   | hair tips beside the neck tinted body        | a tone no hair sample covers, or a thin tip lying on the clothes read as their outline: it will not move  | a `samples.hair` point on the tip (a piece holding a hair sample is never read as an outline); no `bodyOnly` over it |
+   | an ear, or an ear lobe, tinted hair or body  | no skin seed reaches it (a line or a strand cuts it off from the face)                                    | a `skinSeeds` point on it, one per piece                                                                             |
+   | skin tinted hair, or hair tinted face        | a sample on a line or on the other class's paint, or a tone no sample covers                              | move that sample onto flat paint (`seeds` may name it), or add one on the tone                                       |
+   | a tail or ponytail tinted purple             | it is not cut out as a custom part, or its `line` / `polygon` misses it                                   | a `customParts` entry, or move its line                                                                              |
+   | backdrop tinted anything                     | backdrop the figure encloses (between the neck and a tail, under an arm), which the border's flood missed | its point (`pockets` names it) in `backgroundSeeds`                                                                  |
+   | figure paint left untinted                   | paint keyed as a gap between strands                                                                      | a point inside it in `paintSeeds` (`pockets` names the keyed points)                                                 |
+
 3. **Look at the eye layers**: `eye_L.png`, `iris_L.png`, `lash_L.png` (and
    `lash_lower_L.png` when written), the same for `R`. The sclera should be the
    eye's whole shape, filled white under the iris; the iris a full disc; the
-   lash the dark ink of the upper lid only.
+   lash the dark ink of the upper lid only; the lower lash the lower lid's ink,
+   with no crescent of iris colour (if it has one, see `iris` below).
 
 ### Step 6 — Fix and re-cut: at most three rounds
 
 Move the landmarks the hints name, add the optional keys a check asks for, view
 the changed landmarks (Step 4), and cut again into the same `outputDir` (files
 are overwritten; a role this cut no longer writes is removed).
+
+**A hint can chase the wrong thing.** It reads paint, not intent: a hair wisp
+or a crease touching an eye box, a hair outline along a brow. Before obeying a
+hint, view the place it names (its x and y) at zoom 6 or 8 and check that what
+it describes is the part. If you followed the same hint twice and it asks
+again, stop following it: look at the layer and the preview, decide, and say
+in Step 10 which hint you left and why.
 
 **At most three fix rounds after the first cut.** Then stop fixing, keep the
 best cut that ends `CUT pass`, and report what still warns or fails rather than
@@ -363,12 +387,15 @@ looks blurry when talking. Which do you prefer?" If they decline or do not
 answer, keep the drawn mouth. (Asking at the start lets the images draw while
 you place landmarks.)
 
-To generate: use the **iki-create-image** skill's `gen-images.sh` with the
-user's picture as `--ref`, two variants of each file, into `iki-char/parts/`
-(`mkdir -p iki-char/parts` first). The prompts are the **iki-character**
-skill's Step 1 bullets for `mouth_keyed.png` and `mouth_interior.png`: use them
-verbatim, with `<STYLE>` describing the picture's own drawing style, hair and
-skin colours, and read the notes beside each prompt to pick the better variant:
+To generate: run `gen-images.sh` from the **iki-create-image** skill's
+directory (`skills/iki-create-image/` in the plugin) with the user's picture
+as `--ref`, two variants of each file, into `iki-char/parts/`
+(`mkdir -p iki-char/parts` first). The prompts are the two quoted bullets
+`mouth_keyed.png` and `mouth_interior.png` in the **iki-character** skill's
+Step 1: open that file, copy both verbatim, and set `<STYLE>` to the picture's
+own drawing style, hair and skin colours. Pick the keyed mouth whose green is
+flat and even, whose outline closes all round and whose upper line is of
+medium weight and ends at the corners; pick the interior with the least lip:
 
 ```bash
 gen-images.sh --ref iki-char/picture.png iki-char/parts \
@@ -423,12 +450,35 @@ Pass exactly the role layers the latest cut listed: a feature that was not
 found writes no layer, and passing a stale file is refused or wrong. Leave
 `rigPlan`, `turnTargets` and `patches` out.
 
-**Custom parts must be baked.** An unbaked custom part does not move with the
-head: the head turns away from it. The **iki-character** skill's Step 3
-(`customParts`, `bakes`, the custom gate and Measuring a rig) documents the
-fields, and the **iki-character-artist** agent's "Baking the custom parts" the
-full procedure; the simplest bake that passes the gate's `TIE` and `SLIDE`
-lines is:
+**What the text result shows**, in order: the `.iki` path; the `RIGPLAN:`
+line; the fold report (`FOLD …` lines or `FOLDS: none over N poses`, then
+`FOLDS expected: …`); the `PHYSICS` lines; with custom parts, the `CUSTOM`,
+`BAKE` and gate lines. It does **not** print the head's width or the turn the
+rig settled on (`turn.achieved`, `turn.clamped`): those are only in the
+structured result. What tells you the turn is cut down or the head mis-measured:
+
+- before rigging, `frontHairWidth` passing, and no tail or side hair beside
+  the head left purple on `preview-labels.png` (both widen the head the turn
+  is fitted to);
+- on the `RIGPLAN:` line, `turn.amount=<v> (requested 1, clamped at <v>)`: the
+  art left the far eye too little room and the turn was cut down. Report it.
+  With no `nose` layer no turn is fitted at all;
+- after Step 9, the `SWEEP turn` lines and `turn/sheet.png`.
+
+**`FOLD` lines** are report-only and never refuse the rig. `FOLDS expected:`
+lists the closures the rig draws on purpose (an eye or the mouth shut): not
+findings. A `FOLD flip …` or `FOLD collapse …` line names the part, its
+`pose [<settings>]` and where it rests in model px (canvas px). One whose only
+pose is the stress pose (`ParamAngleX`, `ParamAngleY` and `ParamAngleZ` all at
+-30, the mouth open, the brows apart) is the extremes stacked: report it to
+the user, do not chase it. Any other: render that pose with a crop round the
+point it names (Step 9) and report what shows.
+
+#### The bake (custom parts only)
+
+**No custom parts: skip the bake, go to Step 9.** An unbaked custom part does
+not move with the head: the head turns away from it. The simplest bake that
+passes the gate is:
 
 1. Rig once with the arguments above (the `customParts` included) but
    **without** `bakes`, to `iki-char/bare.iki`. Its gate fails; that is
@@ -438,8 +488,11 @@ lines is:
    `{ "op": "displacement", "part": "hair_back", "points": [<every part's tie>], "pose": { <one parameter>: <value> } }`
    for `ParamAngleX` at -30, -15, 15, 30; `ParamAngleY` at -30, -15, 15, 30;
    `ParamAngleZ` at -30, -20, -10, 10, 20, 30; and `ParamHairBackSway` at -20
-   and 20. Each answer is the back hair's `[dx, dy]` at each tie. A `null` means
-   the tie is not on the back hair: move it onto the head's hair at the knot.
+   and 20. Keep that list of (parameter, value) in your script: the file is a
+   JSON array of `{ op, part, points }`, one per query **in query order**,
+   without the pose. Each `points` entry is the back hair's `[dx, dy]` at that
+   tie. A `null` means the tie is not on the back hair: move it onto the
+   head's hair at the knot.
 3. Write `bakes` (a short Node script reading `bare.probe.json` is easiest).
    Per part and per head parameter, one target on a 1 column × 6 row lattice,
    whose 14 control points (2 per row, rows top to bottom, row-major) ALL take
@@ -447,9 +500,10 @@ lines is:
    hangs from its knot and stays plumb on a roll instead of swinging out with
    the head. Plus one `ParamHairBackSway` target per part at -20 and 20: row
    `r` (0 at the top to 6 at the tip) takes the measured `[dx, dy]` plus a
-   sideways `(value / 20) × 34 × (r / 6)²` px on `dx`, a swing that grows with
-   the square of the depth, about 34 px at the tip (scale it to the part's
-   length).
+   sideways `(value / 20) × (h / 30) × (r / 6)²` px on `dx`, `h` the part's
+   height in px (its paint's top to its tip): a swing that grows with the
+   square of the depth, a thirtieth of the part's height at the tip. No target
+   takes a stop at 0: rest is implicit, and a stop there is refused.
    ```jsonc
    "bakes": { "targets": [
      { "id": "tail_L-ParamAngleX", "param": "ParamAngleX", "parts": ["tail_L"],
@@ -462,12 +516,18 @@ lines is:
    Each part prints `BAKE` lines and the gate's `CUSTOM <id> …` lines; the
    text ends `CUSTOM GATE pass` or `CUSTOM GATE FAIL: …`.
 
-`FOLDS`, `TIE` and `SLIDE` must pass. On a part cut from a picture, `EXPOSED`
-often fails: the back hair filled in under the part's root shows at the most
-extreme poses (a full roll with a full swing), where the drawing had nothing to
-show. That is acceptable: report it to the user and do not chase it. A gate
-that throws (`CUSTOM GATE FAIL: gate error: …`) or an `INVALID: BAKE ERROR …`
-is a package bug: report it verbatim.
+The gate's lines, per part: `FOLDS` (its least triangle area ratio), `TIE`
+(the tie staying on the back hair where the head does not turn), `SLIDE` (the
+same where it turns), `EXPOSED` (the art it hides showing), `TIP` (where its
+free end lands, report-only). `FOLDS`, `TIE` and `SLIDE` must pass. On a part
+cut from a picture, `EXPOSED` often fails: the back hair filled in under the
+part's root shows at the most extreme poses (a full roll with a full swing),
+where the drawing had nothing to show. That is acceptable: report it to the
+user and do not chase it. A gate that throws
+(`CUSTOM GATE FAIL: gate error: …`) or an `INVALID: BAKE ERROR …` is a package
+bug: report it verbatim. The **iki-character** skill's Step 3 and the
+**iki-character-artist** agent's "Baking the custom parts" go deeper (a far
+tail going behind the head, rigid parts).
 
 ### Step 9 — Render
 
@@ -481,13 +541,51 @@ is a package bug: report it verbatim.
 }
 ```
 
-Look at least at `rest.png` side by side with the picture (it should be the
-picture), `turn-m30.png` and `turn-p30.png` (no tear, no hole, the hair and any
-tails staying on), `blink.png` (the lid folds down over the eye, no white left
-above it), `mouth-open-1-form-0.png` (the mouth open) and `turn/sheet.png` (the
-turn in motion; open `turn/index.html` for the flipbook). An `INVALID` saying no
-browser was found: tell the user to install Chrome, Edge or Chromium or set
-`CHROME_PATH`, and report without renders.
+An `INVALID` saying no browser was found: tell the user to install Chrome,
+Edge or Chromium or set `CHROME_PATH`, and report without renders. The
+standard shots are 560 px on a transparent ground (most viewers show it
+white). Look at `rest.png` beside the picture (it should be the picture),
+`turn-m30.png` and `turn-p30.png` (no tear, no hole, the hair and any tails
+staying on), `mouth-open-1-form-0.png` (the mouth open) and `turn/sheet.png`
+(the turn in motion; `turn/index.html` is the flipbook). The `SWEEP turn`
+lines give each eye's and the nose's travel in face widths (`fw`): there is
+no pass mark; for scale, a cut bust with no custom parts read eyes 0.23, nose
+0.34, plate 0.14. A picture whose hair touches its top edge is cut off there in
+every frame: that is the picture, not a defect.
+
+560 px is too small to judge a brow, a blink's leftovers or the neck's edge,
+so render close-ups too: `poses` (which replaces the standard set) with a
+`crop` in canvas px round the head, drawn 720 px wide. Take the crop from the
+`skull` box with 20 to 40 px around it and down past the chin:
+
+<!-- prettier-ignore -->
+```jsonc
+// render_poses
+{
+  "modelPath": "iki-char/character.iki",
+  "outDir": "iki-char/renders/close",
+  "poses": [
+    { "name": "rest", "values": {}, "crop": { "x": 330, "y": 150, "w": 440, "h": 560 } },
+    { "name": "turn-m30", "values": { "ParamAngleX": -30 }, "crop": { "x": 330, "y": 150, "w": 440, "h": 560 } },
+    { "name": "turn-p30", "values": { "ParamAngleX": 30 }, "crop": { "x": 330, "y": 150, "w": 440, "h": 560 } },
+    { "name": "nod-m30", "values": { "ParamAngleY": -30 }, "crop": { "x": 330, "y": 150, "w": 440, "h": 560 } },
+    { "name": "nod-p30", "values": { "ParamAngleY": 30 }, "crop": { "x": 330, "y": 150, "w": 440, "h": 560 } },
+    { "name": "eyes-shut", "values": { "ParamEyeLOpen": 0, "ParamEyeROpen": 0 }, "crop": { "x": 330, "y": 150, "w": 440, "h": 560 } },
+    { "name": "brows-up", "values": { "ParamBrowLY": 1, "ParamBrowRY": 1 }, "crop": { "x": 330, "y": 150, "w": 440, "h": 560 } },
+    { "name": "mouth-open", "values": { "ParamMouthOpenY": 1 }, "crop": { "x": 330, "y": 150, "w": 440, "h": 560 } },
+    { "name": "gaze", "values": { "ParamEyeBallX": 1, "ParamEyeBallY": 1 }, "crop": { "x": 330, "y": 150, "w": 440, "h": 560 } }
+  ]
+}
+```
+
+Look for, in each: **turns and nods**, a gap or an edge where the chin meets
+the neck (the neck's top showing: move `neckTopY` up), a line left behind on
+the shoulders (Step 5's table), hair coming apart from the head; **eyes shut**, the lid folded down with no white, iris
+colour or lash left above or below it; **brows up**, the brow moved whole,
+with no trace of it left on the skin or in the hair where it was; **mouth
+open**, the mouth opening without a smear round it; **gaze**, the iris moving
+inside the white with no ring of its old edge and no white showing at its
+old place. Crop tighter (an eye, the chin) on anything that looks off.
 
 ### Step 10 — Report to the user
 
@@ -499,7 +597,8 @@ browser was found: tell the user to install Chrome, Edge or Chromium or set
 - The three or four landmarks you are least sure of (a soft-edged brow, an iris
   half under the lash, a tail's knot), with the coordinates, so they know where
   to look.
-- What still warns (the `WARN` lines left, an `EXPOSED` gate line) and what
+- What still warns (the `WARN` lines left, any hint you chose not to follow and
+  why, a clamped `turn.amount`, a `FOLD` line, an `EXPOSED` gate line) and what
   shows in the renders: a soft face edge on a big turn, a stretched mouth.
 
 ## Landmark reference
@@ -528,16 +627,27 @@ hair and skin swapping, across the whole picture; `seeds` fails naming it.
 `{ "box": [x0, y0, x1, y1], "iris": { "cx", "cy", "rx", "ry" } }`.
 
 - `box`: the whole eye drawing with 2 to 4 px to spare on every side: the lash
-  wing's tip, the lower lashes, the lower lid line. Not the brow, not hair. Off:
-  a box that clips the eye leaves the clipped paint on the face and tears the
-  lash on a blink (`opening` fails and says how far to grow it); a loose box
-  takes the shading round the eye into it (`opening` warns).
+  wing's tip, the lower lashes, the lower lid line. Not the brow, not hair.
+  The boxes `opening`'s hints suggest leave the same 2 to 4 px. Off: a box that
+  clips the eye leaves the clipped paint on the face and tears the lash on a
+  blink (`opening` fails and says how far to grow it); a loose box takes the
+  shading round the eye into it (`opening` warns). A hair wisp or a line that
+  crosses into the box apart from the eye is left out of the eye by itself:
+  never grow a box along one. When `opening` warns that an edge cuts a stroke
+  it cannot tell from the eye, look: hair or a line, leave that edge; the eye's
+  own lash wing, grow as the hint says.
 - `iris`: the full coloured disc as an ellipse, INCLUDING the part hidden under
-  the upper lash. Its widest row is its centre row (`cy`); `rx` is half that
-  row's width; `ry` runs from `cy` down to the disc's bottom edge. Its centre
-  must lie inside `box`. Off: an ellipse wider than the disc pulls white or
-  lash into the iris; one off the disc can make an open eye read as drawn
-  closed (`iris` and `eye` warn and say which way to move it).
+  the upper lash. `cy` is the disc's widest row; `rx` is half that row's
+  width; `ry` runs from `cy` down to the disc's bottom edge, not to the lower
+  lid line, which must stay outside the ellipse (an ellipse over it takes the
+  lid's ink into the iris, which then moves with the gaze). Its centre must lie
+  inside `box`. A disc drawn squarer than an ellipse gives its corners to the
+  iris by itself (iris-coloured paint up to a quarter of the radius past the
+  ellipse): do not enlarge the ellipse to catch them. Off: an ellipse wider than
+  the disc pulls white or lash into the iris; one off the disc can make an open
+  eye read as drawn closed (`iris` and `eye` warn). `iris`'s hint reads the
+  disc from its own colour: follow its span (`rx` about half of it) and its
+  "reaches down to y" (`cy + ry`).
 
 ### `brows.L`, `brows.R` (optional, each side)
 
@@ -545,9 +655,11 @@ hair and skin swapping, across the whole picture; `seeds` fails naming it.
 the brow's middle, 2 or more points, **tail first** (the outer end, toward the
 face's edge). `halfWidth` (default 8) is the half-width of the band the brow is
 cut from; `tailHalfWidth` (default 5) the same at the tail. Widen `halfWidth`
-for a thick brow, but keep the band no wider than the brow. Off: a line off the
-brow leaves it on the face (`brow` warns); a band too wide takes hair or lash,
-and where a strand crosses the brow, refills the strand far from its own hair
+for a thick brow, but keep the band no wider than the brow. Off: a line
+off the brow leaves it on the face (`brow` warns when the band holds none,
+`browBand` when some of its ink lies past the band, saying where and how far
+to move the line or widen the band); a band too wide takes hair or lash, and
+where a strand crosses the brow, refills the strand far from its own hair
 (`fills.hair_front.strands`). A brow left out stays painted on the face and
 never moves.
 
@@ -602,16 +714,28 @@ left out of the face and takes the nearest other label. Off: a seed on hair, a l
 
 ### `bodySeeds`
 
-Points (1 or more) on the neck and on each separate piece of clothing (a collar,
-a jacket, a shirt showing under it). The body is a flood from them. Off: paint
-no seed reaches stays out of the body and takes the nearest other label, so it
-moves with the head or the hair (look at `preview-labels.png`).
+Points (1 or more) on the neck and the clothes. The body is a flood from them
+over every solid paint that is not hair-coloured (by the samples) and not the
+face: it **crosses drawn lines**, trims and thin stripes, so one seed takes a
+uniform of many panels joined through such paint, and seams need no seed of
+their own. It stops at hair-coloured paint (a dark jacket, and with
+near-black hair, the lines inked in the same black) and at the face: put one
+seed in each piece such paint walls off, and a `bodyOnly` polygon over a
+garment that is itself hair-coloured. A thin hair-coloured stripe or outline
+on the clothes is given back to the body by itself; a wider band (a dark tie,
+a belt) is not: `bodyOnly`. A seed reads one pixel: put it on flat cloth or
+skin, a few px from any line. Off: paint no seed reaches stays out of the
+body and takes the nearest other label, so it moves with the head or the hair
+(Step 5's table).
 
 ### `neckTopY`
 
-The canvas row the neck is carried up to behind the chin: about a third of the
-face's height above the chin. It shows only when the head turns or nods. Off:
-too low shows a gap under the jaw.
+The canvas row the neck is carried up to behind the chin: the nose's bottom
+row (`nose.box`'s `y1`), or with no nose, halfway between the irises' `cy` and
+the chin's lowest row. The neck is drawn up there only behind the face and the
+front hair, which hide it at rest; it must reach high enough that they still
+hide its top when the head turns, nods and tilts. Off: too low shows a gap or
+an edge under the jaw on a turn or a nod (Step 9's close-ups).
 
 ### `customParts` (optional)
 
@@ -690,30 +814,31 @@ from any hair).
 ## The checks
 
 In about the order they print (each eye's `opening`, `eye` and `iris` lines
-print together, `L` first; a custom part's fill follows the fill it belongs
-with). Levels: a `fail`-level check that does not pass makes
+print together, `L` first, then each brow's `brow` and `browBand`; a custom
+part's fill follows the fill it belongs with). Levels: a `fail`-level check that does not pass makes
 the cut `CUT FAIL`; a `warn`-level one prints `WARN` and the cut still passes.
 A limit of `none` means the check only reports.
 
-| id                            | level                              | measures                                                                                                                                                                                         | limit                   | fix                                                                                                                                                              |
-| ----------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `stack`                       | fail                               | the layers stacked in role order against the picture: the share of canvas px off by more than 24 levels outside the mouth's box (the box's own share is printed apart, as the mouth is replaced) | 0.003                   | find the paint no layer took (untinted on `preview-labels.png`) or a fill drawn over paint, and move the seed or outline that left it out                        |
-| `seeds`                       | fail                               | seeds and samples on the backdrop or on the wrong class, counted                                                                                                                                 | 0                       | the hint names each point: move it onto flat paint of its class, add a `samples.*.shadow` point on that tone, or a `bodyOnly` polygon                            |
-| `opening.L`, `opening.R`      | fail (box clips); warn (box loose) | clipped: the eye's least margin inside its box, px; loose: the share of the box the eye covers                                                                                                   | 1 (margin); 0.2 (loose) | clipped: grow `eyes.<side>.box` by what the hint says; loose: the hint gives a box 2 px round the eye's paint                                                    |
-| `eye.L`, `eye.R`              | warn                               | the eye's share of white                                                                                                                                                                         | 0.06                    | under it the eye is cut either open (a tinted white: look at `eye_<side>.png`) or as drawn closed (for an open eye, `eyes.<side>.iris` is off the disc: move it) |
-| `iris.L`, `iris.R`            | warn                               | the iris ellipse against the coloured disc found: overlap (intersection over union) and centre offset                                                                                            | 0.7                     | move `cx` / `cy` as the hint says; it gives the disc's x span (`rx` about half of it) and its bottom row (`cy + ry`)                                             |
-| `brow.L`, `brow.R`            | warn                               | brow px found in the band                                                                                                                                                                        | 1                       | the line is off the brow: put it along the brow's middle, tail first                                                                                             |
-| `mouth`                       | fail                               | px of drawn mouth in `mouth.box`                                                                                                                                                                 | 1                       | move the box onto the drawn mouth; a picture with no mouth drawn needs a lip set                                                                                 |
-| `fills.face.features`         | warn                               | the skin under the features, filled by construction                                                                                                                                              | none                    | —                                                                                                                                                                |
-| `fills.face.forehead`         | warn                               | the share of the skin under the bangs made up over 40 px from any skin                                                                                                                           | 0.25                    | pull `skull` in to the head's outline; add a `skinSeeds` point on forehead skin between strands                                                                  |
-| `fills.hair_back.shell`       | warn                               | the hair behind the face and the bangs, filled by construction                                                                                                                                   | none                    | —                                                                                                                                                                |
-| `fills.custom.<id>.root`      | warn                               | the head's hair under the part's root made up far from any back hair                                                                                                                             | 0.25                    | move that part's `line` or `polygon` to where the part leaves the head's hair                                                                                    |
-| `fills.hair_back.underBody`   | warn                               | the back hair carried under the body's edge, made up far from any back hair                                                                                                                      | 0.25                    | check on `preview-labels.png` that the hair above the shoulders is tinted as hair; add `samples.hair` points on its tones                                        |
-| `fills.custom.<id>.underBody` | warn                               | the same for a custom part                                                                                                                                                                       | 0.25                    | make the part's cut take its hair down to the shoulder                                                                                                           |
-| `fills.body.neck`             | warn                               | the neck carried up to `neckTopY`, filled by construction                                                                                                                                        | none                    | —                                                                                                                                                                |
-| `fills.hair_front.strands`    | warn                               | the share of a strand refilled through a brow's band made up over 40 px from its own hair                                                                                                        | 0.25                    | narrow `brows.<side>.halfWidth` to the brow                                                                                                                      |
-| `frontHairWidth`              | warn                               | `hair_front`'s width over the face's on the eye row                                                                                                                                              | 1                       | narrow `frontHair` to the face; with no value, put `skinSeeds` on the cheeks                                                                                     |
-| `pockets`                     | warn                               | backdrop-coloured regions the border's flood cannot reach, counted; and the gaps between strands it keyed by itself                                                                              | 0                       | a pocket that is backdrop: add the points it names to `backgroundSeeds`; a keyed point that is really paint: add it to `paintSeeds`                              |
+| id                            | level                                                                                            | measures                                                                                                                                                                                         | limit                   | fix                                                                                                                                                                          |
+| ----------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `stack`                       | fail                                                                                             | the layers stacked in role order against the picture: the share of canvas px off by more than 24 levels outside the mouth's box (the box's own share is printed apart, as the mouth is replaced) | 0.003                   | find the paint no layer took (untinted on `preview-labels.png`) or a fill drawn over paint, and move the seed or outline that left it out                                    |
+| `seeds`                       | fail                                                                                             | seeds and samples on the backdrop or on the wrong class, counted                                                                                                                                 | 0                       | the hint names each point: move it onto flat paint of its class, add a `samples.*.shadow` point on that tone, or a `bodyOnly` polygon                                        |
+| `opening.L`, `opening.R`      | fail (box clips the eye); warn (box loose, or an edge cuts a stroke it cannot tell from the eye) | clipped: the eye's least margin inside its box, px; loose: the share of the box the eye covers                                                                                                   | 1 (margin); 0.2 (loose) | as the hint says, after a look (Landmark reference, `eyes`)                                                                                                                  |
+| `eye.L`, `eye.R`              | warn                                                                                             | the eye's share of white                                                                                                                                                                         | 0.06                    | under it the eye is cut either open (a tinted white: look at `eye_<side>.png`) or as drawn closed (for an open eye, `eyes.<side>.iris` is off the disc: move it)             |
+| `iris.L`, `iris.R`            | warn                                                                                             | the iris ellipse against the disc found by its own colour: overlap (intersection over union) and centre offset                                                                                   | 0.7                     | move `cx` / `cy` as the hint says; it gives the disc's x span and how far down it reaches (Landmark reference, `eyes`)                                                       |
+| `brow.L`, `brow.R`            | warn                                                                                             | brow px found in the band                                                                                                                                                                        | 1                       | the line is off the brow: put it along the brow's middle, tail first                                                                                                         |
+| `browBand.L`, `browBand.R`    | warn                                                                                             | the share of the brow's ink left on the face past its band                                                                                                                                       | 0.05                    | as the hint says (move the line's points over the x span it names, widen the band, or extend an end); a hair outline or a crease along the brow can warn falsely: zoom first |
+| `mouth`                       | fail                                                                                             | px of drawn mouth in `mouth.box`                                                                                                                                                                 | 1                       | move the box onto the drawn mouth; a picture with no mouth drawn needs a lip set                                                                                             |
+| `fills.face.features`         | warn                                                                                             | the skin under the features, filled by construction                                                                                                                                              | none                    | —                                                                                                                                                                            |
+| `fills.face.forehead`         | warn                                                                                             | the share of the skin under the bangs made up over 40 px from any skin                                                                                                                           | 0.25                    | pull `skull` in to the head's outline; add a `skinSeeds` point on forehead skin between strands                                                                              |
+| `fills.hair_back.shell`       | warn                                                                                             | the hair behind the face and the bangs, filled by construction                                                                                                                                   | none                    | —                                                                                                                                                                            |
+| `fills.custom.<id>.root`      | warn                                                                                             | the head's hair under the part's root made up far from any back hair                                                                                                                             | 0.25                    | move that part's `line` or `polygon` to where the part leaves the head's hair                                                                                                |
+| `fills.hair_back.underBody`   | warn                                                                                             | the back hair carried under the body's edge, made up far from any back hair                                                                                                                      | 0.25                    | check on `preview-labels.png` that the hair above the shoulders is tinted as hair; add `samples.hair` points on its tones                                                    |
+| `fills.custom.<id>.underBody` | warn                                                                                             | the same for a custom part                                                                                                                                                                       | 0.25                    | make the part's cut take its hair down to the shoulder                                                                                                                       |
+| `fills.body.neck`             | warn                                                                                             | the neck carried up to `neckTopY`, filled by construction                                                                                                                                        | none                    | —                                                                                                                                                                            |
+| `fills.hair_front.strands`    | warn                                                                                             | the share of a strand refilled through a brow's band made up over 40 px from its own hair                                                                                                        | 0.25                    | narrow `brows.<side>.halfWidth` to the brow                                                                                                                                  |
+| `frontHairWidth`              | warn                                                                                             | `hair_front`'s width over the face's on the eye row                                                                                                                                              | 1                       | narrow `frontHair` to the face; with no value, put `skinSeeds` on the cheeks                                                                                                 |
+| `pockets`                     | warn                                                                                             | the gaps between strands it keyed as backdrop by itself, plus the backdrop-coloured regions the border's flood cannot reach, counted                                                             | 0                       | a region that is backdrop: add its point to `backgroundSeeds`; a keyed point that is really paint: add it to `paintSeeds`                                                    |
 
 **The last line.** `CUT pass` means no fail-level check failed; `CUT FAIL:
 <ids>` lists the ones that did. `CUT pass` with `WARN` lines is normal. On most
@@ -756,11 +881,14 @@ Otherwise:
   and the brow passes under it. Keep the band no wider than the brow.
 - **With a lip set the closed mouth at rest is the generated line**, not the
   drawn one (the drawn lip highlight is gone). Say so to the user.
+- **A brow drawn right out to the face's edge shows over the side hair on a
+  wide turn**: the rig moves a brow further than the face's edge, a known
+  limit of the rig. It shows in the `turn-m30` / `turn-p30` close-ups as a pale
+  patch at the temple; report it to the user, and do not move the brow line
+  for it (that only leaves the tail on the face).
 - **The face has no outline where hair hid it.** Where side strands covered
   the face's edge, the cut fills skin under them but has no line to draw, so on
   a big turn that edge shows soft. Report it; do not chase it.
-- **Reading off a shrunk image.** A view bigger than about 1500 px a side is
-  shrunk when you look at it: crop smaller instead of zooming a big crop.
 - **A picture drawn with the mouth open** has no closed mouth: the drawn route
   rests open. Tell the user before cutting.
 - **Never use art the user has no right to use.** A picture of someone else's
