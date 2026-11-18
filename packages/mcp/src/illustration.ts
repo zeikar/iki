@@ -200,7 +200,8 @@ function borderRing({ width, height }: CanvasSize): number[] {
   return out;
 }
 
-function median(values: number[]): number {
+/** The median of `values` (the upper one of an even count). */
+export function median(values: number[]): number {
   const s = [...values].sort((a, b) => a - b);
   return s[s.length >> 1];
 }

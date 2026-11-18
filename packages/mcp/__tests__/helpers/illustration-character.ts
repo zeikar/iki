@@ -4,9 +4,11 @@ import { dilate, type Mask } from "../../src/illustration";
 /**
  * A synthetic bust drawn the way a finished character picture is: flat
  * colours with dark outlines on a flat backdrop. Back hair behind the head,
- * two tails hanging from a knot each, ears, a face with an eye, nose and
- * mouth mark, a hair cap with a sawtooth fringe over the forehead, a neck
- * and a torso.
+ * two tails hanging from a knot each, ears, a face with two drawn eyes (a
+ * white, an iris disc with a pupil and a highlight, a winged upper lash, a
+ * lower lid line and a crease above), two brows, a nose and a mouth mark, a
+ * hair cap with a sawtooth fringe over the forehead and one strand hanging
+ * from it through the right brow, a neck and a torso.
  *
  * Drawn at half size (550 px) so the loader scales it to the 1100 canvas
  * with soft edges, as a real picture arrives. Shapes are given in canvas px
@@ -25,6 +27,8 @@ export interface CharacterColours {
   skinShadow: RGB;
   torso: RGB;
   ribbon: RGB;
+  iris: RGB;
+  pupil: RGB;
 }
 
 export const PINK_ON_PEACH: CharacterColours = {
@@ -37,6 +41,8 @@ export const PINK_ON_PEACH: CharacterColours = {
   skinShadow: [240, 205, 190],
   torso: [80, 90, 160],
   ribbon: [210, 40, 60],
+  iris: [70, 130, 180],
+  pupil: [35, 50, 80],
 };
 
 /** Hair and skin close in hue: the case one colour test cannot split. */
@@ -50,6 +56,8 @@ export const ORANGE_ON_WARM: CharacterColours = {
   skinShadow: [230, 180, 145],
   torso: [70, 120, 90],
   ribbon: [60, 90, 200],
+  iris: [60, 140, 110],
+  pupil: [30, 60, 45],
 };
 
 /** Near-black hair over a dark torso and ink: colour cannot tell them
@@ -64,6 +72,8 @@ export const BLACK_ON_PEACH: CharacterColours = {
   skinShadow: [240, 205, 190],
   torso: [45, 45, 60],
   ribbon: [200, 40, 50],
+  iris: [150, 90, 60],
+  pupil: [70, 35, 25],
 };
 
 const SOURCE = 550;
@@ -95,6 +105,245 @@ function polygon(pts: [number, number][]): Inside {
     }
     return inside;
   };
+}
+
+/** The sclera's colour, in every colouring. */
+export const WHITE: RGB = [255, 255, 255];
+
+/** The eyes' shapes, about each eye's centre column `cx`. */
+export const EYE = {
+  R: { cx: 470, outer: -1 },
+  L: { cx: 630, outer: 1 },
+  /** The white. */
+  white: { cy: 432, rx: 24, ry: 19 },
+  /** The iris disc, its top under the lash. */
+  iris: { cy: 432, rx: 13, ry: 17 },
+  pupil: { cy: 436, rx: 5, ry: 8 },
+  /** A highlight whose top is under the lash, `dx` from the centre. */
+  highlight: { dx: 4, cy: 421, r: 4 },
+  /** The upper lash: the outer ellipse less the inner, rows to `bottom`. */
+  lashOuter: { cy: 433, rx: 27, ry: 24 },
+  lashInner: { cy: 442, rx: 25, ry: 22 },
+  lashBottom: 432,
+  /** The lower lid's line: rows y0..y1, `half` either side of the centre,
+   *  across the iris's bottom and on past the disc both ways. */
+  lower: { y0: 446, y1: 449, half: 20 },
+  /** A short lower lid within the disc's columns, merging with the disc's
+   *  bottom outline and running on under it ("darkIris"). */
+  lowerShort: { y0: 448, y1: 451, half: 8 },
+  /** "darkIris": the disc as dark as the lash above this row, and an
+   *  outline of that ink this thick round its bottom below `outlineFrom`. */
+  darkTopTo: 426,
+  outline: 2.5,
+  outlineFrom: 438,
+  /** "greyWhite": a white of warm grey. */
+  greyWhite: [228, 222, 222] as RGB,
+  /** "bigIris": an iris disc covering most of the white. */
+  bigIris: { rx: 23, ry: 19 },
+  /** "lidBand": a pale band of lid this many px over the lash's top. */
+  lidBand: 3,
+  /** "closed": the closed lid's line, the outer ellipse less the inner,
+   *  rows from `from`. */
+  closedOuter: { cy: 424, rx: 27, ry: 14 },
+  closedInner: { cy: 419, rx: 27, ry: 14 },
+  closedFrom: 424,
+  /** The crease: a thin arc detached above the lash. */
+  creaseOuter: { cy: 425, rx: 26, ry: 28 },
+  creaseInner: { cy: 429, rx: 26, ry: 28 },
+  creaseBottom: 404,
+} as const;
+
+/** Inside the upper lash of the eye about `cx` (its wing included). */
+export function inLash(cx: number, outer: number, x: number, y: number) {
+  const o = EYE.lashOuter;
+  const n = EYE.lashInner;
+  const crescent =
+    y <= EYE.lashBottom &&
+    ellipse(cx, o.cy, o.rx, o.ry)(x, y) &&
+    !ellipse(cx, n.cy, n.rx, n.ry)(x, y);
+  const wing = polygon([
+    [cx + outer * 22, 418],
+    [cx + outer * 34, 410],
+    [cx + outer * 26, 428],
+  ]);
+  return crescent || wing(x, y);
+}
+
+/** A strand hanging from the fringe through the right brow. */
+export const STRAND = { x0: 450, x1: 462, y0: 300, y1: 388 };
+
+/** The brows' centrelines, tail first, and their half-width. */
+export const BROWS = {
+  R: [
+    [440, 378],
+    [462, 370],
+    [486, 367],
+    [504, 369],
+  ] as [number, number][],
+  L: [
+    [660, 378],
+    [638, 370],
+    [614, 367],
+    [596, 369],
+  ] as [number, number][],
+  half: 4,
+  /** The left brow's tail, x past this, is drawn pale, half skin. */
+  paleTailFrom: 645,
+};
+
+/** Within `half` of a polyline. */
+function thickLine(pts: [number, number][], half: number): Inside {
+  return (x, y) => {
+    for (let k = 0; k + 1 < pts.length; k++) {
+      const [ax, ay] = pts[k];
+      const [bx, by] = pts[k + 1];
+      const len2 = (bx - ax) ** 2 + (by - ay) ** 2;
+      const t = Math.max(
+        0,
+        Math.min(1, ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / len2),
+      );
+      if (Math.hypot(x - ax - t * (bx - ax), y - ay - t * (by - ay)) <= half) {
+        return true;
+      }
+    }
+    return false;
+  };
+}
+
+/** Inside the brow drawn on `side`. */
+export function inBrow(side: "L" | "R", x: number, y: number): boolean {
+  return thickLine(BROWS[side], BROWS.half)(x, y);
+}
+
+const mix = (a: RGB, b: RGB, t: number): RGB =>
+  a.map((v, k) => Math.round(v * (1 - t) + b[k] * t)) as RGB;
+
+/** How an eye is drawn: `open` (white, iris with pupil and highlight,
+ *  winged lash, a lower lid across the iris's bottom, a crease above);
+ *  `lidBand` (open, a pale lid band over the lash instead of the crease);
+ *  `darkIris` (open, the disc as dark as the lash at its top and outlined in
+ *  that ink at its bottom, a short lower lid joining the outline);
+ *  `greyWhite` (open, a warm grey white); `bigIris` (open, an iris covering
+ *  most of the white); `closed` (one curved line). */
+export type EyeStyle =
+  | "open"
+  | "lidBand"
+  | "darkIris"
+  | "greyWhite"
+  | "bigIris"
+  | "closed";
+
+/** One eye about `cx`, its outer corner toward `outer`, back to front. */
+function eyeShapes(
+  c: CharacterColours,
+  cx: number,
+  outer: number,
+  style: EyeStyle,
+): [Inside, RGB, boolean][] {
+  if (style === "closed") {
+    const o = EYE.closedOuter;
+    const n = EYE.closedInner;
+    return [
+      [
+        (x, y) =>
+          y >= EYE.closedFrom &&
+          ellipse(cx, o.cy, o.rx, o.ry)(x, y) &&
+          !ellipse(cx, n.cy, n.rx, n.ry)(x, y),
+        c.ink,
+        false,
+      ],
+    ];
+  }
+  const w = EYE.white;
+  const ir = EYE.iris;
+  const p = EYE.pupil;
+  const h = EYE.highlight;
+  const o = EYE.creaseOuter;
+  const n = EYE.creaseInner;
+  const lo = style === "darkIris" ? EYE.lowerShort : EYE.lower;
+  const size = style === "bigIris" ? EYE.bigIris : ir;
+  const disc = ellipse(cx, ir.cy, size.rx, size.ry);
+  const sclera = style === "greyWhite" ? EYE.greyWhite : WHITE;
+  const out: [Inside, RGB, boolean][] = [
+    [ellipse(cx, w.cy, w.rx, w.ry), sclera, false],
+    [disc, c.iris, false],
+  ];
+  if (style === "darkIris") {
+    const inner = ellipse(cx, ir.cy, ir.rx - EYE.outline, ir.ry - EYE.outline);
+    out.push(
+      [(x, y) => disc(x, y) && y < EYE.darkTopTo, c.ink, false],
+      [
+        (x, y) => disc(x, y) && !inner(x, y) && y > EYE.outlineFrom,
+        c.ink,
+        false,
+      ],
+    );
+  }
+  out.push(
+    [ellipse(cx, p.cy, p.rx, p.ry), c.pupil, false],
+    [ellipse(cx + h.dx, h.cy, h.r, h.r), WHITE, false],
+    [(x, y) => inLash(cx, outer, x, y), c.ink, false],
+    [rect(cx - lo.half, lo.y0, cx + lo.half, lo.y1), c.ink, false],
+  );
+  if (style === "lidBand") {
+    const l = EYE.lashOuter;
+    const band = ellipse(cx, l.cy, l.rx + 1, l.ry + EYE.lidBand);
+    out.push([
+      (x, y) =>
+        y <= EYE.lashBottom &&
+        band(x, y) &&
+        !ellipse(cx, l.cy, l.rx, l.ry)(x, y),
+      mix(c.skin, c.ink, 0.2),
+      false,
+    ]);
+  } else {
+    out.push([
+      (x, y) =>
+        y <= EYE.creaseBottom &&
+        ellipse(cx, o.cy, o.rx, o.ry)(x, y) &&
+        !ellipse(cx, n.cy, n.rx, n.ry)(x, y),
+      c.ink,
+      false,
+    ]);
+  }
+  return out;
+}
+
+/** The features drawn over the face, back to front. */
+function features(
+  c: CharacterColours,
+  eyes: { L?: EyeStyle; R?: EyeStyle },
+): [Inside, RGB, boolean][] {
+  const out: [Inside, RGB, boolean][] = [
+    ...eyeShapes(c, EYE.R.cx, EYE.R.outer, eyes.R ?? "open"),
+    ...eyeShapes(c, EYE.L.cx, EYE.L.outer, eyes.L ?? "open"),
+  ];
+  const inStrand = rect(STRAND.x0, STRAND.y0, STRAND.x1, STRAND.y1);
+  const browR = thickLine(BROWS.R, BROWS.half);
+  const browL = thickLine(BROWS.L, BROWS.half);
+  out.push(
+    [ellipse(550, 490, 5, 5), c.ink, false],
+    [rect(520, 557, 580, 563), c.ink, false],
+  );
+  return out.concat([
+    [(x, y) => browR(x, y) && !inStrand(x, y), c.ink, false],
+    [(x, y) => browL(x, y) && x <= BROWS.paleTailFrom, c.ink, false],
+    [
+      (x, y) => browL(x, y) && x > BROWS.paleTailFrom,
+      mix(c.ink, c.skin, 0.5),
+      false,
+    ],
+  ]);
+}
+
+/** The strand and the pale brow drawn over it, after the cap. */
+function strand(c: CharacterColours): [Inside, RGB, boolean][] {
+  const inStrand = rect(STRAND.x0, STRAND.y0, STRAND.x1, STRAND.y1);
+  const browR = thickLine(BROWS.R, BROWS.half);
+  return [
+    [inStrand, c.hair, false],
+    [(x, y) => browR(x, y) && inStrand(x, y), mix(c.ink, c.hair, 0.5), false],
+  ];
 }
 
 /** The fringe's lower edge: teeth 55 canvas px apart hanging 290..335. */
@@ -144,6 +393,7 @@ function shapes(
   pocket: boolean,
   gap: boolean,
   ornament: boolean,
+  eyes: { L?: EyeStyle; R?: EyeStyle },
 ): [Inside, RGB, boolean][] {
   const strands: [Inside, RGB, boolean][] = gap
     ? [
@@ -163,12 +413,10 @@ function shapes(
     [ellipse(345, 450, 32, 48), c.skin, true],
     [ellipse(755, 450, 32, 48), c.skin, true],
     [ellipse(550, 430, 200, 230), c.skin, true],
-    [ellipse(470, 430, 18, 26), c.ink, false],
-    [ellipse(630, 430, 18, 26), c.ink, false],
-    [ellipse(550, 490, 5, 5), c.ink, false],
-    [rect(520, 557, 580, 563), c.ink, false],
+    ...features(c, eyes),
     [capInside, c.hair, true],
     [highlightBand, c.hairHighlight, false],
+    ...strand(c),
     [rect(WISP.x0, WISP.y0, WISP.x1 + 0.9, WISP.y1), c.hair, false],
     ...(ornament
       ? [
@@ -197,7 +445,19 @@ function shapes(
 export async function writeCharacter(
   file: string,
   colours: CharacterColours,
-  { transparent = false, pocket = false, gap = false, ornament = false } = {},
+  {
+    transparent = false,
+    pocket = false,
+    gap = false,
+    ornament = false,
+    eyes = {},
+  }: {
+    transparent?: boolean;
+    pocket?: boolean;
+    gap?: boolean;
+    ornament?: boolean;
+    eyes?: { L?: EyeStyle; R?: EyeStyle };
+  } = {},
 ): Promise<void> {
   const size = { width: SOURCE, height: SOURCE };
   const n = SOURCE * SOURCE;
@@ -214,6 +474,7 @@ export async function writeCharacter(
     pocket,
     gap,
     ornament,
+    eyes,
   )) {
     const m: Mask = new Uint8Array(n);
     for (let i = 0; i < n; i++) m[i] = inside(...at(i)) ? 1 : 0;
@@ -242,7 +503,7 @@ export async function writeCharacter(
 }
 
 /** The cap's outline, 4 px out for its line, down to the fringe's lowest
- *  row: what an agent traces as `frontHair`. */
+ *  row, and round the strand: what an agent traces as `frontHair`. */
 function capOutline(): [number, number][] {
   const pts: [number, number][] = [];
   const top = Math.asin(55 / 274);
@@ -253,6 +514,13 @@ function capOutline(): [number, number][] {
       Math.round(400 - 274 * Math.sin(a)),
     ]);
   }
+  // Down round the strand hanging through the right brow.
+  pts.push(
+    [STRAND.x1 + 6, 345],
+    [STRAND.x1 + 6, STRAND.y1 + 4],
+    [STRAND.x0 - 6, STRAND.y1 + 4],
+    [STRAND.x0 - 6, 345],
+  );
   return pts;
 }
 
@@ -278,13 +546,17 @@ export function characterLandmarks(): Record<string, any> {
     },
     eyes: {
       L: {
-        box: [600, 392, 660, 468],
-        iris: { cx: 630, cy: 430, rx: 18, ry: 24 },
+        box: [592, 392, 668, 466],
+        iris: { cx: 630, cy: 432, rx: 13, ry: 17 },
       },
       R: {
-        box: [440, 392, 500, 468],
-        iris: { cx: 470, cy: 430, rx: 18, ry: 24 },
+        box: [432, 392, 508, 466],
+        iris: { cx: 470, cy: 432, rx: 13, ry: 17 },
       },
+    },
+    brows: {
+      L: { line: BROWS.L.map((p) => [...p]) },
+      R: { line: BROWS.R.map((p) => [...p]) },
     },
     nose: { box: [540, 480, 560, 500] },
     mouth: {

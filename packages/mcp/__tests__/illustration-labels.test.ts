@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasSize, Mask } from "../src/illustration";
 import { hairRungPockets } from "../src/illustration-cut";
+import { HAIR, NEITHER, SKIN } from "../src/illustration-colour";
 import {
   dropSpecks,
+  hairThroughBox,
   joinInk,
   LABEL_BODY,
   LABEL_FACE,
   LABEL_HAIR,
   releaseLines,
   spreadLabels,
+  strandsThrough,
   type IllustrationLabels,
 } from "../src/illustration-labels";
 
@@ -217,5 +220,100 @@ describe("hairRungPockets", () => {
     expect(x >= 30 && x < 46 && y >= 30 && y < 46).toBe(true);
     // A paint seed inside it stops it too.
     expect(hairRungPockets(pic, labels, [[38, 38]])).toEqual([]);
+  });
+});
+
+describe("strandsThrough", () => {
+  it("carries a slanted strand and a straight one through a brow band, not the brow beside them", () => {
+    // A band on rows 6..9 (its zone, grown by 4, rows 2..13); a strand
+    // leaning half a px across per px down, a straight one, and a brow on
+    // rows 7..8 across the whole width, drawn over both.
+    const size = { width: 24, height: 16 };
+    const n = size.width * size.height;
+    const at = (x: number, y: number) => y * size.width + x;
+    const bands = new Uint8Array(n);
+    const strands = new Uint8Array(n);
+    const brow = new Uint8Array(n);
+    for (let y = 0; y < size.height; y++) {
+      for (let x = 0; x < size.width; x++) {
+        const lean = Math.floor(2 + y / 2);
+        if (y >= 6 && y <= 9) bands[at(x, y)] = 1;
+        if ((x >= lean && x <= lean + 2) || (x >= 18 && x <= 20)) {
+          strands[at(x, y)] = 1;
+        }
+        if (y === 7 || y === 8) brow[at(x, y)] = 1;
+      }
+    }
+    const through = strands.map((v, i) => (v || brow[i] ? 1 : 0));
+    const out = strandsThrough(size, bands, strands, through);
+    for (let y = 2; y <= 13; y++) {
+      expect(out[at(Math.floor(2 + y / 2) + 1, y)], `lean row ${y}`).toBe(1);
+      for (const x of [18, 19, 20])
+        expect(out[at(x, y)], `straight ${x},${y}`).toBe(1);
+    }
+    // The brow off the strands, and the skin, stay out.
+    for (const x of [0, 9, 10, 11, 12, 13, 14, 15, 23]) {
+      for (const y of [6, 7, 8, 9]) expect(out[at(x, y)], `${x},${y}`).toBe(0);
+    }
+  });
+});
+
+describe("hairThroughBox", () => {
+  // A 30 px square of skin; an eye box [10, 10, 20, 20]; a pale strand
+  // crossing its right edge and running on past it; a dark lash and a pale
+  // hair-coloured mark inside it, joined to nothing outside.
+  const size = { width: 30, height: 30 };
+  const n = size.width * size.height;
+  const at = (x: number, y: number) => y * size.width + x;
+  function picture(lashClass: number) {
+    const rgb = new Float32Array(n * 3);
+    const classes = new Uint8Array(n).fill(SKIN);
+    for (let i = 0; i < n; i++) rgb.set([250, 220, 200], i * 3);
+    for (let y = 0; y < 30; y++) {
+      for (let x = 18; x <= 21; x++) {
+        rgb.set([240, 150, 175], at(x, y) * 3);
+        classes[at(x, y)] = HAIR;
+      }
+    }
+    for (let x = 11; x <= 16; x++) {
+      for (const y of [12, 13]) {
+        rgb.set([40, 25, 30], at(x, y) * 3);
+        classes[at(x, y)] = lashClass;
+      }
+    }
+    for (const [x, y] of [
+      [12, 16],
+      [13, 16],
+      [12, 17],
+      [13, 17],
+    ]) {
+      rgb.set([240, 150, 175], at(x, y) * 3);
+      classes[at(x, y)] = HAIR;
+    }
+    const pic = {
+      ...size,
+      rgb,
+      alpha: new Float32Array(n).fill(1),
+      background: "transparent" as const,
+    };
+    return { pic, classes };
+  }
+
+  it("keeps the strand crossing the box as hair when the lash's ink is not hair-coloured", () => {
+    const { pic, classes } = picture(NEITHER);
+    const hair = hairThroughBox(pic, [10, 10, 20, 20], classes);
+    for (let y = 10; y <= 20; y++) {
+      for (const x of [18, 19, 20]) expect(hair[at(x, y)], `${x},${y}`).toBe(1);
+    }
+    expect(hair[at(21, 15)]).toBe(0); // outside the box
+    expect(hair[at(12, 16)]).toBe(0); // joined to nothing outside
+    expect(hair[at(12, 12)]).toBe(0); // the lash
+  });
+
+  it("gives everything in the box to the eye when the lash's ink is hair-coloured", () => {
+    const { pic, classes } = picture(HAIR);
+    expect([...hairThroughBox(pic, [10, 10, 20, 20], classes)]).toEqual(
+      new Array(n).fill(0),
+    );
   });
 });

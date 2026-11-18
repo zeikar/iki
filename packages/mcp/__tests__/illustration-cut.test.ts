@@ -8,18 +8,26 @@ import {
   cutLayersFromIllustration,
   type CutLayersFromIllustrationResult,
 } from "../src/illustration-cut";
+import { browBand } from "../src/illustration-labels";
+import { validateLandmarks } from "../src/illustration-landmarks";
 import {
   BLACK_ON_PEACH,
+  BROWS,
   characterLandmarks,
+  EYE,
+  inBrow,
+  inLash,
   ORANGE_ON_WARM,
   GAP,
   ORNAMENT,
   PINK_ON_PEACH,
   POCKET,
+  STRAND,
   TORSO_BODY_ONLY,
   WISP,
   writeCharacter,
   type CharacterColours,
+  type EyeStyle,
 } from "./helpers/illustration-character";
 
 const createdDirs: string[] = [];
@@ -49,6 +57,7 @@ async function picture(
     pocket?: boolean;
     gap?: boolean;
     ornament?: boolean;
+    eyes?: { L?: EyeStyle; R?: EyeStyle };
   },
 ): Promise<string> {
   const file = path.join(tmpDir(), "character.png");
@@ -97,18 +106,73 @@ async function coverAt(r: Ok, x: number, y: number): Promise<number[]> {
   return Promise.all(files.map(async (f) => (await pixelsOf(f)).at(x, y)[3]));
 }
 
-/** The written layers' RGBA, in draw order (custom parts after the back
- *  hair). */
+/** The written layers' RGBA, in draw order (the layers come in it, the
+ *  custom parts right after the back hair). */
 async function stackOf(r: Ok): Promise<Buffer[]> {
-  const files = [
-    layer(r, "hair_back").path,
-    ...r.customParts.map((p) => p.path),
-    layer(r, "body").path,
-    layer(r, "face").path,
-    layer(r, "hair_front").path,
-  ];
+  const files = r.layers.flatMap((l) =>
+    l.role === "hair_back"
+      ? [l.path, ...r.customParts.map((p) => p.path)]
+      : [l.path],
+  );
   return Promise.all(files.map((f) => sharp(f).ensureAlpha().raw().toBuffer()));
 }
+
+const W = 1100;
+
+/** The written layers stacked over `ground`, the brows moved `browShift`
+ *  px down (negative: up): RGB per pixel. */
+async function composite(
+  r: Ok,
+  ground: readonly number[],
+  browShift = 0,
+): Promise<Float32Array> {
+  const out = new Float32Array(W * W * 3);
+  for (let i = 0; i < W * W; i++) out.set(ground, i * 3);
+  const files = r.layers.flatMap((l) =>
+    l.role === "hair_back"
+      ? [l, ...r.customParts.map((p) => ({ role: p.id, path: p.path }))]
+      : [l],
+  );
+  for (const f of files) {
+    const data = await sharp(f.path).ensureAlpha().raw().toBuffer();
+    const dy = f.role.startsWith("brow_") ? browShift : 0;
+    for (let y = 0; y < W; y++) {
+      const sy = y - dy;
+      if (sy < 0 || sy >= W) continue;
+      for (let x = 0; x < W; x++) {
+        const j = (sy * W + x) * 4;
+        const a = data[j + 3] / 255;
+        if (a === 0) continue;
+        const i = (y * W + x) * 3;
+        for (let c = 0; c < 3; c++) {
+          out[i + c] = data[j + c] * a + out[i + c] * (1 - a);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** The largest channel difference between two colours. */
+const off = (a: ArrayLike<number>, b: readonly number[]) =>
+  Math.max(...[0, 1, 2].map((c) => Math.abs(a[c] - b[c])));
+
+/** Inside the ellipse of the iris drawn about `cx`, `inset` px in. */
+const inIris = (cx: number, x: number, y: number, inset = 0) =>
+  ((x - cx) / (EYE.iris.rx - inset)) ** 2 +
+    ((y - EYE.iris.cy) / (EYE.iris.ry - inset)) ** 2 <=
+  1;
+
+/** A resized flat colour stays within this many levels of itself, and a
+ *  feature's trace is many times more. */
+const NEAR = 16;
+/** The resize's soft edge and overshoot reach this many px into a shape. */
+const EDGE = 3;
+
+const SIDES = [
+  ["L", EYE.L],
+  ["R", EYE.R],
+] as const;
 
 const COLOURINGS: [string, CharacterColours, boolean][] = [
   ["pink hair on peach skin", PINK_ON_PEACH, false],
@@ -206,11 +270,23 @@ describe.each(COLOURINGS)("cutting %s", (_name, colours, bodyOnly) => {
     expect(body.at(x, y)[3]).toBe(0);
   });
 
-  it("writes canvas-sized layers, each tail its own file", async () => {
+  it("writes canvas-sized layers in the rig's order, each tail its own file", async () => {
     expect(r.layers.map((l) => l.role)).toEqual([
       "hair_back",
       "body",
       "face",
+      "nose",
+      "mouth",
+      "eye_L",
+      "eye_R",
+      "iris_L",
+      "iris_R",
+      "lash_lower_L",
+      "lash_lower_R",
+      "lash_L",
+      "lash_R",
+      "brow_L",
+      "brow_R",
       "hair_front",
     ]);
     expect(r.customParts.map((p) => p.id)).toEqual(["tail_R", "tail_L"]);
@@ -266,6 +342,168 @@ describe.each(COLOURINGS)("cutting %s", (_name, colours, bodyOnly) => {
     const box = layer(r, "body").box!;
     expect(box[0]).toBeGreaterThanOrEqual(270);
     expect(box[1]).toBe(540);
+  });
+
+  it("cuts each eye the way the rig's eye roles split one drawing", async () => {
+    for (const [side, { cx }] of SIDES) {
+      // The sclera and its lash share a top row: the blink fold rides it.
+      const eye = layer(r, `eye_${side}`);
+      expect(layer(r, `lash_${side}`).box![1], side).toBe(eye.box![1]);
+      // Its top is the lash's drawn top, a px for the resize's sampling.
+      expect(eye.box![1]).toBeLessThanOrEqual(
+        EYE.lashOuter.cy - EYE.lashOuter.ry + 1,
+      );
+      const sclera = await pixelsOf(eye.path);
+      const lash = await pixelsOf(layer(r, `lash_${side}`).path);
+      const lower = await pixelsOf(layer(r, `lash_lower_${side}`).path);
+      // The lash's body: in the lash, white in the sclera under it.
+      expect(lash.at(cx, 412)[3]).toBe(255);
+      expect(off(sclera.at(cx, 412), [255, 255, 255])).toBeLessThan(NEAR);
+      // The lower lid, across the iris's bottom and past it: in lash_lower,
+      // not the lash nor the iris, as drawn in the sclera; the iris under
+      // it is the disc's colour, not the lid's.
+      const iris = await pixelsOf(layer(r, `iris_${side}`).path);
+      const lid = (EYE.lower.y0 + EYE.lower.y1) >> 1;
+      for (const x of [cx - 17, cx - 6, cx, cx + 6, cx + 17]) {
+        expect(lower.at(x, lid)[3], `${side} ${x},${lid}`).toBe(255);
+        expect(lash.at(x, lid)[3]).toBe(0);
+        expect(off(lower.at(x, lid), colours.ink)).toBeLessThan(2 * NEAR);
+        expect(sclera.at(x, lid)).toEqual(lower.at(x, lid));
+      }
+      for (const x of [cx - 6, cx, cx + 6]) {
+        const px = iris.at(x, lid);
+        expect(px[3], `${side} ${x},${lid}`).toBe(255);
+        expect(off(px, colours.iris)).toBeLessThan(off(px, colours.ink));
+      }
+      // The white beside the iris, and the sclera white under the iris.
+      expect(off(sclera.at(cx - 18, 440), [255, 255, 255])).toBeLessThan(NEAR);
+      expect(off(sclera.at(cx, 440), [255, 255, 255])).toBeLessThan(NEAR);
+    }
+  });
+
+  it("makes each iris the whole ellipse, filled where the lids covered it from the disc's own colours", async () => {
+    for (const [side, { cx, outer }] of SIDES) {
+      const iris = await pixelsOf(layer(r, `iris_${side}`).path);
+      let hidden = 0;
+      for (
+        let y = EYE.iris.cy - EYE.iris.ry;
+        y <= EYE.iris.cy + EYE.iris.ry;
+        y++
+      ) {
+        for (let x = cx - EYE.iris.rx; x <= cx + EYE.iris.rx; x++) {
+          if (!inIris(cx, x, y, 1.5)) continue;
+          const px = iris.at(x, y);
+          expect(px[3], `${side} ${x},${y}`).toBe(255);
+          // Inside the lash, off its bottom row (a blend of lash and iris),
+          // or inside the lower lid, off its edges.
+          const underLash =
+            inLash(cx, outer, x, y) && inLash(cx, outer, x, y + 1);
+          const underLid = y > EYE.lower.y0 && y < EYE.lower.y1;
+          if (!underLash && !underLid) continue;
+          // Where the lids hid the disc, the disc's colour: no near-white
+          // pixel (the highlight's top included) and none of the lid's.
+          hidden++;
+          expect(
+            Math.min(px[0], px[1], px[2]),
+            `${side} ${x},${y}`,
+          ).toBeLessThan(200);
+          expect(off(px, colours.iris), `${side} ${x},${y}`).toBeLessThan(
+            off(px, colours.ink),
+          );
+        }
+      }
+      expect(hidden).toBeGreaterThan(20);
+    }
+  });
+
+  it("leaves each lid's crease on the face, as drawn", async () => {
+    const face = await pixelsOf(layer(r, "face").path);
+    for (const [side, { cx }] of SIDES) {
+      const y = EYE.creaseOuter.cy - EYE.creaseOuter.ry + 2;
+      expect(off(face.at(cx, y), colours.ink), side).toBeLessThan(NEAR);
+      for (const role of [`eye_${side}`, `lash_${side}`]) {
+        expect((await pixelsOf(layer(r, role).path)).at(cx, y)[3]).toBe(0);
+      }
+    }
+  });
+
+  it("lifts every feature off the face, skin filled under it", async () => {
+    const face = await pixelsOf(layer(r, "face").path);
+    const skinAt = (x: number, y: number, what: string) => {
+      const px = face.at(x, y);
+      if (px[3] === 0) return;
+      expect(off(px, colours.skin), `${what} ${x},${y}`).toBeLessThan(NEAR);
+    };
+    for (const role of ["eye_L", "eye_R", "nose", "mouth"]) {
+      const m = await pixelsOf(layer(r, role).path);
+      const [x0, y0, x1, y1] = layer(r, role).box!;
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++)
+          if (m.at(x, y)[3] > 0) skinAt(x, y, role);
+      }
+    }
+    // Each brow's band, but where the strand crosses it (hair over the
+    // face there, with its own soft edge).
+    const size = { width: W, height: W };
+    const lm = validateLandmarks(characterLandmarks(), size);
+    let looked = 0;
+    for (const side of ["L", "R"] as const) {
+      const band = browBand(size, lm.brows![side]!);
+      for (let i = 0; i < band.length; i++) {
+        const x = i % W;
+        if (!band[i] || (x >= STRAND.x0 - EDGE && x <= STRAND.x1 + EDGE)) {
+          continue;
+        }
+        skinAt(x, Math.floor(i / W), `brow_${side}`);
+        looked++;
+      }
+    }
+    expect(looked).toBeGreaterThan(1000);
+  });
+
+  it("carries the strand across the brow's band in the front hair, with no hole and no brow in it", async () => {
+    const front = await pixelsOf(layer(r, "hair_front").path);
+    let crossed = 0;
+    for (let y = 355; y <= 385; y++) {
+      for (let x = STRAND.x0 + EDGE; x <= STRAND.x1 - EDGE; x++) {
+        if (!inBrow("R", x, y)) continue;
+        crossed++;
+        const px = front.at(x, y);
+        expect(px[3], `${x},${y}`).toBe(255);
+        expect(off(px, colours.hair), `${x},${y}`).toBeLessThan(NEAR);
+      }
+    }
+    expect(crossed).toBeGreaterThan(30);
+  });
+
+  it("leaves no second brow when the brows move", async () => {
+    const shift = -10;
+    const moved = await composite(r, colours.backdrop, shift);
+    const brows = await Promise.all(
+      ["brow_L", "brow_R"].map((b) => pixelsOf(layer(r, b).path)),
+    );
+    let looked = 0;
+    for (const side of ["L", "R"] as const) {
+      for (let y = 355; y <= 390; y++) {
+        for (let x = 425; x <= 675; x++) {
+          if (!inBrow(side, x, y)) continue;
+          // Where the moved brows do not cover it now.
+          if (brows.some((b) => b.at(x, y - shift)[3] > 0)) continue;
+          const strand = x >= STRAND.x0 && x <= STRAND.x1;
+          if (strand && (x < STRAND.x0 + EDGE || x > STRAND.x1 - EDGE)) {
+            continue;
+          }
+          looked++;
+          const i = (y * W + x) * 3;
+          const want = strand ? colours.hair : colours.skin;
+          expect(
+            off(moved.subarray(i, i + 3), want),
+            `${side} ${x},${y}`,
+          ).toBeLessThan(NEAR);
+        }
+      }
+    }
+    expect(looked).toBeGreaterThan(300);
   });
 
   it("gives the jaw's line to the face", async () => {
@@ -348,6 +586,16 @@ describe("cutLayersFromIllustration checks", () => {
     expect(r.checks.map((c) => c.id)).toEqual([
       "stack",
       "seeds",
+      "opening.L",
+      "eye.L",
+      "iris.L",
+      "opening.R",
+      "eye.R",
+      "iris.R",
+      "brow.L",
+      "brow.R",
+      "mouth",
+      "fills.face.features",
       "fills.face.forehead",
       "fills.hair_back.shell",
       "fills.custom.tail_R.root",
@@ -356,6 +604,7 @@ describe("cutLayersFromIllustration checks", () => {
       "fills.custom.tail_R.underBody",
       "fills.custom.tail_L.underBody",
       "fills.body.neck",
+      "fills.hair_front.strands",
       "frontHairWidth",
       "pockets",
     ]);
@@ -366,7 +615,11 @@ describe("cutLayersFromIllustration checks", () => {
       pass: true,
       limit: 0.25,
     });
-    for (const id of ["fills.hair_back.shell", "fills.body.neck"]) {
+    for (const id of [
+      "fills.face.features",
+      "fills.hair_back.shell",
+      "fills.body.neck",
+    ]) {
       expect(check(r, id)).toMatchObject({ pass: true, limit: null });
       expect(check(r, id).hint).toMatch(/by construction/);
     }
@@ -378,12 +631,71 @@ describe("cutLayersFromIllustration checks", () => {
     expect(r.passed).toBe(true);
   });
 
+  it("passes each eye's opening and iris on landmarks on the drawing", async () => {
+    const r = await cut(pink);
+    for (const side of ["L", "R"]) {
+      expect(check(r, `opening.${side}`)).toMatchObject({
+        level: "fail",
+        pass: true,
+        limit: 1,
+      });
+      expect(check(r, `iris.${side}`)).toMatchObject({
+        level: "warn",
+        pass: true,
+      });
+      expect(check(r, `iris.${side}`).value).toBeGreaterThan(0.8);
+    }
+  });
+
+  it("fails opening on an eye box that clips the lash, saying how far to grow it", async () => {
+    const lm = characterLandmarks();
+    lm.eyes.L.box = [592, 414, 668, 466];
+    const r = await cut(pink, lm);
+    const opening = check(r, "opening.L");
+    expect(opening).toMatchObject({ level: "fail", pass: false, value: 0 });
+    const grow = opening.hint.match(
+      /at its top: move y0 up by (\d+) \(to (\d+)\)/,
+    )!;
+    expect(grow).not.toBeNull();
+    // To above the lash's top row, short of the crease.
+    const to = Number(grow[2]);
+    expect(to).toBeLessThanOrEqual(EYE.lashOuter.cy - EYE.lashOuter.ry);
+    expect(to).toBeGreaterThan(EYE.creaseInner.cy - EYE.creaseInner.ry);
+    expect(check(r, "opening.R").pass).toBe(true);
+    expect(r.passed).toBe(false);
+  });
+
+  it("warns that an eye box is loose", async () => {
+    const lm = characterLandmarks();
+    lm.eyes.L.box = [570, 388, 690, 492];
+    const opening = check(await cut(pink, lm), "opening.L");
+    expect(opening).toMatchObject({ level: "warn", pass: false, limit: 0.2 });
+    expect(opening.hint).toMatch(
+      /the eye covers [\d.]+% of landmarks\.eyes\.L\.box/,
+    );
+  });
+
+  it("fails iris on an ellipse 10 px off the disc, saying which way to move it", async () => {
+    const lm = characterLandmarks();
+    lm.eyes.L.iris.cx += 10;
+    const r = await cut(pink, lm);
+    const iris = check(r, "iris.L");
+    expect(iris).toMatchObject({ level: "warn", pass: false, limit: 0.7 });
+    expect(iris.value).toBeLessThan(0.7);
+    const left = iris.hint.match(
+      /move landmarks\.eyes\.L\.iris\.cx left by (\d+)/,
+    )!;
+    expect(Number(left[1])).toBeGreaterThanOrEqual(6);
+    expect(check(r, "iris.R").pass).toBe(true);
+    expect(r.passed).toBe(true);
+  });
+
   it("reports no face width when the face's flood misses the eye row", async () => {
     const lm = characterLandmarks();
     lm.skinSeeds = [[550, 720]]; // the neck only
     const width = check(await cut(pink, lm), "frontHairWidth");
     expect(width).toMatchObject({ pass: false, value: null });
-    expect(width.hint).toMatch(/^no face on the eye row 430/);
+    expect(width.hint).toMatch(/^no face on the eye row 432/);
   });
 
   it("keys a gap between strands the torso closes off, with no seed, and says so", async () => {
@@ -556,6 +868,159 @@ describe("cutLayersFromIllustration checks", () => {
     ]) {
       expect((await pixelsOf(file)).at(550, 950)[3]).toBe(0);
     }
+  });
+});
+
+describe.each([
+  ["pink hair on peach skin", PINK_ON_PEACH],
+  ["orange hair on warm skin", ORANGE_ON_WARM],
+] as const)("cutting eyes drawn otherwise, %s", (_name, colours) => {
+  // Left: an iris as dark as the lash at its top, outlined in that ink at
+  // its bottom, a short lower lid joining the outline; right: a pale lid
+  // band over the lash.
+  let r: Ok;
+  beforeAll(async () => {
+    r = await cut(
+      await picture(colours, { eyes: { L: "darkIris", R: "lidBand" } }),
+    );
+  });
+
+  it("gives the lash the soft paint over its first dark row, so it shares the sclera's top row", async () => {
+    const top = layer(r, "eye_R").box![1];
+    expect(layer(r, "lash_R").box![1]).toBe(top);
+    // The band's top, above the lash's drawn top.
+    expect(top).toBeLessThan(EYE.lashOuter.cy - EYE.lashOuter.ry);
+    const lash = await pixelsOf(layer(r, "lash_R").path);
+    expect(lash.at(EYE.R.cx, top + 1)[3]).toBeGreaterThan(0);
+  });
+
+  it("keeps an iris top as dark as the lash in the iris, under the lash's thickness beside it", async () => {
+    const { cx } = EYE.L;
+    const lash = await pixelsOf(layer(r, "lash_L").path);
+    const iris = await pixelsOf(layer(r, "iris_L").path);
+    // Below the lash's drawn bottom, above where the dark top ends, left of
+    // the highlight.
+    for (const x of [cx - 8, cx - 4]) {
+      for (const y of [422, 424]) {
+        expect(lash.at(x, y)[3], `${x},${y}`).toBe(0);
+        expect(iris.at(x, y)[3], `${x},${y}`).toBe(255);
+        expect(off(iris.at(x, y), colours.ink)).toBeLessThan(2 * NEAR);
+      }
+    }
+  });
+
+  it("keeps the iris's own dark bottom outline in the iris where no lid line runs beside the disc", async () => {
+    const { cx } = EYE.L;
+    const iris = await pixelsOf(layer(r, "iris_L").path);
+    const lower = await pixelsOf(layer(r, "lash_lower_L").path);
+    const y = EYE.iris.cy + EYE.iris.ry - 2;
+    expect(iris.at(cx, y)[3]).toBe(255);
+    expect(off(iris.at(cx, y), colours.ink)).toBeLessThan(2 * NEAR);
+    expect(lower.at(cx, y)[3]).toBe(0);
+    // The short lid joining it is the lower lid only below the disc.
+    expect(lower.at(cx, EYE.lowerShort.y1)[3]).toBe(255);
+  });
+});
+
+describe("cutting open eyes with little white", () => {
+  // Left: a white of warm grey; right: an iris covering most of the white.
+  // On peach skin both read as too little white to go by.
+  const colours = PINK_ON_PEACH;
+  let r: Ok;
+  beforeAll(async () => {
+    const lm = characterLandmarks();
+    lm.eyes.R.iris = { cx: EYE.R.cx, cy: EYE.iris.cy, ...EYE.bigIris };
+    r = await cut(
+      await picture(colours, { eyes: { L: "greyWhite", R: "bigIris" } }),
+      lm,
+    );
+  });
+
+  it.each([
+    ["L", "a warm grey white", EYE.L, EYE.iris],
+    ["R", "an iris covering most of the white", EYE.R, EYE.bigIris],
+  ] as const)(
+    "cuts eye %s, with %s, open: an iris layer holding the disc, a lash holding none of it",
+    async (side, _what, { cx }, size) => {
+      const eye = check(r, `eye.${side}`);
+      expect(eye).toMatchObject({ level: "warn", pass: false });
+      expect(eye.hint).toMatch(/tinted or mostly hidden/);
+      expect(eye.hint).toMatch(new RegExp(`eye_${side}\\.png`));
+      expect(r.layers.map((l) => l.role)).toContain(`iris_${side}`);
+      const iris = await pixelsOf(layer(r, `iris_${side}`).path);
+      const lash = await pixelsOf(layer(r, `lash_${side}`).path);
+      // Inside the disc where it shows, between the lids: its left and
+      // right, and left of the pupil.
+      for (const [x, y] of [
+        [cx - (size.rx - 4), EYE.iris.cy + 4],
+        [cx + (size.rx - 4), EYE.iris.cy + 4],
+        [cx - 9, EYE.iris.cy + 8],
+      ]) {
+        expect(iris.at(x, y)[3], `${x},${y}`).toBe(255);
+        expect(off(iris.at(x, y), colours.iris), `${x},${y}`).toBeLessThan(
+          NEAR,
+        );
+        expect(lash.at(x, y)[3], `${x},${y}`).toBe(0);
+      }
+    },
+  );
+});
+
+describe("cutLayersFromIllustration on features it cannot cut", () => {
+  it("cuts an eye drawn closed as lash over the sclera's shape, no iris, and warns", async () => {
+    const r = await cut(
+      await picture(PINK_ON_PEACH, { eyes: { L: "closed" } }),
+    );
+    const eye = check(r, "eye.L");
+    expect(eye).toMatchObject({ level: "warn", pass: false, limit: 0.06 });
+    expect(eye.hint).toMatch(/read as drawn closed/);
+    expect(eye.hint).toMatch(/is off the iris/);
+    expect(check(r, "eye.R").pass).toBe(true);
+    const roles = r.layers.map((l) => l.role);
+    expect(roles).toContain("eye_L");
+    expect(roles).toContain("lash_L");
+    expect(roles).not.toContain("iris_L");
+    expect(roles).not.toContain("lash_lower_L");
+    expect(roles).toContain("iris_R");
+    expect(layer(r, "lash_L").pixels).toBe(layer(r, "eye_L").pixels);
+    expect(r.passed).toBe(true);
+  });
+
+  it("warns on a brow band that holds no brow, and writes no brow layer for it", async () => {
+    const lm = characterLandmarks();
+    lm.brows.L.line = [
+      [660, 505],
+      [600, 505],
+    ];
+    const r = await cut(await picture(PINK_ON_PEACH), lm);
+    expect(check(r, "brow.L")).toMatchObject({
+      level: "warn",
+      pass: false,
+      value: 0,
+    });
+    expect(check(r, "brow.L").hint).toMatch(/the line is off the brow/);
+    expect(check(r, "brow.R").pass).toBe(true);
+    expect(r.layers.map((l) => l.role)).not.toContain("brow_L");
+  });
+
+  it("fails mouth on a mouth box with nothing drawn in it, and writes no mouth", async () => {
+    const lm = characterLandmarks();
+    lm.mouth = {
+      box: [500, 600, 600, 630],
+      cornerL: [510, 615],
+      cornerR: [590, 615],
+    };
+    const r = await cut(await picture(PINK_ON_PEACH), lm);
+    expect(check(r, "mouth")).toMatchObject({
+      level: "fail",
+      pass: false,
+      value: 0,
+    });
+    expect(check(r, "mouth").hint).toMatch(
+      /move the box onto the drawn mouth, or, for a picture with no mouth drawn, give a generated lip set/,
+    );
+    expect(r.layers.map((l) => l.role)).not.toContain("mouth");
+    expect(r.passed).toBe(false);
   });
 });
 

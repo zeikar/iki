@@ -22,6 +22,7 @@ import sharp from "sharp";
 import { ORDER } from "./compose";
 import {
   and,
+  andNot,
   backdropColoured,
   boxMask,
   count,
@@ -31,10 +32,8 @@ import {
   or,
   pixelIndex,
   polygonMask,
-  pushPull,
   readPictureOnCanvas,
   type Box,
-  type CanvasPicture,
   type CanvasSize,
   type Illustration,
   type Mask,
@@ -51,6 +50,16 @@ import {
   type ColourClassifier,
   type SampleReads,
 } from "./illustration-colour";
+import {
+  fillFrom,
+  hairSources,
+  paintOf,
+  SOURCE_INSET,
+  type CutCheck,
+  type CutContext,
+  type LayerPaint,
+} from "./illustration-context";
+import { cutFeatures, type FeatureCut } from "./illustration-features";
 import { drawLandmarks, pictureView } from "./illustration-grid";
 import {
   labelIllustration,
@@ -85,27 +94,6 @@ export interface CutLayersFromIllustrationInput {
   mouthInterior?: string;
 }
 
-/** One number an agent acts on. */
-export interface CutCheck {
-  id: string;
-  /** `fail`: the cut is wrong and `passed` is false while it fails.
-   *  `warn`: worth a look; `passed` ignores it. */
-  level: "fail" | "warn";
-  pass: boolean;
-  /** Null when there is nothing to measure (no face on the eye row). */
-  value: number | null;
-  /** Null for a number reported without a limit. */
-  limit: number | null;
-  /** Which landmark to move, and which way, when the check fails. */
-  hint: string;
-  /** Measured apart from `value`: on `stack`, the share of the mouth box's
-   *  own pixels off (the mouth is replaced later, so it does not count). */
-  apart?: { mouthBox: number };
-  /** On `pockets`: the hair-rung pockets keyed as backdrop on their own, a
-   *  point inside each. */
-  keyed?: Point[];
-}
-
 export interface CutLayer {
   role: string;
   path: string;
@@ -138,28 +126,6 @@ export type CutLayersFromIllustrationResult =
     }
   | { ok: false; error: string };
 
-/** A layer in memory: the paint's colour and its coverage per pixel. Its
- *  `rgb` is the picture's own, shared, until a fill writes to it. */
-export interface LayerPaint {
-  rgb: Float32Array;
-  alpha: Float32Array;
-}
-
-/** Everything the cut works from, for the stages that build layers. */
-export interface CutContext {
-  pic: Illustration;
-  source: CanvasPicture;
-  lm: IllustrationLandmarks;
-  classifier: ColourClassifier;
-  reads: SampleReads;
-  labels: IllustrationLabels;
-  /** Pockets keyed as backdrop on their own, a point inside each. */
-  keyed: Point[];
-}
-
-/** A fill's sources stay this far inside their paint: a pixel beside a line
- *  is half line, and its colour would streak the fill. */
-const SOURCE_INSET = 2;
 /** Skin carried under strands that cross the face's edge, px past it: what
  *  shows when the strand swings off the face. Too little shows a gap. */
 const FACE_MARGIN = 10;
@@ -218,39 +184,9 @@ const POCKET_HAIR_SHARE = 0.8;
 const fmt = (v: number, digits = 3) => Number(v.toFixed(digits));
 const pct = (v: number) => `${(v * 100).toFixed(2)}%`;
 
+export type { CutCheck } from "./illustration-context";
+
 // ---- fills and layers ----
-
-/** Skin a fill may read from: the face's flood, skin by colour, solid, off
- *  `holes` (the features, once they leave the face) and inset from lines. */
-export function skinSources(ctx: CutContext, holes: Mask | null): Mask {
-  const { labels } = ctx;
-  const k = labels.skin.map((v, i) =>
-    v && labels.solid[i] && labels.classes[i] === SKIN && !holes?.[i] ? 1 : 0,
-  );
-  return erode(ctx.pic, k, SOURCE_INSET);
-}
-
-/** Hair a fill may read from inside `mask`: hair by colour (no ink), solid,
- *  inset from lines. */
-export function hairSources(ctx: CutContext, mask: Mask): Mask {
-  const { labels } = ctx;
-  const k = mask.map((v, i) =>
-    v && labels.solid[i] && labels.classes[i] === HAIR ? 1 : 0,
-  );
-  return erode(ctx.pic, k, SOURCE_INSET);
-}
-
-/** The picture's colours with every pixel off `sources` filled from them. */
-export function fillFrom(pic: Illustration, sources: Mask): Float32Array {
-  return pushPull(pic, pic.rgb, sources);
-}
-
-/** A layer of the picture's own paint over `mask`. */
-export function paintOf(pic: Illustration, mask: Mask): LayerPaint {
-  const alpha = new Float32Array(mask.length);
-  for (let i = 0; i < mask.length; i++) if (mask[i]) alpha[i] = pic.alpha[i];
-  return { rgb: pic.rgb, alpha };
-}
 
 /** Lay `filled` colours, opaque, over `region` where the layer has no paint
  *  of its own; `region` must lie under opaque paint of a layer drawn above.
@@ -302,27 +238,83 @@ interface BuiltLayers {
   roles: Map<string, LayerPaint>;
   parts: { id: string; tie: Point; paint: LayerPaint }[];
   fills: FillRegion[];
+  features: FeatureCut;
 }
 
-/** The face: its skin as drawn; under the bangs inside the skull, and a
- *  margin under strands that cross its edge, skin filled from the skin
- *  around. */
-function faceLayer(ctx: CutContext, opaque: Mask, fills: FillRegion[]) {
+/** The face: its skin as drawn, the features lifted off it; under them,
+ *  under the bangs inside the skull, and a margin under strands that cross
+ *  its edge, skin filled from the skin around. */
+function faceLayer(
+  ctx: CutContext,
+  opaque: Mask,
+  fills: FillRegion[],
+  features: FeatureCut,
+) {
   const { pic, labels } = ctx;
-  const sources = skinSources(ctx, null);
+  const { skin, skinSources: sources, holes } = features;
   const face = paintOf(pic, labels.face);
+  for (let i = 0; i < holes.length; i++) if (holes[i]) face.alpha[i] = 0;
+  fills.push({
+    id: "face.features",
+    region: fillUnder(pic, face, and(and(holes, labels.face), opaque), skin),
+    sources,
+    limit: null,
+    hint: "the skin under the eyes, the brows, the nose and the mouth, filled from the skin around by construction (it shows when a feature moves or an eye shuts)",
+  });
   const under = and(
     or(labels.skullArea, dilate(pic, labels.face, FACE_MARGIN)),
     and(labels.hairFront, opaque),
   );
   fills.push({
     id: "face.forehead",
-    region: fillUnder(pic, face, under, fillFrom(pic, sources)),
+    region: fillUnder(pic, face, under, skin),
     sources,
     limit: FILL_LIMIT,
     hint: "the skin under the bangs is made up far from any skin: pull landmarks.skull in to the head's outline, and put a landmarks.skinSeeds point on any forehead skin between strands the face's flood missed",
   });
   return face;
+}
+
+/** The front hair, a strand running through a brow's band refilled across
+ *  it, column by column, from the strand right above and right below: the
+ *  brow passes under it, and moving the brow leaves no trace in the hair. */
+function frontHairLayer(ctx: CutContext, fills: FillRegion[]): LayerPaint {
+  const { pic, labels } = ctx;
+  const { width, height } = pic;
+  const layer = paintOf(pic, labels.hairFront);
+  const strand = and(labels.strandThrough, labels.hairFront);
+  const region = new Uint8Array(width * height);
+  for (let x = 0; x < width; x++) {
+    for (let y = 1; y < height; y++) {
+      if (!strand[y * width + x] || strand[(y - 1) * width + x]) continue;
+      let end = y;
+      while (end < height && strand[end * width + x]) end++;
+      const a = (y - 1) * width + x;
+      const b = end * width + x;
+      if (end < height && layer.alpha[a] > 0 && layer.alpha[b] > 0) {
+        if (layer.rgb === pic.rgb) layer.rgb = new Float32Array(pic.rgb);
+        for (let k = y; k < end; k++) {
+          const i = k * width + x;
+          const t = (k - y + 1) / (end - y + 1);
+          for (let c = 0; c < 3; c++) {
+            layer.rgb[i * 3 + c] =
+              pic.rgb[a * 3 + c] * (1 - t) + pic.rgb[b * 3 + c] * t;
+          }
+          layer.alpha[i] = 1;
+          region[i] = 1;
+        }
+      }
+      y = end;
+    }
+  }
+  fills.push({
+    id: "hair_front.strands",
+    region,
+    sources: andNot(labels.hairFront, strand),
+    limit: FILL_LIMIT,
+    hint: "a strand through a brow's band is refilled far from its own hair: check landmarks.brows' bands are no wider than the brow",
+  });
+  return layer;
 }
 
 /** The back hair, with the head's shell behind the face and the bangs down
@@ -437,12 +429,14 @@ function bodyLayer(ctx: CutContext, opaque: Mask, fills: FillRegion[]) {
   return body;
 }
 
-/** The face, the hair, the body and the custom parts, with their fills. */
+/** The face, the features, the hair, the body and the custom parts, with
+ *  their fills. */
 function buildLayers(ctx: CutContext): BuiltLayers {
-  const { pic, labels } = ctx;
+  const { pic } = ctx;
   const fills: FillRegion[] = [];
   const opaque = Uint8Array.from(pic.alpha, (a) => (a >= OPAQUE_ALPHA ? 1 : 0));
-  const face = faceLayer(ctx, opaque, fills);
+  const features = cutFeatures(ctx);
+  const face = faceLayer(ctx, opaque, fills, features);
   const { hairBack, parts } = hairLayers(ctx, opaque, fills);
   const body = bodyLayer(ctx, opaque, fills);
   return {
@@ -450,10 +444,12 @@ function buildLayers(ctx: CutContext): BuiltLayers {
       ["hair_back", hairBack],
       ["body", body],
       ["face", face],
-      ["hair_front", paintOf(pic, labels.hairFront)],
+      ...features.roles,
+      ["hair_front", frontHairLayer(ctx, fills)],
     ]),
     parts,
     fills,
+    features,
   };
 }
 
@@ -839,6 +835,7 @@ function frontHairWidthCheck(ctx: CutContext, built: BuiltLayers): CutCheck {
 type Image = ReturnType<typeof pictureView>;
 type RGB = [number, number, number];
 const LABEL_COLOURS: Record<string, RGB> = {
+  features: [40, 200, 70],
   face: [255, 190, 140],
   hair_front: [235, 50, 60],
   hair_back: [150, 60, 220],
@@ -854,7 +851,7 @@ const PART_COLOURS: RGB[] = [
  *  little enough to see the paint under it. */
 const LABEL_OPACITY = 0.6;
 
-function labelsPreview(ctx: CutContext): Image {
+function labelsPreview(ctx: CutContext, built: BuiltLayers): Image {
   const { pic, source, labels } = ctx;
   const img = pictureView(
     source,
@@ -878,6 +875,7 @@ function labelsPreview(ctx: CutContext): Image {
   labels.parts.forEach(({ mask }, k) =>
     tint(mask, PART_COLOURS[k % PART_COLOURS.length]),
   );
+  tint(built.features.holes, LABEL_COLOURS.features);
   return img;
 }
 
@@ -955,6 +953,7 @@ export async function cutLayersFromIllustration(
     const checks: CutCheck[] = [
       stackCheck(ctx, stackOrder(built)),
       seedsCheck(ctx),
+      ...built.features.checks,
       ...built.fills.map((f) => fillCheck(pic, f)),
       frontHairWidthCheck(ctx, built),
       pocketsCheck(ctx),
@@ -982,7 +981,7 @@ export async function cutLayersFromIllustration(
       built.parts.map(async (p) => ({ ...p, data: await png(p.paint) })),
     );
     const previews = {
-      labels: await rgbPng(labelsPreview(ctx)),
+      labels: await rgbPng(labelsPreview(ctx, built)),
       landmarks: await rgbPng(landmarksPreview(ctx)),
     };
 

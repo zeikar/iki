@@ -101,7 +101,7 @@ const EYE_LASH_LUMA = 120;
 // Of the eye's dark pixels, those in the TOP this-fraction are the upper lash,
 // an arc that folds DOWN over the eye on blink instead of a full ring that
 // shrinks in place; those below it are the lower lid's line and lashes.
-const LASH_KEEP_FRACTION = 0.5;
+export const LASH_KEEP_FRACTION = 0.5;
 // A light pixel whose red exceeds its blue by this much is the lid's skin, not
 // the white. Measured on five drawn eyewhites: each sclera's median r - b sits
 // between -11 (mint's blue-white) and 0, and each lid band's 5th percentile

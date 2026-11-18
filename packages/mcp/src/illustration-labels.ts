@@ -27,7 +27,7 @@ import {
   type Illustration,
   type Mask,
 } from "./illustration";
-import { HAIR, NEITHER, SKIN } from "./illustration-colour";
+import { HAIR, NEITHER, SKIN, srgbToOklab } from "./illustration-colour";
 import type {
   IllustrationBrow,
   IllustrationCustomCut,
@@ -154,7 +154,7 @@ export function browBand(size: CanvasSize, brow: IllustrationBrow): Mask {
 
 /** 4-connected pieces of a mask: each pixel's piece id (-1 off the mask)
  *  and each piece's size. */
-function pieces(
+export function pieces(
   size: CanvasSize,
   m: Mask,
 ): { id: Int32Array; sizes: number[] } {
@@ -390,35 +390,151 @@ export interface IllustrationLabels {
   frontHairArea: Mask;
   skullArea: Mask;
   bodyOnlyArea: Mask;
+  /** Each brow's band (`browBand`), for the brows given. */
+  browBands: { L?: Mask; R?: Mask };
+  /** Hair a strand carries through a brow band: hair right above and right
+   *  below the band in its column. Labelled hair; its colour is the brow's
+   *  where the brow crosses, which the front hair refills. */
+  strandThrough: Mask;
 }
 
-/** Where nothing is hair whatever its colour: the eye boxes, the brow
- *  bands, the nose and mouth boxes and the `bodyOnly` polygons. */
+/** The darkest this share of an eye box's paint that is not skin is its
+ *  lash ink, whose colour class says whether colour can tell a strand from
+ *  the lash. Larger reaches into the iris and the strand itself. */
+const INK_SHARE = 0.1;
+
+/**
+ * Hair crossing an eye box: hair-coloured paint in it joined, through
+ * hair-coloured paint, to hair-coloured paint outside it. Empty when most
+ * of the box's ink is hair-coloured itself (near-black hair): there colour
+ * cannot tell a strand from the lash, and everything in the box that is not
+ * skin is the eye's.
+ */
+export function hairThroughBox(
+  pic: Illustration,
+  box: Box,
+  classes: Uint8Array,
+): Mask {
+  const inBox = boxMask(pic, box);
+  const notSkin: { i: number; l: number }[] = [];
+  for (let i = 0; i < inBox.length; i++) {
+    if (!inBox[i] || pic.alpha[i] <= SOLID_ALPHA || classes[i] === SKIN) {
+      continue;
+    }
+    const r = pic.rgb[i * 3];
+    const g = pic.rgb[i * 3 + 1];
+    const b = pic.rgb[i * 3 + 2];
+    notSkin.push({ i, l: srgbToOklab(r, g, b)[0] });
+  }
+  notSkin.sort((a, b) => a.l - b.l);
+  const ink = notSkin.slice(0, Math.ceil(notSkin.length * INK_SHARE));
+  const hairInk = ink.filter((p) => classes[p.i] === HAIR).length;
+  if (ink.length === 0 || hairInk * 2 > ink.length) {
+    return new Uint8Array(inBox.length);
+  }
+  const hairy = classes.map((c, i) =>
+    c === HAIR && pic.alpha[i] > HAIR_ALPHA ? 1 : 0,
+  );
+  const outside = and(andNot(dilate(pic, inBox, 1), inBox), hairy);
+  return reachThrough(pic, outside, and(hairy, inBox), Infinity);
+}
+
+/** Where nothing is hair whatever its colour: the eye boxes but the hair
+ *  crossing them, the brow bands, the nose and mouth boxes and the
+ *  `bodyOnly` polygons. */
 function noHairRegions(
-  size: CanvasSize,
+  pic: Illustration,
   lm: IllustrationLandmarks,
-): { noHair: Mask; bodyOnlyArea: Mask } {
+  classes: Uint8Array,
+): { noHair: Mask; bodyOnlyArea: Mask; browBands: { L?: Mask; R?: Mask } } {
+  const size: CanvasSize = pic;
   const bodyOnlyArea = new Uint8Array(size.width * size.height);
   for (const poly of lm.bodyOnly) {
     const m = polygonMask(size, poly);
     for (let i = 0; i < m.length; i++) if (m[i]) bodyOnlyArea[i] = 1;
   }
   const regions: Mask[] = [
-    boxMask(size, lm.eyes.L.box),
-    boxMask(size, lm.eyes.R.box),
+    andNot(
+      boxMask(size, lm.eyes.L.box),
+      hairThroughBox(pic, lm.eyes.L.box, classes),
+    ),
+    andNot(
+      boxMask(size, lm.eyes.R.box),
+      hairThroughBox(pic, lm.eyes.R.box, classes),
+    ),
     boxMask(size, lm.mouth.box),
     bodyOnlyArea,
   ];
   if (lm.nose) regions.push(boxMask(size, lm.nose.box));
-  for (const brow of [lm.brows?.L, lm.brows?.R]) {
-    if (brow) regions.push(browBand(size, brow));
+  const browBands: { L?: Mask; R?: Mask } = {};
+  for (const side of ["L", "R"] as const) {
+    const brow = lm.brows?.[side];
+    if (!brow) continue;
+    browBands[side] = browBand(size, brow);
+    regions.push(browBands[side]);
   }
-  return { noHair: regions.reduce(or), bodyOnlyArea };
+  return { noHair: regions.reduce(or), bodyOnlyArea, browBands };
+}
+
+/** Rows a strand's test reaches past a brow band: a strand's edge beside
+ *  the band is a blend of hair and brow, and the hair it is judged by lies
+ *  past it. */
+const STRAND_MARGIN = 4;
+
+/** The slants a strand through a brow band is followed at, as px across
+ *  per px down: up to 45 degrees off the vertical either way, in eighths.
+ *  Bangs fan out from the parting; a strand flatter than that crosses the
+ *  band along it and is not told from the brow. */
+const STRAND_SLANTS = Array.from({ length: 17 }, (_, k) => (k - 8) / 8);
+
+/**
+ * The strands that run through brow bands: band pixels (the band grown by
+ * STRAND_MARGIN) on a straight path, at one of STRAND_SLANTS, that runs
+ * through `through` paint (hair, or the brow's ink over it; never skin)
+ * from hair right above the band to hair right below it. Such a pixel is
+ * hair, whatever the brow's ink made it look like. A brow lying along the
+ * band is never one: a steep path through it leaves the band on skin.
+ */
+export function strandsThrough(
+  size: CanvasSize,
+  bands: Mask,
+  hair: Mask,
+  through: Mask,
+): Mask {
+  const { width, height } = size;
+  const zone = dilate(size, bands, STRAND_MARGIN);
+  const out = new Uint8Array(width * height);
+  /** Follow slant `t` from (x, y) by `dir` rows until the path leaves the
+   *  zone: whether it left on hair having crossed only `through` paint. */
+  const reaches = (x: number, y: number, t: number, dir: 1 | -1) => {
+    for (let k = 1; ; k++) {
+      const px = Math.round(x + dir * t * k);
+      const py = y + dir * k;
+      if (px < 0 || py < 0 || px >= width || py >= height) return false;
+      const j = py * width + px;
+      if (!zone[j]) return hair[j] === 1;
+      if (!through[j]) return false;
+    }
+  };
+  for (let i = 0; i < zone.length; i++) {
+    if (!zone[i] || !through[i]) continue;
+    const x = i % width;
+    const y = (i - x) / width;
+    for (const t of STRAND_SLANTS) {
+      if (reaches(x, y, t, -1) && reaches(x, y, t, 1)) {
+        out[i] = 1;
+        break;
+      }
+    }
+  }
+  return out;
 }
 
 /** Hair by colour, off the never-hair regions; speckle smoothed only where
  *  hair lies over skin (a thin strand against the backdrop keeps its raw
- *  mask), then the specks other paint rings dropped. */
+ *  mask), carried through the brow bands where a strand runs through them
+ *  (before the specks are dropped: a strand's short end under a band is a
+ *  speck on its own), then the specks other paint rings dropped. */
 function colourHair(
   pic: Illustration,
   lm: IllustrationLandmarks,
@@ -426,7 +542,8 @@ function colourHair(
   noHair: Mask,
   solid: Mask,
   skullArea: Mask,
-): Mask {
+  bands: Mask | null,
+): { hair: Mask; strandThrough: Mask } {
   const size: CanvasSize = pic;
   const { alpha } = pic;
   const hair: Mask = classes.map((c, i) =>
@@ -437,7 +554,14 @@ function colourHair(
   for (let i = 0; i < hair.length; i++) {
     if (head[i]) hair[i] = sm[i] && !noHair[i] && alpha[i] > HAIR_ALPHA ? 1 : 0;
   }
-  return dropSpecks(size, hair, solid);
+  const through = classes.map((c, i) => (solid[i] && c !== SKIN ? 1 : 0));
+  const strandThrough = bands
+    ? strandsThrough(size, bands, hair, through)
+    : new Uint8Array(hair.length);
+  return {
+    hair: dropSpecks(size, or(hair, strandThrough), solid),
+    strandThrough,
+  };
 }
 
 /**
@@ -497,18 +621,29 @@ export function labelIllustration(
   const n = pic.width * pic.height;
   const fg = Uint8Array.from(pic.alpha, (a) => (a > PAINT_ALPHA ? 1 : 0));
   const solid = Uint8Array.from(pic.alpha, (a) => (a > SOLID_ALPHA ? 1 : 0));
-  const { noHair, bodyOnlyArea } = noHairRegions(size, lm);
+  const { noHair, bodyOnlyArea, browBands } = noHairRegions(pic, lm, classes);
   const skullArea = polygonMask(size, lm.skull);
   const frontHairArea = polygonMask(size, lm.frontHair);
 
-  let hair = colourHair(pic, lm, classes, noHair, solid, skullArea);
+  const bandList = [browBands.L, browBands.R].filter((b) => b !== undefined);
+  const bands = bandList.length > 0 ? bandList.reduce(or) : null;
+  const coloured = colourHair(
+    pic,
+    lm,
+    classes,
+    noHair,
+    solid,
+    skullArea,
+    bands,
+  );
+  let hair = coloured.hair;
   const skinPass = classes.map((c, i) =>
     solid[i] && c === SKIN && !hair[i] ? 1 : 0,
   );
   const skin = flood(size, skinPass, lm.skinSeeds);
   const neck = flood(size, skinPass, lm.bodySeeds);
   hair = releaseLines(size, hair, or(skin, neck), solid, frontHairArea);
-  const face = faceOf(size, skin, hair, fg);
+  let face = faceOf(size, skin, hair, fg);
   hair = joinInk(
     size,
     hair,
@@ -516,6 +651,21 @@ export function labelIllustration(
       solid[i] && c === NEITHER && !face[i] && !noHair[i] ? 1 : 0,
     ),
   );
+  // Again after joinInk, so a strand's own outline counts as hair above and
+  // below the band and is carried through it with the strand.
+  const strandThrough = bands
+    ? or(
+        coloured.strandThrough,
+        strandsThrough(
+          size,
+          bands,
+          hair,
+          classes.map((c, i) => (solid[i] && c !== SKIN ? 1 : 0)),
+        ),
+      )
+    : coloured.strandThrough;
+  hair = or(hair, strandThrough);
+  face = andNot(face, strandThrough);
   const bodyPass = classes.map((c, i) =>
     solid[i] && !hair[i] && !face[i] && (c !== HAIR || bodyOnlyArea[i]) ? 1 : 0,
   );
@@ -532,6 +682,12 @@ export function labelIllustration(
           : LABEL_NONE;
   }
   spreadLabels(size, label, fg, noHair);
+  // Paint of a brow band the hair closes in (between two strands through
+  // it) is reached by no label that may enter it: it is the face's, as the
+  // rest of the band is.
+  for (let i = 0; i < n; i++) {
+    if (fg[i] && label[i] === LABEL_NONE && bands?.[i]) label[i] = LABEL_FACE;
+  }
   // Hair the face and the front hair close in (an ear's inner shading
   // between the ear's line and a strand) is the face's: it is no part of
   // the back hair's mass.
@@ -573,6 +729,8 @@ export function labelIllustration(
     frontHairArea,
     skullArea,
     bodyOnlyArea,
+    browBands,
+    strandThrough,
   };
 }
 

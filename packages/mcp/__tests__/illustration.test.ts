@@ -682,6 +682,8 @@ describe("loadIllustration's edge, against the picture drawn on transparency", (
     skinShadow: [240, 210, 195],
     torso: [220, 225, 240],
     ribbon: [210, 40, 60],
+    iris: [70, 130, 180],
+    pupil: [35, 50, 80],
   };
   const colourings: [string, CharacterColours][] = [
     ["light ground, dark ink, pink hair", PINK_ON_PEACH],

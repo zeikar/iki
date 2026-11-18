@@ -96,6 +96,14 @@ export {
   type ViewIllustrationGridInput,
   type ViewIllustrationGridResult,
 } from "./illustration-grid";
+export {
+  cutLayersFromIllustration,
+  type CutCheck,
+  type CutCustomPart,
+  type CutLayer,
+  type CutLayersFromIllustrationInput,
+  type CutLayersFromIllustrationResult,
+} from "./illustration-cut";
 export type {
   IllustrationBrow,
   IllustrationCustomCut,

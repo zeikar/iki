@@ -21,7 +21,12 @@
  * other set however close the two sets come.
  */
 
-import { pixelIndex, type Illustration, type Point } from "./illustration";
+import {
+  median,
+  pixelIndex,
+  type Illustration,
+  type Point,
+} from "./illustration";
 import type { IllustrationSamples } from "./illustration-landmarks";
 
 export type Lab = [number, number, number];
@@ -58,11 +63,11 @@ export function srgbToOklab(r: number, g: number, b: number): Lab {
   ];
 }
 
-const dist = (a: Lab, b: Lab): number =>
+export const dist = (a: Lab, b: Lab): number =>
   Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
 /** Distance from `p` to the segment `a`-`b`. */
-function segmentDistance(p: Lab, a: Lab, b: Lab): number {
+export function segmentDistance(p: Lab, a: Lab, b: Lab): number {
   let len2 = 0;
   let along = 0;
   for (let c = 0; c < 3; c++) {
@@ -76,11 +81,6 @@ function segmentDistance(p: Lab, a: Lab, b: Lab): number {
     p[1] - a[1] - t * (b[1] - a[1]),
     p[2] - a[2] - t * (b[2] - a[2]),
   );
-}
-
-function median(values: number[]): number {
-  const s = [...values].sort((a, b) => a - b);
-  return s[s.length >> 1];
 }
 
 /** Half-size of the square patch a sample reads: 5 x 5 px. */
@@ -241,6 +241,9 @@ function merge(set: ColourSet, tolerance: number): ColourSet {
 export interface ColourClassifier {
   /** The class of an sRGB colour, 0..255 per channel. */
   classify(r: number, g: number, b: number): ColourClass;
+  /** How far an sRGB colour lies from each set (OKLab), unquantised: what
+   *  a mix is measured by, as a share of the way toward another paint. */
+  distances(r: number, g: number, b: number): { hair: number; skin: number };
   /** How far apart the two sets are (OKLab). */
   separation: number;
   /** How far past each set a colour still belongs to it (OKLab). */
@@ -320,7 +323,11 @@ export function buildClassifier(reads: SampleReads): ColourClassifier | null {
     lut[key] = cls;
     return cls;
   };
-  return { classify, separation, reach };
+  const distances = (r: number, g: number, b: number) => {
+    const lab = srgbToOklab(r, g, b);
+    return { hair: setDistance(lab, hair), skin: setDistance(lab, skin) };
+  };
+  return { classify, distances, separation, reach };
 }
 
 /** Every pixel's class by its colour (the paint's own, the backdrop taken
