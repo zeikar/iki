@@ -71,7 +71,9 @@ image generator — see its [prerequisites](./plugin#prerequisites). Already hav
 art? Hand role-named PNG layers to the auto-rigger through the
 [`@ikijs/mcp`](./packages/mcp) server, or import a layered PSD in the editor.
 One finished front-facing picture can be cut into those layers in place by the
-server's `cut_layers_from_illustration`, from landmarks an agent reads off it.
+server's `cut_layers_from_illustration`, from landmarks an agent reads off it;
+the plugin's `iki-import-illustration` skill walks an agent from the picture to
+a rigged model.
 
 ## Try it
 

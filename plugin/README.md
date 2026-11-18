@@ -22,7 +22,8 @@ blush), each with a description a host picks by.
 | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **`iki-character`** (skill)               | One pass: generate role-separated part PNGs → compose to canvas layers → auto-rig to a renderable `.iki`                                                                                                                |
 | **`iki-character-loop`** (skill)          | Generator/critic loop that refines a character against a reference until it is worth shipping                                                                                                                           |
-| **`iki-create-image`** (skill)            | Draws the reference and the parts through the Codex CLI's image tool, or hands you the prompts when Codex is not set up; the other two skills call it                                                                   |
+| **`iki-import-illustration`** (skill)     | Rigs one finished, front-facing picture you already have: landmarks read off it, cut into layers in place (`view_illustration_grid`, `cut_layers_from_illustration`, needs `@ikijs/mcp` 0.38.0), then auto-rig          |
+| **`iki-create-image`** (skill)            | Draws the reference and the parts through the Codex CLI's image tool, or hands you the prompts when Codex is not set up; the other skills call it                                                                       |
 | **`iki-character-artist`** (agent)        | Draws, composes, tunes `layout.json`, proposes `patches.json` keyform fixes, re-rigs — the loop's generator half                                                                                                        |
 | **`iki-character-critic`** (agent)        | Scores a rubric and emits typed findings — the loop's discriminator half                                                                                                                                                |
 | **`iki-character-appeal-critic`** (agent) | Judges the renders for appeal without the reference and names free layout retunes, beside the critic every round                                                                                                        |
@@ -52,9 +53,9 @@ codex plugin marketplace add zeikar/iki
 codex plugin add iki@iki
 ```
 
-Restart Codex or start a new session to load the three skills and the bundled
-`iki` MCP server. Ask for a character or invoke `$iki:iki-character` or
-`$iki:iki-character-loop`.
+Restart Codex or start a new session to load the four skills and the bundled
+`iki` MCP server. Ask for a character or invoke `$iki:iki-character`,
+`$iki:iki-character-loop` or `$iki:iki-import-illustration`.
 
 In a checkout of this repo, `.agents/plugins/marketplace.json` exposes the
 plugin and `.codex/config.toml` enables `iki@iki` for the trusted project;

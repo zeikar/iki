@@ -1,6 +1,6 @@
 {
   "name": "iki",
-  "version": "0.58.6",
+  "version": "0.59.0",
   "description": "Make rigged, animated 2D puppet characters with AI: an image model draws the parts and the Iki auto-rigger makes them blink, talk, turn and nod — in an open .iki model. Iki is free and MIT-licensed.",
   "author": {
     "name": "Zeikar",
@@ -28,7 +28,7 @@
   "interface": {
     "displayName": "Iki",
     "shortDescription": "Draw and rig animated 2D characters",
-    "longDescription": "Generate role-separated character art, compose and measure its layers, and auto-rig an open .iki model with blink, gaze, lip-sync, head motion and hair physics.",
+    "longDescription": "Generate role-separated character art or cut one finished picture into layers in place, compose and measure the layers, and auto-rig an open .iki model with blink, gaze, lip-sync, head motion and hair physics.",
     "developerName": "Zeikar",
     "category": "Design",
     "defaultPrompt": [

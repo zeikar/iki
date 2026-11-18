@@ -1,6 +1,6 @@
 ---
 name: iki-create-image
-description: Draw the images an Iki character is built from — the front reference, the role-separated part PNGs drawn against it, the 30° turned reference, and for a full-body character the full-body reference drawn from the front one and the waving reference drawn from that — with the Codex CLI's image tool on a model the plugin pins, or hand the user the prompts to run in another image tool when Codex is not set up. Used by the iki-character and iki-character-loop skills; not for general image requests.
+description: Draw the images an Iki character is built from — the front reference, the role-separated part PNGs drawn against it, the 30° turned reference, and for a full-body character the full-body reference drawn from the front one and the waving reference drawn from that — with the Codex CLI's image tool on a model the plugin pins, or hand the user the prompts to run in another image tool when Codex is not set up. Used by the iki-character, iki-character-loop and iki-import-illustration skills; not for general image requests.
 user-invocable: false
 ---
 
