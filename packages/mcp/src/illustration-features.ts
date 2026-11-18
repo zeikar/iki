@@ -42,7 +42,14 @@ import {
   type CutContext,
   type LayerPaint,
 } from "./illustration-context";
-import { LABEL_HAIR, maskBox, pieces } from "./illustration-labels";
+import {
+  browGeometry,
+  LABEL_HAIR,
+  maskBox,
+  pieces,
+  reachThrough,
+} from "./illustration-labels";
+import type { IllustrationBrow } from "./illustration-landmarks";
 
 /** A skin sample's patch noise times this is still that skin: the
  *  classifier counts a set's reach the same way. */
@@ -85,15 +92,28 @@ const IRIS_IOU = 0.7;
 /** Radius of the closing that joins the disc's colour over its pupil and
  *  highlight for the iris check, px. */
 const DISC_CLOSE = 2;
-/** Radius of the opening that drops the lids' thin lines (under twice it
- *  wide) from the disc the iris check finds, px. */
-const DISC_OPEN = 2;
+/** Iris-coloured paint this far past the ellipse (a share of its radius
+ *  along each axis) and joined to the iris is the iris's: a disc drawn
+ *  squarer than an ellipse puts its corners there. Farther takes another
+ *  feature's colour; nearer leaves the corners on the lids. */
+const IRIS_MARGIN = 0.25;
 /** Columns either side of the iris ellipse the lash's thickness is read on,
  *  to carry the lid across an iris shaded as dark as the lash. */
 const LID_SIDE = 4;
 /** The eye takes this many px of rim past its paint, where it differs from
  *  the skin around: its soft edge. */
 const EYE_EDGE = 2;
+/** Px the `opening` hint leaves between the eye's paint, rim included,
+ *  and the box it suggests: the least of the 2 to 4 px to spare the skill
+ *  asks for (the rim adds up to EYE_EDGE more). */
+const OPENING_SPARE = 2;
+/** Paint outside an eye box that runs on past it farther than this share
+ *  of the box's smaller side is a strand or a line passing the eye, not
+ *  the eye: a lash wing a box clips runs on a few px. */
+const STROKE_PAST_SHARE = 0.5;
+/** Pieces of an eye's paint this close to such a stroke, px, are the
+ *  stroke's: an antialiased thin stroke breaks into pieces this far apart. */
+const STROKE_GAP = 2;
 /** Paint this close to hair crossing an eye box is the hair's soft edge, not
  *  the eye's; the hair labels' own reach for ink beside hair. */
 const HAIR_EDGE = 3;
@@ -107,6 +127,12 @@ const BROW_SHARE = 0.2;
 /** The brow's ink is the median colour of this share of its band's paint
  *  farthest from the paint around it. */
 const BROW_CORE_SHARE = 0.2;
+/** Ink this close to hair, px, is the hair's soft edge, not brow left
+ *  past the band. Wider also skips the hair's own outline where the face
+ *  takes it, but with it the brow's lower edge between close strands; an
+ *  outline lying along the brow past its band can then read as brow, which
+ *  is why `browBand` only warns. */
+const HAIR_LINE = 1;
 /** The brow takes this many px past its judged pixels, paint that differs
  *  from the paint around: a soft stroke's faint rim and the resize's
  *  overshoot beside it, a light halo left on the face when the brow moves
@@ -263,19 +289,99 @@ function eyeFrame(ctx: CutContext, side: Side): EyeFrame {
   };
 }
 
+/** Pixels outside an eye's box, Chebyshev, of (x, y): 0 inside it. */
+function pastBox(b: Bounds, x: number, y: number): number {
+  return Math.max(b.x0 - x, x - b.x1, b.y0 - y, y - b.y1, 0);
+}
+
+/**
+ * Paint outside the box (any label, hair included; not skin) that runs on
+ * past it farther than STROKE_PAST_SHARE of the box's smaller side, from
+ * within STROKE_GAP + EYE_EDGE px of the box: a strand or a line passing
+ * the eye. Followed across gaps of up to STROKE_GAP px, as a thin
+ * antialiased stroke breaks.
+ */
+function longStrokes(
+  ctx: CutContext,
+  f: EyeFrame,
+  isSkin: (i: number) => boolean,
+): { long: Mask; past: number } {
+  const { pic, labels } = ctx;
+  const { width, height } = pic;
+  const { b } = f;
+  const past = Math.max(
+    1,
+    Math.round(STROKE_PAST_SHARE * Math.min(b.x1 - b.x0 + 1, b.y1 - b.y0 + 1)),
+  );
+  const wx0 = Math.max(0, b.x0 - past);
+  const wx1 = Math.min(width - 1, b.x1 + past);
+  const wy0 = Math.max(0, b.y0 - past);
+  const wy1 = Math.min(height - 1, b.y1 + past);
+  const isPaint = (x: number, y: number) => {
+    if (x < wx0 || x > wx1 || y < wy0 || y > wy1) return false;
+    if (pastBox(b, x, y) === 0) return false;
+    const i = y * width + x;
+    return labels.solid[i] === 1 && !isSkin(i);
+  };
+  const long = new Uint8Array(width * height);
+  const seen = new Uint8Array(width * height);
+  const near = STROKE_GAP + EYE_EDGE;
+  for (let y = wy0; y <= wy1; y++) {
+    for (let x = wx0; x <= wx1; x++) {
+      const d = pastBox(b, x, y);
+      if (d === 0 || d > near || seen[y * width + x] || !isPaint(x, y)) {
+        continue;
+      }
+      const queue = [y * width + x];
+      seen[queue[0]] = 1;
+      let far = 0;
+      for (let q = 0; q < queue.length; q++) {
+        const i = queue[q];
+        const px = i % width;
+        const py = (i - px) / width;
+        far = Math.max(far, pastBox(b, px, py));
+        for (let dy = -STROKE_GAP; dy <= STROKE_GAP; dy++) {
+          for (let dx = -STROKE_GAP; dx <= STROKE_GAP; dx++) {
+            const nx = px + dx;
+            const ny = py + dy;
+            if (!isPaint(nx, ny) || seen[ny * width + nx]) continue;
+            seen[ny * width + nx] = 1;
+            queue.push(ny * width + nx);
+          }
+        }
+      }
+      if (far >= past) for (const i of queue) long[i] = 1;
+    }
+  }
+  return { long, past };
+}
+
+/** Where an eye was found in its box: its drawing, and the long strokes
+ *  outside the box (`longStrokes`) that the drawing was cut clear of. */
+interface EyeDrawing {
+  eye: Mask;
+  long: Mask;
+  /** STROKE_PAST_SHARE of the box's smaller side, px. */
+  past: number;
+}
+
 /**
  * The eye's drawing, the sclera's shape: what in its box is not skin
  * (`skinTest`), hair crossing the box and its soft edge left out (the labels
  * give the hair to the hair). The main piece and every other piece clear of
- * the box's border are the eye, but a small piece detached above the lash,
- * the lid's crease; its holes are closed, and its soft rim taken.
+ * the box's border by more than its rim (EYE_EDGE) are the eye, but a small
+ * piece detached above the lash,
+ * the lid's crease, and pieces joined (across STROKE_GAP px) to a long
+ * stroke outside the box or to hair crossing it (`strokePieces`): a strand
+ * or a line crossing into the box, which stays with whatever it belongs to. Its holes are closed, and its soft rim
+ * taken.
  */
 function eyeDrawing(
   ctx: CutContext,
   f: EyeFrame,
   around: Float32Array,
   same: number,
-): Mask {
+): EyeDrawing {
   const { pic, labels } = ctx;
   const { width } = pic;
   const n = width * pic.height;
@@ -304,11 +410,19 @@ function eyeDrawing(
       const k = id[y * width + x];
       if (k < 0) continue;
       if (main < 0 || sizes[k] > sizes[main]) main = k;
-      if (x === b.x0 || x === b.x1 || y === b.y0 || y === b.y1) {
+      // Within its rim of the border: the rim would reach it.
+      if (
+        x - b.x0 <= EYE_EDGE ||
+        b.x1 - x <= EYE_EDGE ||
+        y - b.y0 <= EYE_EDGE ||
+        b.y1 - y <= EYE_EDGE
+      ) {
         onBorder.add(k);
       }
     }
   }
+  const { long, past } = longStrokes(ctx, f, isSkin);
+  const strokes = strokePieces(pic, f, id, main, or(long, hairEdge));
   const eye0 = new Uint8Array(n);
   const creases = new Uint8Array(n);
   if (main >= 0) {
@@ -345,14 +459,20 @@ function eyeDrawing(
       for (let x = b.x0; x <= b.x1; x++) {
         const i = y * width + x;
         const k = id[i];
-        if (k < 0) continue;
+        if (k < 0 || strokes.has(k)) continue;
         if (crease.has(k)) creases[i] = 1;
         else if (k === main || !onBorder.has(k)) eye0[i] = 1;
       }
     }
   }
   // Its soft rim: the blends at its edge pass for shaded skin, and left on
-  // the face they draw the eye's outline there once the eye shuts.
+  // the face they draw the eye's outline there once the eye shuts. Not
+  // round a stroke it was cut clear of.
+  const stroke = dilate(
+    pic,
+    Uint8Array.from(id, (k) => (k >= 0 && strokes.has(k) ? 1 : 0)),
+    EYE_EDGE,
+  );
   const eye = fillHoles(pic, eye0);
   const rim = dilate(pic, eye, EYE_EDGE);
   for (let y = b.y0; y <= b.y1; y++) {
@@ -364,13 +484,54 @@ function eyeDrawing(
         labels.solid[i] &&
         !hairEdge[i] &&
         !creases[i] &&
+        !stroke[i] &&
         dist(labOf(pic.rgb, i), labOf(around, i)) > same
       ) {
         eye[i] = 1;
       }
     }
   }
-  return and(eye, f.inBox);
+  return { eye: and(eye, f.inBox), long, past };
+}
+
+/** The pieces of an eye's paint, but the main one, joined across
+ *  STROKE_GAP px, directly or through each other, to a long stroke outside
+ *  the box or to the soft edge of hair crossing it (`to`): a strand's own
+ *  line, leading into the strand. */
+function strokePieces(
+  pic: Illustration,
+  f: EyeFrame,
+  id: Int32Array,
+  main: number,
+  to: Mask,
+): Set<number> {
+  const { width, height } = pic;
+  const { b } = f;
+  const out = new Set<number>();
+  const joined = (x: number, y: number) => {
+    for (let dy = -STROKE_GAP; dy <= STROKE_GAP; dy++) {
+      for (let dx = -STROKE_GAP; dx <= STROKE_GAP; dx++) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        const j = ny * width + nx;
+        if (to[j] || (id[j] >= 0 && out.has(id[j]))) return true;
+      }
+    }
+    return false;
+  };
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (let y = b.y0; y <= b.y1; y++) {
+      for (let x = b.x0; x <= b.x1; x++) {
+        const k = id[y * width + x];
+        if (k < 0 || k === main || out.has(k) || !joined(x, y)) continue;
+        out.add(k);
+        changed = true;
+      }
+    }
+  }
+  return out;
 }
 
 /** The eye's own colours, and how each of its pixels reads against them. */
@@ -384,14 +545,25 @@ interface EyeColours {
   isWhite(i: number): boolean;
   /** Nearer the iris than the ink and the white. */
   nearIris(i: number): boolean;
+  /** The iris's own colour, darker or lighter (`irisLike`). */
+  irisLike(i: number): boolean;
 }
 
 /**
  * Its ink (the darkest EYE_EXTREME_SHARE of its paint outside the ellipse),
  * its white (the lightest) and its iris (the ellipse's lower ring), each a
- * median colour.
+ * median colour. A pixel is iris-like when it lies nearer the iris's own
+ * shades (the line from black through the iris's colour on to full
+ * lightness: its hue, darker or lighter) than the blends of the ink and the
+ * skin around (`skin`), which the lid lines are, and than the white: a
+ * squarish disc's dark rim is iris-like, a lid line beside it is not.
  */
-function eyeColours(pic: Illustration, f: EyeFrame, all: number[]): EyeColours {
+function eyeColours(
+  pic: Illustration,
+  f: EyeFrame,
+  all: number[],
+  skin: Lab,
+): EyeColours {
   const { width } = pic;
   const outside: number[] = [];
   const ring: number[] = [];
@@ -427,6 +599,9 @@ function eyeColours(pic: Illustration, f: EyeFrame, all: number[]): EyeColours {
   const k = (i: number) => dK.get(i) ?? Infinity;
   const w = (i: number) => dW.get(i) ?? Infinity;
   const r = (i: number) => dI.get(i) ?? Infinity;
+  const black: Lab = [0, 0, 0];
+  const L = Math.max(iris.lab[0], 1e-6);
+  const light: Lab = [1, iris.lab[1] / L, iris.lab[2] / L];
   return {
     ink,
     white,
@@ -434,6 +609,14 @@ function eyeColours(pic: Illustration, f: EyeFrame, all: number[]): EyeColours {
     dark: (i) => k(i) < w(i),
     isWhite: (i) => w(i) < k(i) && w(i) < r(i),
     nearIris: (i) => r(i) <= k(i) && r(i) < w(i),
+    irisLike: (i) => {
+      const lab = labOf(pic.rgb, i);
+      const tone = segmentDistance(lab, black, light);
+      return (
+        tone < segmentDistance(lab, skin, ink.lab) &&
+        tone < dist(lab, white.lab)
+      );
+    },
   };
 }
 
@@ -625,7 +808,8 @@ function lowerLidAcross(
 /**
  * The iris as it shows: the paint in the ellipse below the upper lid that
  * is not white, with the holes it closes (a highlight touching the lid
- * included: the part under the lash is counted in), and its soft rim
+ * included: the part under the lash is counted in), the iris-like paint
+ * joined to it within IRIS_MARGIN past the ellipse, and its soft rim
  * against the white; the lower lid's ink across it left out.
  */
 function irisShown(
@@ -652,7 +836,25 @@ function irisShown(
     pic,
     erode(pic, dilate(pic, or(coloured, cap), IRIS_CLOSE), IRIS_CLOSE),
   );
-  const disc = and(and(shape, andNot(f.ellipse, cap)), eye);
+  const inEllipse = and(and(shape, andNot(f.ellipse, cap)), eye);
+  // A disc squarer than the ellipse: its corners past the ellipse, joined
+  // to it and iris-like, are the iris's, not the lids'.
+  const margin = new Uint8Array(n);
+  for (const i of all) {
+    const x = i % width;
+    const y = (i - x) / width;
+    const r = Math.hypot((x - f.cx) / f.rx, (y - f.cy) / f.ry);
+    if (
+      !f.ellipse[i] &&
+      r <= 1 + IRIS_MARGIN &&
+      y > lid[x] &&
+      !lowerAcross[i] &&
+      c.irisLike(i)
+    ) {
+      margin[i] = 1;
+    }
+  }
+  const disc = or(inEllipse, reachThrough(pic, inEllipse, margin, Infinity));
   // Left in the sclera, the soft rim shows as a ring where the iris was once
   // it moves.
   const near = dilate(pic, disc, IRIS_RIM);
@@ -763,30 +965,67 @@ function scleraLayer(
   return layer;
 }
 
-/** The disc the paint finds, ellipse aside, for the iris check: what is
- *  not white or the lower lid below the upper lid, opened so thin lines
- *  fall away, its largest piece closed over its pupil and highlight. */
+/**
+ * The disc the paint finds for the iris check: below the upper lid
+ * (`below`) and off the lower lid, the iris-like paint grown from the
+ * ellipse's inside, and the dark paint joined to it over the columns it
+ * spans (a disc's top as dark as the lash), never the lash's or the lids'
+ * ink beside it or the white's shading; closed over its pupil and
+ * highlight (the lash above counted in, so a pupil touching it closes too),
+ * its largest piece, within the columns and above the bottom row the
+ * colour reaches. Grown by colour, its edges and its bottom row are the
+ * disc's own wherever the ellipse lies on it.
+ */
 function discFound(
   pic: Illustration,
+  f: EyeFrame,
+  eye: Mask,
   c: EyeColours,
   below: Mask,
   lower: Mask,
 ): Mask {
-  const notWhite = below.map((v, i) =>
-    v && !c.isWhite(i) && !lower[i] ? 1 : 0,
-  );
-  const opened = dilate(pic, erode(pic, notWhite, DISC_OPEN), DISC_OPEN);
-  return and(
-    fillHoles(
-      pic,
-      erode(
+  const { width } = pic;
+  const tone = below.map((v, i) => (v && !lower[i] && c.irisLike(i) ? 1 : 0));
+  const seeds = and(tone, f.ellipse);
+  const coloured = or(seeds, reachThrough(pic, seeds, tone, Infinity));
+  // Over the columns the colour spans, the dark paint joined to it: a
+  // disc's top as dark as the lash.
+  const span = maskBox(pic, coloured);
+  const dark = below.map((v, i) => {
+    const x = i % width;
+    return v && !lower[i] && span && x >= span[0] && x <= span[2] && c.dark(i)
+      ? 1
+      : 0;
+  });
+  const grown = or(coloured, reachThrough(pic, coloured, dark, Infinity));
+  const lash = andNot(eye, below);
+  const disc = largestPiece(
+    pic,
+    and(
+      fillHoles(
         pic,
-        dilate(pic, largestPiece(pic, opened), DISC_CLOSE),
-        DISC_CLOSE,
+        erode(pic, dilate(pic, or(grown, lash), DISC_CLOSE), DISC_CLOSE),
       ),
+      below,
     ),
-    below,
   );
+  // No wider than its colour, and no lower: the closing may take a lid's
+  // or a lash's ink beside it.
+  return span
+    ? disc.map((v, i) => {
+        const x = i % width;
+        const y = (i - x) / width;
+        return v && x >= span[0] && x <= span[2] && y <= span[3] ? 1 : 0;
+      })
+    : disc;
+}
+
+function largestPiece(pic: Illustration, m: Mask): Mask {
+  const { id, sizes } = pieces(pic, m);
+  if (sizes.length === 0) return m;
+  let best = 0;
+  for (let k = 1; k < sizes.length; k++) if (sizes[k] > sizes[best]) best = k;
+  return Uint8Array.from(id, (k) => (k === best ? 1 : 0));
 }
 
 interface EyeCut {
@@ -818,7 +1057,8 @@ function cutEye(
   const { pic } = ctx;
   const n = pic.width * pic.height;
   const f = eyeFrame(ctx, side);
-  const eye = eyeDrawing(ctx, f, around, same);
+  const drawing = eyeDrawing(ctx, f, around, same);
+  const { eye } = drawing;
   const all: number[] = [];
   for (let i = 0; i < n; i++) if (eye[i]) all.push(i);
   const none = new Uint8Array(n);
@@ -843,9 +1083,9 @@ function cutEye(
       ],
     };
   }
-  const c = eyeColours(pic, f, all);
-  const opening = openingCheck(ctx, side, eye, around, same);
   const skin = medianColour(around, all).lab;
+  const c = eyeColours(pic, f, all, skin);
+  const opening = openingCheck(ctx, side, drawing, around, same);
   const white = whiteShare(pic, c, all, skin, same);
   // An iris of its own colour on the ellipse's ring is an open eye whatever
   // its white: tinted, or mostly hidden behind a large iris.
@@ -904,7 +1144,7 @@ function cutEye(
       irisCheck(
         pic,
         side,
-        discFound(pic, c, below, lower),
+        discFound(pic, f, eye, c, below, lower),
         and(f.ellipse, below),
       ),
     ],
@@ -961,35 +1201,35 @@ function irisSkipped(side: Side, hint: string): CutCheck {
   };
 }
 
-function largestPiece(pic: Illustration, m: Mask): Mask {
-  const { id, sizes } = pieces(pic, m);
-  if (sizes.length === 0) return m;
-  let best = 0;
-  for (let k = 1; k < sizes.length; k++) if (sizes[k] > sizes[best]) best = k;
-  return Uint8Array.from(id, (k) => (k === best ? 1 : 0));
-}
+/** A side of an eye box. */
+type BoxSide = "top" | "bottom" | "left" | "right";
 
 /**
  * Whether the box holds the whole eye: its paint touching the box's border
  * means the box clips it (how far the eye runs on past each side is read
- * by following its paint out of the box); an eye covering under
- * LOOSE_SHARE of its box warns.
+ * by following its paint out of the box, and the box suggested leaves
+ * OPENING_SPARE to OPENING_SPARE + EYE_EDGE px past it); an eye covering
+ * under LOOSE_SHARE of its box warns. Where the paint the border cuts runs
+ * on as a long stroke (`longStrokes`), the tool cannot tell a lash wing
+ * from a strand or a line crossing the box: the hint says what it sees,
+ * and a box clipping only such strokes warns rather than fails.
  */
 function openingCheck(
   ctx: CutContext,
   side: Side,
-  eye: Mask,
+  drawing: EyeDrawing,
   around: Float32Array,
   same: number,
 ): CutCheck {
   const { pic, labels, lm } = ctx;
   const { width, height } = pic;
+  const { eye, long } = drawing;
   const at = `landmarks.eyes.${side}.box`;
   const box = lm.eyes[side].box;
   const b = bounds(pic, box);
   const id = `opening.${side}`;
   const eb = maskBox(pic, eye)!;
-  const margins = {
+  const margins: Record<BoxSide, number> = {
     top: eb[1] - b.y0,
     bottom: b.y1 - eb[3],
     left: eb[0] - b.x0,
@@ -1043,40 +1283,60 @@ function openingCheck(
         ext.right = Math.max(ext.right, nx);
       }
     }
-    // Two px of margin past where the paint was followed to.
-    const grow = (past: number) => Math.max(2, past + 2);
-    const moves: string[] = [];
+    // Past where the paint was followed to: its rim, then the spare.
+    const grow = (past: number) => past + EYE_EDGE + OPENING_SPARE;
+    const sides: {
+      side: BoxSide;
+      move: string;
+      stroke: string | null;
+    }[] = [];
+    const add = (s: BoxSide, move: string) => {
+      const run = borderRun(pic, b, eye, s);
+      sides.push({
+        side: s,
+        move,
+        stroke:
+          run && strokeAt(pic, b, long, s, run)
+            ? `the paint its ${s} edge cuts, ${run[1] - run[0] + 1} px wide at ${s === "top" || s === "bottom" ? "x" : "y"} ${run[0]}..${run[1]}, runs on as a stroke more than ${drawing.past} px past the box: if it is hair or a line crossing the eye's box, leave that edge (the stroke is not the eye's, and the box would only follow it); if it is the eye's own (a lash wing), move ${move}`
+            : null,
+      });
+    };
     if (margins.top === 0) {
       const g = grow(b.y0 - ext.top);
-      moves.push(
-        `at its top: move y0 up by ${g} (to ${Math.max(0, box[1] - g)})`,
-      );
+      add("top", `y0 up by ${g} (to ${Math.max(0, box[1] - g)})`);
     }
     if (margins.bottom === 0) {
       const g = grow(ext.bottom - b.y1);
-      moves.push(
-        `at its bottom: move y1 down by ${g} (to ${Math.min(height - 1, box[3] + g)})`,
-      );
+      add("bottom", `y1 down by ${g} (to ${Math.min(height - 1, box[3] + g)})`);
     }
     if (margins.left === 0) {
       const g = grow(b.x0 - ext.left);
-      moves.push(
-        `at its left: move x0 left by ${g} (to ${Math.max(0, box[0] - g)})`,
-      );
+      add("left", `x0 left by ${g} (to ${Math.max(0, box[0] - g)})`);
     }
     if (margins.right === 0) {
       const g = grow(ext.right - b.x1);
-      moves.push(
-        `at its right: move x1 right by ${g} (to ${Math.min(width - 1, box[2] + g)})`,
+      add("right", `x1 right by ${g} (to ${Math.min(width - 1, box[2] + g)})`);
+    }
+    const clipped = sides.filter((s) => s.stroke === null);
+    const strokes = sides.filter((s) => s.stroke !== null);
+    const parts: string[] = [];
+    if (clipped.length > 0) {
+      parts.push(
+        `${at} clips the eye, whose paint touches its border; what it cuts off stays on the face and the lash tears on a blink. Grow it ${clipped.map((s) => `at its ${s.side}: move ${s.move}`).join("; ")}`,
+      );
+    }
+    if (strokes.length > 0) {
+      parts.push(
+        `${at}'s border cuts paint it cannot tell from the eye: ${strokes.map((s) => s.stroke).join("; ")}`,
       );
     }
     return {
       id,
-      level: "fail",
+      level: clipped.length > 0 ? "fail" : "warn",
       pass: false,
       value: 0,
       limit: 1,
-      hint: `${at} clips the eye, whose paint touches its border; what it cuts off stays on the face and the lash tears on a blink. Grow it ${moves.join("; ")}`,
+      hint: parts.join(". "),
     };
   }
   const area = (b.x1 - b.x0 + 1) * (b.y1 - b.y0 + 1);
@@ -1088,7 +1348,7 @@ function openingCheck(
       pass: false,
       value: fmt(covers),
       limit: LOOSE_SHARE,
-      hint: `the eye covers ${pct(covers)} of ${at}: a loose box takes the lines and shading round the eye into it; the eye's paint spans [${eb.join(", ")}], so a box 2 px round that is [${Math.max(0, eb[0] - 2)}, ${Math.max(0, eb[1] - 2)}, ${Math.min(width - 1, eb[2] + 2)}, ${Math.min(height - 1, eb[3] + 2)}]`,
+      hint: `the eye covers ${pct(covers)} of ${at}: a loose box takes the lines and shading round the eye into it; the eye's paint spans [${eb.join(", ")}], so a box ${OPENING_SPARE} px round that is [${Math.max(0, eb[0] - OPENING_SPARE)}, ${Math.max(0, eb[1] - OPENING_SPARE)}, ${Math.min(width - 1, eb[2] + OPENING_SPARE)}, ${Math.min(height - 1, eb[3] + OPENING_SPARE)}]`,
     };
   }
   return {
@@ -1099,6 +1359,52 @@ function openingCheck(
     limit: 1,
     hint: `the eye sits ${least} px or more inside ${at}`,
   };
+}
+
+/** The first and last of the eye's pixels on one border line of its box
+ *  (x along the top and bottom, y along the sides); null with none. */
+function borderRun(
+  pic: Illustration,
+  b: Bounds,
+  eye: Mask,
+  side: BoxSide,
+): [number, number] | null {
+  const { width } = pic;
+  const along = side === "top" || side === "bottom";
+  const fixed = { top: b.y0, bottom: b.y1, left: b.x0, right: b.x1 }[side];
+  const [from, to] = along ? [b.x0, b.x1] : [b.y0, b.y1];
+  let first = -1;
+  let last = -1;
+  for (let v = from; v <= to; v++) {
+    const i = along ? fixed * width + v : v * width + fixed;
+    if (!eye[i]) continue;
+    if (first < 0) first = v;
+    last = v;
+  }
+  return first < 0 ? null : [first, last];
+}
+
+/** Whether a long stroke meets the eye's paint at `side` within `run`
+ *  (within STROKE_GAP + EYE_EDGE px outside the border). */
+function strokeAt(
+  pic: Illustration,
+  b: Bounds,
+  long: Mask,
+  side: BoxSide,
+  run: [number, number],
+): boolean {
+  const { width, height } = pic;
+  const near = STROKE_GAP + EYE_EDGE;
+  const along = side === "top" || side === "bottom";
+  for (let v = run[0] - near; v <= run[1] + near; v++) {
+    for (let d = 1; d <= near; d++) {
+      const x = along ? v : side === "left" ? b.x0 - d : b.x1 + d;
+      const y = along ? (side === "top" ? b.y0 - d : b.y1 + d) : v;
+      if (x < 0 || y < 0 || x >= width || y >= height) continue;
+      if (long[y * width + x]) return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -1175,21 +1481,31 @@ function irisCheck(
 
 // ---- brows ----
 
+/** One brow as cut: its pixels, and whether its band held it whole (null
+ *  when the band holds no brow, which `browCheck` reports). */
+interface BrowCut {
+  brow: Mask;
+  band: CutCheck | null;
+}
+
 /**
  * The brows. Brow ink is the paint in a band that is neither clean skin
  * nor clean hair: at least BROW_SHARE of the way toward the brow's ink from
  * the paint around the band, from the skin samples, and, where hair is near,
  * from the hair samples (a brow drawn through a strand is a mix of brow and
- * hair; a pale brow on skin, a mix of brow and skin). On a strand running
- * through the band, paint the samples call hair is the strand's; where they
- * call the brow's ink hair too (near-black hair), all of the strand is.
+ * hair; a pale brow on skin, a mix of brow and skin). A brow takes no hair:
+ * not the back hair's, which nothing refills, nor a front strand's own
+ * paint; on a front strand running through the band (which the front hair
+ * refills) only the brow's ink over it, and only where the samples call
+ * the brow's ink and the strand apart (not near-black hair). A strand's
+ * edge is not brow (`strandEdges`).
  */
 function cutBrows(
   ctx: CutContext,
   eyes: Mask,
   same: number,
-): { L?: Mask; R?: Mask } {
-  const { pic, labels, classifier } = ctx;
+): { L?: BrowCut; R?: BrowCut } {
+  const { pic, lm, labels, classifier } = ctx;
   const n = pic.width * pic.height;
   const bands = [labels.browBands.L, labels.browBands.R].filter(
     (m) => m !== undefined,
@@ -1211,8 +1527,9 @@ function cutBrows(
     labels.strandThrough,
     dilate(pic, andNot(labels.hair, allBands), HAIR_NEAR),
   );
+  const isHair = (i: number) => labels.label[i] === LABEL_HAIR;
 
-  const out: { L?: Mask; R?: Mask } = {};
+  const out: { L?: BrowCut; R?: BrowCut } = {};
   for (const side of ["L", "R"] as const) {
     const band = labels.browBands[side];
     if (!band) continue;
@@ -1225,7 +1542,7 @@ function cutBrows(
     }
     const brow = new Uint8Array(n);
     if (cand.length === 0) {
-      out[side] = brow;
+      out[side] = { brow, band: null };
       continue;
     }
     const core = [...cand].sort((p, q) => off[q] - off[p]);
@@ -1235,28 +1552,31 @@ function cutBrows(
     );
     const hairDistinct = classifier.classify(...ink.rgb) !== HAIR;
     const inkFrom = classifier.distances(...ink.rgb);
-    // On a strand through the band only the brow's ink over it is the
-    // brow's: paint the samples call hair is the strand's own, however near
-    // the brow's colour the hair is.
     const allowed = (i: number) =>
-      !labels.strandThrough[i] || (hairDistinct && labels.classes[i] !== HAIR);
-    for (const i of cand) {
-      if (!allowed(i)) continue;
+      labels.strandThrough[i]
+        ? labels.hairFront[i] === 1 &&
+          hairDistinct &&
+          labels.classes[i] !== HAIR
+        : !isHair(i);
+    /** At least BROW_SHARE of the way to the brow's ink from every paint
+     *  it may be a mix with. */
+    const isInk = (i: number) => {
       const toInk = dist(ink.lab, labOf(around, i));
-      if (toInk <= same) continue;
+      if (toInk <= same) return false;
       const d = classifier.distances(
         pic.rgb[i * 3],
         pic.rgb[i * 3 + 1],
         pic.rgb[i * 3 + 2],
       );
-      const fromLocal = off[i] / toInk;
+      const fromLocal = dist(labOf(pic.rgb, i), labOf(around, i)) / toInk;
       const fromSkin = inkFrom.skin > 0 ? d.skin / inkFrom.skin : 1;
       const fromHair =
         hairDistinct && hairNear[i] && inkFrom.hair > 0
           ? d.hair / inkFrom.hair
           : 1;
-      if (Math.min(fromLocal, fromSkin, fromHair) >= BROW_SHARE) brow[i] = 1;
-    }
+      return Math.min(fromLocal, fromSkin, fromHair) >= BROW_SHARE;
+    };
+    for (const i of cand) if (allowed(i) && isInk(i)) brow[i] = 1;
     // The rim may run past the band: a band a px or two off the stroke
     // would leave its soft edge behind. Clean paint there is a source of
     // `around` itself, so it never differs from it and stays.
@@ -1265,12 +1585,193 @@ function cutBrows(
       if (!rim[i] || brow[i] || !labels.solid[i] || eyes[i] || !allowed(i)) {
         continue;
       }
-      if (!band[i] && labels.label[i] === LABEL_HAIR) continue;
+      if (!band[i] && isHair(i)) continue;
       if (dist(labOf(pic.rgb, i), labOf(around, i)) > same) brow[i] = 1;
     }
-    out[side] = brow;
+    for (const i of strandEdges(pic, brow, lm.brows![side]!, isHair)) {
+      brow[i] = 0;
+    }
+    const missed =
+      count(brow) > 0
+        ? browMissed(ctx, side, lm.brows![side]!, band, brow, eyes, isInk)
+        : null;
+    out[side] = { brow, band: missed };
   }
   return out;
+}
+
+/** The on pixels of a mask. */
+function maskIndices(m: Mask): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < m.length; i++) if (m[i]) out.push(i);
+  return out;
+}
+
+/**
+ * The pieces of a brow cut that are a strand's edges, not brow: a piece
+ * lying wholly on hair, or one running across the line farther than along
+ * it (a brow runs along its line; a strand's edge crosses the band).
+ */
+function strandEdges(
+  pic: Illustration,
+  brow: Mask,
+  line: IllustrationBrow,
+  isHair: (i: number) => boolean,
+): number[] {
+  const { width } = pic;
+  const where = browGeometry(line);
+  const { id, sizes } = pieces(pic, brow);
+  const k = sizes.length;
+  const onFace = new Uint8Array(k);
+  const span = Array.from({ length: k }, () => [
+    Infinity,
+    -Infinity,
+    Infinity,
+    -Infinity,
+  ]);
+  const dir = new Float64Array(k * 2).fill(NaN);
+  for (let i = 0; i < brow.length; i++) {
+    const p = id[i];
+    if (p < 0) continue;
+    if (!isHair(i)) onFace[p] = 1;
+    const x = i % width;
+    const y = (i - x) / width;
+    if (Number.isNaN(dir[p * 2])) {
+      const w = where(x, y);
+      dir[p * 2] = w.tx;
+      dir[p * 2 + 1] = w.ty;
+    }
+    const [tx, ty] = [dir[p * 2], dir[p * 2 + 1]];
+    const along = x * tx + y * ty;
+    const across = -x * ty + y * tx;
+    const s = span[p];
+    s[0] = Math.min(s[0], along);
+    s[1] = Math.max(s[1], along);
+    s[2] = Math.min(s[2], across);
+    s[3] = Math.max(s[3], across);
+  }
+  const out: number[] = [];
+  for (let i = 0; i < brow.length; i++) {
+    const p = id[i];
+    if (p < 0) continue;
+    const s = span[p];
+    if (!onFace[p] || s[3] - s[2] > s[1] - s[0]) out.push(i);
+  }
+  return out;
+}
+
+/** Brow ink found past its band, as a share of the brow, before the check
+ *  warns: past the band's soft rim, which the brow takes, a few px of a
+ *  stroke's blend is noise; a band off the brow leaves a strip. */
+const BROW_MISS_SHARE = 0.05;
+
+/**
+ * Whether the band holds the whole brow: brow ink (`ink`) clear of the
+ * hair by HAIR_LINE px (its soft edge lies there), joined to the
+ * brow's pixels (8-connected, through ink on the strands that cross it too), that runs on outside the band, up to `halfWidth` past its
+ * edge, stays on the face when the brow moves. Said with which way the line is off and by how much: past the
+ * band's lower or upper edge (move the line, or widen the band), or past
+ * its tail or inner end (extend the line). A warning: other ink touching
+ * the brow (the face's outline, a crease) can read as brow too.
+ */
+function browMissed(
+  ctx: CutContext,
+  side: "L" | "R",
+  brow: IllustrationBrow,
+  band: Mask,
+  cut: Mask,
+  eyes: Mask,
+  ink: (i: number) => boolean,
+): CutCheck {
+  const { pic, labels } = ctx;
+  const { width, height } = pic;
+  const at = `landmarks.brows.${side}`;
+  const where = browGeometry(brow);
+  const hairLine = dilate(
+    pic,
+    labels.label.map((l) => (l === LABEL_HAIR ? 1 : 0)),
+    HAIR_LINE,
+  );
+  const seen = new Uint8Array(cut);
+  const queue: number[] = [];
+  for (let i = 0; i < cut.length; i++) if (cut[i]) queue.push(i);
+  const found: number[] = [];
+  for (let q = 0; q < queue.length; q++) {
+    const i = queue[q];
+    const x = i % width;
+    const y = (i - x) / width;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        const j = ny * width + nx;
+        if (seen[j]) continue;
+        seen[j] = 1;
+        if (band[j] || !labels.solid[j] || eyes[j] || !ink(j)) continue;
+        const w = where(nx, ny);
+        if (w.d > w.half + brow.halfWidth) continue;
+        if (!hairLine[j]) found.push(j);
+        queue.push(j);
+      }
+    }
+  }
+  const browPx = count(cut);
+  const value = found.length / (browPx + found.length);
+  const base = {
+    id: `browBand.${side}`,
+    level: "warn" as const,
+    value: fmt(value),
+    limit: BROW_MISS_SHARE,
+  };
+  if (value <= BROW_MISS_SHARE) {
+    return {
+      ...base,
+      pass: true,
+      hint: `the band holds the brow: ${found.length} px of brow ink past it`,
+    };
+  }
+  // Which way most of it lies.
+  const groups = new Map<string, { px: number[]; e: number; tail: number }>();
+  for (const i of found) {
+    const x = i % width;
+    const y = (i - x) / width;
+    const w = where(x, y);
+    const key = w.end ?? (w.dy > 0 ? "below" : "above");
+    const g = groups.get(key) ?? { px: [], e: 0, tail: 0 };
+    g.px.push(i);
+    g.e = Math.max(g.e, w.end ? w.d : w.d - w.half);
+    if (w.third) g.tail++;
+    groups.set(key, g);
+  }
+  const [key, g] = [...groups].sort(
+    (a, b) => b[1].px.length - a[1].px.length,
+  )[0];
+  const e = Math.max(1, Math.ceil(g.e));
+  const xs = g.px.map((i) => i % width);
+  const [xa, xb] = [Math.min(...xs), Math.max(...xs)];
+  const span = `x ${xa}..${xb}`;
+  const left = `${found.length} px of brow ink (${pct(value)} of the brow) run on`;
+  const stays = "and stay on the face when the brow moves";
+  let hint: string;
+  if (key === "tail" || key === "end") {
+    const point = key === "tail" ? "first (tail)" : "last (inner)";
+    hint = `${left} past the line's ${key === "tail" ? "tail" : "inner end"} by up to ${e} px at ${span}, ${stays}: extend ${at}.line's ${point} point along the brow by about ${e} px`;
+  } else {
+    const widen = g.tail * 2 > g.px.length ? "tailHalfWidth" : "halfWidth";
+    // How far the ink's middle lies off the line over the span: the brow's
+    // pixels there and the ink past the band, by signed distance.
+    const offsets: number[] = [];
+    for (const i of [...g.px, ...maskIndices(cut)]) {
+      const x = i % width;
+      if (x < xa || x > xb) continue;
+      const w = where(x, (i - x) / width);
+      if (!w.end) offsets.push(w.dy > 0 ? w.d : -w.d);
+    }
+    const shift = Math.max(1, Math.round(Math.abs(median(offsets))));
+    hint = `${left} past the band's ${key === "below" ? "lower" : "upper"} edge by up to ${e} px at ${span}, ${stays}: move ${at}.line's points over ${span} ${key === "below" ? "down" : "up"} by about ${shift} px (onto the ink's middle there), or widen ${at}.${widen} by ${e} (keeping the band no wider than the brow)`;
+  }
+  return { ...base, pass: false, hint };
 }
 
 // ---- nose and mouth ----
@@ -1415,10 +1916,12 @@ export function cutFeatures(ctx: CutContext, lipSet = false): FeatureCut {
   }
   const brows = cutBrows(ctx, holes, same);
   for (const side of ["L", "R"] as const) {
-    const m = brows[side];
-    if (!m) continue;
+    const b = brows[side];
+    if (!b) continue;
+    const m = b.brow;
     const pixels = count(m);
     checks.push(browCheck(side, pixels));
+    if (b.band) checks.push(b.band);
     if (pixels === 0) continue;
     roles.set(`brow_${side}`, paintOf(pic, m));
     holes = or(holes, m);

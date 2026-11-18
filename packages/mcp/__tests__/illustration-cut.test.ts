@@ -16,19 +16,23 @@ import {
   BROWS,
   characterLandmarks,
   EYE,
+  EYE_STROKE,
   inBrow,
   inLash,
   ORANGE_ON_WARM,
   GAP,
+  NECK_TIPS,
+  onBodyInkDash,
   ORNAMENT,
   PINK_ON_PEACH,
   POCKET,
   STRAND,
+  TEMPLE_LOCK,
   TORSO_BODY_ONLY,
   WISP,
   writeCharacter,
   type CharacterColours,
-  type EyeStyle,
+  type CharacterOptions,
 } from "./helpers/illustration-character";
 import { writeInterior, writeKeyedMouth } from "./helpers/parts";
 
@@ -54,13 +58,7 @@ type Ok = Extract<CutLayersFromIllustrationResult, { ok: true }>;
 
 async function picture(
   colours: CharacterColours,
-  options?: {
-    transparent?: boolean;
-    pocket?: boolean;
-    gap?: boolean;
-    ornament?: boolean;
-    eyes?: { L?: EyeStyle; R?: EyeStyle };
-  },
+  options?: CharacterOptions,
 ): Promise<string> {
   const file = path.join(tmpDir(), "character.png");
   await writeCharacter(file, colours, options);
@@ -600,7 +598,9 @@ describe("cutLayersFromIllustration checks", () => {
       "eye.R",
       "iris.R",
       "brow.L",
+      "browBand.L",
       "brow.R",
+      "browBand.R",
       "mouth",
       "fills.face.features",
       "fills.face.forehead",
@@ -670,7 +670,31 @@ describe("cutLayersFromIllustration checks", () => {
     expect(to).toBeGreaterThan(EYE.creaseInner.cy - EYE.creaseInner.ry);
     expect(check(r, "opening.R").pass).toBe(true);
     expect(r.passed).toBe(false);
+    // The box it suggests leaves the 2 to 4 px to spare the skill asks for.
+    lm.eyes.L.box[1] = to;
+    const grown = check(await cut(pink, lm), "opening.L");
+    expect(grown.pass).toBe(true);
+    expect(grown.value).toBeGreaterThanOrEqual(2);
+    expect(grown.value).toBeLessThanOrEqual(4);
   });
+
+  it.each([
+    ["left", 0, 610, /move x0 left by \d+ \(to (\d+)\)/],
+    ["bottom", 3, 447, /move y1 down by \d+ \(to (\d+)\)/],
+  ] as const)(
+    "suggests a box that leaves 2 to 4 px to spare past the eye's %s, rim included",
+    async (_side, k, clip, move) => {
+      const lm = characterLandmarks();
+      lm.eyes.L.box[k] = clip;
+      const hint = check(await cut(pink, lm), "opening.L").hint.match(move)!;
+      expect(hint).not.toBeNull();
+      lm.eyes.L.box[k] = Number(hint[1]);
+      const grown = check(await cut(pink, lm), "opening.L");
+      expect(grown.pass).toBe(true);
+      expect(grown.value).toBeGreaterThanOrEqual(2);
+      expect(grown.value).toBeLessThanOrEqual(4);
+    },
+  );
 
   it("warns that an eye box is loose", async () => {
     const lm = characterLandmarks();
@@ -710,16 +734,18 @@ describe("cutLayersFromIllustration checks", () => {
     const pockets = check(r, "pockets");
     expect(pockets.keyed).toHaveLength(1);
     // The region left of the strands, closed in by the back hair, the neck
-    // and the torso, is a mix: named, not keyed.
-    expect(pockets.value).toBe(1);
-    const named = pockets.hint.match(/backgroundSeeds: \[(\d+), \d+\]/)!;
+    // and the torso, is a mix: named, not keyed. The value counts both.
+    expect(pockets.value).toBe(2);
+    const named = pockets.hint.match(
+      /1 region of backdrop-coloured paint the border flood cannot reach, at \[(\d+), \d+\] \(\d+ px\), is cut into a layer: if it is backdrop/,
+    )!;
     expect(Number(named[1])).toBeLessThan(672);
     const [x, y] = pockets.keyed![0];
     expect(Math.abs(x - GAP.cx)).toBeLessThan(14);
     // Keyed, so it warns, the keyed points first.
     expect(pockets.pass).toBe(false);
     expect(pockets.hint).toMatch(
-      /^keyed as backdrop on their own, the hair ringing them: \[\d+, \d+\]; check each on preview-labels\.png, and if one is paint .* landmarks\.paintSeeds; backdrop-coloured paint/,
+      /^keyed 1 gap the hair rings as backdrop on its own, at \[\d+, \d+\]; check each on preview-labels\.png, and if one is paint .* landmarks\.paintSeeds; 1 region of backdrop-coloured paint/,
     );
     expect(r.passed).toBe(true);
     for (const a of await coverAt(r, GAP.cx, GAP.cy)) expect(a).toBe(0);
@@ -728,7 +754,8 @@ describe("cutLayersFromIllustration checks", () => {
   it("warns when it keys a pale ornament the hair rings, and lists it", async () => {
     const r = await cut(await picture(PINK_ON_PEACH, { ornament: true }));
     const pockets = check(r, "pockets");
-    expect(pockets).toMatchObject({ level: "warn", pass: false, value: 0 });
+    // What the line is about: one point keyed, none named.
+    expect(pockets).toMatchObject({ level: "warn", pass: false, value: 1 });
     expect(pockets.keyed).toHaveLength(1);
     const [x, y] = pockets.keyed![0];
     expect(Math.hypot(x - ORNAMENT.cx, y - ORNAMENT.cy)).toBeLessThan(
@@ -736,7 +763,7 @@ describe("cutLayersFromIllustration checks", () => {
     );
     expect(pockets.hint).toMatch(
       new RegExp(
-        `^keyed as backdrop on their own, the hair ringing them: \\[${x}, ${y}\\]`,
+        `^keyed 1 gap the hair rings as backdrop on its own, at \\[${x}, ${y}\\]`,
       ),
     );
   });
@@ -971,6 +998,206 @@ describe("cutting open eyes with little white", () => {
       }
     },
   );
+});
+
+describe("cutLayersFromIllustration on what lies beside the features", () => {
+  it("carries only the neck's own skin up behind the chin, past a strand's tips and the chin's shadow under the jaw", async () => {
+    const colours = PINK_ON_PEACH;
+    const r = await cut(
+      await picture(colours, { neckTips: true, chinShadow: true }),
+    );
+    const body = await pixelsOf(layer(r, "body").path);
+    // Every column of the neck, the tips' included, from neckTopY down to
+    // above the jaw's line (no lower than 640 there, where the face is
+    // opaque at every column), off the neck's side lines.
+    let looked = 0;
+    for (let x = 503; x <= 597; x++) {
+      for (let y = 540; y <= 640; y += 4) {
+        const px = body.at(x, y);
+        expect(px[3], `${x},${y}`).toBe(255);
+        expect(off(px, colours.skinShadow), `${x},${y}`).toBeLessThan(NEAR);
+        looked++;
+      }
+    }
+    expect(looked).toBeGreaterThan(2000);
+    // Under each tip's columns too.
+    for (const tip of NECK_TIPS) {
+      const x = Math.round((tip[0][0] + tip[1][0]) / 2);
+      expect(off(body.at(x, 600), colours.skinShadow), `${x}`).toBeLessThan(
+        NEAR,
+      );
+    }
+  });
+
+  it("warns that a brow's line runs off the brow, saying which way to move it, and passes once moved", async () => {
+    const pink = await picture(PINK_ON_PEACH);
+    const lm = characterLandmarks();
+    // A tight band 5 px above the brow: its lower edge stays on the face.
+    lm.brows.R = {
+      line: BROWS.R.map(([x, y]) => [x, y - 5]),
+      halfWidth: 4,
+      tailHalfWidth: 4,
+    };
+    const r = await cut(pink, lm);
+    expect(check(r, "brow.R").pass).toBe(true);
+    const band = check(r, "browBand.R");
+    expect(band).toMatchObject({ level: "warn", pass: false, limit: 0.05 });
+    expect(band.value).toBeGreaterThan(0.05);
+    const move = band.hint.match(
+      /past the band's lower edge by up to \d+ px at x \d+\.\.\d+, and stay on the face when the brow moves: move landmarks\.brows\.R\.line's points over x \d+\.\.\d+ down by about (\d+) px/,
+    )!;
+    expect(move).not.toBeNull();
+    expect(Number(move[1])).toBeGreaterThanOrEqual(2);
+    expect(Number(move[1])).toBeLessThanOrEqual(5);
+    expect(check(r, "browBand.L").pass).toBe(true);
+    expect(r.passed).toBe(true);
+
+    lm.brows.R.line = lm.brows.R.line.map(([x, y]: number[]) => [
+      x,
+      y + Number(move[1]),
+    ]);
+    expect(check(await cut(pink, lm), "browBand.R").pass).toBe(true);
+  });
+
+  it("leaves the back hair a brow's tail runs under in the hair, none of it in the brow or the face", async () => {
+    const colours = PINK_ON_PEACH;
+    const r = await cut(await picture(colours, { templeLock: true }));
+    const brow = await pixelsOf(layer(r, "brow_L").path);
+    const face = await pixelsOf(layer(r, "face").path);
+    const back = await pixelsOf(layer(r, "hair_back").path);
+    // The lock's middle where it lies over the brow's band, its edges left
+    // aside.
+    const size = { width: W, height: W };
+    const lm = validateLandmarks(characterLandmarks(), size);
+    const band = browBand(size, lm.brows!.L!);
+    let looked = 0;
+    for (let x = TEMPLE_LOCK.x0 + EDGE; x <= 680; x++) {
+      for (let y = 340; y <= 400; y++) {
+        if (!band[y * W + x]) continue;
+        // 4 px inside the lock's edges, rows at this column.
+        const top = 368 - ((x - 652) * 36) / 118;
+        if (y < top + 4 + EDGE || y > top + 16 - 4 - EDGE) continue;
+        looked++;
+        expect(brow.at(x, y)[3], `${x},${y}`).toBe(0);
+        expect(face.at(x, y)[3], `${x},${y}`).toBe(0);
+        expect(back.at(x, y)[3], `${x},${y}`).toBe(255);
+        expect(off(back.at(x, y), colours.hair), `${x},${y}`).toBeLessThan(
+          NEAR,
+        );
+      }
+    }
+    expect(looked).toBeGreaterThan(10);
+    // The brow is still cut, short of the lock.
+    expect(layer(r, "brow_L").pixels).toBeGreaterThan(500);
+  });
+
+  it("gives the body an outline inked in a colour near the hair's, and keeps the wisp beside the neck in the hair", async () => {
+    const r = await cut(
+      await picture(PINK_ON_PEACH, { bodyInk: [190, 105, 135] }),
+    );
+    const back = await pixelsOf(layer(r, "hair_back").path);
+    const body = await pixelsOf(layer(r, "body").path);
+    // Round the torso's outline on its recoloured dashes, away from the
+    // neck, where the outline meets the neck's own lines.
+    let looked = 0;
+    for (let deg = 0; deg < 360; deg += 2) {
+      const a = (deg * Math.PI) / 180;
+      const x = Math.round(550 + 262 * Math.cos(a));
+      const y = Math.round(1000 + 232 * Math.sin(a));
+      if (y >= W || !onBodyInkDash(x, y) || Math.abs(x - 550) < 90) continue;
+      looked++;
+      expect(back.at(x, y)[3], `${x},${y}`).toBe(0);
+      expect(body.at(x, y)[3], `${x},${y}`).toBeGreaterThan(200);
+    }
+    expect(looked).toBeGreaterThan(40);
+    const x = WISP.x0 + 1;
+    const y = (WISP.y0 + WISP.y1) >> 1;
+    expect(back.at(x, y)[3]).toBeGreaterThan(128);
+    expect(body.at(x, y)[3]).toBe(0);
+  });
+
+  it("leaves a thin stroke crossing an eye box's corner out of the eye, and does not ask for the box to grow along it", async () => {
+    const r = await cut(await picture(PINK_ON_PEACH, { eyeStroke: "dashed" }));
+    expect(check(r, "opening.R")).toMatchObject({ level: "fail", pass: true });
+    // Its first dash, inside the box: on the face, as drawn, not the eye's.
+    const [[ax, ay], [bx, by]] = EYE_STROKE.line;
+    const len = Math.hypot(bx - ax, by - ay);
+    const sclera = await pixelsOf(layer(r, "eye_R").path);
+    const face = await pixelsOf(layer(r, "face").path);
+    for (const t of [2, 4, 6]) {
+      const x = Math.round(ax + ((bx - ax) * t) / len);
+      const y = Math.round(ay + ((by - ay) * t) / len);
+      expect(sclera.at(x, y)[3], `${x},${y}`).toBe(0);
+      expect(face.at(x, y)[3], `${x},${y}`).toBe(255);
+      expect(off(face.at(x, y), PINK_ON_PEACH.ink)).toBeLessThan(4 * NEAR);
+    }
+    expect(r.passed).toBe(true);
+  });
+
+  it("says what it sees where a stroke joined to the eye runs on past its box, and warns rather than fails", async () => {
+    const r = await cut(await picture(PINK_ON_PEACH, { eyeStroke: "joined" }));
+    const opening = check(r, "opening.R");
+    expect(opening).toMatchObject({ level: "warn", pass: false, value: 0 });
+    expect(opening.hint).toMatch(
+      /^landmarks\.eyes\.R\.box's border cuts paint it cannot tell from the eye: the paint its left edge cuts, \d+ px wide at y \d+\.\.\d+, runs on as a stroke more than \d+ px past the box: if it is hair or a line crossing the eye's box, leave that edge .*; if it is the eye's own \(a lash wing\), move x0 left by \d+/,
+    );
+    expect(check(r, "opening.L").pass).toBe(true);
+    expect(r.passed).toBe(true);
+  });
+});
+
+describe("cutting an iris squarer than its ellipse, and a white shaded under the lash", () => {
+  // Left: a disc squarer than an ellipse, outlined in a dark shade of its
+  // own colour; right: a grey shade on the white under the lash.
+  const colours = PINK_ON_PEACH;
+  let file: string;
+  let r: Ok;
+  beforeAll(async () => {
+    file = await picture(colours, {
+      eyes: { L: "squareIris", R: "shadedWhite" },
+    });
+    r = await cut(file);
+  }, CUT_HOOK_TIMEOUT);
+
+  it("gives the disc's corners past the ellipse to the iris, not the lower lid", async () => {
+    const { cx } = EYE.L;
+    const iris = await pixelsOf(layer(r, "iris_L").path);
+    const lower = await pixelsOf(layer(r, "lash_lower_L").path);
+    // The lower corners, on the dark rim, outside the ellipse the skill's
+    // fit gives (the disc's own width and height).
+    for (const dx of [-10, 10]) {
+      const [x, y] = [cx + dx, EYE.iris.cy + 13];
+      expect(
+        ((x - cx) / EYE.iris.rx) ** 2 + (13 / EYE.iris.ry) ** 2,
+      ).toBeGreaterThan(1);
+      expect(iris.at(x, y)[3], `${x},${y}`).toBe(255);
+      expect(lower.at(x, y)[3], `${x},${y}`).toBe(0);
+    }
+    // The lid line itself stays the lower lid's.
+    const lid = (EYE.lower.y0 + EYE.lower.y1) >> 1;
+    expect(lower.at(cx, lid)[3]).toBe(255);
+    expect(check(r, "iris.L").pass).toBe(true);
+  });
+
+  it("finds the coloured disc by its own colour, not the white's shade beside it", async () => {
+    // An ellipse half the disc's size: the check fails and says what disc
+    // it found.
+    const lm = characterLandmarks();
+    lm.eyes.R.iris.rx = 7;
+    lm.eyes.R.iris.ry = 9;
+    const iris = check(await cut(file, lm), "iris.R");
+    expect(iris.pass).toBe(false);
+    const found = iris.hint.match(
+      /the disc found spans x (\d+)\.\.(\d+) \(rx about [\d.]+\) and reaches down to y (\d+)/,
+    )!;
+    const { cx } = EYE.R;
+    // The drawn disc, its soft edge aside: not the white's width, and down
+    // to the lower lid over its bottom.
+    expect(Number(found[1])).toBeGreaterThanOrEqual(cx - EYE.iris.rx - EDGE);
+    expect(Number(found[2])).toBeLessThanOrEqual(cx + EYE.iris.rx + EDGE);
+    expect(Number(found[3])).toBeGreaterThan(EYE.iris.cy + 9);
+    expect(Number(found[3])).toBeLessThanOrEqual(EYE.lower.y1);
+  });
 });
 
 describe("cutLayersFromIllustration on features it cannot cut", () => {

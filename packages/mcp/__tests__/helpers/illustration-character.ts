@@ -88,6 +88,13 @@ const ellipse =
   (x, y) =>
     ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1;
 
+/** |u|^4 + |v|^4 <= 1: a disc squarer than the ellipse of its width and
+ *  height. */
+const superellipse =
+  (cx: number, cy: number, rx: number, ry: number): Inside =>
+  (x, y) =>
+    ((x - cx) / rx) ** 4 + ((y - cy) / ry) ** 4 <= 1;
+
 const rect =
   (x0: number, y0: number, x1: number, y1: number): Inside =>
   (x, y) =>
@@ -147,6 +154,10 @@ export const EYE = {
   closedOuter: { cy: 424, rx: 27, ry: 14 },
   closedInner: { cy: 419, rx: 27, ry: 14 },
   closedFrom: 424,
+  /** "squareIris": the disc's outline, this many px thick. */
+  squareOutline: 2.5,
+  /** "shadedWhite": the shade under the lash, this many px thick. */
+  shade: 5,
   /** The crease: a thin arc detached above the lash. */
   creaseOuter: { cy: 425, rx: 26, ry: 28 },
   creaseInner: { cy: 429, rx: 26, ry: 28 },
@@ -220,6 +231,10 @@ const mix = (a: RGB, b: RGB, t: number): RGB =>
 
 /** How an eye is drawn: `open` (white, iris with pupil and highlight,
  *  winged lash, a lower lid across the iris's bottom, a crease above);
+ *  `squareIris` (open, the disc squarer than an ellipse, |u|^4 + |v|^4 <= 1,
+ *  outlined in a dark shade of the iris's own colour, so its corners pass
+ *  an ellipse of the same width and height); `shadedWhite` (open, a grey
+ *  shade on the white under the lash, SHADE px thick);
  *  `lidBand` (open, a pale lid band over the lash instead of the crease);
  *  `darkIris` (open, the disc as dark as the lash at its top and outlined in
  *  that ink at its bottom, a short lower lid joining the outline);
@@ -227,6 +242,8 @@ const mix = (a: RGB, b: RGB, t: number): RGB =>
  *  most of the white); `closed` (one curved line). */
 export type EyeStyle =
   | "open"
+  | "squareIris"
+  | "shadedWhite"
   | "lidBand"
   | "darkIris"
   | "greyWhite"
@@ -262,12 +279,35 @@ function eyeShapes(
   const n = EYE.creaseInner;
   const lo = style === "darkIris" ? EYE.lowerShort : EYE.lower;
   const size = style === "bigIris" ? EYE.bigIris : ir;
-  const disc = ellipse(cx, ir.cy, size.rx, size.ry);
+  const disc =
+    style === "squareIris"
+      ? superellipse(cx, ir.cy, size.rx, size.ry)
+      : ellipse(cx, ir.cy, size.rx, size.ry);
   const sclera = style === "greyWhite" ? EYE.greyWhite : WHITE;
   const out: [Inside, RGB, boolean][] = [
     [ellipse(cx, w.cy, w.rx, w.ry), sclera, false],
     [disc, c.iris, false],
   ];
+  if (style === "shadedWhite") {
+    const n = EYE.lashInner;
+    out.push([
+      (x, y) =>
+        ellipse(cx, w.cy, w.rx, w.ry)(x, y) &&
+        ellipse(cx, n.cy, n.rx, n.ry)(x, y) &&
+        !ellipse(cx, n.cy + EYE.shade, n.rx, n.ry)(x, y),
+      mix(WHITE, c.ink, 0.45),
+      false,
+    ]);
+  }
+  if (style === "squareIris") {
+    const t = EYE.squareOutline;
+    const inner = superellipse(cx, ir.cy, ir.rx - t, ir.ry - t);
+    out.push([
+      (x, y) => disc(x, y) && !inner(x, y),
+      mix(c.iris, [0, 0, 0], 0.6),
+      false,
+    ]);
+  }
   if (style === "darkIris") {
     const inner = ellipse(cx, ir.cy, ir.rx - EYE.outline, ir.ry - EYE.outline);
     out.push(
@@ -386,15 +426,127 @@ export const ORNAMENT = { cx: 318, cy: 262, r: 14 };
 /** An outlined disc of backdrop colour on the torso: backdrop the figure
  *  encloses, which no flood from the border reaches. */
 export const POCKET = { cx: 420, cy: 950, r: 30 };
+/** Two short strand tips hanging under the jaw over each side of the neck,
+ *  outlined: hair too small to be anything but specks among the face's and
+ *  the neck's paint, which the labels give to the body. */
+export const NECK_TIPS: [number, number][][] = [
+  [
+    [496, 645],
+    [514, 645],
+    [505, 680],
+  ],
+  [
+    [586, 645],
+    [604, 645],
+    [595, 680],
+  ],
+];
+/** The chin's shadow cast on the neck: rows under the jaw this many px
+ *  deep, a dark shade of the neck's skin. */
+export const CHIN_SHADOW = 10;
+/** A lock of the back hair swept across the temple from behind the head,
+ *  over the left brow's tail (drawn over it), ending at `x0`; it covers the
+ *  brow's tail from `x0` on. */
+export const TEMPLE_LOCK = {
+  x0: 652,
+  polygon: [
+    [652, 368],
+    [652, 384],
+    [770, 348],
+    [770, 332],
+  ] as [number, number][],
+};
+/** A thin dark stroke (a strand's line) crossing the right eye box's
+ *  lower-left corner from inside it and running far on down the cheek,
+ *  dashed as an antialiased thin stroke breaks into pieces: `dash` px of
+ *  ink every `period` px, `half` px either side of its line. */
+export const EYE_STROKE = {
+  line: [
+    [449, 457],
+    [380, 482],
+  ] as [number, number][],
+  half: 1.5,
+  dash: 8,
+  period: 11,
+  /** "joined": solid, from the lower lid's end: one piece with the eye. */
+  joined: [
+    [450, 447],
+    [380, 482],
+  ] as [number, number][],
+};
+
+/** What `writeCharacter` draws past the bust itself. */
+export interface CharacterOptions {
+  /** On no backdrop at all. */
+  transparent?: boolean;
+  pocket?: boolean;
+  gap?: boolean;
+  ornament?: boolean;
+  eyes?: { L?: EyeStyle; R?: EyeStyle };
+  /** NECK_TIPS. */
+  neckTips?: boolean;
+  /** CHIN_SHADOW. */
+  chinShadow?: boolean;
+  /** TEMPLE_LOCK. */
+  templeLock?: boolean;
+  /** EYE_STROKE: "dashed", or "joined" to the lower lid. */
+  eyeStroke?: "dashed" | "joined";
+  /** The torso's outline inked in this colour instead of the ink along
+   *  BODY_INK_DASH of every BODY_INK_PERIOD degrees round it: one near the
+   *  hair's reads as hair, in long pieces apart from each other and from
+   *  the hair, as an antialiased outline whose colour sits between the two
+   *  breaks up. */
+  bodyInk?: RGB;
+}
+
+/** Within `half` of a polyline, on its dashes: `dash` px of every
+ *  `period` along it. */
+function dashedLine(
+  pts: [number, number][],
+  half: number,
+  dash: number,
+  period: number,
+): Inside {
+  return (x, y) => {
+    let along = 0;
+    for (let k = 0; k + 1 < pts.length; k++) {
+      const [ax, ay] = pts[k];
+      const [bx, by] = pts[k + 1];
+      const len = Math.hypot(bx - ax, by - ay);
+      const t = Math.max(
+        0,
+        Math.min(1, ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / len ** 2),
+      );
+      const d = Math.hypot(x - ax - t * (bx - ax), y - ay - t * (by - ay));
+      if (d <= half && (along + t * len) % period < dash) return true;
+      along += len;
+    }
+    return false;
+  };
+}
+
+/** The torso, whose outline `bodyInk` recolours. */
+const TORSO = ellipse(550, 1000, 260, 230);
+/** `bodyInk`'s dashes round the torso, degrees: each about 130 canvas px
+ *  long, past the speck rule's size. */
+export const BODY_INK_PERIOD = 36;
+export const BODY_INK_DASH = 30;
+/** Whether (x, y) on the torso's outline lies on a `bodyInk` dash. */
+export function onBodyInkDash(x: number, y: number): boolean {
+  const deg = (Math.atan2(y - 1000, x - 550) * 180) / Math.PI + 360;
+  return deg % BODY_INK_PERIOD < BODY_INK_DASH;
+}
+
+/** The jaw's lowest row at column x: the face ellipse's bottom. */
+const jawAt = (x: number) =>
+  430 + 230 * Math.sqrt(Math.max(0, 1 - ((x - 550) / 200) ** 2));
 
 /** Shapes back to front: each drawn as its outline ring, then its fill. */
 function shapes(
   c: CharacterColours,
-  pocket: boolean,
-  gap: boolean,
-  ornament: boolean,
-  eyes: { L?: EyeStyle; R?: EyeStyle },
+  o: CharacterOptions,
 ): [Inside, RGB, boolean][] {
+  const { pocket = false, gap = false, ornament = false, eyes = {} } = o;
   const strands: [Inside, RGB, boolean][] = gap
     ? [
         [rect(676, 640, 692, 840), c.hair, true],
@@ -409,11 +561,45 @@ function shapes(
     [ellipse(262, 280, 30, 30), c.ribbon, true],
     [ellipse(838, 280, 30, 30), c.ribbon, true],
     [rect(495, 560, 605, 800), c.skinShadow, true],
-    [ellipse(550, 1000, 260, 230), c.torso, true],
+    ...(o.chinShadow
+      ? [
+          [
+            (x: number, y: number) =>
+              x > 499 && x < 601 && y < jawAt(x) + CHIN_SHADOW,
+            mix(c.skinShadow, c.ink, 0.5),
+            false,
+          ] as [Inside, RGB, boolean],
+        ]
+      : []),
+    ...(o.neckTips
+      ? NECK_TIPS.map(
+          (t) => [polygon(t), c.hair, true] as [Inside, RGB, boolean],
+        )
+      : []),
+    [TORSO, c.torso, true],
     [ellipse(345, 450, 32, 48), c.skin, true],
     [ellipse(755, 450, 32, 48), c.skin, true],
     [ellipse(550, 430, 200, 230), c.skin, true],
     ...features(c, eyes),
+    ...(o.templeLock
+      ? [[polygon(TEMPLE_LOCK.polygon), c.hair, true] as [Inside, RGB, boolean]]
+      : []),
+    ...(o.eyeStroke
+      ? [
+          [
+            o.eyeStroke === "dashed"
+              ? dashedLine(
+                  EYE_STROKE.line,
+                  EYE_STROKE.half,
+                  EYE_STROKE.dash,
+                  EYE_STROKE.period,
+                )
+              : thickLine(EYE_STROKE.joined, EYE_STROKE.half),
+            c.ink,
+            false,
+          ] as [Inside, RGB, boolean],
+        ]
+      : []),
     [capInside, c.hair, true],
     [highlightBand, c.hairHighlight, false],
     ...strand(c),
@@ -439,26 +625,14 @@ function shapes(
   ];
 }
 
-/** Write the character, coloured by `colours`, as a PNG at `file`; with
- *  `transparent`, on no backdrop at all; with `pocket` and `gap`, the
- *  POCKET and the GAP drawn. */
+/** Write the character, coloured by `colours`, as a PNG at `file`, with
+ *  what `options` asks for drawn. */
 export async function writeCharacter(
   file: string,
   colours: CharacterColours,
-  {
-    transparent = false,
-    pocket = false,
-    gap = false,
-    ornament = false,
-    eyes = {},
-  }: {
-    transparent?: boolean;
-    pocket?: boolean;
-    gap?: boolean;
-    ornament?: boolean;
-    eyes?: { L?: EyeStyle; R?: EyeStyle };
-  } = {},
+  options: CharacterOptions = {},
 ): Promise<void> {
+  const { transparent = false } = options;
   const size = { width: SOURCE, height: SOURCE };
   const n = SOURCE * SOURCE;
   const buf = Buffer.alloc(n * 3);
@@ -469,18 +643,18 @@ export async function writeCharacter(
     ((i % SOURCE) + 0.5) * SCALE,
     (Math.floor(i / SOURCE) + 0.5) * SCALE,
   ];
-  for (const [inside, colour, outlined] of shapes(
-    colours,
-    pocket,
-    gap,
-    ornament,
-    eyes,
-  )) {
+  for (const [inside, colour, outlined] of shapes(colours, options)) {
     const m: Mask = new Uint8Array(n);
     for (let i = 0; i < n; i++) m[i] = inside(...at(i)) ? 1 : 0;
     const ring = outlined ? dilate(size, m, OUTLINE) : m;
+    const recolour = options.bodyInk && inside === TORSO;
     for (let i = 0; i < n; i++) {
-      if (ring[i]) buf.set(colours.ink, i * 3);
+      if (ring[i]) {
+        buf.set(
+          recolour && onBodyInkDash(...at(i)) ? options.bodyInk! : colours.ink,
+          i * 3,
+        );
+      }
       if (m[i]) buf.set(colour, i * 3);
       if (ring[i]) painted[i] = 1;
     }

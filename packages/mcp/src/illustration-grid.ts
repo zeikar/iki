@@ -73,7 +73,13 @@ const VIEW_BACKDROP: RGB = [64, 160, 96];
 const GRID_COLOR: RGB = [0, 255, 255];
 const GRID_OPACITY = 0.45;
 const LABEL_COLOR: RGB = [255, 255, 0];
-const LABEL_BOX_OPACITY = 0.6;
+/** Dark enough under a label that its colour reads over light paint. */
+const LABEL_BOX_OPACITY = 0.8;
+/** The strokes flanking every landmark's line, one either side: whatever
+ *  the paint under it, one of them stands out, and the line between them
+ *  keeps its key's colour. */
+const STROKE_DARK: RGB = [0, 0, 0];
+const STROKE_LIGHT: RGB = [255, 255, 255];
 /** One colour per top-level landmark key, in order, cycling. */
 const LANDMARK_COLORS: RGB[] = [
   [255, 64, 64],
@@ -195,6 +201,25 @@ function drawSegment(
   for (let k = 0; k <= n; k++) {
     plot(img, x0 + ((x1 - x0) * k) / n, y0 + ((y1 - y0) * k) / n, c);
   }
+}
+
+/** A landmark's line: its colour between a dark stroke on one side (on
+ *  the right going from a to b, inside a box drawn clockwise) and a light
+ *  one on the other, each a px wide. */
+function drawStroke(
+  img: Image,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  c: RGB,
+): void {
+  const len = Math.hypot(bx - ax, by - ay);
+  const nx = len > 0 ? Math.round(-(by - ay) / len) : 0;
+  const ny = len > 0 ? Math.round((bx - ax) / len) : 1;
+  drawSegment(img, ax + nx, ay + ny, bx + nx, by + ny, STROKE_DARK);
+  drawSegment(img, ax - nx, ay - ny, bx - nx, by - ny, STROKE_LIGHT);
+  drawSegment(img, ax, ay, bx, by, c);
 }
 
 function drawText(
@@ -359,10 +384,10 @@ function drawShapes(
       const [x0, y0, x1, y1] = shape.box.map((v, k) =>
         k % 2 === 0 ? toX(v) : toY(v),
       );
-      drawSegment(img, x0, y0, x1, y0, color);
-      drawSegment(img, x1, y0, x1, y1, color);
-      drawSegment(img, x1, y1, x0, y1, color);
-      drawSegment(img, x0, y1, x0, y0, color);
+      drawStroke(img, x0, y0, x1, y0, color);
+      drawStroke(img, x1, y0, x1, y1, color);
+      drawStroke(img, x1, y1, x0, y1, color);
+      drawStroke(img, x0, y1, x0, y0, color);
       const at = boundsOf([x0, x1], [y0, y1]);
       labels.push([at, at[0], at[1] - textSize(label).h, label, color]);
     } else if (shape.kind === "ellipse") {
@@ -375,7 +400,7 @@ function drawShapes(
       for (let k = 0; k < n; k++) {
         const a = (Math.PI * 2 * k) / n;
         const b = (Math.PI * 2 * (k + 1)) / n;
-        drawSegment(
+        drawStroke(
           img,
           toX(cx + rx * Math.cos(a)),
           toY(cy + ry * Math.sin(a)),
@@ -395,7 +420,7 @@ function drawShapes(
       for (let k = 0; k < last; k++) {
         const [ax, ay] = pts[k];
         const [bx, by] = pts[(k + 1) % pts.length];
-        drawSegment(img, toX(ax), toY(ay), toX(bx), toY(by), color);
+        drawStroke(img, toX(ax), toY(ay), toX(bx), toY(by), color);
       }
       const at = boundsOf(
         pts.map((p) => toX(p[0])),
@@ -406,10 +431,8 @@ function drawShapes(
       shape.points.forEach(([px, py], k) => {
         const x = Math.floor(toX(px));
         const y = Math.floor(toY(py));
-        for (let d = -MARKER; d <= MARKER; d++) {
-          blend(img, x + d, y, color, 1);
-          blend(img, x, y + d, color, 1);
-        }
+        drawStroke(img, x - MARKER, y, x + MARKER, y, color);
+        drawStroke(img, x, y - MARKER, x, y + MARKER, color);
         const text = shape.points.length > 1 ? `${label}[${k}]` : label;
         const at: Bounds = [x - MARKER, y - MARKER, x + MARKER, y + MARKER];
         labels.push([at, x + MARKER + 2, y + MARKER + 2, text, color]);

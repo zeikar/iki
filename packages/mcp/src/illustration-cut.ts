@@ -166,10 +166,15 @@ const UNDER_BODY = 16;
 /** The head's hair runs on under each custom part's root this far, px: what
  *  shows when the part swings. Too little shows a hole at the root. */
 const UNDER_PART = 14;
-/** The neck's own paint starts this many rows under the jaw's lowest face
- *  row: the rows above are the line and its soft edge, and smearing them
- *  would paint the neck the line's colour. */
-const NECK_FROM = 4;
+/** How far under the jaw's lowest face row the neck's own skin is looked
+ *  for, px: past the jaw's line, the shadow the chin casts on the neck and
+ *  a strand's tip hanging over it. Farther reaches down through a collar to
+ *  the chest. */
+const NECK_REACH = 40;
+/** Columns of the neck's own side line carried up past its skin: a drawn
+ *  line's width at the canvas size. More reaches the strands and the
+ *  backdrop's fringe beside the neck. */
+const NECK_LINE = 3;
 /** Alpha at which the picture's paint hides whatever a fill puts under it:
  *  full, at 8 bits. Under a soft edge the picture shows its backdrop, and a
  *  fill there would show through. */
@@ -225,15 +230,17 @@ function fillUnder(
   pic: Illustration,
   layer: LayerPaint,
   region: Mask,
-  filled: Float32Array | ((i: number) => number),
+  filled: Float32Array | ((i: number) => ArrayLike<number>),
 ): Mask {
   const done = new Uint8Array(region.length);
   for (let i = 0; i < region.length; i++) {
     if (!region[i] || layer.alpha[i] > 0) continue;
     if (layer.rgb === pic.rgb) layer.rgb = new Float32Array(pic.rgb);
-    const from = typeof filled === "function" ? filled(i) : i;
-    const src = typeof filled === "function" ? pic.rgb : filled;
-    for (let c = 0; c < 3; c++) layer.rgb[i * 3 + c] = src[from * 3 + c];
+    const rgb =
+      typeof filled === "function"
+        ? filled(i)
+        : filled.subarray(i * 3, i * 3 + 3);
+    for (let c = 0; c < 3; c++) layer.rgb[i * 3 + c] = rgb[c];
     layer.alpha[i] = 1;
     done[i] = 1;
   }
@@ -419,44 +426,116 @@ function hairLayers(ctx: CutContext, opaque: Mask, fills: FillRegion[]) {
   return { hairBack, parts };
 }
 
-/** The body: as drawn, and the neck carried up behind the chin to neckTopY
- *  by smearing each neck column up from under the jaw's line, under the
- *  face and the front hair only (the back hair and the custom parts are
- *  drawn under the body). */
+/**
+ * The body: as drawn, and the neck carried up behind the chin to neckTopY,
+ * under the face and the front hair only (the back hair and the custom
+ * parts are drawn under the body). Each column under the jaw's lowest face
+ * row carries up the neck's own skin nearest under the jaw: skin-class
+ * body paint clear of lines (`neckSkin`), found down through the body's
+ * paint within NECK_REACH rows, past the jaw's line and the shadow it casts.
+ * A column with none (a strand's tip, a line, the backdrop's fringe under
+ * the jaw) between two that have it takes their colours, blended by
+ * distance. Past the outermost ones, on the row their skin was found on,
+ * the neck runs on over its skin-class paint near the line (which the
+ * inset leaves out) and then its own side line, at most NECK_LINE columns
+ * of it; anything else there is no neck and carries nothing. The hidden
+ * neck is skin all over, its sides drawn as they are below the jaw.
+ */
 function bodyLayer(ctx: CutContext, opaque: Mask, fills: FillRegion[]) {
   const { pic, lm, labels } = ctx;
   const { width, height } = pic;
   const body = paintOf(pic, labels.body);
-  const neck = new Uint8Array(width * height);
-  const from = new Int32Array(width * height).fill(-1);
+  const sources = neckSkin(ctx);
+  const jaws = new Int32Array(width).fill(-1);
+  const from = new Int32Array(width).fill(-1);
   for (let x = 0; x < width; x++) {
     let jaw = -1;
     for (let y = height - 1; y >= 0 && jaw < 0; y--) {
       if (labels.label[y * width + x] === LABEL_FACE) jaw = y;
     }
-    if (jaw < 0 || jaw + NECK_FROM >= height) continue;
-    const s = (jaw + NECK_FROM) * width + x;
-    if (
-      labels.label[s] !== LABEL_BODY ||
-      labels.label[(jaw + 1) * width + x] !== LABEL_BODY
-    ) {
-      continue;
-    }
-    for (let y = lm.neckTopY; y <= jaw; y++) {
+    if (jaw < 0) continue;
+    jaws[x] = jaw;
+    for (let y = jaw + 1; y < height && y <= jaw + NECK_REACH; y++) {
       const i = y * width + x;
-      if (!opaque[i] || !(labels.face[i] || labels.hairFront[i])) continue;
-      neck[i] = 1;
-      from[i] = s;
+      if (labels.label[i] !== LABEL_BODY || !labels.solid[i]) break;
+      if (sources[i]) {
+        from[x] = i;
+        break;
+      }
+    }
+  }
+  const colour = new Float32Array(width * 3);
+  const carried = new Uint8Array(width);
+  let left = -1;
+  for (let x = 0; x < width; x++) {
+    if (from[x] < 0) continue;
+    for (let c = 0; c < 3; c++) colour[x * 3 + c] = pic.rgb[from[x] * 3 + c];
+    carried[x] = 1;
+    // The columns since the last with skin: blended across from both.
+    for (let g = left + 1; left >= 0 && g < x; g++) {
+      const t = (g - left) / (x - left);
+      for (let c = 0; c < 3; c++) {
+        colour[g * 3 + c] =
+          colour[left * 3 + c] * (1 - t) + colour[x * 3 + c] * t;
+      }
+      carried[g] = 1;
+    }
+    left = x;
+  }
+  const first = from.findIndex((v) => v >= 0);
+  let last = width - 1;
+  while (last >= 0 && from[last] < 0) last--;
+  // Out from each side of the neck on the row its skin was found on.
+  for (const [end, step] of [
+    [first, -1],
+    [last, 1],
+  ]) {
+    if (end < 0) break;
+    const row = Math.floor(from[end] / width);
+    let line = 0;
+    for (let x = end + step; x >= 0 && x < width && jaws[x] >= 0; x += step) {
+      const i = row * width + x;
+      if (labels.label[i] !== LABEL_BODY || !labels.solid[i]) break;
+      // Skin up to the line, then the line itself.
+      if (labels.classes[i] !== SKIN || line > 0) {
+        if (labels.classes[i] !== NEITHER || line === NECK_LINE) break;
+        line++;
+      }
+      for (let c = 0; c < 3; c++) colour[x * 3 + c] = pic.rgb[i * 3 + c];
+      carried[x] = 1;
+    }
+  }
+  const neck = new Uint8Array(width * height);
+  for (let x = 0; x < width; x++) {
+    if (!carried[x] || jaws[x] < 0) continue;
+    for (let y = lm.neckTopY; y <= jaws[x]; y++) {
+      const i = y * width + x;
+      if (opaque[i] && (labels.face[i] || labels.hairFront[i])) neck[i] = 1;
     }
   }
   fills.push({
     id: "body.neck",
-    region: fillUnder(pic, body, neck, (i) => from[i]),
-    sources: and(labels.body, labels.solid),
+    region: fillUnder(pic, body, neck, (i) => {
+      const x = i % width;
+      return colour.subarray(x * 3, x * 3 + 3);
+    }),
+    sources,
     limit: null,
-    hint: "the neck behind the chin, carried up to landmarks.neckTopY by construction",
+    hint: "the neck behind the chin, carried up to landmarks.neckTopY from the neck's own skin by construction",
   });
   return body;
+}
+
+/** The neck's own skin: skin-class body paint, solid, clear of lines. */
+function neckSkin(ctx: CutContext): Mask {
+  const { labels } = ctx;
+  return erode(
+    ctx.pic,
+    labels.body.map((v, i) =>
+      v && labels.solid[i] && labels.classes[i] === SKIN ? 1 : 0,
+    ),
+    SOURCE_INSET,
+  );
 }
 
 /** The face, the features, the hair, the body and the custom parts, with
@@ -957,6 +1036,8 @@ export function hairRungPockets(
     .map((p) => p.at);
 }
 
+/** The pockets keyed on their own and those only named: its value is how
+ *  many of both, each to be looked at. */
 function pocketsCheck(ctx: CutContext): CutCheck {
   const pockets = findPockets(ctx.pic, ctx.labels);
   const show = (p: Point) => `[${p[0]}, ${p[1]}]`;
@@ -964,23 +1045,29 @@ function pocketsCheck(ctx: CutContext): CutCheck {
     .slice(0, POCKETS_NAMED)
     .map((p) => `${show(p.at)} (${p.size} px)`);
   const parts: string[] = [];
+  const plural = (k: number, one: string, many: string) =>
+    `${k} ${k === 1 ? one : many}`;
   // An automatic key may have taken paint: it always warns, first, so the
   // keyed points are looked at on preview-labels.png.
   if (ctx.keyed.length > 0) {
     parts.push(
-      `keyed as backdrop on their own, the hair ringing them: ${ctx.keyed.map(show).join(", ")}; check each on preview-labels.png, and if one is paint (an ornament, a pale panel), add a point inside it to landmarks.paintSeeds`,
+      `keyed ${plural(ctx.keyed.length, "gap", "gaps")} the hair rings as backdrop on ${ctx.keyed.length === 1 ? "its" : "their"} own, at ${ctx.keyed.map(show).join(", ")}; check each on preview-labels.png, and if one is paint (an ornament, a pale panel), add a point inside it to landmarks.paintSeeds`,
     );
   }
   if (pockets.length > 0) {
+    const one = pockets.length === 1;
+    const listed =
+      pockets.length > named.length ? `the largest ${named.length} at` : "at";
     parts.push(
-      `backdrop-coloured paint the border flood cannot reach, now cut into a layer: if it is backdrop showing through (a gap between the neck and a tail, under an arm), add these to landmarks.backgroundSeeds: ${named.join(", ")}`,
+      `${plural(pockets.length, "region", "regions")} of backdrop-coloured paint the border flood cannot reach, ${listed} ${named.join(", ")}, ${one ? "is" : "are"} cut into a layer: if ${one ? "it is" : "one is"} backdrop showing through (a gap between the neck and a tail, under an arm), add its point to landmarks.backgroundSeeds`,
     );
   }
+  const value = ctx.keyed.length + pockets.length;
   return {
     id: "pockets",
     level: "warn",
-    pass: pockets.length === 0 && ctx.keyed.length === 0,
-    value: pockets.length,
+    pass: value === 0,
+    value,
     limit: 0,
     keyed: ctx.keyed,
     hint:

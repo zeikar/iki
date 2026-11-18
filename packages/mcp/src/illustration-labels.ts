@@ -74,6 +74,13 @@ const THIN_BESIDE_SKIN = 2 * THIN_RADIUS + 2;
  *  outline (on thick paint, a collar or a ribbon, a thin rim). Smaller lets
  *  a body flood run along the hair's outline. */
 const INK_REACH = 3;
+/** A hair piece as thin as a drawn line (less than half of it left by an
+ *  erosion of LINE_RADIUS: a line and its soft edge, not a lock) holding no
+ *  hair sample, with more than this share of its 2 px ring the body's paint, is
+ *  the body's outline inked in a colour near the hair's: an outline has the
+ *  body on one side of it, about half its ring; a loose wisp has backdrop
+ *  all round. */
+const OUTLINE_RING_SHARE = 0.3;
 /** Neither-paint thinner than 2r+1 px is a drawn line rather than cloth. */
 const LINE_RADIUS = 3;
 /** A line joined to the hair is the hair's along this many px of itself:
@@ -100,14 +107,34 @@ export function maskBox(size: CanvasSize, m: ArrayLike<number>): Box | null {
   return x1 < 0 ? null : [x0, y0, x1, y1];
 }
 
+/** Where a pixel lies against a brow's line (`browGeometry`). */
+export interface BrowPlace {
+  /** Distance from the line, px. */
+  d: number;
+  /** The y part of the offset from the line's nearest point: over 0 below
+   *  it. */
+  dy: number;
+  /** The band's half-width at the nearest point. */
+  half: number;
+  /** Past the line's first point (its tail) or last point (its inner end)
+   *  rather than beside it; null beside it. */
+  end: "tail" | "end" | null;
+  /** The nearest point lies in the line's first third, where the band
+   *  narrows to tailHalfWidth. */
+  third: boolean;
+  /** The line's direction there, a unit vector. */
+  tx: number;
+  ty: number;
+}
+
 /**
- * A brow's band: the pixels within the half-width of its centreline. The
- * half-width runs from `tailHalfWidth` at the tail up to `halfWidth` a third
- * of the way along, where the brow reaches its full thickness.
+ * A brow's line as a band: the half-width runs from `tailHalfWidth` at the
+ * tail up to `halfWidth` a third of the way along, where the brow reaches
+ * its full thickness. Returns where a pixel lies against it.
  */
-export function browBand(size: CanvasSize, brow: IllustrationBrow): Mask {
-  const { width, height } = size;
-  const m = new Uint8Array(width * height);
+export function browGeometry(
+  brow: IllustrationBrow,
+): (x: number, y: number) => BrowPlace {
   const { line, halfWidth, tailHalfWidth } = brow;
   const lengths = [0];
   for (let k = 1; k < line.length; k++) {
@@ -122,31 +149,56 @@ export function browBand(size: CanvasSize, brow: IllustrationBrow): Mask {
       ? tailHalfWidth +
         (halfWidth - tailHalfWidth) * Math.min(1, (3 * s) / total)
       : halfWidth;
-  for (let k = 0; k + 1 < line.length; k++) {
-    const [ax, ay] = line[k];
-    const [bx, by] = line[k + 1];
-    const len2 = (bx - ax) ** 2 + (by - ay) ** 2;
-    const reach = Math.max(halfAt(lengths[k]), halfAt(lengths[k + 1]));
-    const xa = Math.max(0, Math.floor(Math.min(ax, bx) - reach));
-    const xb = Math.min(width - 1, Math.ceil(Math.max(ax, bx) + reach));
-    const ya = Math.max(0, Math.floor(Math.min(ay, by) - reach));
-    const yb = Math.min(height - 1, Math.ceil(Math.max(ay, by) + reach));
-    for (let y = ya; y <= yb; y++) {
-      for (let x = xa; x <= xb; x++) {
-        const t =
-          len2 > 0
-            ? Math.max(
-                0,
-                Math.min(
-                  1,
-                  ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / len2,
-                ),
-              )
-            : 0;
-        const d = Math.hypot(x - ax - t * (bx - ax), y - ay - t * (by - ay));
-        const s = lengths[k] + t * (lengths[k + 1] - lengths[k]);
-        if (d <= halfAt(s)) m[y * width + x] = 1;
-      }
+  return (x, y) => {
+    let best: BrowPlace | null = null;
+    for (let k = 0; k + 1 < line.length; k++) {
+      const [ax, ay] = line[k];
+      const [bx, by] = line[k + 1];
+      const len2 = (bx - ax) ** 2 + (by - ay) ** 2;
+      const raw =
+        len2 > 0 ? ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / len2 : 0;
+      const t = Math.max(0, Math.min(1, raw));
+      const ox = x - ax - t * (bx - ax);
+      const oy = y - ay - t * (by - ay);
+      const d = Math.hypot(ox, oy);
+      if (best && d >= best.d) continue;
+      const s = lengths[k] + t * (lengths[k + 1] - lengths[k]);
+      best = {
+        d,
+        dy: oy,
+        half: halfAt(s),
+        end:
+          k === 0 && raw < 0
+            ? "tail"
+            : k === line.length - 2 && raw > 1
+              ? "end"
+              : null,
+        third: total > 0 && 3 * s < total,
+        tx: len2 > 0 ? (bx - ax) / Math.sqrt(len2) : 1,
+        ty: len2 > 0 ? (by - ay) / Math.sqrt(len2) : 0,
+      };
+    }
+    return best!;
+  };
+}
+
+/** A brow's band: the pixels within the half-width of its centreline
+ *  (`browGeometry`). */
+export function browBand(size: CanvasSize, brow: IllustrationBrow): Mask {
+  const { width, height } = size;
+  const m = new Uint8Array(width * height);
+  const where = browGeometry(brow);
+  const reach = Math.max(brow.halfWidth, brow.tailHalfWidth);
+  const xs = brow.line.map((p) => p[0]);
+  const ys = brow.line.map((p) => p[1]);
+  const x0 = Math.max(0, Math.floor(Math.min(...xs) - reach));
+  const x1 = Math.min(width - 1, Math.ceil(Math.max(...xs) + reach));
+  const y0 = Math.max(0, Math.floor(Math.min(...ys) - reach));
+  const y1 = Math.min(height - 1, Math.ceil(Math.max(...ys) + reach));
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const w = where(x, y);
+      if (w.d <= w.half) m[y * width + x] = 1;
     }
   }
   return m;
@@ -398,9 +450,10 @@ export interface IllustrationLabels {
   strandThrough: Mask;
 }
 
-/** The darkest this share of an eye box's paint that is not skin is its
- *  lash ink, whose colour class says whether colour can tell a strand from
- *  the lash. Larger reaches into the iris and the strand itself. */
+/** The darkest this share of an eye box's (a brow band's) paint that is
+ *  not skin is its lash (brow) ink, whose colour class says whether colour
+ *  can tell a strand from the lash. Larger reaches into the iris and the
+ *  strand itself. */
 const INK_SHARE = 0.1;
 
 /**
@@ -415,10 +468,19 @@ export function hairThroughBox(
   box: Box,
   classes: Uint8Array,
 ): Mask {
-  const inBox = boxMask(pic, box);
+  return hairThrough(pic, boxMask(pic, box), classes);
+}
+
+/** `hairThroughBox` over any region: a brow's band as well as an eye's
+ *  box. */
+function hairThrough(
+  pic: Illustration,
+  region: Mask,
+  classes: Uint8Array,
+): Mask {
   const notSkin: { i: number; l: number }[] = [];
-  for (let i = 0; i < inBox.length; i++) {
-    if (!inBox[i] || pic.alpha[i] <= SOLID_ALPHA || classes[i] === SKIN) {
+  for (let i = 0; i < region.length; i++) {
+    if (!region[i] || pic.alpha[i] <= SOLID_ALPHA || classes[i] === SKIN) {
       continue;
     }
     const r = pic.rgb[i * 3];
@@ -430,18 +492,19 @@ export function hairThroughBox(
   const ink = notSkin.slice(0, Math.ceil(notSkin.length * INK_SHARE));
   const hairInk = ink.filter((p) => classes[p.i] === HAIR).length;
   if (ink.length === 0 || hairInk * 2 > ink.length) {
-    return new Uint8Array(inBox.length);
+    return new Uint8Array(region.length);
   }
   const hairy = classes.map((c, i) =>
     c === HAIR && pic.alpha[i] > HAIR_ALPHA ? 1 : 0,
   );
-  const outside = and(andNot(dilate(pic, inBox, 1), inBox), hairy);
-  return reachThrough(pic, outside, and(hairy, inBox), Infinity);
+  const outside = and(andNot(dilate(pic, region, 1), region), hairy);
+  return reachThrough(pic, outside, and(hairy, region), Infinity);
 }
 
-/** Where nothing is hair whatever its colour: the eye boxes but the hair
- *  crossing them, the brow bands, the nose and mouth boxes and the
- *  `bodyOnly` polygons. */
+/** Where nothing is hair whatever its colour: the eye boxes and the brow
+ *  bands but the hair crossing them (`hairThrough`: the side hair a brow's
+ *  tail runs into is the hair's, not the brow's), the nose and mouth boxes
+ *  and the `bodyOnly` polygons. */
 function noHairRegions(
   pic: Illustration,
   lm: IllustrationLandmarks,
@@ -471,7 +534,9 @@ function noHairRegions(
     const brow = lm.brows?.[side];
     if (!brow) continue;
     browBands[side] = browBand(size, brow);
-    regions.push(browBands[side]);
+    regions.push(
+      andNot(browBands[side], hairThrough(pic, browBands[side], classes)),
+    );
   }
   return { noHair: regions.reduce(or), bodyOnlyArea, browBands };
 }
@@ -670,6 +735,13 @@ export function labelIllustration(
     solid[i] && !hair[i] && !face[i] && (c !== HAIR || bodyOnlyArea[i]) ? 1 : 0,
   );
   const body = flood(size, bodyPass, lm.bodySeeds);
+  const outline = bodyOutlines(size, hair, body, hairSamplePoints(size, lm));
+  for (let i = 0; i < n; i++) {
+    if (outline[i]) {
+      hair[i] = 0;
+      body[i] = 1;
+    }
+  }
 
   const label = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
@@ -732,6 +804,66 @@ export function labelIllustration(
     browBands,
     strandThrough,
   };
+}
+
+/** The hair samples' pixels. */
+function hairSamplePoints(
+  size: CanvasSize,
+  lm: IllustrationLandmarks,
+): number[] {
+  const { base, shadow = [], highlight = [] } = lm.samples.hair;
+  return [...base, ...shadow, ...highlight].map(
+    ([x, y]) => Math.round(y) * size.width + Math.round(x),
+  );
+}
+
+/**
+ * Hair is where the hair samples are. A hair piece as thin as a drawn line
+ * (`LINE_RADIUS`) that no sample sits on,
+ * lying along the body's paint (over OUTLINE_RING_SHARE of its ring), is the
+ * body's outline inked in a colour near the hair's: long, so the speck rule
+ * misses it. A loose wisp, backdrop all round, stays hair.
+ */
+export function bodyOutlines(
+  size: CanvasSize,
+  hair: Mask,
+  body: Mask,
+  samples: number[],
+): Mask {
+  const { id, sizes } = pieces(size, hair);
+  const sampled = new Set(samples.map((i) => id[i]).filter((k) => k >= 0));
+  const core = erode(size, hair, LINE_RADIUS);
+  const inCore = new Float64Array(sizes.length);
+  for (let i = 0; i < hair.length; i++) if (core[i]) inCore[id[i]]++;
+  const candidate = hair.map((v, i) =>
+    v && !sampled.has(id[i]) && 2 * inCore[id[i]] < sizes[id[i]] ? 1 : 0,
+  );
+  // Each ring pixel counts once toward each candidate piece within 2 px.
+  const ring = new Float64Array(sizes.length);
+  const onBody = new Float64Array(sizes.length);
+  const near = andNot(dilate(size, candidate, 2), hair);
+  const { width, height } = size;
+  for (let i = 0; i < hair.length; i++) {
+    if (!near[i]) continue;
+    const x = i % width;
+    const y = (i - x) / width;
+    const seen = new Set<number>();
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        const j = ny * width + nx;
+        if (!candidate[j] || seen.has(id[j])) continue;
+        seen.add(id[j]);
+        ring[id[j]]++;
+        if (body[i]) onBody[id[j]]++;
+      }
+    }
+  }
+  return candidate.map((v, i) =>
+    v && onBody[id[i]] > OUTLINE_RING_SHARE * ring[id[i]] ? 1 : 0,
+  );
 }
 
 /** Where hair lies over skin: the skull's box, the eyes' and the mouth's,

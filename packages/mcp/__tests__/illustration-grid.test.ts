@@ -153,14 +153,94 @@ describe("viewIllustrationGrid", () => {
     const a = await pixels(plain);
     const b = await pixels(marked);
     // The box's bottom edge runs through the centre of canvas row 470: output
-    // row (470.5 - 300) * 2 = 341, not the row's top edge at 340.
-    const onEdge = [221, 341] as const;
-    expect(b.at(...onEdge)).not.toEqual(a.at(...onEdge));
-    expect(b.at(221, 340)).toEqual(a.at(221, 340));
+    // row (470.5 - 300) * 2 = 341, in the key's colour, a dark stroke inside
+    // it (row 340) and a light one outside (row 342); row 339 untouched.
+    expect(b.at(221, 341).slice(0, 3)).toEqual([255, 64, 64]);
+    expect(b.at(221, 340).slice(0, 3)).toEqual([0, 0, 0]);
+    expect(b.at(221, 342).slice(0, 3)).toEqual([255, 255, 255]);
+    expect(b.at(221, 339)).toEqual(a.at(221, 339));
     // Inside the box, off its edge and its label: untouched.
     const inside = [221, 2 * (450 - 300)] as const;
     expect(b.at(...inside)).toEqual(a.at(...inside));
   });
+
+  it.each([
+    ["light", 245],
+    ["dark", 15],
+  ] as const)(
+    "draws every landmark so it reads over %s paint, at zoom 1 and 6",
+    async (_name, level) => {
+      const dir = tmpDir();
+      const imagePath = path.join(dir, "flat.png");
+      await sharp({
+        create: {
+          width: 550,
+          height: 550,
+          channels: 3,
+          background: { r: level, g: level, b: level },
+        },
+      })
+        .png()
+        .toFile(imagePath);
+      // One shape of each kind, under keys of every colour the cycle has.
+      const landmarks: Record<string, unknown> = {
+        box: [500, 500, 540, 530],
+        iris: { cx: 600, cy: 520, rx: 12, ry: 15 },
+        line: [
+          [500, 560],
+          [560, 575],
+        ],
+        skinSeeds: [[620, 570]],
+        a: [0, 0, 1, 1],
+        b: [0, 0, 1, 1],
+        frontHair: [
+          [640, 500],
+          [680, 500],
+          [680, 540],
+        ],
+      };
+      const luma = (p: number[]) =>
+        0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
+      for (const zoom of [1, 6]) {
+        const crop = { x: 490, y: 490, w: 200, h: 100 };
+        const out = path.join(dir, `z${zoom}.png`);
+        const r = await viewIllustrationGrid({
+          imagePath,
+          outputPath: out,
+          crop,
+          zoom,
+          step: 1000,
+          landmarks,
+        });
+        expect(r.ok).toBe(true);
+        const img = await pixels(out);
+        // Each shape's own stretch of the view, clear of every label, holds
+        // a px far from the paint.
+        for (const [x0, y0, x1, y1] of [
+          [500, 500, 540, 530],
+          [588, 505, 612, 535],
+          [554, 570, 560, 577],
+          [678, 525, 682, 541],
+        ]) {
+          let best = 0;
+          for (
+            let y = (y0 - crop.y) * zoom;
+            y <= (y1 - crop.y + 1) * zoom;
+            y++
+          ) {
+            for (
+              let x = (x0 - crop.x) * zoom;
+              x <= (x1 - crop.x + 1) * zoom;
+              x++
+            ) {
+              best = Math.max(best, Math.abs(luma(img.at(x, y)) - level));
+            }
+          }
+          expect(best, `zoom ${zoom} [${x0}, ${y0}]`).toBeGreaterThan(160);
+        }
+      }
+    },
+  );
 
   it("draws ellipses, polylines and point markers by shape", async () => {
     const dir = tmpDir();
