@@ -214,12 +214,18 @@ describe("hairRungPockets", () => {
       label,
       fg: new Uint8Array(n).fill(1),
     } as unknown as IllustrationLabels;
-    const keyed = hairRungPockets(pic, labels, []);
+    // The picture at the canvas's own size: a seed reads the same colour.
+    const rgba = Buffer.alloc(n * 4, 255);
+    for (let i = 0; i < n; i++) {
+      for (let c = 0; c < 3; c++) rgba[i * 4 + c] = rgb[i * 3 + c];
+    }
+    const source = { width, height, rgba, source: { width, height, rgba } };
+    const keyed = hairRungPockets(pic, labels, [], source);
     expect(keyed).toHaveLength(1);
     const [x, y] = keyed[0];
     expect(x >= 30 && x < 46 && y >= 30 && y < 46).toBe(true);
     // A paint seed inside it stops it too.
-    expect(hairRungPockets(pic, labels, [[38, 38]])).toEqual([]);
+    expect(hairRungPockets(pic, labels, [[38, 38]], source)).toEqual([]);
   });
 });
 

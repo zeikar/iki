@@ -270,17 +270,8 @@ export async function matteIllustration(
         `backgroundSeeds[${k}] (${sx}, ${sy}) is off the ${width}x${height} canvas`,
       );
     }
-    const px = Math.min(
-      source.width - 1,
-      Math.floor(((x + 0.5) * source.width) / width),
-    );
-    const py = Math.min(
-      source.height - 1,
-      Math.floor(((y + 0.5) * source.height) / height),
-    );
-    const i = py * source.width + px;
-    const dist = offBackdrop(source.rgba, i, backdrop);
-    if (dist >= KEY_FLOOD && source.rgba[i * 4 + 3] >= 128) {
+    const { i, dist, ok } = backdropSeed(pic, backdrop, x, y);
+    if (!ok) {
       throw new AutoRigInputError(
         `backgroundSeeds[${k}] (${sx}, ${sy}) is on paint, not backdrop: its colour is ${Math.round(dist)} from the backdrop rgb(${backdrop.map(Math.round).join(", ")}), and a seed must be under ${KEY_FLOOD}`,
       );
@@ -309,6 +300,31 @@ export async function matteIllustration(
     }
   }
   return { width, height, rgb, alpha, background: "flat", backdrop };
+}
+
+/**
+ * The rule a `backgroundSeeds` point is held to, at canvas pixel (x, y),
+ * integers on the canvas: the picture pixel under it at the picture's own
+ * size (`i`, where it starts the key's flood) must be under KEY_FLOOD from
+ * the backdrop (`dist`), or under half alpha.
+ */
+export function backdropSeed(
+  { width, height, source }: CanvasPicture,
+  backdrop: readonly number[],
+  x: number,
+  y: number,
+): { i: number; dist: number; ok: boolean } {
+  const px = Math.min(
+    source.width - 1,
+    Math.floor(((x + 0.5) * source.width) / width),
+  );
+  const py = Math.min(
+    source.height - 1,
+    Math.floor(((y + 0.5) * source.height) / height),
+  );
+  const i = py * source.width + px;
+  const dist = offBackdrop(source.rgba, i, backdrop);
+  return { i, dist, ok: dist < KEY_FLOOD || source.rgba[i * 4 + 3] < 128 };
 }
 
 /** Fill `out` with the in-picture 8-neighbours of pixel `i`; how many. */

@@ -37,6 +37,7 @@ import {
   and,
   andNot,
   backdropColoured,
+  backdropSeed,
   boxMask,
   count,
   dilate,
@@ -47,6 +48,7 @@ import {
   polygonMask,
   readPictureOnCanvas,
   type Box,
+  type CanvasPicture,
   type CanvasSize,
   type Illustration,
   type Mask,
@@ -215,6 +217,10 @@ const POCKET_KEY_SHARE = 0.01;
  *  keyed as backdrop on its own; a gap closed at one end by the clothes
  *  stays over it, a hole in a shirt is far under it. */
 const POCKET_HAIR_SHARE = 0.8;
+/** The share of a pocket's pixels a `backgroundSeeds` point must be accepted
+ *  at for the pocket to be named for one: under it, a seed keys too little
+ *  of it to clear it, and the next cut names it again. */
+const POCKET_SEED_SHARE = 0.5;
 
 const fmt = (v: number, digits = 3) => Number(v.toFixed(digits));
 const pct = (v: number) => `${(v * 100).toFixed(2)}%`;
@@ -508,7 +514,7 @@ function bodyLayer(ctx: CutContext, opaque: Mask, fills: FillRegion[]) {
   const neck = new Uint8Array(width * height);
   for (let x = 0; x < width; x++) {
     if (!carried[x] || jaws[x] < 0) continue;
-    for (let y = lm.neckTopY; y <= jaws[x]; y++) {
+    for (let y = Math.round(lm.neckTopY); y <= jaws[x]; y++) {
       const i = y * width + x;
       if (opaque[i] && (labels.face[i] || labels.hairFront[i])) neck[i] = 1;
     }
@@ -907,10 +913,16 @@ function fillCheck(size: CanvasSize, fill: FillRegion): CutCheck {
 /** A region of opaque, backdrop-coloured paint outside the face. */
 interface Pocket {
   size: number;
-  /** A point well inside it (2 px or more from its edge when it has one). */
+  /** A point well inside it (2 px or more from its edge when it has one),
+   *  one a `backgroundSeeds` point is accepted at when it is `seedable`. */
   at: Point;
   /** Whether `at` is 2 px or more inside. */
   deep: boolean;
+  /** Whether POCKET_SEED_SHARE of it takes a `backgroundSeeds` point
+   *  (`backdropSeed`), `at` among them: one under it is pale paint, near the
+   *  backdrop's colour on the canvas but past it in the picture (a fine
+   *  texture the resize averages). */
+  seedable: boolean;
   pixels: number[];
   /** Share of the painted pixels POCKET_RING_IN to POCKET_RING_OUT px
    *  around it labelled hair: the ink between the pocket and the paint
@@ -927,8 +939,11 @@ interface Pocket {
 export function findPockets(
   pic: Illustration,
   labels: IllustrationLabels,
+  source: CanvasPicture,
 ): Pocket[] {
-  const { width, height } = pic;
+  const { width, height, backdrop } = pic;
+  // A picture with no backdrop to key has no backdrop-coloured paint.
+  if (!backdrop) return [];
   const n = width * height;
   const candidate = and(
     backdropColoured(pic),
@@ -936,15 +951,15 @@ export function findPockets(
   );
   const owner = new Int32Array(n).fill(-1);
   const deep = erode(pic, candidate, 2);
+  const seedable = (i: number) =>
+    backdropSeed(source, backdrop, i % width, Math.floor(i / width)).ok;
   const found: Omit<Pocket, "hairShare">[] = [];
   for (let s = 0; s < n; s++) {
     if (!candidate[s] || owner[s] !== -1) continue;
     const queue = [s];
     owner[s] = -2;
-    let at = s;
     for (let q = 0; q < queue.length; q++) {
       const i = queue[q];
-      if (deep[i] && !deep[at]) at = i;
       const x = i % width;
       for (const j of [
         x > 0 ? i - 1 : -1,
@@ -959,11 +974,33 @@ export function findPockets(
       }
     }
     if (queue.length < POCKET_PX) continue;
+    // Named at the first pixel a seed is accepted at, deep inside if one
+    // is; a pocket no seed clears, at its first deep one.
+    let deepSeed = -1;
+    let anySeed = -1;
+    let firstDeep = -1;
+    let accepted = 0;
+    for (const i of queue) {
+      if (deep[i] && firstDeep < 0) firstDeep = i;
+      if (!seedable(i)) continue;
+      accepted++;
+      if (anySeed < 0) anySeed = i;
+      if (deep[i] && deepSeed < 0) deepSeed = i;
+    }
+    const takesSeed = accepted >= POCKET_SEED_SHARE * queue.length;
+    const at = takesSeed
+      ? deepSeed >= 0
+        ? deepSeed
+        : anySeed
+      : firstDeep >= 0
+        ? firstDeep
+        : s;
     for (const i of queue) owner[i] = found.length;
     found.push({
       size: queue.length,
       at: [at % width, Math.floor(at / width)],
       deep: deep[at] === 1,
+      seedable: takesSeed,
       pixels: queue,
     });
   }
@@ -1022,12 +1059,14 @@ export function hairRungPockets(
   pic: Illustration,
   labels: IllustrationLabels,
   paintSeeds: Point[],
+  source: CanvasPicture,
 ): Point[] {
   const paint = new Set(paintSeeds.map((p) => pixelIndex(pic, p)));
   const cap = POCKET_KEY_SHARE * pic.width * pic.height;
-  return findPockets(pic, labels)
+  return findPockets(pic, labels, source)
     .filter(
       (p) =>
+        p.seedable &&
         p.deep &&
         p.size <= cap &&
         p.hairShare >= POCKET_HAIR_SHARE &&
@@ -1036,14 +1075,20 @@ export function hairRungPockets(
     .map((p) => p.at);
 }
 
-/** The pockets keyed on their own and those only named: its value is how
- *  many of both, each to be looked at. */
+/** The pockets keyed on their own and those named for `backgroundSeeds`:
+ *  its value is how many of both, each to be looked at. A pocket no seed is
+ *  accepted in is pale paint, said so and not counted. */
 function pocketsCheck(ctx: CutContext): CutCheck {
-  const pockets = findPockets(ctx.pic, ctx.labels);
+  const found = findPockets(ctx.pic, ctx.labels, ctx.source);
+  const pockets = found.filter((p) => p.seedable);
+  const pale = found.filter((p) => !p.seedable);
   const show = (p: Point) => `[${p[0]}, ${p[1]}]`;
-  const named = pockets
-    .slice(0, POCKETS_NAMED)
-    .map((p) => `${show(p.at)} (${p.size} px)`);
+  const list = (ps: Pocket[]) => {
+    const named = ps
+      .slice(0, POCKETS_NAMED)
+      .map((p) => `${show(p.at)} (${p.size} px)`);
+    return `${ps.length > named.length ? `the largest ${named.length} at` : "at"} ${named.join(", ")}`;
+  };
   const parts: string[] = [];
   const plural = (k: number, one: string, many: string) =>
     `${k} ${k === 1 ? one : many}`;
@@ -1056,10 +1101,14 @@ function pocketsCheck(ctx: CutContext): CutCheck {
   }
   if (pockets.length > 0) {
     const one = pockets.length === 1;
-    const listed =
-      pockets.length > named.length ? `the largest ${named.length} at` : "at";
     parts.push(
-      `${plural(pockets.length, "region", "regions")} of backdrop-coloured paint the border flood cannot reach, ${listed} ${named.join(", ")}, ${one ? "is" : "are"} cut into a layer: if ${one ? "it is" : "one is"} backdrop showing through (a gap between the neck and a tail, under an arm), add its point to landmarks.backgroundSeeds`,
+      `${plural(pockets.length, "region", "regions")} of backdrop-coloured paint the border flood cannot reach, ${list(pockets)}, ${one ? "is" : "are"} cut into a layer: if ${one ? "it is" : "one is"} backdrop showing through (a gap between the neck and a tail, under an arm), add its point to landmarks.backgroundSeeds`,
+    );
+  }
+  if (pale.length > 0) {
+    const one = pale.length === 1;
+    parts.push(
+      `${plural(pale.length, "region", "regions")} near the backdrop's colour, ${list(pale)}, ${one ? "is" : "are"} pale paint, not backdrop (the picture there is too far from the backdrop's colour to key), and ${one ? "stays" : "stay"} in ${one ? "its layer" : "their layers"}: ${one ? "it needs" : "they need"} nothing`,
     );
   }
   const value = ctx.keyed.length + pockets.length;
@@ -1194,7 +1243,10 @@ function classifierFor(
 /**
  * Cut the picture into layers in `outputDir`. Only caller-input failures
  * (`AutoRigInputError`) come back as `{ ok: false, error }`; a refusal
- * writes nothing.
+ * writes nothing. A write that fails part-way says the dir is now a mix:
+ * the files written before it replace an earlier cut's of the same name, and
+ * the rest of that cut's files (a role this cut would have removed too) are
+ * still there until the cut is run again.
  */
 export async function cutLayersFromIllustration(
   input: CutLayersFromIllustrationInput,
@@ -1234,7 +1286,7 @@ export async function cutLayersFromIllustration(
     // point inside each, not a loop (a gap a key opens cannot ring another).
     const keyed =
       first.pic.background === "flat"
-        ? hairRungPockets(first.pic, first.labels, lm.paintSeeds)
+        ? hairRungPockets(first.pic, first.labels, lm.paintSeeds, source)
         : [];
     if (keyed.length > 0) first = await pass([...lm.backgroundSeeds, ...keyed]);
     const { pic, classifier, reads, labels } = first;
@@ -1305,31 +1357,42 @@ export async function cutLayersFromIllustration(
         customDir,
       );
     }
+    const labelsPath = path.join(outDir, "preview-labels.png");
+    const landmarksPath = path.join(outDir, "preview-landmarks.png");
+    let layers: CutLayer[];
+    let customParts: CutCustomPart[];
+    try {
+      layers = roleFiles.map(({ role, layer, data }) => {
+        const file = path.join(outDir, `${role}.png`);
+        writeFileAtomic(file, data);
+        return { role, path: file, ...coverage(pic, layer) };
+      });
+      customParts = partFiles.map(({ id, tie, paint, data }) => {
+        const file = path.join(customDir, `${id}.png`);
+        writeFileAtomic(file, data);
+        return { id, path: file, tie, ...coverage(pic, paint) };
+      });
+      writeFileAtomic(labelsPath, previews.labels);
+      writeFileAtomic(landmarksPath, previews.landmarks);
+    } catch (e) {
+      // Past the inputs' checks, unlike a refusal: the dir is a mix of this
+      // cut's files written so far and an earlier cut's other files.
+      if (!(e instanceof AutoRigInputError)) throw e;
+      throw new AutoRigInputError(
+        `${e.message}; the cut stopped part-way: in ${outDir} the files it wrote before that one replace an earlier cut's of the same name, and the rest of the earlier cut's files (any role this cut would have removed too) are still there, so the dir is a mix of the two until the cut is run again`,
+      );
+    }
     // An earlier cut into the same dir may have written a role this one does
     // not (the drawn `mouth` before a lip set, or the set before the drawn
     // mouth): left behind it would be measured and rigged with these, and
-    // the rig refuses the mouth beside the lip set. Only the fixed role
-    // names, under the confined outDir, are ever removed.
+    // the rig refuses the mouth beside the lip set. Removed only once every
+    // file of this cut is written, so a failed write removes nothing (the
+    // dir is then a mix, which the message says). Only the fixed role names,
+    // under the confined outDir, are ever removed.
     for (const role of ORDER) {
       if (roleFiles.some((f) => f.role === role)) continue;
       fs.rmSync(path.join(outDir, `${role}.png`), { force: true });
     }
-    const layers: CutLayer[] = roleFiles.map(({ role, layer, data }) => {
-      const file = path.join(outDir, `${role}.png`);
-      writeFileAtomic(file, data);
-      return { role, path: file, ...coverage(pic, layer) };
-    });
-    const customParts: CutCustomPart[] = partFiles.map(
-      ({ id, tie, paint, data }) => {
-        const file = path.join(customDir, `${id}.png`);
-        writeFileAtomic(file, data);
-        return { id, path: file, tie, ...coverage(pic, paint) };
-      },
-    );
-    const labelsPath = path.join(outDir, "preview-labels.png");
-    const landmarksPath = path.join(outDir, "preview-landmarks.png");
-    writeFileAtomic(labelsPath, previews.labels);
-    writeFileAtomic(landmarksPath, previews.landmarks);
 
     let measure: CutMeasure;
     try {

@@ -777,6 +777,61 @@ describe("cutLayersFromIllustration checks", () => {
     expect(Math.max(...(await coverAt(r, GAP.cx, GAP.cy)))).toBe(255);
   });
 
+  it("names for backgroundSeeds only points a cut then accepts, and calls a pale texture near the backdrop's colour paint", async () => {
+    // The pocket filled with a fine checker of the backdrop and a paint 50
+    // from it, on a picture twice the canvas: the resize averages it to 25
+    // from the backdrop, under the seed's limit of 32, but every picture
+    // pixel a seed reads is the paint.
+    const colours = PINK_ON_PEACH;
+    const drawn = await picture(colours, { pocket: true });
+    const { data, info } = await sharp(drawn)
+      .resize(2 * W, 2 * W, { kernel: "nearest" })
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const back = colours.backdrop;
+    const paint = back.map((v) => v - 29);
+    for (let y = 0; y < info.height; y++) {
+      for (let x = 0; x < info.width; x++) {
+        if (Math.hypot(x - 2 * POCKET.cx, y - 2 * POCKET.cy) > 2 * POCKET.r) {
+          continue;
+        }
+        const i = (y * info.width + x) * 3;
+        if ((x + y) % 2 !== 0 || off(data.subarray(i, i + 3), back) !== 0) {
+          continue;
+        }
+        data.set(paint, i);
+      }
+    }
+    const file = path.join(tmpDir(), "textured.png");
+    await sharp(data, { raw: { ...info, channels: 3 } })
+      .png()
+      .toFile(file);
+
+    const pockets = check(await cut(file), "pockets");
+    const pale = pockets.hint.match(
+      /1 region near the backdrop's colour, at \[(\d+), (\d+)\] \(\d+ px\), is pale paint, not backdrop .*: it needs nothing/,
+    )!;
+    expect(
+      Math.hypot(Number(pale[1]) - POCKET.cx, Number(pale[2]) - POCKET.cy),
+    ).toBeLessThan(POCKET.r);
+    const seeds = pockets.hint
+      .split("; ")
+      .filter((part) => part.endsWith("landmarks.backgroundSeeds"))
+      .flatMap((part) => [...part.matchAll(/\[(\d+), (\d+)\] \(\d+ px\)/g)])
+      .map((m) => [Number(m[1]), Number(m[2])]);
+    for (const seed of seeds) {
+      const lm = characterLandmarks();
+      lm.backgroundSeeds = [seed];
+      const r = await cutLayersFromIllustration({
+        imagePath: file,
+        landmarks: lm,
+        outputDir: outDir(),
+      });
+      expect(r.ok, `${seed}: ${r.ok ? "" : r.error}`).toBe(true);
+    }
+  });
+
   it("names a pocket of enclosed backdrop the cloth rings, without keying it, which its seed then keys", async () => {
     const file = await picture(PINK_ON_PEACH, { pocket: true });
     const pockets = check(await cut(file), "pockets");
@@ -1027,6 +1082,17 @@ describe("cutLayersFromIllustration on what lies beside the features", () => {
         NEAR,
       );
     }
+  });
+
+  it("starts the neck's fill on the row a fractional neckTopY rounds to", async () => {
+    const r = await cut(await picture(PINK_ON_PEACH), {
+      ...characterLandmarks(),
+      neckTopY: 539.6,
+    });
+    const body = await pixelsOf(layer(r, "body").path);
+    expect(body.at(550, 540)[3]).toBe(255);
+    expect(body.at(550, 539)[3]).toBe(0);
+    expect(body.at(550, 600)[3]).toBe(255);
   });
 
   it("warns that a brow's line runs off the brow, saying which way to move it, and passes once moved", async () => {
@@ -1461,6 +1527,35 @@ describe("cutLayersFromIllustration with a lip set", () => {
     expect(again.ok).toBe(true);
     expect(fs.existsSync(path.join(dir, "lip_upper.png"))).toBe(false);
     expect(fs.existsSync(path.join(dir, "mouth.png"))).toBe(true);
+  });
+
+  it("removes no earlier role when a write fails part-way, and says the dir is a mix", async () => {
+    const dir = outDir();
+    const lm = characterLandmarks();
+    lm.mouth = WIDE_MOUTH;
+    const first = await cutLayersFromIllustration({
+      imagePath: pink,
+      landmarks: lm,
+      outputDir: dir,
+    });
+    expect(first.ok).toBe(true);
+    // A directory where the first layer goes: its write fails.
+    fs.rmSync(path.join(dir, "hair_back.png"));
+    fs.mkdirSync(path.join(dir, "hair_back.png"));
+    const r = await cutLayersFromIllustration({
+      imagePath: pink,
+      landmarks: lm,
+      outputDir: dir,
+      ...lipInputs(),
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toMatch(
+        /^write: .*the cut stopped part-way: .* the dir is a mix of the two until the cut is run again$/,
+      );
+    }
+    expect(fs.existsSync(path.join(dir, "mouth.png"))).toBe(true);
+    expect(fs.existsSync(path.join(dir, "lip_upper.png"))).toBe(false);
   });
 });
 

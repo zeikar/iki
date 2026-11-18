@@ -787,6 +787,16 @@ describe("validateLandmarks", () => {
       'landmarks.customParts[0].id "hair_side_L" is a role\'s name',
     ],
     [
+      "a part id the left arm yields as an id",
+      (lm) => void (lm.customParts[0].id = "elbow_L"),
+      'landmarks.customParts[0].id "elbow_L" is a role\'s name or a part id a role yields',
+    ],
+    [
+      "a part id the right arm yields as an id",
+      (lm) => void (lm.customParts[1].id = "forearm_R"),
+      'landmarks.customParts[1].id "forearm_R" is a role\'s name or a part id a role yields',
+    ],
+    [
       "a repeated id",
       (lm) => void (lm.customParts[1].id = "tail_R"),
       'landmarks.customParts[1].id "tail_R" repeats an earlier entry\'s id',

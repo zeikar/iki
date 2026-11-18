@@ -14,6 +14,7 @@
  */
 
 import { partIdsOfRole } from "@ikijs/editor";
+import { ARM_ROLES } from "./measure-arms";
 import type { Box, CanvasSize, Point } from "./illustration";
 import {
   AutoRigInputError,
@@ -386,8 +387,17 @@ function brow(path: string, v: unknown, canvas: CanvasSize): IllustrationBrow {
   };
 }
 
-/** A role's name: `partIdsOfRole` throws on any other. */
-function isRoleName(id: string): boolean {
+/** The part ids a role yields besides its own name: only the arms', in
+ *  `ROLE_TABLE` (`@ikijs/editor`'s `auto-rig/roles.ts`), which the package
+ *  does not export. */
+const YIELDED_PART_IDS = new Set(ARM_ROLES.flatMap((r) => partIdsOfRole(r)));
+
+/** A role's name or a part id a role yields: the rig reserves both for
+ *  roles (`RESERVED` in `@ikijs/editor`'s `auto-rig/custom-parts.ts`), so a
+ *  custom part named either is refused there. `partIdsOfRole` throws on any
+ *  name but a role's. */
+function isReservedId(id: string): boolean {
+  if (YIELDED_PART_IDS.has(id)) return true;
   try {
     partIdsOfRole(id);
     return true;
@@ -410,9 +420,9 @@ function customCut(
     );
   }
   const name = id as string;
-  if (isRoleName(name)) {
+  if (isReservedId(name)) {
     fail(
-      `${path}.id "${name}" is a role's name: a custom part needs a name no role takes`,
+      `${path}.id "${name}" is a role's name or a part id a role yields: a custom part needs a name no role takes`,
     );
   }
   if (ids.has(name)) {
