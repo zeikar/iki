@@ -96,4 +96,13 @@ export {
   type ViewIllustrationGridInput,
   type ViewIllustrationGridResult,
 } from "./illustration-grid";
+export type {
+  IllustrationBrow,
+  IllustrationCustomCut,
+  IllustrationEye,
+  IllustrationLandmarks,
+  IllustrationPolygonCut,
+  IllustrationSamples,
+  IllustrationSideCut,
+} from "./illustration-landmarks";
 export { createIkiMcpServer } from "./server";

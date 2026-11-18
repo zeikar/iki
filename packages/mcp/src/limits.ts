@@ -40,6 +40,11 @@ export const MAX_OUTPUT_BYTES = 12 * 1024 * 1024;
 export const MAX_PROBE_QUERIES = 64;
 /** Max points in one `probe_rig` land/displacement query. */
 export const MAX_PROBE_POINTS = 5000;
+/** Max points in one illustration landmark list (a polygon, a line, seeds,
+ *  samples): the cutter rasterises each, so an outsized one would stall it. */
+export const MAX_LANDMARK_POINTS = 2000;
+/** Max custom parts one illustration's landmarks cut out. */
+export const MAX_LANDMARK_CUSTOM_PARTS = 16;
 
 /**
  * Expected, caller-input-caused failure. The tool catches ONLY this class and
