@@ -11,6 +11,7 @@ import {
   flood,
   loadIllustration,
   majority,
+  pixelIndex,
   polygonMask,
   pushPull,
   readPictureOnCanvas,
@@ -49,24 +50,24 @@ function toArt(size: CanvasSize, m: Mask): string[] {
 }
 
 describe("raster helpers", () => {
-  it("polygonMask takes the pixels whose centres lie inside", () => {
+  it("polygonMask takes the pixels whose centres lie inside or on the outline through the vertices' pixels", () => {
     const size = { width: 7, height: 5 };
     const m = polygonMask(size, [
       [0, 0],
       [6, 0],
       [0, 6],
     ]);
-    // Row y's centre crosses the hypotenuse at x = 5.5 - y.
+    // The hypotenuse runs through the centres of (6 - y, y).
     expect(toArt(size, m)).toEqual([
+      "#######",
+      "######.",
       "#####..",
       "####...",
       "###....",
-      "##.....",
-      "#......",
     ]);
   });
 
-  it("polygonMask covers a square's columns x0..x1-1 and rows y0..y1-1", () => {
+  it("polygonMask covers a square's columns x0..x1 and rows y0..y1", () => {
     const size = { width: 8, height: 7 };
     const m = polygonMask(size, [
       [2, 1],
@@ -74,15 +75,45 @@ describe("raster helpers", () => {
       [6, 5],
       [2, 5],
     ]);
-    expect(m.reduce((t, v) => t + v, 0)).toBe(16);
+    expect(m.reduce((t, v) => t + v, 0)).toBe(25);
     expect(toArt(size, m)).toEqual([
       "........",
-      "..####..",
-      "..####..",
-      "..####..",
-      "..####..",
+      "..#####.",
+      "..#####.",
+      "..#####.",
+      "..#####.",
+      "..#####.",
       "........",
-      "........",
+    ]);
+    // The same square as boxMask gives, both corners inside.
+    expect([...m]).toEqual([...boxMask(size, [2, 1, 6, 5])]);
+  });
+
+  it("polygonMask keeps a polygon's lowest vertex and a sliver thinner than a row", () => {
+    const size = { width: 7, height: 5 };
+    const v = polygonMask(size, [
+      [0, 0],
+      [6, 0],
+      [3, 3],
+    ]);
+    expect(toArt(size, v)).toEqual([
+      "#######",
+      ".#####.",
+      "..###..",
+      "...#...",
+      ".......",
+    ]);
+    const sliver = polygonMask(size, [
+      [1, 2],
+      [5, 2],
+      [3, 2.2],
+    ]);
+    expect(toArt(size, sliver)).toEqual([
+      ".......",
+      ".......",
+      ".#####.",
+      ".......",
+      ".......",
     ]);
   });
 
@@ -132,16 +163,24 @@ describe("raster helpers", () => {
     expect([...erode(size, full, 1)]).toEqual([...full]);
   });
 
-  it("flood stays on its side of a line it cannot cross, and ignores seeds off the pass or the canvas", () => {
+  it("flood stays on its side of a line it cannot cross, and ignores seeds off the pass", () => {
     const { size, m } = fromArt(["..#..", "..#..", "..#..", "..#.."]);
     const pass = m.map((v) => (v ? 0 : 1));
     const left = flood(size, pass, [
       [0, 0],
       [2, 1],
-      [-4, 0],
-      [9, 9],
     ]);
     expect(toArt(size, left)).toEqual(["##...", "##...", "##...", "##..."]);
+    // A coordinate just under the width rounds past it: held on the edge.
+    const right = flood(size, pass, [[4.6, 3.7]]);
+    expect(toArt(size, right)).toEqual(["...##", "...##", "...##", "...##"]);
+  });
+
+  it("pixelIndex rounds a point and holds it on the canvas", () => {
+    const size = { width: 5, height: 4 };
+    expect(pixelIndex(size, [1.4, 2.6])).toBe(3 * 5 + 1);
+    expect(pixelIndex(size, [4.9, 3.9])).toBe(3 * 5 + 4);
+    expect(pixelIndex(size, [-0.4, 0])).toBe(0);
   });
 
   it("fillHoles closes enclosed holes but not a gap open to the edge", () => {
@@ -317,6 +356,152 @@ describe("loadIllustration", () => {
     expect(soft).toBeGreaterThan(500);
   });
 
+  it("keeps pale paint with no outline whole: the key does not flood into it", async () => {
+    const PALE: RGB = [255, 235, 220];
+    const file = path.join(tmpDir(), "pale.png");
+    await writeOpaque(file, 1100, (x, y) => {
+      const a = coverage(x, y, 550, 300);
+      return [0, 1, 2].map((c) =>
+        Math.round(PALE[c] * a + WHITE[c] * (1 - a)),
+      ) as RGB;
+    });
+    const pic = await loadIllustration(file);
+    expect(pic.background).toBe("flat");
+    const at = (x: number, y: number) => y * pic.width + x;
+    for (const [x, y] of [
+      [550, 550],
+      [550, 260],
+      [290, 550],
+      [800, 700],
+    ]) {
+      expect(pic.alpha[at(x, y)]).toBe(1);
+    }
+    expect(pic.alpha[at(20, 20)]).toBe(0);
+  });
+
+  it("keys a backdrop that drifts off its border's colour away from the figure, and still measures the figure's soft edge", async () => {
+    const file = path.join(tmpDir(), "shade.png");
+    // A soft shadow on the backdrop, about 21 from its colour at the
+    // middle (between the noise floor and the flood's limit), away from the
+    // disc.
+    await writeOpaque(file, 1100, (x, y) => {
+      const shade = 12 * Math.max(0, 1 - Math.hypot(x - 180, y - 900) / 120);
+      return x > 300 && x < 800 && y > 200 && y < 800
+        ? discAt(x, y)
+        : (BACKDROP.map((v) => Math.round(v - shade)) as RGB);
+    });
+    const pic = await loadIllustration(file);
+    const at = (x: number, y: number) => y * pic.width + x;
+    expect(pic.alpha[at(180, 900)]).toBe(0);
+    expect(pic.alpha[at(150, 880)]).toBe(0);
+    expect(pic.alpha[at(550, 550)]).toBe(1);
+    // The disc's rim keeps its coverage.
+    let rimPixels = 0;
+    for (let x = 520; x < 580; x++) {
+      for (let y = 245; y < 255; y++) {
+        const c = coverage(x, y, 550, 300);
+        if (c <= 0.2 || c >= 0.8) continue;
+        rimPixels++;
+        expect(Math.abs(pic.alpha[at(x, y)] - c)).toBeLessThan(0.02);
+      }
+    }
+    expect(rimPixels).toBeGreaterThan(0);
+  });
+
+  it("keeps a dark outline's soft edge: the keyed picture over its backdrop gives the picture back", async () => {
+    const file = path.join(tmpDir(), "outlined.png");
+    // A pale disc with a dark line one picture pixel wide round it on a
+    // mid-tone backdrop, the paint lighter and the line darker than it, at
+    // half size so the scale softens every edge: the line is all edge.
+    const PALE: RGB = [245, 180, 185];
+    const MID: RGB = [143, 158, 180];
+    await writeOpaque(file, 550, (x, y) => {
+      const d = Math.hypot(x + 0.5 - 275, y + 0.5 - 275);
+      return d < 146 ? PALE : d < 147 ? INK : MID;
+    });
+    const pic = await loadIllustration(file);
+    const source = await readPictureOnCanvas(file);
+    let off = 0;
+    for (let i = 0; i < pic.width * pic.height; i++) {
+      const a = pic.alpha[i];
+      for (let c = 0; c < 3; c++) {
+        const got = pic.rgb[i * 3 + c] * a + MID[c] * (1 - a);
+        if (Math.abs(got - source.rgba[i * 4 + c]) > 24) {
+          off++;
+          break;
+        }
+      }
+    }
+    expect(off).toBe(0);
+  });
+
+  /** [what, ground, fill, line (or none)]: a disc of `fill` ringed by a
+   *  line two picture pixels wide, at half size so the resize rings past
+   *  the ground just outside the figure. */
+  const silhouettes: [string, RGB, RGB, RGB | null][] = [
+    ["a dark line on a light ground", [245, 245, 245], [240, 150, 175], INK],
+    [
+      "black ink on a mid-tone ground",
+      [143, 158, 180],
+      [245, 180, 185],
+      [20, 15, 25],
+    ],
+    [
+      "a pale figure with dark lines on a dark ground",
+      [30, 32, 45],
+      [235, 225, 215],
+      [10, 8, 12],
+    ],
+    [
+      "a pale figure with no line on a dark ground",
+      [30, 32, 45],
+      [235, 225, 215],
+      null,
+    ],
+  ];
+
+  it.each(silhouettes)(
+    "keys the resize's ring outside the silhouette clear, and gives the picture back: %s",
+    async (_what, ground, fill, line) => {
+      const file = path.join(tmpDir(), "silhouette.png");
+      const R = 146;
+      const outer = line ? R + 2 : R;
+      await writeOpaque(file, 550, (x, y) => {
+        const d = Math.hypot(x + 0.5 - 275, y + 0.5 - 275);
+        return d < R ? fill : d < outer && line ? line : ground;
+      });
+      const pic = await loadIllustration(file);
+      const source = await readPictureOnCanvas(file);
+      let outside = 0;
+      let off = 0;
+      for (let y = 0; y < pic.height; y++) {
+        for (let x = 0; x < pic.width; x++) {
+          const i = y * pic.width + x;
+          // Past the drawn edge by more than one picture pixel's softening.
+          if (Math.hypot(x + 0.5 - 550, y + 0.5 - 550) > 2 * outer + 2) {
+            outside++;
+            if (pic.alpha[i] >= 0.5) off++;
+          }
+        }
+      }
+      expect(outside).toBeGreaterThan(100000);
+      expect(off).toBe(0);
+      expect(pic.alpha[550 * 1100 + 550]).toBe(1);
+      let wrong = 0;
+      for (let i = 0; i < pic.width * pic.height; i++) {
+        const a = pic.alpha[i];
+        for (let c = 0; c < 3; c++) {
+          const got = pic.rgb[i * 3 + c] * a + ground[c] * (1 - a);
+          if (Math.abs(got - source.rgba[i * 4 + c]) > 24) {
+            wrong++;
+            break;
+          }
+        }
+      }
+      expect(wrong).toBe(0);
+    },
+  );
+
   it("takes a JPEG's noisy flat backdrop as one colour", async () => {
     const file = path.join(tmpDir(), "disc.jpg");
     await writeOpaque(file, 550, (x, y) => discAt(2 * x, 2 * y), "jpeg");
@@ -356,7 +541,7 @@ describe("loadIllustration", () => {
         ],
       }),
     ).rejects.toThrow(
-      /backgroundSeeds\[1\] \(550, 385\) is on paint, not backdrop: its colour is 373 from the backdrop rgb\(255, 255, 255\), and a seed must be under 50/,
+      /backgroundSeeds\[1\] \(550, 385\) is on paint, not backdrop: its colour is 373 from the backdrop rgb\(255, 255, 255\), and a seed must be under 32/,
     );
     await expect(
       loadIllustration(file, { backgroundSeeds: [[-5, 10]] }),

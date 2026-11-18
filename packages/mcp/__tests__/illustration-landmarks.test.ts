@@ -70,7 +70,16 @@ function full(): Record<string, any> {
     ],
     bodySeeds: [[550, 900]],
     backgroundSeeds: [[200, 1000]],
+    paintSeeds: [[210, 990]],
     neckTopY: 520,
+    bodyOnly: [
+      [
+        [380, 880],
+        [720, 880],
+        [760, 1099],
+        [340, 1099],
+      ],
+    ],
     customParts: [
       {
         id: "tail_R",
@@ -106,6 +115,8 @@ function minimal(): Record<string, any> {
   delete lm.brows;
   delete lm.nose;
   delete lm.backgroundSeeds;
+  delete lm.paintSeeds;
+  delete lm.bodyOnly;
   delete lm.customParts;
   return lm;
 }
@@ -151,6 +162,8 @@ describe("validateLandmarks", () => {
   it("fills in the empty lists for the keys left out", () => {
     const out = validateLandmarks(minimal(), CANVAS);
     expect(out.backgroundSeeds).toEqual([]);
+    expect(out.paintSeeds).toEqual([]);
+    expect(out.bodyOnly).toEqual([]);
     expect(out.customParts).toEqual([]);
     expect(out).not.toHaveProperty("brows");
     expect(out).not.toHaveProperty("nose");
@@ -223,7 +236,7 @@ describe("validateLandmarks", () => {
     const top = full();
     top.mouthBox = [0, 0, 1, 1];
     expect(messageOf(top)).toBe(
-      "landmarks.mouthBox is not one of samples, eyes, brows, nose, mouth, frontHair, skull, shellLower, skinSeeds, bodySeeds, backgroundSeeds, neckTopY, customParts",
+      "landmarks.mouthBox is not one of samples, eyes, brows, nose, mouth, frontHair, skull, shellLower, skinSeeds, bodySeeds, backgroundSeeds, paintSeeds, neckTopY, bodyOnly, customParts",
     );
   });
 
@@ -706,6 +719,45 @@ describe("validateLandmarks", () => {
       "a custom line running up",
       (lm) => void (lm.customParts[0].line[2] = [283, 200]),
       "landmarks.customParts[0].line[2] y 200 must be greater than landmarks.customParts[0].line[1] y 250: the points run with y strictly ascending",
+    ],
+
+    [
+      "too many samples in one set",
+      (lm) => void (lm.samples.skin.shadow = points(32)),
+      "landmarks.samples.skin has 33 points, over the 32 one set may hold",
+    ],
+
+    [
+      "a paint seed off the canvas",
+      (lm) => void (lm.paintSeeds = [[5, 1100]]),
+      "landmarks.paintSeeds[0] [5,1100] is outside",
+    ],
+
+    // bodyOnly
+    [
+      "a bodyOnly that is not a list",
+      (lm) => void (lm.bodyOnly = { a: 1 }),
+      'landmarks.bodyOnly must be an array of polygons, got {"a":1}',
+    ],
+    [
+      "a bodyOnly polygon of two points",
+      (lm) =>
+        void (lm.bodyOnly[0] = [
+          [0, 0],
+          [5, 5],
+        ]),
+      "landmarks.bodyOnly[0] must have 3 or more points, got 2",
+    ],
+    [
+      "a bodyOnly point off the canvas",
+      (lm) => void (lm.bodyOnly[0][3] = [340, 1100]),
+      "landmarks.bodyOnly[0][3] [340,1100] is outside",
+    ],
+    [
+      "too many bodyOnly polygons",
+      (lm) =>
+        void (lm.bodyOnly = Array.from({ length: 17 }, () => lm.bodyOnly[0])),
+      "landmarks.bodyOnly has 17 polygons, over the 16 one picture may hold",
     ],
 
     // custom parts

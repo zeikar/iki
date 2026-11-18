@@ -17,8 +17,10 @@ import { partIdsOfRole } from "@ikijs/editor";
 import type { Box, CanvasSize, Point } from "./illustration";
 import {
   AutoRigInputError,
+  MAX_LANDMARK_BODY_ONLY,
   MAX_LANDMARK_CUSTOM_PARTS,
   MAX_LANDMARK_POINTS,
+  MAX_LANDMARK_SAMPLES,
 } from "./limits";
 
 /** Where the colour classes come from: each point reads a small patch, and a
@@ -152,11 +154,23 @@ export interface IllustrationLandmarks {
    *  of the body. */
   bodySeeds: Point[];
   /** Backdrop pockets the figure encloses, which the flood from the border
-   *  cannot reach; a pocket without one stays painted. Empty when omitted. */
+   *  cannot reach; a pocket without one stays painted. Pockets the hair
+   *  rings (gaps between strands) are keyed without one. Empty when
+   *  omitted. */
   backgroundSeeds: Point[];
+  /** Backdrop-coloured paint the hair rings that is paint, not backdrop (a
+   *  pale clip between two locks): a pocket holding one is never keyed on
+   *  its own. Empty when omitted. */
+  paintSeeds: Point[];
   /** The row the neck is carried up to behind the chin; too low shows a gap
    *  under the jaw when the head turns or nods. */
   neckTopY: number;
+  /** Polygons, 3 or more points each, where paint the colour samples call
+   *  hair belongs to the body: a dark jacket under near-black hair, a
+   *  hair-coloured bow on the chest. Without one such paint is cut into the
+   *  hair layers; one over the hair takes it out of them. Empty when
+   *  omitted. */
+  bodyOnly: Point[][];
   /** Parts cut out of the back hair (tails, a ponytail); empty when omitted.
    *  A part left in the back hair widens the head the turn is fitted to. */
   customParts: IllustrationCustomCut[];
@@ -178,7 +192,9 @@ const KEYS = {
     "skinSeeds",
     "bodySeeds",
     "backgroundSeeds",
+    "paintSeeds",
     "neckTopY",
+    "bodyOnly",
     "customParts",
   ],
   samples: ["hair", "skin"],
@@ -477,6 +493,17 @@ export function validateLandmarks(
   if (k.shadow !== undefined) {
     samples.skin.shadow = points(`${kp}.shadow`, k.shadow, 1, canvas);
   }
+  for (const [path, set] of [
+    [hp, samples.hair],
+    [kp, samples.skin],
+  ] as const) {
+    const total = Object.values(set).reduce((t, list) => t + list.length, 0);
+    if (total > MAX_LANDMARK_SAMPLES) {
+      fail(
+        `${path} has ${total} points, over the ${MAX_LANDMARK_SAMPLES} one set may hold: a few per tone describe it`,
+      );
+    }
+  }
 
   const ep = `${at}.eyes`;
   const e = object(ep, required(at, root, "eyes"), KEYS.sides);
@@ -538,12 +565,33 @@ export function validateLandmarks(
     root.backgroundSeeds === undefined
       ? []
       : points(`${at}.backgroundSeeds`, root.backgroundSeeds, 0, canvas);
+  const paintSeeds =
+    root.paintSeeds === undefined
+      ? []
+      : points(`${at}.paintSeeds`, root.paintSeeds, 0, canvas);
 
   const neckTopY = number(`${at}.neckTopY`, required(at, root, "neckTopY"));
   if (neckTopY < 0 || neckTopY >= canvas.height) {
     fail(
       `${at}.neckTopY ${neckTopY} must be a row of the canvas, 0 <= y < ${canvas.height}`,
     );
+  }
+
+  const op = `${at}.bodyOnly`;
+  const bodyOnlyInput = root.bodyOnly === undefined ? [] : root.bodyOnly;
+  if (!Array.isArray(bodyOnlyInput)) {
+    return fail(
+      `${op} must be an array of polygons, got ${show(bodyOnlyInput)}`,
+    );
+  }
+  if (bodyOnlyInput.length > MAX_LANDMARK_BODY_ONLY) {
+    fail(
+      `${op} has ${bodyOnlyInput.length} polygons, over the ${MAX_LANDMARK_BODY_ONLY} one picture may hold`,
+    );
+  }
+  const bodyOnly: Point[][] = [];
+  for (let i = 0; i < bodyOnlyInput.length; i++) {
+    bodyOnly.push(points(`${op}[${i}]`, bodyOnlyInput[i], 3, canvas));
   }
 
   const cp = `${at}.customParts`;
@@ -574,7 +622,9 @@ export function validateLandmarks(
     skinSeeds,
     bodySeeds,
     backgroundSeeds,
+    paintSeeds,
     neckTopY,
+    bodyOnly,
     customParts,
   };
 }

@@ -132,10 +132,22 @@ const MIN_BACKDROP_SHARE = 0.6;
  *  at all: the noise floor, keyed to alpha 0. */
 const KEY_T0 = 14;
 /** Euclidean RGB distance from the backdrop under which a pixel may still be
- *  backdrop: the key floods the backdrop through pixels under it, and paint
- *  at or past it is the solid core whose colour the soft edge is measured
- *  against. Worked on the picture the in-place cut was first tried on. */
+ *  backdrop: the soft edge is measured against it. Worked on the picture the
+ *  in-place cut was first tried on. */
 const KEY_T1 = 50;
+/** The key floods the backdrop only through pixels under this distance, the
+ *  middle of the ramp (a pixel that would key under half alpha), and paint
+ *  at or past it is the core whose colour the soft edge is measured against.
+ *  Flooding up to KEY_T1 would run into pale paint with no outline (a peach
+ *  disc on white) and key all of it partly clear. */
+const KEY_FLOOD = (KEY_T0 + KEY_T1) / 2;
+/** How far past the backdrop a resize (Lanczos3) rings, as a share of the
+ *  step (its length) from the backdrop to the paint: its lobes overshoot by
+ *  about a tenth, so a pixel past the backdrop by more than this is
+ *  paint. */
+const OVERSHOOT = 0.15;
+/** Picture pixels the scaling kernel (Lanczos3) spreads an edge over. */
+const LANCZOS_LOBES = 3;
 /** Below this alpha a pixel takes the paint colour beside it rather than its
  *  own with the backdrop taken out: dividing by a near zero alpha amplifies
  *  noise into colours the paint never had. */
@@ -173,7 +185,14 @@ export async function loadIllustration(
   imagePath: string,
   options: LoadIllustrationOptions = {},
 ): Promise<Illustration> {
-  const pic = await readPictureOnCanvas(imagePath);
+  return matteIllustration(await readPictureOnCanvas(imagePath), options);
+}
+
+/** {@link loadIllustration} on a picture already on the canvas. */
+export function matteIllustration(
+  pic: CanvasPicture,
+  options: LoadIllustrationOptions = {},
+): Illustration {
   const { width, height, rgba } = pic;
   const n = width * height;
   const rgb = new Float32Array(n * 3);
@@ -211,7 +230,7 @@ export async function loadIllustration(
 
   const soft = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
-    soft[i] = dist[i] < KEY_T1 || srcAlpha[i] < 0.5 ? 1 : 0;
+    soft[i] = dist[i] < KEY_FLOOD || srcAlpha[i] < 0.5 ? 1 : 0;
   }
   const seeds = [...ring];
   (options.backgroundSeeds ?? []).forEach(([sx, sy], k) => {
@@ -225,7 +244,7 @@ export async function loadIllustration(
     const i = y * width + x;
     if (!soft[i]) {
       throw new AutoRigInputError(
-        `backgroundSeeds[${k}] (${sx}, ${sy}) is on paint, not backdrop: its colour is ${Math.round(dist[i])} from the backdrop rgb(${backdrop.map(Math.round).join(", ")}), and a seed must be under ${KEY_T1}`,
+        `backgroundSeeds[${k}] (${sx}, ${sy}) is on paint, not backdrop: its colour is ${Math.round(dist[i])} from the backdrop rgb(${backdrop.map(Math.round).join(", ")}), and a seed must be under ${KEY_FLOOD}`,
       );
     }
     seeds.push(i);
@@ -236,19 +255,76 @@ export async function loadIllustration(
   // backdrop is read past that many canvas px of it.
   const edgeReach = Math.ceil(Math.max(1, pic.scale)) + 1;
   const near = dilate(pic, reached, edgeReach);
+  // The backdrop a soft edge can lie on: what the flood reached within the
+  // scale's reach of paint it did not (its Lanczos kernel spreads an edge
+  // over 3 picture pixels). Deeper in, a backdrop that drifts off its
+  // border's colour (a gradient, a soft shadow) is still backdrop. The
+  // cost: pale paint with no outline, within KEY_FLOOD of the backdrop and
+  // touching it, is reached by the flood and keyed clear in its interior.
+  const edge = dilate(pic, invert(reached), LANCZOS_LOBES * edgeReach);
   const core = new Uint8Array(n);
-  for (let i = 0; i < n; i++) core[i] = !near[i] && dist[i] >= KEY_T1 ? 1 : 0;
+  for (let i = 0; i < n; i++) {
+    core[i] = !near[i] && dist[i] >= KEY_FLOOD ? 1 : 0;
+  }
   const paint = pushPull(pic, rgb, core);
+  // The picture's own colours: `rgb` is cleaned in place below.
+  const rgb0 = new Float32Array(rgb);
 
   const alpha = new Float32Array(srcAlpha);
   for (let i = 0; i < n; i++) {
-    // The backdrop and the paint's edge beside it; pale paint the flood did
-    // not reach stays as drawn even there (behind a thin line).
-    if (!near[i] || (!reached[i] && dist[i] < KEY_T1)) continue;
-    if (dist[i] < KEY_T0) {
+    // The backdrop and the paint's edge beside it; a pocket of backdrop
+    // colour the flood did not reach stays as drawn even there (behind a
+    // thin line).
+    if (!near[i] || (!reached[i] && dist[i] < KEY_FLOOD)) continue;
+    if (dist[i] < KEY_T0 || !edge[i]) {
       alpha[i] = 0;
       continue;
     }
+    // The paint beside it, the paint the edge is a mix with: among the
+    // nearest unreached clear paint within the edge's reach, the one
+    // reaching farthest in the pixel's own direction from the backdrop (a
+    // mix sits on the line between the two), so a line thinner than the
+    // band (a wisp, an outline) is measured against itself, not the fill
+    // past it; failing that, the paint pushed in from the core.
+    let beside = -1;
+    {
+      const x = i % width;
+      const y = (i - x) / width;
+      const p0 = rgb0[i * 3] - backdrop[0];
+      const p1 = rgb0[i * 3 + 1] - backdrop[1];
+      const p2 = rgb0[i * 3 + 2] - backdrop[2];
+      for (let r = 1; r <= edgeReach && beside < 0; r++) {
+        let aligned = -1;
+        let alignedReach = 0;
+        let purest = -1;
+        for (let dy = -r; dy <= r; dy++) {
+          const yy = y + dy;
+          if (yy < 0 || yy >= height) continue;
+          const ring = Math.abs(dy) === r ? 1 : 2 * r;
+          for (let dx = -r; dx <= r; dx += ring) {
+            const xx = x + dx;
+            if (xx < 0 || xx >= width) continue;
+            const j = yy * width + xx;
+            if (reached[j] || dist[j] < KEY_FLOOD) continue;
+            // How far the paint reaches along the pixel's direction.
+            const along =
+              p0 * (rgb0[j * 3] - backdrop[0]) +
+              p1 * (rgb0[j * 3 + 1] - backdrop[1]) +
+              p2 * (rgb0[j * 3 + 2] - backdrop[2]);
+            if (along > alignedReach) {
+              alignedReach = along;
+              aligned = j;
+            }
+            if (purest < 0 || dist[j] > dist[purest]) purest = j;
+          }
+        }
+        // The purest paint lying the pixel's way; with none (a ring past
+        // the backdrop), the purest paint there is, the edge it rings off.
+        beside = aligned >= 0 ? aligned : purest;
+      }
+    }
+    const paintAt = (c: number) =>
+      beside >= 0 ? rgb0[beside * 3 + c] : paint[i * 3 + c];
     // The pixel's share of the way from the backdrop to the paint beside it,
     // projected on that line so a resampling ring on the backdrop's far side
     // reads as backdrop. Paint about as pale as the backdrop is measured
@@ -256,12 +332,37 @@ export async function loadIllustration(
     let along = 0;
     let span2 = 0;
     for (let c = 0; c < 3; c++) {
-      const d = paint[i * 3 + c] - backdrop[c];
+      const d = paintAt(c) - backdrop[c];
       along += (rgb[i * 3 + c] - backdrop[c]) * d;
       span2 += d * d;
     }
     const span = Math.sqrt(span2);
-    const a = Math.max(0, Math.min(1, along / (span * Math.max(span, KEY_T1))));
+    // At least the alpha that keeps the paint's own colour inside 0..255:
+    // a pixel off that line (a dark outline beside pale paint projects to
+    // nothing) still holds that much paint, and the layers then stack back
+    // into the picture exactly. A channel past the backdrop on the far side
+    // from the paint counts only past what a resize overshoots by: its
+    // ring (white just outside a dark line on an off-white ground, near
+    // black just outside a pale figure on a dark one) has a tiny room to 0
+    // or 255 and would come out opaque; a line drawn past the backdrop is
+    // far larger than that.
+    // The ring scales with the whole step, not one channel's share of it: a
+    // channel where the paint sits near the backdrop (orange hair's red on
+    // a white ground) rings as far as the others.
+    const ringReach = OVERSHOOT * span;
+    let least = 0;
+    for (let c = 0; c < 3; c++) {
+      const d = rgb[i * 3 + c] - backdrop[c];
+      if (d === 0) continue;
+      const step = paintAt(c) - backdrop[c];
+      if (d * step <= 0 && Math.abs(d) <= ringReach) continue;
+      const room = d > 0 ? 255 - backdrop[c] : backdrop[c];
+      least = Math.max(least, Math.abs(d) / Math.max(room, 1));
+    }
+    const a = Math.max(
+      least,
+      Math.min(1, along / (span * Math.max(span, KEY_T1))),
+    );
     for (let c = 0; c < 3; c++) {
       rgb[i * 3 + c] =
         a > DECONTAM_MIN_ALPHA
@@ -269,24 +370,55 @@ export async function loadIllustration(
               0,
               Math.min(255, (rgb[i * 3 + c] - (1 - a) * backdrop[c]) / a),
             )
-          : paint[i * 3 + c];
+          : paintAt(c);
     }
     alpha[i] = a * srcAlpha[i];
   }
   return { width, height, rgb, alpha, background: "flat", backdrop };
 }
 
+/**
+ * Opaque paint a flood from the border would have keyed had it reached it:
+ * within KEY_FLOOD of a `flat` picture's backdrop colour. Backdrop the
+ * figure encloses (a gap between strands closed by a collar) reads so, and
+ * so does paint of the backdrop's colour inside a line (white eyes on a
+ * white ground); empty on a `transparent` picture.
+ */
+export function backdropColoured(pic: Illustration): Mask {
+  const m = new Uint8Array(pic.width * pic.height);
+  const b = pic.backdrop;
+  if (!b) return m;
+  for (let i = 0; i < m.length; i++) {
+    if (pic.alpha[i] < 1) continue;
+    const d = Math.hypot(
+      pic.rgb[i * 3] - b[0],
+      pic.rgb[i * 3 + 1] - b[1],
+      pic.rgb[i * 3 + 2] - b[2],
+    );
+    if (d < KEY_FLOOD) m[i] = 1;
+  }
+  return m;
+}
+
 // ---- raster helpers ----
 
+/** Slack for a crossing that lands on a pixel's centre but comes out a hair
+ *  off it in floating point. */
+const ON_CENTRE = 1e-9;
+
 /**
- * The pixels inside a polygon: a pixel is in when its centre
- * `(x + 0.5, y + 0.5)` is, by the even-odd rule, a centre on a left or top
- * edge in and one on a right or bottom edge out. The square from `[0, 0]` to
- * `[4, 4]` covers columns 0..3 and rows 0..3.
+ * The pixels inside a polygon whose vertices name pixels, like every other
+ * landmark: the outline runs through pixel centres, as the grid viewer draws
+ * it, and a pixel is in when its centre is inside (even-odd rule) or on the
+ * outline. The square from `[0, 0]` to `[4, 4]` covers columns 0..4 and rows
+ * 0..4.
  */
 export function polygonMask(size: CanvasSize, points: readonly Point[]): Mask {
   const { width, height } = size;
   const m = new Uint8Array(width * height);
+  const set = (x: number, y: number) => {
+    if (x >= 0 && y >= 0 && x < width && y < height) m[y * width + x] = 1;
+  };
   let y0 = Infinity;
   let y1 = -Infinity;
   for (const [, y] of points) {
@@ -296,21 +428,35 @@ export function polygonMask(size: CanvasSize, points: readonly Point[]): Mask {
   const top = Math.max(0, Math.floor(y0));
   const bottom = Math.min(height - 1, Math.ceil(y1));
   for (let y = top; y <= bottom; y++) {
-    const yc = y + 0.5;
     const xs: number[] = [];
     for (let i = 0; i < points.length; i++) {
       const [ax, ay] = points[i];
       const [bx, by] = points[(i + 1) % points.length];
-      if ((ay <= yc && by > yc) || (by <= yc && ay > yc)) {
-        xs.push(ax + ((yc - ay) / (by - ay)) * (bx - ax));
+      if ((ay <= y && by > y) || (by <= y && ay > y)) {
+        xs.push(ax + ((y - ay) / (by - ay)) * (bx - ax));
       }
     }
     xs.sort((a, b) => a - b);
     for (let k = 0; k + 1 < xs.length; k += 2) {
-      // Centres x + 0.5 in [xs[k], xs[k + 1]).
-      const from = Math.max(0, Math.ceil(xs[k] - 0.5));
-      const to = Math.min(width - 1, Math.ceil(xs[k + 1] - 0.5) - 1);
+      const from = Math.max(0, Math.ceil(xs[k] - ON_CENTRE));
+      const to = Math.min(width - 1, Math.floor(xs[k + 1] + ON_CENTRE));
       for (let x = from; x <= to; x++) m[y * width + x] = 1;
+    }
+  }
+  // The crossing rule above is half-open in y, so the outline's own pixels
+  // are drawn too: a bottom edge, a lower vertex, a sliver thinner than a row.
+  for (let i = 0; i < points.length; i++) {
+    const [ax, ay] = points[i];
+    const [bx, by] = points[(i + 1) % points.length];
+    const n = Math.max(
+      1,
+      Math.ceil(Math.max(Math.abs(bx - ax), Math.abs(by - ay))),
+    );
+    for (let k = 0; k <= n; k++) {
+      set(
+        Math.round(ax + ((bx - ax) * k) / n),
+        Math.round(ay + ((by - ay) * k) / n),
+      );
     }
   }
   return m;
@@ -366,6 +512,20 @@ function invert(m: Mask): Mask {
   return m.map((v) => (v ? 0 : 1));
 }
 
+export const and = (a: Mask, b: Mask): Mask =>
+  a.map((v, i) => (v && b[i] ? 1 : 0));
+export const or = (a: Mask, b: Mask): Mask =>
+  a.map((v, i) => (v || b[i] ? 1 : 0));
+export const andNot = (a: Mask, b: Mask): Mask =>
+  a.map((v, i) => (v && !b[i] ? 1 : 0));
+
+/** The number of on pixels. */
+export function count(m: ArrayLike<number>): number {
+  let n = 0;
+  for (let i = 0; i < m.length; i++) if (m[i]) n++;
+  return n;
+}
+
 /** Shrink a mask by a Chebyshev radius `r`; off-canvas counts as on, so a
  *  mask touching the edge does not shrink away from it. */
 export function erode(size: CanvasSize, m: Mask, r: number): Mask {
@@ -405,22 +565,29 @@ function floodFromIndices(
   return out;
 }
 
-/** 4-connected flood over `pass` from seed points; a seed off the canvas or
- *  off `pass` starts nothing. */
+/** The index of the pixel a point names: rounded, then held on the canvas
+ *  (a coordinate just under the width rounds to it). */
+export function pixelIndex(
+  { width, height }: CanvasSize,
+  [x, y]: Point,
+): number {
+  const px = Math.max(0, Math.min(width - 1, Math.round(x)));
+  const py = Math.max(0, Math.min(height - 1, Math.round(y)));
+  return py * width + px;
+}
+
+/** 4-connected flood over `pass` from seed points, each at the pixel it
+ *  names; a seed off `pass` starts nothing. */
 export function flood(
   size: CanvasSize,
   pass: Mask,
   seeds: readonly Point[],
 ): Mask {
-  const idx: number[] = [];
-  for (const [sx, sy] of seeds) {
-    const x = Math.round(sx);
-    const y = Math.round(sy);
-    if (x >= 0 && y >= 0 && x < size.width && y < size.height) {
-      idx.push(y * size.width + x);
-    }
-  }
-  return floodFromIndices(size, pass, idx);
+  return floodFromIndices(
+    size,
+    pass,
+    seeds.map((p) => pixelIndex(size, p)),
+  );
 }
 
 /** The mask with every hole closed: off pixels no 4-connected path of off

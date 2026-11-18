@@ -45,6 +45,12 @@ export const MAX_PROBE_POINTS = 5000;
 export const MAX_LANDMARK_POINTS = 2000;
 /** Max custom parts one illustration's landmarks cut out. */
 export const MAX_LANDMARK_CUSTOM_PARTS = 16;
+/** Max colour sample points per set (hair, skin) in one illustration's
+ *  landmarks: each is a segment every distinct colour is measured against,
+ *  and a few per tone describe a set. */
+export const MAX_LANDMARK_SAMPLES = 32;
+/** Max `bodyOnly` polygons in one illustration's landmarks. */
+export const MAX_LANDMARK_BODY_ONLY = 16;
 
 /**
  * Expected, caller-input-caused failure. The tool catches ONLY this class and

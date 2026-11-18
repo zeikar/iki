@@ -17,7 +17,7 @@
  */
 
 import sharp from "sharp";
-import { readPictureOnCanvas } from "./illustration";
+import { readPictureOnCanvas, type CanvasPicture } from "./illustration";
 import {
   AutoRigInputError,
   resolveOutputPath,
@@ -85,7 +85,7 @@ const LANDMARK_COLORS: RGB[] = [
   [160, 96, 255],
 ];
 /** Polylines under these keys close back to their first point. */
-const CLOSED_KEYS = new Set(["frontHair", "skull", "polygon"]);
+const CLOSED_KEYS = new Set(["frontHair", "skull", "polygon", "bodyOnly"]);
 /** Deeper than any landmark set nests; a cyclic object stops here. */
 const MAX_DEPTH = 16;
 
@@ -134,7 +134,8 @@ function textSize(text: string): { w: number; h: number } {
 
 // ---- drawing on an RGB buffer ----
 
-interface Image {
+/** An RGB view, 3 bytes per pixel. */
+export interface Image {
   width: number;
   height: number;
   rgb: Buffer;
@@ -423,6 +424,45 @@ function drawShapes(
 
 // ---- the tool ----
 
+/** The crop of the picture at an integer zoom, nearest-neighbour, its real
+ *  transparency shown over VIEW_BACKDROP. */
+export function pictureView(
+  pic: CanvasPicture,
+  crop: GridCrop,
+  zoom: number,
+): Image {
+  const ow = crop.w * zoom;
+  const oh = crop.h * zoom;
+  const img: Image = { width: ow, height: oh, rgb: Buffer.alloc(ow * oh * 3) };
+  for (let oy = 0; oy < oh; oy++) {
+    const sy = crop.y + Math.floor(oy / zoom);
+    for (let ox = 0; ox < ow; ox++) {
+      const s = (sy * pic.width + crop.x + Math.floor(ox / zoom)) * 4;
+      const a = pic.rgba[s + 3] / 255;
+      const o = (oy * ow + ox) * 3;
+      for (let c = 0; c < 3; c++) {
+        img.rgb[o + c] = Math.round(
+          pic.rgba[s + c] * a + VIEW_BACKDROP[c] * (1 - a),
+        );
+      }
+    }
+  }
+  return img;
+}
+
+/** Draw `landmarks` over a view of `crop` at `zoom`, each shape labelled
+ *  with its key path. A landmark names a pixel: drawn through its centre. */
+export function drawLandmarks(
+  img: Image,
+  landmarks: Record<string, unknown>,
+  crop: GridCrop,
+  zoom: number,
+): void {
+  const centreX = (x: number) => (x + 0.5 - crop.x) * zoom;
+  const centreY = (y: number) => (y + 0.5 - crop.y) * zoom;
+  drawShapes(img, collectShapes(landmarks), centreX, centreY, zoom);
+}
+
 function checkInt(
   value: number,
   name: string,
@@ -504,24 +544,7 @@ export async function viewIllustrationGrid(
       );
     }
 
-    const img: Image = {
-      width: ow,
-      height: oh,
-      rgb: Buffer.alloc(ow * oh * 3),
-    };
-    for (let oy = 0; oy < oh; oy++) {
-      const sy = crop.y + Math.floor(oy / zoom);
-      for (let ox = 0; ox < ow; ox++) {
-        const s = (sy * pic.width + crop.x + Math.floor(ox / zoom)) * 4;
-        const a = pic.rgba[s + 3] / 255;
-        const o = (oy * ow + ox) * 3;
-        for (let c = 0; c < 3; c++) {
-          img.rgb[o + c] = Math.round(
-            pic.rgba[s + c] * a + VIEW_BACKDROP[c] * (1 - a),
-          );
-        }
-      }
-    }
+    const img = pictureView(pic, crop, zoom);
 
     const toX = (x: number) => (x - crop.x) * zoom;
     const toY = (y: number) => (y - crop.y) * zoom;
@@ -541,12 +564,7 @@ export async function viewIllustrationGrid(
         blend(img, x, toY(gy), GRID_COLOR, GRID_OPACITY);
     }
 
-    if (landmarks !== undefined) {
-      // A landmark names a pixel: drawn through its centre.
-      const centreX = (x: number) => (x + 0.5 - crop.x) * zoom;
-      const centreY = (y: number) => (y + 0.5 - crop.y) * zoom;
-      drawShapes(img, collectShapes(landmarks), centreX, centreY, zoom);
-    }
+    if (landmarks !== undefined) drawLandmarks(img, landmarks, crop, zoom);
 
     // Last, so the coordinates stay readable over everything. A label that
     // would overrun the one before it is left out (their boxes may touch: the
