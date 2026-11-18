@@ -935,6 +935,67 @@ describe("MCP server integration", () => {
     expect(msg.text).toMatch(/^INVALID: queries\[0\]\.part names no part/);
   });
 
+  it("view_illustration_grid is registered, writes the view and refuses a bad zoom as INVALID", async () => {
+    pair = await createPair();
+    const { tools } = await pair.client.listTools();
+    expect(tools.map((t) => t.name)).toContain("view_illustration_grid");
+    const dir = tmpDir();
+    const imagePath = path.join(dir, "pic.png");
+    await sharp({
+      create: {
+        width: 220,
+        height: 110,
+        channels: 3,
+        background: { r: 200, g: 200, b: 200 },
+      },
+    })
+      .png()
+      .toFile(imagePath);
+    const outputPath = path.join(dir, "grid.png");
+    const result = await pair.client.callTool({
+      name: "view_illustration_grid",
+      arguments: {
+        imagePath,
+        outputPath,
+        crop: { x: 100, y: 100, w: 50, h: 40 },
+        zoom: 2,
+        landmarks: { nose: [110, 110, 130, 130] },
+      },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      ok: true,
+      crop: { x: 100, y: 100, w: 50, h: 40 },
+      canvas: { width: 1100, height: 550 },
+    });
+    const [text] = result.content as { type: string; text: string }[];
+    expect(text.text.split("\n")).toEqual([
+      fs.realpathSync(outputPath),
+      "crop 100,100 50x40 on the 1100x550 canvas, zoom 2, step 50",
+    ]);
+    const meta = await sharp(outputPath).metadata();
+    expect([meta.width, meta.height]).toEqual([100, 80]);
+
+    const refused = await pair.client.callTool({
+      name: "view_illustration_grid",
+      arguments: { imagePath, outputPath, zoom: 12 },
+    });
+    expect(refused.isError).toBeFalsy();
+    expect(refused.structuredContent).toMatchObject({ ok: false });
+    const [msg] = refused.content as { type: string; text: string }[];
+    expect(msg.text).toMatch(/^INVALID: zoom must be an integer in 1\.\.8/);
+
+    const corrupt = path.join(dir, "corrupt.png");
+    fs.writeFileSync(corrupt, "not a picture at all");
+    const unreadable = await pair.client.callTool({
+      name: "view_illustration_grid",
+      arguments: { imagePath: corrupt, outputPath },
+    });
+    expect(unreadable.isError).toBeFalsy();
+    const [bad] = unreadable.content as { type: string; text: string }[];
+    expect(bad.text).toMatch(/^INVALID: failed to read picture .*corrupt\.png/);
+  });
+
   it("render_poses refuses an outDir outside the working directory", async () => {
     pair = await createPair();
     const result = await pair.client.callTool({

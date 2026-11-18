@@ -24,6 +24,7 @@ import { measureLayers, formatMeasureReport } from "./measure";
 import { measureTurnReference, formatTurnReport } from "./measure-turn";
 import { renderPoses } from "./render-poses";
 import { probeRig, type ProbeInput } from "./probe";
+import { viewIllustrationGrid } from "./illustration-grid";
 
 /** Injected by tsup (and vitest) from this package's package.json version. */
 declare const __MCP_VERSION__: string;
@@ -783,6 +784,69 @@ export function createIkiMcpServer(): McpServer {
           : "results" in r
             ? JSON.stringify(r.results)
             : [r.outputPath, ...r.lines].join("\n");
+        return { content: [{ type: "text", text }], structuredContent: r };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: "text", text: `Unexpected error: ${error}` }],
+          structuredContent: { ok: false, error },
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "view_illustration_grid",
+    {
+      description:
+        "Writes a PNG of one finished character picture (PNG, JPEG or WebP) for reading coordinates off it: the picture scaled to the 1100 px wide layer canvas (height by its aspect, Lanczos), the same canvas the in-place cut works on, cropped, zoomed by an integer factor nearest-neighbour so the pixels stay readable, with a grid line every `step` canvas px labelled along the top and left edges. FRAME: canvas px, origin top-left, x right, y down; a line labelled v sits on the left (top) edge of canvas pixel v, and a landmark coordinate v names that pixel, drawn through its centre. A picture is turned upright by its EXIF orientation first. The picture is shown as given, its backdrop included; only real transparency shows the view's green. With `landmarks`, each shape in it is drawn over the picture and labelled with its key path (`eyes.L.iris`, `skinSeeds[2]`): a 4-number array is a box `[x0, y0, x1, y1]`, `{ cx, cy, rx, ry }` an ellipse, a list of `[x, y]` a polyline (closed under `frontHair`, `skull` or `polygon`), a lone `[x, y]` or a list under a key ending in `Seeds` or anywhere under `samples` point markers; anything else is walked into or skipped, never refused. Defaults: the whole canvas, zoom 1, step 50. Returns the written path, the crop used (whole pixels, clamped to the canvas), zoom, step and the canvas size. A zoom outside 1..8 or not an integer, a step under 5 or not an integer, a crop with no size or missing the canvas, a view over 16,777,216 px, an output path not ending in `.png` or outside the working directory (its folder must exist), a missing, unsupported or corrupt picture, or one over 16,777,216 px or whose canvas would be over 4096 px tall comes back as `INVALID: …` and nothing is written.",
+      inputSchema: {
+        imagePath: z
+          .string()
+          .describe("The picture (PNG, JPEG or WebP; resolved against cwd)."),
+        outputPath: z
+          .string()
+          .describe(
+            "A `.png` path (resolved against cwd, under it; its folder must exist). Overwritten if present.",
+          ),
+        crop: z
+          .object({
+            x: z.number(),
+            y: z.number(),
+            w: z.number(),
+            h: z.number(),
+          })
+          .optional()
+          .describe(
+            "The rectangle to show, in canvas px; clamped to the canvas. The whole canvas when omitted.",
+          ),
+        zoom: z
+          .number()
+          .optional()
+          .describe(
+            "Output px per canvas px, an integer 1..8; 1 when omitted.",
+          ),
+        step: z
+          .number()
+          .optional()
+          .describe(
+            "Grid spacing in canvas px, an integer of at least 5; 50 when omitted.",
+          ),
+        landmarks: z
+          .record(z.string(), z.unknown())
+          .optional()
+          .describe(
+            "Shapes to draw over the picture, by shape (see the description); unknown shapes are skipped.",
+          ),
+      },
+    },
+    async (args) => {
+      try {
+        const r = await viewIllustrationGrid(args);
+        const text = r.ok
+          ? `${r.path}\ncrop ${r.crop.x},${r.crop.y} ${r.crop.w}x${r.crop.h} on the ${r.canvas.width}x${r.canvas.height} canvas, zoom ${r.zoom}, step ${r.step}`
+          : `INVALID: ${r.error}`;
         return { content: [{ type: "text", text }], structuredContent: r };
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);

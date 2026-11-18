@@ -90,4 +90,10 @@ export {
   type ProbeResult,
   type PaintRuns,
 } from "./probe";
+export {
+  viewIllustrationGrid,
+  type GridCrop,
+  type ViewIllustrationGridInput,
+  type ViewIllustrationGridResult,
+} from "./illustration-grid";
 export { createIkiMcpServer } from "./server";
