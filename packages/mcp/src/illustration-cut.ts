@@ -925,21 +925,21 @@ export async function cutLayersFromIllustration(
     }
     const source = await readPictureOnCanvas(input.imagePath);
     const lm = validateLandmarks(input.landmarks, source);
-    const pass = (backgroundSeeds: Point[]) => {
-      const pic = matteIllustration(source, { backgroundSeeds });
+    const pass = async (backgroundSeeds: Point[]) => {
+      const pic = await matteIllustration(source, { backgroundSeeds });
       const { classifier, reads } = classifierFor(pic, lm);
       const classes = classifyPicture(pic, classifier, PAINT_ALPHA);
       const labels = labelIllustration(pic, lm, classes);
       return { pic, classifier, reads, labels };
     };
-    let first = pass(lm.backgroundSeeds);
+    let first = await pass(lm.backgroundSeeds);
     // Gaps between strands are keyed without a seed: one more pass with a
     // point inside each, not a loop (a gap a key opens cannot ring another).
     const keyed =
       first.pic.background === "flat"
         ? hairRungPockets(first.pic, first.labels, lm.paintSeeds)
         : [];
-    if (keyed.length > 0) first = pass([...lm.backgroundSeeds, ...keyed]);
+    if (keyed.length > 0) first = await pass([...lm.backgroundSeeds, ...keyed]);
     const { pic, classifier, reads, labels } = first;
     const ctx: CutContext = {
       pic,

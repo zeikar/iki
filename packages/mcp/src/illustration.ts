@@ -46,8 +46,9 @@ export interface Illustration extends CanvasSize {
 /** The picture scaled onto the canvas, straight-alpha RGBA bytes. */
 export interface CanvasPicture extends CanvasSize {
   rgba: Buffer;
-  /** Canvas px per source px: how far the scale spread a soft edge. */
-  scale: number;
+  /** The same picture upright at its own size, straight-alpha RGBA bytes:
+   *  what a flat backdrop is keyed on, before the resize spreads its edges. */
+  source: CanvasSize & { rgba: Buffer };
 }
 
 export interface LoadIllustrationOptions {
@@ -63,9 +64,10 @@ const PICTURE_FORMATS = new Set(["png", "jpeg", "webp"]);
 
 /**
  * Decode `imagePath`, turn it upright by its EXIF orientation and scale it to
- * CANVAS wide (Lanczos), its height by the picture's aspect. Refuses a missing
- * file, another format, a picture over MAX_INPUT_PIXELS and one whose canvas
- * would be over MAX_CANVAS_DIM tall.
+ * CANVAS wide (Lanczos), its height by the picture's aspect, keeping the
+ * upright picture at its own size beside it. Refuses a missing file, another
+ * format, a picture over MAX_INPUT_PIXELS and one whose canvas would be over
+ * MAX_CANVAS_DIM tall.
  */
 export async function readPictureOnCanvas(
   imagePath: string,
@@ -100,19 +102,35 @@ export async function readPictureOnCanvas(
       `picture is ${w}x${h}; at ${CANVAS} px wide its canvas would be ${height} px tall, over ${MAX_CANVAS_DIM}: ${file}`,
     );
   }
+  let source: CanvasPicture["source"];
   try {
-    const { data } = await sharp(file, { limitInputPixels: MAX_INPUT_PIXELS })
+    const { data, info } = await sharp(file, {
+      limitInputPixels: MAX_INPUT_PIXELS,
+    })
       .rotate()
-      .resize(CANVAS, height, { fit: "fill", kernel: "lanczos3" })
       .ensureAlpha()
       .raw()
       .toBuffer({ resolveWithObject: true });
-    return { width: CANVAS, height, rgba: data, scale: CANVAS / w };
+    source = { width: info.width, height: info.height, rgba: data };
   } catch (e) {
     throw new AutoRigInputError(
       `failed to decode picture ${file}: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
+  const rgba = await toCanvas(source, height);
+  return { width: CANVAS, height, rgba, source };
+}
+
+/** Straight-alpha RGBA bytes scaled to CANVAS x `height` (Lanczos3, which
+ *  sharp runs on premultiplied colour, so clear pixels lend none). */
+async function toCanvas(
+  { width, height: h, rgba }: CanvasPicture["source"],
+  height: number,
+): Promise<Buffer> {
+  return sharp(rgba, { raw: { width, height: h, channels: 4 } })
+    .resize(CANVAS, height, { fit: "fill", kernel: "lanczos3" })
+    .raw()
+    .toBuffer();
 }
 
 /** A picture with at least this share of its pixels under half alpha has
@@ -128,29 +146,46 @@ const FLAT_TOLERANCE = 12;
  *  the frame (a bust's chest, long hair), but a two-colour or gradient
  *  background leaves no one colour on most of the ring. */
 const MIN_BACKDROP_SHARE = 0.6;
-/** Euclidean RGB distance from the backdrop under which a pixel is no paint
- *  at all: the noise floor, keyed to alpha 0. */
+/** Euclidean RGB distance from the backdrop under which backdrop beside
+ *  paint that mixes with no one paint is no paint at all: the noise floor,
+ *  keyed to alpha 0. Without it a JPEG's noise beside the figure would key
+ *  as faint specks of paint. */
 const KEY_T0 = 14;
-/** Euclidean RGB distance from the backdrop under which a pixel may still be
- *  backdrop: the soft edge is measured against it. Worked on the picture the
- *  in-place cut was first tried on. */
-const KEY_T1 = 50;
-/** The key floods the backdrop only through pixels under this distance, the
- *  middle of the ramp (a pixel that would key under half alpha), and paint
- *  at or past it is the core whose colour the soft edge is measured against.
- *  Flooding up to KEY_T1 would run into pale paint with no outline (a peach
- *  disc on white) and key all of it partly clear. */
-const KEY_FLOOD = (KEY_T0 + KEY_T1) / 2;
-/** How far past the backdrop a resize (Lanczos3) rings, as a share of the
- *  step (its length) from the backdrop to the paint: its lobes overshoot by
- *  about a tenth, so a pixel past the backdrop by more than this is
- *  paint. */
-const OVERSHOOT = 0.15;
-/** Picture pixels the scaling kernel (Lanczos3) spreads an edge over. */
-const LANCZOS_LOBES = 3;
-/** Below this alpha a pixel takes the paint colour beside it rather than its
- *  own with the backdrop taken out: dividing by a near zero alpha amplifies
- *  noise into colours the paint never had. */
+/** Euclidean RGB distance a pixel may sit off the line from the backdrop to
+ *  a paint beside it and still be a mix of the two, at its share `t` of that
+ *  paint: ROUNDING + MIX_TOLERANCE * t. Over the pixel's own rounding and a
+ *  flat paint's grain at its share; under what a sliver of a second paint
+ *  moves it: looser, an outline's inner px (a tenth pale beside the ink)
+ *  reads as ink with the backdrop showing through, and a thin line on a
+ *  mid-tone ground comes out partly clear. */
+const MIX_TOLERANCE = 4;
+/** A PNG's rounding of a pixel, under one level per channel: tighter, the
+ *  faint outer px of an antialiased edge (whose share is too small for
+ *  MIX_TOLERANCE to cover it) mixes with nothing. */
+const ROUNDING = 1;
+/** The key floods the backdrop only through pixels under this distance, and
+ *  paint at or past it is what a soft edge is measured against. Worked on
+ *  the picture the in-place cut was first tried on; flooding further runs
+ *  into pale paint with no outline (a peach disc on white) and keys all of
+ *  it partly clear. */
+const KEY_FLOOD = 32;
+/** Picture px a soft edge may take to climb from the backdrop to its paint:
+ *  an antialiased edge takes one, a soft-shaded lineless edge about six. A
+ *  wider ramp keys partly as paint (its outer px measured against its
+ *  middle), and backdrop further than this from paint is clear however far
+ *  its colour drifts (a gradient, a soft shadow). */
+const RAMP = 6;
+/** How much further toward its paint (Euclidean RGB, along the line from
+ *  the backdrop) a pixel beside a step of a ramp, and no nearer the
+ *  backdrop, must lie for the ramp to go on climbing: over a PNG's
+ *  rounding, under one step of a soft edge. A pixel with no such neighbour
+ *  is the paint the ramp ends on, opaque. Without it the rim of a flat
+ *  region beside a darker paint of its own hue (black hair beside its
+ *  shadow) reads as a step toward that paint and comes out partly clear. */
+const CLIMB = 3;
+/** Below this alpha a pixel takes the colour the resize carried from the
+ *  keyed picture rather than its own with the backdrop taken out: dividing
+ *  by a near zero alpha amplifies noise into colours the paint never had. */
 const DECONTAM_MIN_ALPHA = 0.05;
 
 /** The pixel indices of the ring RING px in from every edge. */
@@ -173,13 +208,17 @@ function median(values: number[]): number {
 /**
  * Load a picture onto the canvas with its background matted out. A picture
  * with real transparency keeps its own alpha. An opaque one must stand on one
- * flat colour, measured on its border ring (a ring that is not is refused,
- * naming what it measured). The backdrop is what a flood from the border (and
- * from each of `backgroundSeeds`) reaches through pixels near its colour, so
- * paint of the backdrop's colour inside the figure (white eyes on a white
- * ground) stays. On the backdrop and the few px of paint beside it, alpha is
- * how far a pixel lies from the backdrop toward the paint beside it, and the
- * backdrop is taken back out of it (`F = (C - (1 - a) B) / a`).
+ * flat colour, measured on the canvas's border ring (a ring that is not is
+ * refused, naming what it measured), and is keyed at its own size, before
+ * the resize: there an edge is at most a few px of mix between the backdrop
+ * and one paint, and the resize then spreads the keyed alpha exactly as it
+ * spread the drawn edge, its overshoot past the edge clipped to clear (see
+ * {@link keySource}). The backdrop is what a flood from the border (and from
+ * each of `backgroundSeeds`) reaches through pixels near its colour, so paint
+ * of the backdrop's colour inside the figure (white eyes on a white ground)
+ * stays. The backdrop is taken back out of each soft pixel's colour
+ * (`F = (C - (1 - a) B) / a`), so the keyed picture over its backdrop gives
+ * the picture back.
  */
 export async function loadIllustration(
   imagePath: string,
@@ -189,11 +228,11 @@ export async function loadIllustration(
 }
 
 /** {@link loadIllustration} on a picture already on the canvas. */
-export function matteIllustration(
+export async function matteIllustration(
   pic: CanvasPicture,
   options: LoadIllustrationOptions = {},
-): Illustration {
-  const { width, height, rgba } = pic;
+): Promise<Illustration> {
+  const { width, height, rgba, source } = pic;
   const n = width * height;
   const rgb = new Float32Array(n * 3);
   const srcAlpha = new Float32Array(n);
@@ -212,28 +251,17 @@ export function matteIllustration(
   const backdrop = [0, 1, 2].map((c) =>
     median(opaqueRing.map((i) => rgb[i * 3 + c])),
   ) as [number, number, number];
-  const dist = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    dist[i] = Math.hypot(
-      rgb[i * 3] - backdrop[0],
-      rgb[i * 3 + 1] - backdrop[1],
-      rgb[i * 3 + 2] - backdrop[2],
-    );
-  }
   const flatShare =
-    opaqueRing.filter((i) => dist[i] <= FLAT_TOLERANCE).length / ring.length;
+    opaqueRing.filter((i) => offBackdrop(rgba, i, backdrop) <= FLAT_TOLERANCE)
+      .length / ring.length;
   if (flatShare < MIN_BACKDROP_SHARE) {
     throw new AutoRigInputError(
       `picture's backdrop is not one flat colour: ${Math.round(flatShare * 100)}% of its ${RING} px border ring is within ${FLAT_TOLERANCE} of its median colour rgb(${backdrop.map(Math.round).join(", ")}), and at least ${MIN_BACKDROP_SHARE * 100}% must be; give the picture on one flat colour or with a transparent background`,
     );
   }
 
-  const soft = new Uint8Array(n);
-  for (let i = 0; i < n; i++) {
-    soft[i] = dist[i] < KEY_FLOOD || srcAlpha[i] < 0.5 ? 1 : 0;
-  }
-  const seeds = [...ring];
-  (options.backgroundSeeds ?? []).forEach(([sx, sy], k) => {
+  // Each seed starts the flood at the picture pixel under its canvas pixel.
+  const seeds = (options.backgroundSeeds ?? []).map(([sx, sy], k) => {
     const x = Math.round(sx);
     const y = Math.round(sy);
     if (!(x >= 0 && y >= 0 && x < width && y < height)) {
@@ -241,128 +269,34 @@ export function matteIllustration(
         `backgroundSeeds[${k}] (${sx}, ${sy}) is off the ${width}x${height} canvas`,
       );
     }
-    const i = y * width + x;
-    if (!soft[i]) {
+    const px = Math.min(
+      source.width - 1,
+      Math.floor(((x + 0.5) * source.width) / width),
+    );
+    const py = Math.min(
+      source.height - 1,
+      Math.floor(((y + 0.5) * source.height) / height),
+    );
+    const i = py * source.width + px;
+    const dist = offBackdrop(source.rgba, i, backdrop);
+    if (dist >= KEY_FLOOD && source.rgba[i * 4 + 3] >= 128) {
       throw new AutoRigInputError(
-        `backgroundSeeds[${k}] (${sx}, ${sy}) is on paint, not backdrop: its colour is ${Math.round(dist[i])} from the backdrop rgb(${backdrop.map(Math.round).join(", ")}), and a seed must be under ${KEY_FLOOD}`,
+        `backgroundSeeds[${k}] (${sx}, ${sy}) is on paint, not backdrop: its colour is ${Math.round(dist)} from the backdrop rgb(${backdrop.map(Math.round).join(", ")}), and a seed must be under ${KEY_FLOOD}`,
       );
     }
-    seeds.push(i);
+    return i;
   });
-  const reached = floodFromIndices(pic, soft, seeds);
 
-  // A soft edge spreads over about a source pixel, so the paint beside the
-  // backdrop is read past that many canvas px of it.
-  const edgeReach = Math.ceil(Math.max(1, pic.scale)) + 1;
-  const near = dilate(pic, reached, edgeReach);
-  // The backdrop a soft edge can lie on: what the flood reached within the
-  // scale's reach of paint it did not (its Lanczos kernel spreads an edge
-  // over 3 picture pixels). Deeper in, a backdrop that drifts off its
-  // border's colour (a gradient, a soft shadow) is still backdrop. The
-  // cost: pale paint with no outline, within KEY_FLOOD of the backdrop and
-  // touching it, is reached by the flood and keyed clear in its interior.
-  const edge = dilate(pic, invert(reached), LANCZOS_LOBES * edgeReach);
-  const core = new Uint8Array(n);
+  const keyed = await toCanvas(
+    { ...source, rgba: keySource(source, backdrop, seeds) },
+    height,
+  );
+  const alpha = new Float32Array(n);
   for (let i = 0; i < n; i++) {
-    core[i] = !near[i] && dist[i] >= KEY_FLOOD ? 1 : 0;
-  }
-  const paint = pushPull(pic, rgb, core);
-  // The picture's own colours: `rgb` is cleaned in place below.
-  const rgb0 = new Float32Array(rgb);
-
-  const alpha = new Float32Array(srcAlpha);
-  for (let i = 0; i < n; i++) {
-    // The backdrop and the paint's edge beside it; a pocket of backdrop
-    // colour the flood did not reach stays as drawn even there (behind a
-    // thin line).
-    if (!near[i] || (!reached[i] && dist[i] < KEY_FLOOD)) continue;
-    if (dist[i] < KEY_T0 || !edge[i]) {
-      alpha[i] = 0;
-      continue;
-    }
-    // The paint beside it, the paint the edge is a mix with: among the
-    // nearest unreached clear paint within the edge's reach, the one
-    // reaching farthest in the pixel's own direction from the backdrop (a
-    // mix sits on the line between the two), so a line thinner than the
-    // band (a wisp, an outline) is measured against itself, not the fill
-    // past it; failing that, the paint pushed in from the core.
-    let beside = -1;
-    {
-      const x = i % width;
-      const y = (i - x) / width;
-      const p0 = rgb0[i * 3] - backdrop[0];
-      const p1 = rgb0[i * 3 + 1] - backdrop[1];
-      const p2 = rgb0[i * 3 + 2] - backdrop[2];
-      for (let r = 1; r <= edgeReach && beside < 0; r++) {
-        let aligned = -1;
-        let alignedReach = 0;
-        let purest = -1;
-        for (let dy = -r; dy <= r; dy++) {
-          const yy = y + dy;
-          if (yy < 0 || yy >= height) continue;
-          const ring = Math.abs(dy) === r ? 1 : 2 * r;
-          for (let dx = -r; dx <= r; dx += ring) {
-            const xx = x + dx;
-            if (xx < 0 || xx >= width) continue;
-            const j = yy * width + xx;
-            if (reached[j] || dist[j] < KEY_FLOOD) continue;
-            // How far the paint reaches along the pixel's direction.
-            const along =
-              p0 * (rgb0[j * 3] - backdrop[0]) +
-              p1 * (rgb0[j * 3 + 1] - backdrop[1]) +
-              p2 * (rgb0[j * 3 + 2] - backdrop[2]);
-            if (along > alignedReach) {
-              alignedReach = along;
-              aligned = j;
-            }
-            if (purest < 0 || dist[j] > dist[purest]) purest = j;
-          }
-        }
-        // The purest paint lying the pixel's way; with none (a ring past
-        // the backdrop), the purest paint there is, the edge it rings off.
-        beside = aligned >= 0 ? aligned : purest;
-      }
-    }
-    const paintAt = (c: number) =>
-      beside >= 0 ? rgb0[beside * 3 + c] : paint[i * 3 + c];
-    // The pixel's share of the way from the backdrop to the paint beside it,
-    // projected on that line so a resampling ring on the backdrop's far side
-    // reads as backdrop. Paint about as pale as the backdrop is measured
-    // against KEY_T1 instead, where the line has no length to divide by.
-    let along = 0;
-    let span2 = 0;
-    for (let c = 0; c < 3; c++) {
-      const d = paintAt(c) - backdrop[c];
-      along += (rgb[i * 3 + c] - backdrop[c]) * d;
-      span2 += d * d;
-    }
-    const span = Math.sqrt(span2);
-    // At least the alpha that keeps the paint's own colour inside 0..255:
-    // a pixel off that line (a dark outline beside pale paint projects to
-    // nothing) still holds that much paint, and the layers then stack back
-    // into the picture exactly. A channel past the backdrop on the far side
-    // from the paint counts only past what a resize overshoots by: its
-    // ring (white just outside a dark line on an off-white ground, near
-    // black just outside a pale figure on a dark one) has a tiny room to 0
-    // or 255 and would come out opaque; a line drawn past the backdrop is
-    // far larger than that.
-    // The ring scales with the whole step, not one channel's share of it: a
-    // channel where the paint sits near the backdrop (orange hair's red on
-    // a white ground) rings as far as the others.
-    const ringReach = OVERSHOOT * span;
-    let least = 0;
-    for (let c = 0; c < 3; c++) {
-      const d = rgb[i * 3 + c] - backdrop[c];
-      if (d === 0) continue;
-      const step = paintAt(c) - backdrop[c];
-      if (d * step <= 0 && Math.abs(d) <= ringReach) continue;
-      const room = d > 0 ? 255 - backdrop[c] : backdrop[c];
-      least = Math.max(least, Math.abs(d) / Math.max(room, 1));
-    }
-    const a = Math.max(
-      least,
-      Math.min(1, along / (span * Math.max(span, KEY_T1))),
-    );
+    const a = keyed[i * 4 + 3] / 255;
+    alpha[i] = a;
+    // Clear (the backdrop) keeps its own colour; opaque is the picture's.
+    if (a === 0 || a === 1) continue;
     for (let c = 0; c < 3; c++) {
       rgb[i * 3 + c] =
         a > DECONTAM_MIN_ALPHA
@@ -370,11 +304,234 @@ export function matteIllustration(
               0,
               Math.min(255, (rgb[i * 3 + c] - (1 - a) * backdrop[c]) / a),
             )
-          : paintAt(c);
+          : keyed[i * 4 + c];
     }
-    alpha[i] = a * srcAlpha[i];
   }
   return { width, height, rgb, alpha, background: "flat", backdrop };
+}
+
+/** Fill `out` with the in-picture 8-neighbours of pixel `i`; how many. */
+function neighbours8(
+  { width, height }: CanvasSize,
+  i: number,
+  out: Int32Array,
+): number {
+  const x = i % width;
+  const y = (i - x) / width;
+  let k = 0;
+  for (let dy = -1; dy <= 1; dy++) {
+    if (y + dy < 0 || y + dy >= height) continue;
+    for (let dx = -1; dx <= 1; dx++) {
+      if ((dx || dy) && x + dx >= 0 && x + dx < width) {
+        out[k++] = i + dy * width + dx;
+      }
+    }
+  }
+  return k;
+}
+
+/** Euclidean RGB distance of RGBA pixel `i` from `backdrop`. */
+function offBackdrop(
+  rgba: Uint8Array,
+  i: number,
+  backdrop: readonly number[],
+): number {
+  return Math.hypot(
+    rgba[i * 4] - backdrop[0],
+    rgba[i * 4 + 1] - backdrop[1],
+    rgba[i * 4 + 2] - backdrop[2],
+  );
+}
+
+/**
+ * Key `backdrop` out of the picture at its own size: straight-alpha RGBA
+ * bytes, the paint's colour with the backdrop taken out.
+ *
+ * Keyed here, before the resize, an edge is a step from the backdrop to one
+ * paint over at most a few px, and nothing rings past it; the resize then
+ * spreads the keyed alpha as it spread the edge, and clips its overshoot
+ * past the edge to clear. (Keyed after the resize, that overshoot lies on
+ * the far side of the backdrop from the paint, and a rule that keeps a dark
+ * line beside pale paint on a mid-tone ground opaque cannot also key it
+ * clear: the line lies on that far side too.)
+ *
+ * The rule: the flood's backdrop is clear and the rest is opaque paint,
+ * except a pixel that is a step of a ramp from the backdrop to a paint
+ * further in, which takes its share of the way. A pixel is a mix with the
+ * share `t` of paint Q (a pixel within RAMP px) when it lies on the line from
+ * the backdrop to Q, at `t` along it (see MIX_TOLERANCE); of the paints it
+ * mixes with, the one furthest out gives its share (on a soft-shaded edge
+ * that is the flat paint the ramp ends on, not the next step of the ramp).
+ * On the paint side it must also be a step: a neighbour nearer the backdrop
+ * is backdrop or a lesser step toward the same paint (so paint behind an
+ * opaque line, or across the inner edge of a thin one, is not measured
+ * against it), and one no nearer climbs on toward that paint (so the rim of
+ * a flat region is not, see CLIMB). Backdrop off its colour beside paint
+ * that mixes with no one paint (two paints and the backdrop in one px) takes
+ * the least alpha that keeps its paint inside 0..255, so it still stacks
+ * back.
+ */
+function keySource(
+  src: CanvasPicture["source"],
+  backdrop: readonly number[],
+  seeds: number[],
+): Buffer {
+  const { width: w, height: h, rgba } = src;
+  const n = w * h;
+  const d = new Float32Array(n * 3);
+  const dist = new Float32Array(n);
+  const soft = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    for (let c = 0; c < 3; c++) d[i * 3 + c] = rgba[i * 4 + c] - backdrop[c];
+    dist[i] = offBackdrop(rgba, i, backdrop);
+    soft[i] = dist[i] < KEY_FLOOD || rgba[i * 4 + 3] < 128 ? 1 : 0;
+  }
+  const reached = floodFromIndices(src, soft, [...borderRing(src), ...seeds]);
+
+  // Steps from the backdrop into the paint, 8-connected (a diagonal edge's
+  // ramp is as many steps deep as a straight one's), out to RAMP + 1; the
+  // queue holds every pixel it numbered, nearest the backdrop first.
+  const FAR = 255;
+  const nb = new Int32Array(8);
+  const depth = new Uint8Array(n).fill(FAR);
+  const queue = new Int32Array(n);
+  let tail = 0;
+  for (let i = 0; i < n; i++) {
+    if (reached[i]) {
+      depth[i] = 0;
+      queue[tail++] = i;
+    }
+  }
+  for (let head = 0; head < tail; head++) {
+    const i = queue[head];
+    if (depth[i] > RAMP) continue;
+    for (let k = neighbours8(src, i, nb) - 1; k >= 0; k--) {
+      const j = nb[k];
+      if (depth[j] === FAR) {
+        depth[j] = depth[i] + 1;
+        queue[tail++] = j;
+      }
+    }
+  }
+
+  /** Pixel `i`'s share of the way from the backdrop to the colour of
+   *  pixel `p`, when it is a mix of the two: taking the backdrop back out
+   *  at that share leaves it within ROUNDING + MIX_TOLERANCE * share of the
+   *  line to `p`. NaN when it is not, or the share is not above 0. */
+  const shareOf = (i: number, p: number): number => {
+    const d0 = d[i * 3];
+    const d1 = d[i * 3 + 1];
+    const d2 = d[i * 3 + 2];
+    const q0 = d[p * 3];
+    const q1 = d[p * 3 + 1];
+    const q2 = d[p * 3 + 2];
+    const t = (d0 * q0 + d1 * q1 + d2 * q2) / (dist[p] * dist[p]);
+    if (!(t > 0)) return NaN;
+    const r = (d0 - t * q0) ** 2 + (d1 - t * q1) ** 2 + (d2 - t * q2) ** 2;
+    return r <= (ROUNDING + MIX_TOLERANCE * t) ** 2 ? t : NaN;
+  };
+  /** The paint pixel the last `mixShare` found. */
+  let mixPaint = -1;
+  /** The least share pixel `i` is a mix at with paint within RAMP px (the
+   *  paint furthest out it mixes with), under `upTo`; `upTo` if none. */
+  const mixShare = (i: number, upTo: number): number => {
+    const x = i % w;
+    const y = (i - x) / w;
+    let best = upTo;
+    for (
+      let yy = Math.max(0, y - RAMP);
+      yy <= Math.min(h - 1, y + RAMP);
+      yy++
+    ) {
+      for (
+        let xx = Math.max(0, x - RAMP);
+        xx <= Math.min(w - 1, x + RAMP);
+        xx++
+      ) {
+        const p = yy * w + xx;
+        if (reached[p] || dist[p] < KEY_FLOOD) continue;
+        const t = shareOf(i, p);
+        if (t < best) {
+          best = t;
+          mixPaint = p;
+        }
+      }
+    }
+    return best;
+  };
+
+  const alpha = new Float32Array(n);
+  const paintNear = dilate(src, invert(reached), RAMP);
+  for (let i = 0; i < n; i++) {
+    if (!reached[i]) {
+      alpha[i] = 1;
+    } else if (paintNear[i]) {
+      // Backdrop beside paint: the paint's soft edge where it mixes with it,
+      // however faint (the outer step of a pale ramp is under the noise
+      // floor); past the noise floor and mixing with no one paint, the
+      // least alpha that holds it.
+      let a = mixShare(i, Infinity);
+      if (a === Infinity) {
+        a = 0;
+        if (dist[i] < KEY_T0) continue;
+        for (let c = 0; c < 3; c++) {
+          const dc = d[i * 3 + c];
+          const room = dc > 0 ? 255 - backdrop[c] : backdrop[c];
+          a = Math.max(a, Math.abs(dc) / Math.max(room, 1));
+        }
+      }
+      alpha[i] = a;
+    }
+  }
+  for (let k = 0; k < tail; k++) {
+    const i = queue[k];
+    const step = depth[i];
+    if (step === 0 || step > RAMP) continue;
+    const around = neighbours8(src, i, nb);
+    // Only beside backdrop or a step of a ramp: cheap, before the search.
+    let nearer = false;
+    for (let m = 0; m < around; m++) {
+      if (depth[nb[m]] < step && alpha[nb[m]] < 1) nearer = true;
+    }
+    if (!nearer) continue;
+    const a = mixShare(i, 1);
+    if (!(a < 1)) continue;
+    const p = mixPaint;
+    // The pixel nearer the backdrop is backdrop, or a lesser step toward
+    // the same paint; one further in climbs further toward it.
+    let chained = false;
+    let climbs = false;
+    for (let m = 0; m < around; m++) {
+      const j = nb[m];
+      if (depth[j] < step) {
+        chained ||= depth[j] === 0 || (alpha[j] < 1 && shareOf(j, p) < a);
+      } else {
+        const climb =
+          ((d[j * 3] - d[i * 3]) * d[p * 3] +
+            (d[j * 3 + 1] - d[i * 3 + 1]) * d[p * 3 + 1] +
+            (d[j * 3 + 2] - d[i * 3 + 2]) * d[p * 3 + 2]) /
+          dist[p];
+        climbs ||= climb > CLIMB;
+      }
+    }
+    if (chained && climbs) alpha[i] = a;
+  }
+
+  const out = Buffer.alloc(n * 4);
+  for (let i = 0; i < n; i++) {
+    const a = alpha[i];
+    for (let c = 0; c < 3; c++) {
+      out[i * 4 + c] =
+        a > 0 && a < 1
+          ? Math.max(
+              0,
+              Math.min(255, Math.round(backdrop[c] + d[i * 3 + c] / a)),
+            )
+          : rgba[i * 4 + c];
+    }
+    out[i * 4 + 3] = Math.round(a * rgba[i * 4 + 3]);
+  }
+  return out;
 }
 
 /**

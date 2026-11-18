@@ -18,6 +18,13 @@ import {
   type CanvasSize,
   type Mask,
 } from "../src/illustration";
+import {
+  BLACK_ON_PEACH,
+  ORANGE_ON_WARM,
+  PINK_ON_PEACH,
+  writeCharacter,
+  type CharacterColours,
+} from "./helpers/illustration-character";
 
 const createdDirs: string[] = [];
 function tmpDir(): string {
@@ -408,100 +415,6 @@ describe("loadIllustration", () => {
     expect(rimPixels).toBeGreaterThan(0);
   });
 
-  it("keeps a dark outline's soft edge: the keyed picture over its backdrop gives the picture back", async () => {
-    const file = path.join(tmpDir(), "outlined.png");
-    // A pale disc with a dark line one picture pixel wide round it on a
-    // mid-tone backdrop, the paint lighter and the line darker than it, at
-    // half size so the scale softens every edge: the line is all edge.
-    const PALE: RGB = [245, 180, 185];
-    const MID: RGB = [143, 158, 180];
-    await writeOpaque(file, 550, (x, y) => {
-      const d = Math.hypot(x + 0.5 - 275, y + 0.5 - 275);
-      return d < 146 ? PALE : d < 147 ? INK : MID;
-    });
-    const pic = await loadIllustration(file);
-    const source = await readPictureOnCanvas(file);
-    let off = 0;
-    for (let i = 0; i < pic.width * pic.height; i++) {
-      const a = pic.alpha[i];
-      for (let c = 0; c < 3; c++) {
-        const got = pic.rgb[i * 3 + c] * a + MID[c] * (1 - a);
-        if (Math.abs(got - source.rgba[i * 4 + c]) > 24) {
-          off++;
-          break;
-        }
-      }
-    }
-    expect(off).toBe(0);
-  });
-
-  /** [what, ground, fill, line (or none)]: a disc of `fill` ringed by a
-   *  line two picture pixels wide, at half size so the resize rings past
-   *  the ground just outside the figure. */
-  const silhouettes: [string, RGB, RGB, RGB | null][] = [
-    ["a dark line on a light ground", [245, 245, 245], [240, 150, 175], INK],
-    [
-      "black ink on a mid-tone ground",
-      [143, 158, 180],
-      [245, 180, 185],
-      [20, 15, 25],
-    ],
-    [
-      "a pale figure with dark lines on a dark ground",
-      [30, 32, 45],
-      [235, 225, 215],
-      [10, 8, 12],
-    ],
-    [
-      "a pale figure with no line on a dark ground",
-      [30, 32, 45],
-      [235, 225, 215],
-      null,
-    ],
-  ];
-
-  it.each(silhouettes)(
-    "keys the resize's ring outside the silhouette clear, and gives the picture back: %s",
-    async (_what, ground, fill, line) => {
-      const file = path.join(tmpDir(), "silhouette.png");
-      const R = 146;
-      const outer = line ? R + 2 : R;
-      await writeOpaque(file, 550, (x, y) => {
-        const d = Math.hypot(x + 0.5 - 275, y + 0.5 - 275);
-        return d < R ? fill : d < outer && line ? line : ground;
-      });
-      const pic = await loadIllustration(file);
-      const source = await readPictureOnCanvas(file);
-      let outside = 0;
-      let off = 0;
-      for (let y = 0; y < pic.height; y++) {
-        for (let x = 0; x < pic.width; x++) {
-          const i = y * pic.width + x;
-          // Past the drawn edge by more than one picture pixel's softening.
-          if (Math.hypot(x + 0.5 - 550, y + 0.5 - 550) > 2 * outer + 2) {
-            outside++;
-            if (pic.alpha[i] >= 0.5) off++;
-          }
-        }
-      }
-      expect(outside).toBeGreaterThan(100000);
-      expect(off).toBe(0);
-      expect(pic.alpha[550 * 1100 + 550]).toBe(1);
-      let wrong = 0;
-      for (let i = 0; i < pic.width * pic.height; i++) {
-        const a = pic.alpha[i];
-        for (let c = 0; c < 3; c++) {
-          const got = pic.rgb[i * 3 + c] * a + ground[c] * (1 - a);
-          if (Math.abs(got - source.rgba[i * 4 + c]) > 24) {
-            wrong++;
-            break;
-          }
-        }
-      }
-      expect(wrong).toBe(0);
-    },
-  );
-
   it("takes a JPEG's noisy flat backdrop as one colour", async () => {
     const file = path.join(tmpDir(), "disc.jpg");
     await writeOpaque(file, 550, (x, y) => discAt(2 * x, 2 * y), "jpeg");
@@ -666,4 +579,249 @@ describe("loadIllustration", () => {
       /picture is 100x400; at 1100 px wide its canvas would be 4400 px tall, over 4096/,
     );
   });
+});
+
+/**
+ * The matte's edge, case by case, against the same picture drawn on
+ * transparency and scaled the same way: its alpha is the true coverage.
+ */
+describe("loadIllustration's edge, against the picture drawn on transparency", () => {
+  /** The keyed picture beside the source on the canvas and the truth. */
+  async function keyedBeside(file: string, truthFile: string) {
+    const pic = await loadIllustration(file);
+    const source = await readPictureOnCanvas(file);
+    const truth = await readPictureOnCanvas(truthFile);
+    const n = pic.width * pic.height;
+    const ground = pic.backdrop!;
+    // Over its backdrop, how far each gives a source channel back.
+    const off = (i: number, rgb: ArrayLike<number>, at: number, a: number) =>
+      Math.max(
+        ...[0, 1, 2].map((c) =>
+          Math.abs(
+            rgb[at + c] * a + ground[c] * (1 - a) - source.rgba[i * 4 + c],
+          ),
+        ),
+      );
+    let ring = 0;
+    let worse = 0;
+    for (let i = 0; i < n; i++) {
+      const t = truth.rgba[i * 4 + 3] / 255;
+      const a = pic.alpha[i];
+      if (t < 0.05 && a >= 0.5) ring++;
+      // The truth cannot give back the resize's overshoot past an edge
+      // either (clipped to clear, or into 0..255): only past what it
+      // misses by is the matte's own.
+      worse = Math.max(
+        worse,
+        off(i, pic.rgb, i * 3, a) - off(i, truth.rgba, i * 4, t),
+      );
+    }
+    return { pic, truth, ring, worse };
+  }
+
+  /** Each canvas px of true coverage 1 more than 3 px inside the edge. */
+  function deepInside(truth: { width: number; height: number; rgba: Buffer }) {
+    const full = new Uint8Array(truth.width * truth.height);
+    for (let i = 0; i < full.length; i++) {
+      full[i] = truth.rgba[i * 4 + 3] === 255 ? 1 : 0;
+    }
+    return erode(truth, full, 3);
+  }
+
+  /** At half size, supersampled: `paint` gives each point's colour and
+   *  coverage in picture px; the opaque picture over `ground` and the same
+   *  paint on transparency. */
+  async function writePair(
+    ground: RGB,
+    paint: (x: number, y: number) => [RGB, number],
+  ): Promise<[string, string]> {
+    const S = 550;
+    const opaque = Buffer.alloc(S * S * 3);
+    const clear = Buffer.alloc(S * S * 4);
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
+        const sum = [0, 0, 0];
+        let cov = 0;
+        for (let k = 0; k < 16; k++) {
+          const [col, a] = paint(
+            x + ((k % 4) + 0.5) / 4,
+            y + ((k >> 2) + 0.5) / 4,
+          );
+          for (let c = 0; c < 3; c++) sum[c] += (col[c] * a) / 16;
+          cov += a / 16;
+        }
+        const i = y * S + x;
+        for (let c = 0; c < 3; c++) {
+          opaque[i * 3 + c] = Math.round(sum[c] + ground[c] * (1 - cov));
+          if (cov > 0) clear[i * 4 + c] = Math.round(sum[c] / cov);
+        }
+        clear[i * 4 + 3] = Math.round(cov * 255);
+      }
+    }
+    const dir = tmpDir();
+    const files: [string, string] = [
+      path.join(dir, "opaque.png"),
+      path.join(dir, "clear.png"),
+    ];
+    await sharp(opaque, { raw: { width: S, height: S, channels: 3 } })
+      .png()
+      .toFile(files[0]);
+    await sharp(clear, { raw: { width: S, height: S, channels: 4 } })
+      .png()
+      .toFile(files[1]);
+    return files;
+  }
+
+  const DARK_GROUND: CharacterColours = {
+    backdrop: [30, 32, 45],
+    ink: [10, 8, 15],
+    hair: [235, 235, 245],
+    hairShadow: [200, 200, 220],
+    hairHighlight: [255, 255, 255],
+    skin: [255, 235, 220],
+    skinShadow: [240, 210, 195],
+    torso: [220, 225, 240],
+    ribbon: [210, 40, 60],
+  };
+  const colourings: [string, CharacterColours][] = [
+    ["light ground, dark ink, pink hair", PINK_ON_PEACH],
+    ["light ground, dark ink, orange hair", ORANGE_ON_WARM],
+    ["light ground, dark ink, near-black hair", BLACK_ON_PEACH],
+    [
+      "mid-tone ground 150, black ink",
+      { ...PINK_ON_PEACH, backdrop: [150, 150, 160], ink: [20, 15, 25] },
+    ],
+    [
+      "mid-tone ground 200, black ink",
+      { ...PINK_ON_PEACH, backdrop: [200, 200, 200], ink: [10, 10, 10] },
+    ],
+    ["dark ground, pale figure, dark lines", DARK_GROUND],
+    // Its "line" is as pale as the hair: no line.
+    [
+      "dark ground, pale figure, no line",
+      { ...DARK_GROUND, ink: [250, 240, 230] },
+    ],
+    [
+      "light ground, dark figure, no line",
+      {
+        ...BLACK_ON_PEACH,
+        ink: [40, 35, 45],
+        skin: [120, 80, 70],
+        skinShadow: [100, 65, 55],
+      },
+    ],
+  ];
+
+  it.each(colourings)(
+    "on the character (%s): no ring past the silhouette, opaque inside, and it stacks back",
+    async (_what, colours) => {
+      const dir = tmpDir();
+      const file = path.join(dir, "character.png");
+      const truthFile = path.join(dir, "character-clear.png");
+      await writeCharacter(file, colours);
+      await writeCharacter(truthFile, colours, { transparent: true });
+      const { pic, truth, ring, worse } = await keyedBeside(file, truthFile);
+      expect(ring).toBe(0);
+      const deep = deepInside(truth);
+      let deepPx = 0;
+      let notOpaque = 0;
+      for (let i = 0; i < deep.length; i++) {
+        if (!deep[i]) continue;
+        deepPx++;
+        if (pic.alpha[i] < 1) notOpaque++;
+      }
+      expect(deepPx).toBeGreaterThan(300000);
+      expect(notOpaque).toBe(0);
+      expect(worse).toBeLessThan(5);
+    },
+  );
+
+  it.each([
+    ["a light ground", [245, 245, 245], [200, 120, 140]],
+    ["a dark ground", [30, 32, 45], [240, 220, 200]],
+    ["a light ground, pale paint", [245, 245, 245], [255, 215, 190]],
+  ] as [string, RGB, RGB][])(
+    "reads a soft-shaded lineless edge (a 6 px ramp) on %s as its coverage",
+    async (_what, ground, fill) => {
+      const [file, truthFile] = await writePair(ground, (x, y) => [
+        fill,
+        Math.max(0, Math.min(1, (160 - Math.hypot(x - 275, y - 275)) / 6)),
+      ]);
+      const { pic, truth, ring, worse } = await keyedBeside(file, truthFile);
+      let ramp = 0;
+      let wrong = 0;
+      for (let i = 0; i < pic.width * pic.height; i++) {
+        const t = truth.rgba[i * 4 + 3] / 255;
+        if (t <= 0 || t >= 1) continue;
+        ramp++;
+        if (Math.abs(pic.alpha[i] - t) > 0.15) wrong++;
+      }
+      expect(ramp).toBeGreaterThan(20000);
+      expect(wrong).toBe(0);
+      expect(ring).toBe(0);
+      expect(worse).toBeLessThan(5);
+    },
+  );
+
+  it("keeps a thin dark line opaque to where it runs into a lineless pale edge", async () => {
+    // A line one picture px (two canvas px) wide down a peach disc with no
+    // outline, on white, to the disc's edge at both ends.
+    const [file, truthFile] = await writePair([245, 245, 245], (x, y) => [
+      x >= 275 && x < 276 ? [20, 20, 30] : [255, 215, 190],
+      Math.hypot(x - 275, y - 275) < 160 ? 1 : 0,
+    ]);
+    const { pic, truth, ring, worse } = await keyedBeside(file, truthFile);
+    let line = 0;
+    let least = 1;
+    let lastRow = 0;
+    for (let y = 0; y < pic.height; y++) {
+      for (const x of [550, 551]) {
+        const i = y * pic.width + x;
+        if (truth.rgba[i * 4 + 3] < 255) continue;
+        line++;
+        lastRow = Math.max(lastRow, y);
+        least = Math.min(least, pic.alpha[i]);
+      }
+    }
+    expect(line).toBeGreaterThan(1200);
+    // Right to the edge (it ends at canvas row 870).
+    expect(lastRow).toBeGreaterThan(865);
+    expect(least).toBeGreaterThanOrEqual(0.9);
+    expect(ring).toBe(0);
+    expect(worse).toBeLessThan(5);
+  });
+
+  it.each([1, 1.5, 2])(
+    "keeps a dark outline %s picture px wide round pale paint on a mid-tone ground opaque",
+    async (width) => {
+      // The paint lighter and the line darker than the ground: the line
+      // lies on the far side of the ground from the paint.
+      const MID: RGB = [143, 158, 180];
+      const [file, truthFile] = await writePair(MID, (x, y) => {
+        const d = Math.hypot(x - 275, y - 275);
+        return [
+          d < 146 ? [245, 180, 185] : [20, 15, 25],
+          d < 146 + width ? 1 : 0,
+        ];
+      });
+      const { pic, truth, ring, worse } = await keyedBeside(file, truthFile);
+      let line = 0;
+      let least = 1;
+      for (let y = 0; y < pic.height; y++) {
+        for (let x = 0; x < pic.width; x++) {
+          const i = y * pic.width + x;
+          const d = Math.hypot((x + 0.5) / 2 - 275, (y + 0.5) / 2 - 275);
+          if (d < 146 || d >= 146 + width || truth.rgba[i * 4 + 3] < 255) {
+            continue;
+          }
+          line++;
+          least = Math.min(least, pic.alpha[i]);
+        }
+      }
+      expect(line).toBeGreaterThan(1000);
+      expect(least).toBeGreaterThanOrEqual(0.9);
+      expect(ring).toBe(0);
+      expect(worse).toBeLessThan(5);
+    },
+  );
 });
