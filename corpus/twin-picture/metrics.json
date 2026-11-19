@@ -1,0 +1,366 @@
+{
+  "canvas": {
+    "width": 1100,
+    "height": 1100
+  },
+  "partCount": 22,
+  "parameterCount": 21,
+  "atlasBytes": 733314,
+  "modelBytes": 1725708,
+  "modelSha256": "ea87ff668d45c1abf267375bd31c23075102399cac0872b51474ba4b6fa14a18",
+  "turn": {
+    "achieved": {
+      "eyeShift": 0.1592,
+      "farEyeRatio": 0.7269,
+      "silhouetteRatio": 1.0094
+    },
+    "clamped": [],
+    "strandOverlap": null
+  },
+  "patches": null,
+  "folds": {
+    "poses": 619,
+    "offenders": [
+      {
+        "id": "face",
+        "kind": "flip",
+        "ratio": -27.90755189609035,
+        "pose": "ParamAngleX=-30 ParamAngleY=-30 ParamAngleZ=-30 ParamBodyAngleX=10 ParamBodyAngleY=-10 ParamBodyAngleZ=10"
+      }
+    ]
+  },
+  "physics": [
+    {
+      "id": "hairSway",
+      "input": [
+        "ParamAngleX",
+        "ParamAmbientSway"
+      ],
+      "output": "ParamHairSwayX",
+      "kind": "ok",
+      "why": null,
+      "drives": [
+        "hair_front"
+      ],
+      "step": {
+        "values": {
+          "ParamAngleX": 30
+        },
+        "peak": -13.701,
+        "at": 0.017,
+        "final": 0,
+        "displacementPx": 40.844
+      },
+      "idle": {
+        "peak": 3.697,
+        "displacementPx": 11.021
+      }
+    },
+    {
+      "id": "hairTilt",
+      "input": [
+        "ParamAngleZ"
+      ],
+      "output": "ParamHairSwayZ",
+      "kind": "ok",
+      "why": null,
+      "drives": [
+        "hair_front"
+      ],
+      "step": {
+        "values": {
+          "ParamAngleZ": 30
+        },
+        "peak": -8.807,
+        "at": 0.017,
+        "final": 0,
+        "displacementPx": 26.257
+      },
+      "idle": {
+        "peak": 0.015,
+        "displacementPx": 0.045
+      }
+    },
+    {
+      "id": "hairBack",
+      "input": [
+        "ParamAngleX",
+        "ParamAngleZ",
+        "ParamAmbientSway"
+      ],
+      "output": "ParamHairBackSway",
+      "kind": "ok",
+      "why": null,
+      "drives": [
+        "hair_back",
+        "tail_R",
+        "tail_L"
+      ],
+      "step": {
+        "values": {
+          "ParamAmbientSway": 1
+        },
+        "peak": -12.002,
+        "at": 0.017,
+        "final": 0,
+        "displacementPx": 35.799
+      },
+      "idle": {
+        "peak": 4.026,
+        "displacementPx": 12.007
+      }
+    }
+  ],
+  "motions": [
+    "Nod",
+    "Shake",
+    "Tilt"
+  ],
+  "expressions": [
+    "smile",
+    "laugh",
+    "angry",
+    "sad",
+    "surprised"
+  ],
+  "customParts": {
+    "ok": false,
+    "poses": 719,
+    "parts": [
+      {
+        "id": "tail_R",
+        "ok": false,
+        "folds": {
+          "ratio": 0.985,
+          "pose": "ParamAngleZ=30 ParamHairBackSway=-20"
+        },
+        "tiePx": 2.566,
+        "slide": {
+          "px": 1.724,
+          "onAnchorPx": 1.007
+        },
+        "exposed": {
+          "hiddenPx": 2999,
+          "noTurnPx2": 913,
+          "turningPx2": 843
+        },
+        "tip": [
+          {
+            "param": "ParamAngleX",
+            "fromBare": [
+              8.954,
+              8.954
+            ],
+            "travel": 32.818
+          },
+          {
+            "param": "ParamAngleY",
+            "fromBare": [
+              13.419,
+              7.476
+            ],
+            "travel": 20.895
+          },
+          {
+            "param": "ParamAngleZ",
+            "fromBare": [
+              238.497,
+              238.499
+            ],
+            "travel": 311.532
+          },
+          {
+            "param": "ParamHairBackSway",
+            "fromBare": [
+              38.977,
+              38.977
+            ],
+            "travel": 77.954
+          }
+        ]
+      },
+      {
+        "id": "tail_L",
+        "ok": false,
+        "folds": {
+          "ratio": 0.985,
+          "pose": "ParamAngleZ=30 ParamHairBackSway=-20"
+        },
+        "tiePx": 2.512,
+        "slide": {
+          "px": 1.724,
+          "onAnchorPx": 0.977
+        },
+        "exposed": {
+          "hiddenPx": 2811,
+          "noTurnPx2": 910,
+          "turningPx2": 840
+        },
+        "tip": [
+          {
+            "param": "ParamAngleX",
+            "fromBare": [
+              8.954,
+              8.954
+            ],
+            "travel": 32.818
+          },
+          {
+            "param": "ParamAngleY",
+            "fromBare": [
+              13.419,
+              7.476
+            ],
+            "travel": 20.895
+          },
+          {
+            "param": "ParamAngleZ",
+            "fromBare": [
+              241.392,
+              241.392
+            ],
+            "travel": 312.159
+          },
+          {
+            "param": "ParamHairBackSway",
+            "fromBare": [
+              38.998,
+              38.998
+            ],
+            "travel": 77.996
+          }
+        ]
+      }
+    ]
+  },
+  "cut": {
+    "passed": true,
+    "checks": {
+      "stack": {
+        "level": "fail",
+        "pass": true,
+        "value": 0.0004
+      },
+      "seeds": {
+        "level": "fail",
+        "pass": true,
+        "value": 0
+      },
+      "opening.L": {
+        "level": "fail",
+        "pass": true,
+        "value": 3
+      },
+      "eye.L": {
+        "level": "warn",
+        "pass": true,
+        "value": 0.178
+      },
+      "iris.L": {
+        "level": "warn",
+        "pass": true,
+        "value": 0.846
+      },
+      "opening.R": {
+        "level": "fail",
+        "pass": true,
+        "value": 3
+      },
+      "eye.R": {
+        "level": "warn",
+        "pass": true,
+        "value": 0.136
+      },
+      "iris.R": {
+        "level": "warn",
+        "pass": true,
+        "value": 0.85
+      },
+      "brow.L": {
+        "level": "warn",
+        "pass": true,
+        "value": 777
+      },
+      "browBand.L": {
+        "level": "warn",
+        "pass": true,
+        "value": 0.028
+      },
+      "brow.R": {
+        "level": "warn",
+        "pass": true,
+        "value": 888
+      },
+      "browBand.R": {
+        "level": "warn",
+        "pass": true,
+        "value": 0.002
+      },
+      "mouth": {
+        "level": "fail",
+        "pass": true,
+        "value": 1701
+      },
+      "fills.face.features": {
+        "level": "warn",
+        "pass": true,
+        "value": 0.01
+      },
+      "fills.face.forehead": {
+        "level": "warn",
+        "pass": false,
+        "value": 0.34
+      },
+      "fills.hair_back.shell": {
+        "level": "warn",
+        "pass": true,
+        "value": 0.763
+      },
+      "fills.custom.tail_R.root": {
+        "level": "warn",
+        "pass": true,
+        "value": 0
+      },
+      "fills.custom.tail_L.root": {
+        "level": "warn",
+        "pass": true,
+        "value": 0
+      },
+      "fills.hair_back.underBody": {
+        "level": "warn",
+        "pass": true,
+        "value": 0
+      },
+      "fills.custom.tail_R.underBody": {
+        "level": "warn",
+        "pass": true,
+        "value": 0
+      },
+      "fills.custom.tail_L.underBody": {
+        "level": "warn",
+        "pass": true,
+        "value": 0
+      },
+      "fills.body.neck": {
+        "level": "warn",
+        "pass": true,
+        "value": 0.62
+      },
+      "fills.hair_front.strands": {
+        "level": "warn",
+        "pass": true,
+        "value": 0
+      },
+      "frontHairWidth": {
+        "level": "warn",
+        "pass": true,
+        "value": 0.849
+      },
+      "pockets": {
+        "level": "warn",
+        "pass": false,
+        "value": 11
+      }
+    }
+  }
+}

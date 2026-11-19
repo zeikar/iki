@@ -138,11 +138,12 @@ panel.insertBefore(idleRow, controls);
 
 // Model picker for the regression corpus models in public/ (the hero,
 // twin-tails, a bust with two baked custom-part tails, the far one going
-// behind the head on a turn; mint, mint with side locks and silver-hood, full
-// bodies that declare a Wave; bob, a bust on the lip set), the vector sample,
-// and a local .iki file. Hero leads so the select's default already names the
-// model the page starts on. Built once, like the Idle row, so it survives the
-// per-model control rebuilds.
+// behind the head on a turn; twin-picture, the same character cut from one
+// finished picture, beside it so the two ways of making a character compare;
+// mint, mint with side locks and silver-hood, full bodies that declare a Wave;
+// bob, a bust on the lip set), the vector sample, and a local .iki file. Hero
+// leads so the select's default already names the model the page starts on.
+// Built once, like the Idle row, so it survives the per-model control rebuilds.
 const modelRow = document.createElement("div");
 modelRow.className = "control";
 const modelLabel = document.createElement("label");
@@ -152,7 +153,12 @@ const modelSelect = document.createElement("select");
 // `file` is the public/ model a fetched entry loads; switchModel looks it up.
 const modelEntries: readonly { value: string; text: string; file?: string }[] =
   [
-    { value: "hero", text: "Hero character", file: "hero.iki" },
+    { value: "hero", text: "Twin (hero) — generated parts", file: "hero.iki" },
+    {
+      value: "twin-picture",
+      text: "Twin — cut from one picture",
+      file: "twin-picture.iki",
+    },
     { value: "mint", text: "Mint — full body", file: "mint.iki" },
     { value: "mint-locks", text: "Mint — side locks", file: "mint-locks.iki" },
     {

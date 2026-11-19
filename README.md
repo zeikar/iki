@@ -22,7 +22,8 @@
 **Iki** is a free, MIT-licensed 2D puppet animation engine for the web — an
 alternative to Live2D and [Inochi2D](https://inochi2d.com/) whose characters an
 AI agent can make. Ask for one, and the bundled
-[Claude Code / Codex plugin](./plugin) has an image model draw its parts, then rigs them
+[Claude Code / Codex plugin](./plugin) has an image model draw its parts, or
+cuts a finished picture of yours into parts, then rigs them
 into a character that blinks, looks around, talks, turns and nods, with hair
 that sways. What you get is an open `.iki` file — plain JSON you own — that the
 WebGL runtime plays in any browser, and that a host (such as
@@ -37,7 +38,10 @@ expressions.
 
 ## Make a character with AI
 
-Install the plugin in [Claude Code](https://github.com/anthropics/claude-code):
+There are two ways in, through one plugin: have an image model **draw every
+part**, or **cut a picture you already have** into parts. Either way you get a
+rigged `.iki` model. Install the plugin in
+[Claude Code](https://github.com/anthropics/claude-code):
 
 ```
 /plugin marketplace add zeikar/iki
@@ -55,7 +59,9 @@ Start a new Codex session to load it. The same skills and MCP server work in
 both hosts; see the [plugin installation guide](./plugin#codex) for a local
 checkout and prerequisites.
 
-Then ask for a character — _"make me an iki character: short copper bob, green
+### Draw every part
+
+Ask for a character — _"make me an iki character: short copper bob, green
 eyes, school uniform"_. The plugin:
 
 1. **Draws** each part on its own with an image model — face, eyes, irises,
@@ -67,22 +73,37 @@ eyes, school uniform"_. The plugin:
    `.iki` model.
 
 The character at the top of this page was made this way. The plugin needs an
-image generator — see its [prerequisites](./plugin#prerequisites). Already have
-art? Hand role-named PNG layers to the auto-rigger through the
-[`@ikijs/mcp`](./packages/mcp) server, or import a layered PSD in the editor.
-One finished front-facing picture can be cut into those layers in place by the
-server's `cut_layers_from_illustration`, from landmarks an agent reads off it;
-the plugin's `iki-import-illustration` skill walks an agent from the picture to
-a rigged model.
+image generator — see its [prerequisites](./plugin#prerequisites).
+
+### Cut a picture you already have
+
+<p align="center">
+  <img src="./.github/assets/import.gif" width="680" alt="A finished front-facing picture of a twin-tailed girl, still on the left; on the right the same picture rigged by Iki, turning its head, blinking and talking." />
+  <br />
+  <sub>One finished picture, left, and the model cut from it, right: the hero's character, made the other way.</sub>
+</p>
+
+Hand the plugin one finished, front-facing picture — _"rig this picture so it
+moves: `my-character.png`"_. Its `iki-import-illustration` skill reads
+landmarks off it (`view_illustration_grid`), cuts it into layers in place and
+fills in what each layer hides (`cut_layers_from_illustration`), then rigs
+them as above. The model keeps the picture's own pixels, so at rest it is your
+picture; a closed mouth is stretched open to talk, and a generated mouth talks
+more cleanly (the skill asks before drawing one). A clean front-facing bust
+works best.
+
+Art already in layers? Hand role-named PNG layers to the auto-rigger through
+the [`@ikijs/mcp`](./packages/mcp) server, or import a layered PSD in the
+editor.
 
 ## Try it
 
 No install — both demos run in the browser:
 
 - **[Playground](https://zeikar.dev/iki/playground/)** — drag the sliders
-  that a host would drive, on a hand-authored model or one of the five
-  regression-corpus characters — the hero with her baked twin tails, three
-  full bodies and a plain bust.
+  that a host would drive, on a hand-authored model or one of the six
+  regression-corpus characters — the hero with her baked twin tails, the same
+  character cut from one picture, three full bodies and a plain bust.
 - **[Editor](https://zeikar.dev/iki/editor/)** — author parts, deformers,
   and physics rigs, import a layered PSD, and export a validated `.iki`.
 
@@ -131,7 +152,7 @@ web format you can script against, that is what this is.
 | [`@ikijs/engine`](./packages/engine)                                                        | WebGL2 runtime that plays a `.iki` model                                                                                                                                                                                                                   |
 | [`@ikijs/editor`](./packages/editor)                                                        | Headless editing core (no UI): EditorDocument, edit commands, undo/redo, atlas layout/UV helpers, auto-rigger (depends only on @ikijs/format)                                                                                                              |
 | [`@ikijs/mcp`](./packages/mcp)                                                              | stdio MCP server exposing `.iki` read/validate plus `compose_layers_from_parts`, `measure_layers`, `auto_rig_from_layers`, `measure_turn_reference`, `render_poses`, `probe_rig`, `view_illustration_grid` and `cut_layers_from_illustration` to AI agents |
-| [`examples/playground`](./examples/playground) ([live](https://zeikar.dev/iki/playground/)) | Slider-driven demo of the five regression-corpus characters (the hero with her baked twin tails, three full bodies and a plain bust) and a hand-authored model                                                                                             |
+| [`examples/playground`](./examples/playground) ([live](https://zeikar.dev/iki/playground/)) | Slider-driven demo of the six regression-corpus characters (the hero with her baked twin tails, the same character cut from one picture, three full bodies and a plain bust) and a hand-authored model                                                     |
 | [`examples/editor`](./examples/editor) ([live](https://zeikar.dev/iki/editor/))             | Private React+Zustand app — load/import art, numeric part + deformer + physics editing, pivot gizmo, live IkiPlayer preview, validated .iki export                                                                                                         |
 | [`plugin/`](./plugin)                                                                       | Claude Code / Codex plugin — shared character-generation skills, two agent roles, and the MCP server, wired up in one install                                                                                                                              |
 
@@ -218,10 +239,11 @@ enough to play a model. The editor packages are for building authoring tools.
 
 **How do I make a model?** Ask for one with the
 [Claude Code / Codex plugin](#make-a-character-with-ai), which draws the parts and rigs
-them. With art of your own, feed role-named PNG layers to the auto-rigger in
-[`@ikijs/editor`](./packages/editor) / [`@ikijs/mcp`](./packages/mcp), which
-wires up blink, gaze, lip-sync, head-turn and brows for you. Or hand-write the
-JSON — it is small, see above.
+them, or [cuts a finished picture of yours](#cut-a-picture-you-already-have)
+into them. With art already in layers, feed role-named PNG layers to the
+auto-rigger in [`@ikijs/editor`](./packages/editor) /
+[`@ikijs/mcp`](./packages/mcp), which wires up blink, gaze, lip-sync, head-turn
+and brows for you. Or hand-write the JSON — it is small, see above.
 
 ## Roadmap
 

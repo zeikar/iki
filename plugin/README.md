@@ -34,6 +34,11 @@ role-separated_ art out of an image model (an eyeless face base, an iris-free
 white sclera), and how to act on the server's geometry checks — the ones that
 catch the defects which cost real regeneration rounds to find by eye.
 
+Iki's README shows the two ways in on one character: the hero, drawn part by
+part, and
+[the same character cut from one picture](https://github.com/zeikar/iki#cut-a-picture-you-already-have)
+by `iki-import-illustration`.
+
 ## Install
 
 ### Claude Code

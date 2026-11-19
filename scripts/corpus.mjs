@@ -6,7 +6,14 @@
  * rigged with the options the plugin's character artist rigs with:
  * `quantizeColors` 256, `rig-plan.json` verbatim, the whole `patches.json` list,
  * the `custom-parts.json` entries (their layers under the character's
- * `custom/`), `bakes.json` and no `turnTargets`. Update mode writes the model to
+ * `custom/`), `bakes.json` and no `turnTargets`. A directory with a
+ * `picture.png` instead is one finished picture: it is cut first, with
+ * `cutLayersFromIllustration` and its `landmarks.json` (and the lip set's
+ * `mouth_keyed.png` and `mouth_interior.png`), into `.corpus-check/cut/<name>/`,
+ * and the cut's layers are rigged with the custom parts its landmarks declare
+ * and the bakes `pictureBakes` computes. A custom-part gate line that fails
+ * fails the run unless the character's `accept-gate.json` names it, with the
+ * reason. Update mode writes the model to
  * `examples/playground/public/<name>.iki` (twin-tails' to `hero.iki`: it is
  * the site's hero) and its metrics to
  * `corpus/<name>/metrics.json`; check mode rigs into `.corpus-check/` and
@@ -28,7 +35,9 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import {
   autoRigFromLayers,
+  cutLayersFromIllustration,
   formatCustomGate,
+  probeRig,
 } from "../packages/mcp/dist/index.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -43,6 +52,11 @@ const demoDir = path.join("examples", "playground", "public");
 // hero the landing page and the README GIF show.
 const demoFiles = { "twin-tails": "hero.iki" };
 const checkDir = ".corpus-check";
+// Where a picture entry's cut and bare rig go, in both modes: scratch, never
+// committed.
+const cutDir = path.join(checkDir, "cut");
+// The gate's limited lines, the ones an entry's `accept-gate.json` may name.
+const gateLines = ["FOLDS", "TIE", "SLIDE", "EXPOSED", "RIGID"];
 
 const mode = process.argv[2];
 if (mode !== "update" && mode !== "check") {
@@ -63,13 +77,34 @@ for (const name of names) {
     mode === "update" ? demoDir : checkDir,
     demoName,
   );
-  const { metrics, modelFile, gate } = await rig(name, outputPath);
+  const { metrics, modelFile, gate, acceptGate } = await rig(name, outputPath);
   const metricsPath = path.join(corpusDir, name, "metrics.json");
   // A custom part the gate refuses is a rig the loop would not accept; the
   // files are still written (update) or compared (check) so the numbers show.
+  // A line the entry's `accept-gate.json` names is reported, not failed.
   if (gate !== undefined && !gate.ok) {
     console.log(`${name}: ${formatCustomGate(gate).slice(-1)[0]}`);
-    failed = true;
+    // `failed` holds `<part> <LINE>` per failing line, or `gate error: …`,
+    // which is never accepted.
+    const lines = gate.failed.map((f) => /^\S+ (\S+)$/.exec(f)?.[1]);
+    for (const [line, why] of Object.entries(acceptGate)) {
+      if (lines.includes(line)) {
+        console.log(`  ${line} accepted: ${why}`);
+      }
+    }
+    failed ||= lines.some((line) => !Object.hasOwn(acceptGate, line ?? ""));
+  }
+  // An acceptance that nothing needs any more is noise that would hide the
+  // next failure of that line: say so, so the file is trimmed.
+  const failing = new Set(
+    (gate?.failed ?? []).map((f) => /^\S+ (\S+)$/.exec(f)?.[1]),
+  );
+  for (const line of Object.keys(acceptGate)) {
+    if (!failing.has(line)) {
+      console.log(
+        `${name}: accept-gate.json accepts ${line}, which no part fails now: remove it`,
+      );
+    }
   }
 
   if (mode === "update") {
@@ -123,7 +158,8 @@ async function characterNames() {
   for (const entry of entries) {
     if (
       entry.isDirectory() &&
-      (await isDirectory(path.join(corpusDir, entry.name, "layers")))
+      ((await isDirectory(path.join(corpusDir, entry.name, "layers"))) ||
+        (await isFile(path.join(corpusDir, entry.name, "picture.png"))))
     ) {
       names.push(entry.name);
     }
@@ -133,11 +169,6 @@ async function characterNames() {
 
 async function rig(name, outputPath) {
   const characterDir = path.join(corpusDir, name);
-  const layersDir = path.join(characterDir, "layers");
-  const layers = (await readdir(layersDir))
-    .filter((file) => file.endsWith(".png"))
-    .sort()
-    .map((file) => ({ path: path.join(layersDir, file) }));
   const rigPlan = JSON.parse(
     await readFile(path.join(characterDir, "rig-plan.json"), "utf8"),
   );
@@ -156,40 +187,32 @@ async function rig(name, outputPath) {
     );
   }
 
-  const customFile = await readIfExists(
-    path.join(characterDir, "custom-parts.json"),
+  const acceptFile = await readIfExists(
+    path.join(characterDir, "accept-gate.json"),
   );
-  const customEntries =
-    customFile === null
-      ? undefined
-      : JSON.parse(customFile.toString()).customParts;
+  const acceptGate =
+    acceptFile === null ? {} : JSON.parse(acceptFile.toString()).acceptGate;
+  // A misspelt line would accept nothing and fail the run; an empty reason
+  // would accept a failure no one explained.
   if (
-    customFile !== null &&
-    (!Array.isArray(customEntries) ||
-      !customEntries.every(
-        (entry) =>
-          entry !== null &&
-          typeof entry === "object" &&
-          typeof entry.file === "string",
+    acceptFile !== null &&
+    (acceptGate === null ||
+      typeof acceptGate !== "object" ||
+      Array.isArray(acceptGate) ||
+      !Object.entries(acceptGate).every(
+        ([line, why]) =>
+          gateLines.includes(line) && typeof why === "string" && why !== "",
       ))
   ) {
     throw new Error(
-      `corpus/${name}/custom-parts.json: expected { "customParts": [{ "file": ..., ...}] }`,
+      `corpus/${name}/accept-gate.json: expected { "acceptGate": { <${gateLines.join("|")}>: "<why>" } }`,
     );
   }
-  const customParts = customEntries?.map(({ file, ...entry }) => ({
-    ...entry,
-    path: path.join(characterDir, "custom", file),
-  }));
-  const bakesFile = await readIfExists(path.join(characterDir, "bakes.json"));
-  const bakes =
-    bakesFile === null ? undefined : JSON.parse(bakesFile.toString()).bakes;
-  if (
-    bakesFile !== null &&
-    (bakes === null || typeof bakes !== "object" || Array.isArray(bakes))
-  ) {
-    throw new Error(`corpus/${name}/bakes.json: expected { "bakes": {...} }`);
-  }
+
+  const picture = path.join(characterDir, "picture.png");
+  const { layers, customParts, bakes, cut } = (await isFile(picture))
+    ? await pictureInputs(name, characterDir, picture, rigPlan)
+    : await layeredInputs(name, characterDir);
 
   const result = await autoRigFromLayers({
     layers,
@@ -270,8 +293,187 @@ async function rig(name, outputPath) {
     ...(result.customParts === undefined
       ? {}
       : { customParts: customPartMetrics(result.customParts.gate) }),
+    // Only a picture entry has the key: what guards the cut on real art.
+    ...(cut === undefined ? {} : { cut: cutMetrics(cut) }),
   };
-  return { metrics, modelFile, gate: result.customParts?.gate };
+  return { metrics, modelFile, gate: result.customParts?.gate, acceptGate };
+}
+
+/** A layered entry's rig inputs: its committed layers, custom parts and bakes. */
+async function layeredInputs(name, characterDir) {
+  const layersDir = path.join(characterDir, "layers");
+  const layers = (await readdir(layersDir))
+    .filter((file) => file.endsWith(".png"))
+    .sort()
+    .map((file) => ({ path: path.join(layersDir, file) }));
+  const customFile = await readIfExists(
+    path.join(characterDir, "custom-parts.json"),
+  );
+  const customEntries =
+    customFile === null
+      ? undefined
+      : JSON.parse(customFile.toString()).customParts;
+  if (
+    customFile !== null &&
+    (!Array.isArray(customEntries) ||
+      !customEntries.every(
+        (entry) =>
+          entry !== null &&
+          typeof entry === "object" &&
+          typeof entry.file === "string",
+      ))
+  ) {
+    throw new Error(
+      `corpus/${name}/custom-parts.json: expected { "customParts": [{ "file": ..., ...}] }`,
+    );
+  }
+  const customParts = customEntries?.map(({ file, ...entry }) => ({
+    ...entry,
+    path: path.join(characterDir, "custom", file),
+  }));
+  const bakesFile = await readIfExists(path.join(characterDir, "bakes.json"));
+  const bakes =
+    bakesFile === null ? undefined : JSON.parse(bakesFile.toString()).bakes;
+  if (
+    bakesFile !== null &&
+    (bakes === null || typeof bakes !== "object" || Array.isArray(bakes))
+  ) {
+    throw new Error(`corpus/${name}/bakes.json: expected { "bakes": {...} }`);
+  }
+
+  return { layers, customParts, bakes };
+}
+
+/**
+ * A picture entry's rig inputs: the picture cut into layers in place, the
+ * custom parts its landmarks declare (each hung from `hair_back` at its tie),
+ * and their bakes from `pictureBakes`. A cut that fails stops the run: there
+ * is nothing to rig. `part.box` is `[x0, y0, x1, y1]`, both corners inside.
+ */
+async function pictureInputs(name, characterDir, picture, rigPlan) {
+  const scratch = path.join(cutDir, name);
+  await mkdir(scratch, { recursive: true });
+  const mouth = {};
+  for (const [key, file] of [
+    ["mouthKeyed", "mouth_keyed.png"],
+    ["mouthInterior", "mouth_interior.png"],
+  ]) {
+    if (await isFile(path.join(characterDir, file))) {
+      mouth[key] = path.join(characterDir, file);
+    }
+  }
+  const cut = await cutLayersFromIllustration({
+    imagePath: picture,
+    landmarks: JSON.parse(
+      await readFile(path.join(characterDir, "landmarks.json"), "utf8"),
+    ),
+    outputDir: scratch,
+    ...mouth,
+  });
+  if (!cut.ok) {
+    console.error(`${name}: ${cut.error}`);
+    process.exit(1);
+  }
+  if (!cut.passed) {
+    console.error(
+      `${name}: cut failed: ${cut.checks
+        .filter((c) => !c.pass && c.level === "fail")
+        .map((c) => c.id)
+        .join(", ")}`,
+    );
+    process.exit(1);
+  }
+  const layers = cut.layers.map((layer) => ({ path: layer.path }));
+  const customParts = cut.customParts.map((part) => ({
+    id: part.id,
+    path: part.path,
+    anchor: "hair_back",
+    tie: part.tie,
+    after: "hair_back",
+  }));
+  const bakes =
+    customParts.length === 0
+      ? undefined
+      : await pictureBakes(
+          name,
+          path.join(scratch, "bare.iki"),
+          { layers, quantizeColors: 256, rigPlan, customParts },
+          cut.customParts.map((part) => part.box[3] - part.box[1] + 1),
+        );
+  return { layers, customParts, bakes, cut };
+}
+
+/**
+ * The tails' bakes, computed rather than kept as data: the recipe is a few
+ * lines and the picture is the input. Each part hangs from its knot: on every
+ * ParamAngleX, ParamAngleY and ParamAngleZ stop, all 14 points of its 1x6
+ * lattice take `hair_back`'s displacement at its tie, read with `probeRig` on
+ * a bare rig (so it stays plumb on a roll); on ParamHairBackSway it takes the
+ * same plus a sideways swing growing with the square of the row's depth, a
+ * thirtieth of the part's height at the tip. This is the bake the plugin's
+ * `iki-import-illustration` skill gives users (its Step 8, "The bake").
+ */
+async function pictureBakes(name, barePath, rigInput, heights) {
+  const parts = rigInput.customParts;
+  const bare = await autoRigFromLayers({ ...rigInput, outputPath: barePath });
+  if (!bare.ok) {
+    console.error(`${name}: bare rig: ${bare.error}`);
+    process.exit(1);
+  }
+  const stops = [
+    ["ParamAngleX", [-30, -15, 15, 30]],
+    ["ParamAngleY", [-30, -15, 15, 30]],
+    ["ParamAngleZ", [-30, -20, -10, 10, 20, 30]],
+    ["ParamHairBackSway", [-20, 20]],
+  ];
+  const queries = stops.flatMap(([param, values]) =>
+    values.map((value) => ({
+      op: "displacement",
+      part: "hair_back",
+      points: parts.map((part) => part.tie),
+      pose: { [param]: value },
+    })),
+  );
+  const probe = await probeRig({ modelPath: barePath, queries });
+  if (!probe.ok) {
+    console.error(`${name}: probe: ${probe.error}`);
+    process.exit(1);
+  }
+  const rows = 6;
+  const targets = [];
+  let q = 0;
+  for (const [param, values] of stops) {
+    const atStop = values.map(() => probe.results[q++].points);
+    parts.forEach((part, k) => {
+      const lattice = (value, [dx, dy]) =>
+        Array.from({ length: 2 * (rows + 1) }, (_, i) => {
+          const depth = Math.floor(i / 2) / rows;
+          const swing =
+            param === "ParamHairBackSway"
+              ? (value / 20) * (heights[k] / 30) * depth ** 2
+              : 0;
+          return [Math.round((dx + swing) * 1000) / 1000, dy];
+        });
+      targets.push({
+        id: `${part.id}-${param}`,
+        param,
+        parts: [part.id],
+        grid: { cols: 1, rows },
+        stops: Object.fromEntries(
+          values.map((value, v) => {
+            const at = atStop[v][k];
+            if (at === null) {
+              throw new Error(
+                `corpus/${name}: ${part.id}'s tie is off hair_back at ${param} ${value}`,
+              );
+            }
+            return [String(value), lattice(value, at)];
+          }),
+        ),
+      });
+    });
+  }
+  return { targets };
 }
 
 function summary(name, metrics) {
@@ -293,6 +495,26 @@ function summary(name, metrics) {
 
 function round3(value) {
   return value === null ? null : Math.round(value * 1000) / 1000;
+}
+
+/** The cut's verdict and each check by its id (so a diff names the check),
+ *  values to four significant digits: they run from fractions of a percent
+ *  to pixel counts. */
+function cutMetrics(cut) {
+  return {
+    passed: cut.passed,
+    checks: Object.fromEntries(
+      cut.checks.map((check) => [
+        check.id,
+        {
+          level: check.level,
+          pass: check.pass,
+          value:
+            check.value === null ? null : Number(check.value.toPrecision(4)),
+        },
+      ]),
+    ),
+  };
 }
 
 /** The gate's verdict and each part's worst readings, rounded like the physics numbers. */
@@ -373,6 +595,17 @@ async function readIfExists(file) {
   } catch (error) {
     if (error.code === "ENOENT") {
       return null;
+    }
+    throw error;
+  }
+}
+
+async function isFile(file) {
+  try {
+    return (await stat(file)).isFile();
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return false;
     }
     throw error;
   }
