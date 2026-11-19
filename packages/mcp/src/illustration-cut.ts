@@ -348,11 +348,15 @@ function faceLayer(
     const bridge = bridges(pic, locks, labels.face);
     // Coloured smoothly from the face's own paint round the gap, the ear's
     // shading with it (it reads neither skin nor hair, so the skin fill
-    // would lay it flat and pale), less a line's width beside the lock: the
-    // strand's soft edge and any of its outline the face kept.
+    // would lay it flat and pale), less a line's width beside the lock (the
+    // strand's soft edge and any of its outline the face kept) and less the
+    // features lifted off the face, whose ink would bleed into the cheek.
     const across = fillFrom(
       pic,
-      andNot(and(labels.face, labels.solid), dilate(pic, locks, LOCK_LINE)),
+      andNot(
+        andNot(and(labels.face, labels.solid), holes),
+        dilate(pic, locks, LOCK_LINE),
+      ),
     );
     const hidden = or(labels.skullArea, bridge);
     fills.push({
@@ -1402,7 +1406,12 @@ function overEye(
   const { width } = pic;
   const lock = built.roles.get(`hair_side_${side}`);
   if (!lock) return null;
-  const [x0, y0, x1, y1] = lm.eyes[side].box;
+  // The box's pixels, as the eye is cut from (`boxMask`'s convention).
+  const [bx0, by0, bx1, by1] = lm.eyes[side].box;
+  const x0 = Math.max(0, Math.ceil(bx0));
+  const y0 = Math.max(0, Math.ceil(by0));
+  const x1 = Math.min(width - 1, Math.floor(bx1));
+  const y1 = Math.min(pic.height - 1, Math.floor(by1));
   const eye = built.roles.get(`eye_${side}`);
   const eyeBox =
     eye &&

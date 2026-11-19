@@ -934,6 +934,45 @@ describe("cutLayersFromIllustration side-lock checks", () => {
     expect(check(r, "sideHair.R").pass).toBe(true);
   });
 
+  it("reads a fractional eye box at the pixels it covers: a lock in its spare passes, one over the eye warns", async () => {
+    const fractional = (lm: Record<string, any>) => {
+      lm.eyes.R.box = [431.6, 391.6, 508.4, 466.4];
+      return lm;
+    };
+    const near = await cut(
+      await picture(PINK_ON_PEACH, { sideLocks: "nearEye" }),
+      fractional(lobed(440)),
+    );
+    expect(check(near, "sideHair.R").pass).toBe(true);
+    const over = check(
+      await cut(
+        await picture(PINK_ON_PEACH, { sideLocks: "overEye" }),
+        fractional(lobed(462)),
+      ),
+      "sideHair.R",
+    );
+    expect(over.hint).toMatch(
+      /^hair_side_R reaches \d+ px over eye_R at rest \(to x 4\d\d on y 4\d\d\), .* to x <= 439,/,
+    );
+  });
+
+  it("fills the cheek under a lock's lobe beside the eye from skin, none of the eye's paint in it", async () => {
+    const r = await cut(
+      await picture(PINK_ON_PEACH, { sideLocks: "nearEye" }),
+      lobed(440),
+    );
+    const face = await pixelsOf(layer(r, "face").path);
+    // Under the lobe, clear of its outline: skin, however near the eye.
+    let worst = 0;
+    for (let y = 424; y <= 440; y++) {
+      for (let x = 404; x <= 428; x++) {
+        expect(face.at(x, y)[3], `${x},${y}`).toBe(255);
+        worst = Math.max(worst, off(face.at(x, y), PINK_ON_PEACH.skin));
+      }
+    }
+    expect(worst).toBeLessThan(24);
+  });
+
   it("says which polygon took the hair: the front hair, or the other side's where the two overlap", async () => {
     const lm = { ...characterLandmarks(), ...sideLockLandmarks() };
     // R's polygon given to L as well: L keeps the paint both take.
