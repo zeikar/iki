@@ -1094,7 +1094,9 @@ describe("MCP server integration", () => {
       const [msg] = refused.content as { type: string; text: string }[];
       expect(msg.text).toMatch(message);
     }
-  });
+    // The one full cut in the coverage run: v8's block coverage slows its
+    // pixel loops past the config's 30 s on a CI runner.
+  }, 180_000);
 
   it("render_poses refuses an outDir outside the working directory", async () => {
     pair = await createPair();

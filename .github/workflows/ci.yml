@@ -33,3 +33,8 @@ jobs:
 
       - name: Test with coverage
         run: pnpm test:coverage
+
+      # Apart from the coverage run: block coverage slows the cut's pixel
+      # loops many times over, and one cut then outlasts the test timeout.
+      - name: Test the illustration cut
+        run: pnpm test:cut

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -121,10 +121,11 @@ async function stackOf(r: Ok): Promise<Buffer[]> {
 
 const W = 1100;
 
-/** A hook that cuts a picture runs a full cut, about 5 s alone and past
- *  vitest's 10 s hook default with the whole suite running beside it: the
- *  config's test timeout. */
-const CUT_HOOK_TIMEOUT = 30_000;
+/** A hook that cuts a picture runs a full cut, about 5 s alone and several
+ *  times that on a CI runner with the suite running beside it. */
+const CUT_HOOK_TIMEOUT = 120_000;
+// A test here may cut several times; a CI runner takes a few seconds a cut.
+vi.setConfig({ testTimeout: CUT_HOOK_TIMEOUT });
 
 /** The written layers stacked over `ground`, the brows moved `browShift`
  *  px down (negative: up): RGB per pixel. */
