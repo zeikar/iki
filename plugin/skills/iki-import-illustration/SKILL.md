@@ -55,6 +55,13 @@ picture would work, before reading a single landmark:
 - **A small face**: the picture is scaled to a canvas 1100 px wide. A face under
   about 250 px wide on that canvas gives each eye only a few pixels to cut, and
   the blink and the gaze come out as smudges.
+- **A bust cropped too tight**: the rig sways the torso on a lattice that must
+  fit between the chin and the bottom of the picture. Let `h` be the chin's
+  row minus the eye row (the irises' centres): a picture whose bottom edge
+  lies less than 1.2 `h` below the chin is refused at the rig
+  (`INVALID: auto-rig: layer "body.png": the body is too short between its
+hips … would fold …`), and nothing in the landmarks fixes it. Ask for a
+  wider crop; never pad or stretch the picture yourself.
 
 ## Prerequisites
 
@@ -119,7 +126,9 @@ a custom part's `side: "left"` takes the hair at smaller x.
 
 Defaults: the whole canvas, zoom 1, step 50. The text result's second line
 gives the canvas size (`… on the 1100x1320 canvas …`): note the height. Open
-`whole.png` and check the "cannot do well" list above. Then note, roughly, the
+`whole.png` and check the "cannot do well" list above, the crop's depth below
+the chin included (read the eye row and the chin's row off a zoom 2 view of
+the head). Then note, roughly, the
 boxes to zoom into: the head, each eye, each brow, the nose, the mouth, each
 lock hanging in front of an ear, and the root of every tail or ponytail.
 Decide which locks are side locks (Landmark reference, `sideHair`) and which
@@ -365,13 +374,8 @@ Every round, do all three:
    | backdrop tinted anything                                                                     | backdrop the figure encloses (between the neck and a tail, under an arm), which the border's flood missed     | its point (`pockets` names it) in `backgroundSeeds`                                                                  |
    | figure paint left untinted                                                                   | paint keyed as a gap between strands                                                                          | a point inside it in `paintSeeds` (`pockets` names the keyed points)                                                 |
 
-3. **Look at the eye layers**: `eye_L.png`, `iris_L.png`, `lash_L.png` (and
-   `lash_lower_L.png` when written), the same for `R`. The sclera should be the
-   eye's whole shape, filled white under the iris; the iris a full disc; the
-   lash the dark ink of the upper lid only; the lower lash the lower lid's ink,
-   with no crescent of iris colour (if it has one, see `iris` below). Look at
-   each of them at zoom for hair-shaped pieces too (Landmark reference,
-   `eyes`).
+3. **Look at the eye layers** as Landmark reference, `eyes`, "Checking the
+   eye layers" says: every round, and after any change to an eye landmark.
 
 ### Step 6 — Fix and re-cut: at most three rounds
 
@@ -662,12 +666,18 @@ whole cut. Each point reads a 5 × 5 px patch: keep it 3 px or more from any lin
 - `hair.base`: two or three points on flat mid-tone hair, spread over the head,
   away from lines and strand edges.
 - `hair.shadow`: on the darkest flat shading of the hair.
-- `hair.highlight`: on the sheen, if the hair has one.
+- `hair.highlight`: on the sheen, if the hair has one. A pale sheen can lie
+  near a pale garment's colour and pull its shading into the hair (cloth
+  shading tinted hair on `preview-labels.png`): drop or move the highlight
+  point, and put a `bodyOnly` polygon over the cloth.
 - `skin.base`: a cheek and the forehead, away from the blush.
 - `skin.shadow`: the shade under the bangs, or under the chin on the neck.
 
-Never on a line, never on a blush. Off: a wrong sample is the commonest cause of
-hair and skin swapping, across the whole picture; `seeds` fails naming it.
+Never on a line, never on a blush. To check a point, view it at zoom 8, step
+5: its 5 × 5 patch is one grid cell and must be one flat colour. `seeds` is
+the test the cut runs: a bad point fails it as `<path> [x, y] reads as <class>
+to the other samples: …` or `… is on the backdrop …`. Off: a wrong sample is
+the commonest cause of hair and skin swapping, across the whole picture.
 
 ### `eyes.L`, `eyes.R`
 
@@ -686,8 +696,8 @@ hair and skin swapping, across the whole picture; `seeds` fails naming it.
   lash wing) is not: it is cut into the eye layers and folds with the lash on
   a blink, and no check says so. Where the hair is as dark as the lash, the
   tool cannot tell them apart at all: everything in the box that is not skin
-  is the eye's. Look for it as hair-shaped pieces in `eye_<side>.png`,
-  `lash_<side>.png` and `lash_lower_<side>.png` at zoom. Pulling the box in off
+  is the eye's. It shows as hair-shaped pieces in the eye layers (below).
+  Pulling the box in off
   such a strand clips the eye (the strand now counts as eye), so `opening`
   turns from WARN to FAIL and asks for the box back: keep the box that passes
   and report the strand. When `opening` warns that an edge cuts a stroke it
@@ -695,20 +705,32 @@ hair and skin swapping, across the whole picture; `seeds` fails naming it.
   own lash wing, grow as the hint says.
 
 - `iris`: the full coloured disc as an ellipse, INCLUDING the part hidden under
-  the upper lash. `cy` is the disc's widest row; `rx` is half that row's
-  width; `ry` runs from `cy` down to the disc's bottom edge, not to the lower
-  lid line, which must stay outside the ellipse (an ellipse over it takes the
-  lid's ink into the iris, which then moves with the gaze). Its centre must lie
-  inside `box`. A disc drawn squarer than an ellipse gives its corners to the
-  iris by itself (iris-coloured paint up to a quarter of the radius past the
-  ellipse): do not enlarge the ellipse to catch them. Off: an ellipse wider than
-  the disc pulls white or lash into the iris; one off the disc can make an open
-  eye read as drawn closed (`iris` and `eye` warn). `iris`'s hint reads the
-  disc from its own colour: follow its span (`rx` about half of it) and its
-  "reaches down to y" (`cy + ry`). A dark ring line drawn inside the iris
-  along its bottom can land in `lash_lower_<side>.png`; no landmark fixes it.
-  It shows on the gaze close-up (Step 9) as a dark arc left behind where the
-  iris was: report it.
+  the upper lash. Place it by eye on the disc first. `cy` is the disc's widest
+  row; `rx` is half that row's width; `ry` runs from `cy` down to the disc's
+  bottom edge, not to the lower lid line, which must stay outside the ellipse.
+  Its centre must lie inside `box`. A disc drawn squarer than an ellipse gives
+  its corners to the iris by itself (iris-coloured paint up to a quarter of the
+  radius past the ellipse): do not enlarge the ellipse to catch them. `iris`'s
+  hint (the disc's x span, how far down it reaches, which way to move) is a
+  suggestion to verify, not an order: it can chase the lash, and the check can
+  then pass on a worse cut. Off: an ellipse wider than the disc or up in the
+  lash pulls white or lash into the iris; one off the disc can make an open eye
+  read as drawn closed (`iris` and `eye` warn).
+
+**Checking the eye layers.** The checks passing is not proof. View
+`eye_<side>.png`, `iris_<side>.png`, `lash_<side>.png` and
+`lash_lower_<side>.png` with `view_illustration_grid`, one call per PNG at the
+same crop and zoom as the eye's view (they are canvas-sized, so the
+coordinates match). The sclera should be the eye's whole shape, filled white
+under the iris; the iris a full disc; the lash the upper lid's dark ink only;
+the lower lash the lower lid's ink. A bad iris fit shows as a dark,
+lash-coloured band across the top of the iris layer, or as iris-coloured paint
+left in the white or the lower lash: move the ellipse back by eye, and revert a
+change that makes the layers worse even if the number improves. Hair-shaped
+pieces in any of them are a strand at the box's edge (above). A dark ring line
+drawn inside the iris along its bottom can land in the lower lash, and no
+landmark fixes it: it shows on the gaze close-up as a dark arc left where the
+iris was; report it.
 
 ### `brows.L`, `brows.R` (optional, each side)
 
@@ -722,7 +744,10 @@ half the tail's plus 1 px (the cut takes a 2 px soft rim past the ink by
 itself). A thin brow of 3 to 4 px wants `halfWidth` 3 and `tailHalfWidth` 2:
 the defaults' 17 px band is far too wide for it. A brow mostly hidden behind
 the bangs is cut as the short pieces that show between the strands; raised,
-they go under the strands and mostly vanish: a limit to report. Off: a line
+they go under the strands and mostly vanish: a limit to report. A brow drawn
+in the hair's own colour where it meets the bangs cannot be told from them:
+put the line on what shows, read `brow` and `browBand` there as less reliable,
+look at `brow_<side>.png`, and report it. Off: a line
 off the brow leaves it on the face (`brow` warns when the band holds none,
 `browBand` when some of its ink lies past the band, saying where and how far
 to move the line or widen the band); a band too wide takes hair or lash, and
@@ -756,36 +781,45 @@ through continuous hair (at the temple, say) or across a strand: the part
 inside moves with the bangs and the part outside with the back hair, so that
 edge opens as a seam on a turn. Take a strand whole down to its tip or leave
 it out whole. Hair hanging in front of an ear is a side lock (`sideHair`);
-hair beside and behind the head is back hair. Off: `frontHairWidth` warns
-when `hair_front` is wider than the face on the eye row (side locks not
-counted), which clamps the turn: move a side edge in to the next strand's
-edge, leaving the hair beyond it to the back hair or a side lock. Narrower
-than the bangs leaves their edge in the back hair.
+hair beside and behind the head is back hair (`customParts` says what that
+means for long hair). A small clip or pin lying on the hair goes with the hair
+round it (paint no flood claims takes its nearest label): keep it inside
+`frontHair` if it sits on the bangs; it is not worth a custom part. Off:
+`frontHairWidth` warns and the turn is clamped (The checks say what it
+compares): move a side edge in to the next strand's edge. Narrower than the
+bangs leaves their edge in the back hair.
 
 ### `sideHair.L`, `sideHair.R` (optional, each side)
 
 A polygon (3 or more points) round a side lock: a lock that hangs from under
-the bangs in FRONT of the ear and the cheek's edge (a bob's front locks). `L`
-is the character's left, on the viewer's right, as for the eyes. Its hair is
-`hair_side_<side>`, drawn over the face and under `hair_front`, and it rides
-the face on a turn. Left in the back hair, such a lock stays behind as the
-face slides over it, and the ear behind it reads as a detached island;
-taken into `frontHair`, it is cut off flat and its cut end floats.
+the bangs in FRONT of the ear and the cheek's edge (a bob's front locks), and
+that is **distinct along its whole length**, with its own edges on both sides
+down to its tip or to where it joins the hair below the ear. `L` is the
+character's left, on the viewer's right. Its hair is `hair_side_<side>`, drawn
+over the face and under `hair_front`, and it rides the face on a turn; left in
+the back hair, it stays behind as the face slides, and the ear behind it reads
+as a detached island. Hair that is part of a continuous mass beside the face
+(wavy hair whose locks merge into the hair below) is back hair: a polygon edge
+drawn through a mass shows as a straight tear on a turn, with the ear in
+pieces round it. When in doubt, leave it in the back hair and report the ear
+as a known limit. Placing it, in this order of priority:
 
-- Trace close round the lock: every hair pixel inside rides the face, so a
-  wider polygon takes the back hair beside the lock with it.
-- Start it up inside `frontHair` so the two overlap (the front hair keeps the
-  paint both claim): the lock's top row must have the front hair right above
-  it, and the cut then carries its root up to 12 px under the bangs, hidden.
-  If the lock's top lies outside `frontHair`, add a small wedge to
-  `frontHair` over it, keeping `frontHairWidth` under 1.
-- Follow it down to where the lock really ends, or into the hair below it;
-  never slice it at a convenient row.
-- Keep it off the eye's outer corner at rest: the rig slides that corner
-  under the lock on a turn.
-- Lower `shellLower` on that side to where the lock ends, so there is back
-  hair behind its lower end.
+1. Follow the lock's own edges, never a ruler line through hair: close round
+   it (every hair pixel inside rides the face), down to where it really ends
+   or joins the hair below, never sliced at a convenient row.
+2. Start it up inside `frontHair` so the two overlap (the front hair keeps
+   what both claim): the lock's top row needs the front hair right above it,
+   and its root is then carried up to 12 px under the bangs. If its top lies
+   outside `frontHair`, add a small wedge to `frontHair` over it.
+3. Keep it off the eye's outer corner at rest (the rig slides that corner
+   under the lock on a turn). If only an edge through the lock would do that,
+   rule 1 wins: leave the lock in the back hair.
+4. Lower `shellLower` on that side to where the lock ends, so there is back
+   hair behind its lower end.
 
+Thin wisps over an ear are not a side lock. One lying wholly on the ear is
+taken into the face and stays painted on the ear; one crossing the ear's edge
+stays in the back hair, and the ear shows its gap on a turn: report it.
 Under the lock, skin is filled only inside `skull` and where the lock crosses
 the face's own paint (the ear on one side, the cheek on the other): the ear
 joins the face there by itself, but still needs its own `skinSeeds` point.
@@ -853,9 +887,9 @@ twin tails, a ponytail, big ribbons, a long braid. Long loose hair that hangs
 from the whole head, behind the shoulders or in front of them, is not a
 custom part: it is back hair, and `shellLower` sits lower, behind the neck.
 Back hair is drawn behind the body, and the body has no paint under hair
-lying over it; hair drawn over the shoulders therefore slides under the
-body's edge when it sways or the head turns, and leaves that spot of the
-body empty: a limit to report. Each custom part is cut out of the back hair into
+lying over it: hair drawn over the shoulders or a collar slides under the
+body's edge when it sways or the head turns, leaving pale streaks or empty
+spots on the body. This is a known limit: report it. Each custom part is cut out of the back hair into
 `custom/<id>.png` and rigged as a custom part (Step 8). **Left in the back hair
 they make the rig measure the head far wider than it is (one pair of twin tails:
 1.6 times), and the turn goes wrong.** A part's `id` is a plain identifier (letters, digits, `_`, not starting
@@ -944,7 +978,7 @@ A limit of `none` means the check only reports.
 | `seeds`                       | fail                                                                                             | seeds and samples on the backdrop or on the wrong class, counted                                                                                                                                  | 0                       | the hint names each point: move it onto flat paint of its class, add a `samples.*.shadow` point on that tone, or a `bodyOnly` polygon                                                                                                                                                                                                                                                                                          |
 | `opening.L`, `opening.R`      | fail (box clips the eye); warn (box loose, or an edge cuts a stroke it cannot tell from the eye) | clipped: the eye's least margin inside its box, px; loose: the share of the box the eye covers                                                                                                    | 1 (margin); 0.2 (loose) | as the hint says, after a look; a strand at the box's edge: Landmark reference, `eyes`                                                                                                                                                                                                                                                                                                                                         |
 | `eye.L`, `eye.R`              | warn                                                                                             | the eye's share of white                                                                                                                                                                          | 0.06                    | under it the eye is cut either open (a tinted white: look at `eye_<side>.png`) or as drawn closed (for an open eye, `eyes.<side>.iris` is off the disc: move it)                                                                                                                                                                                                                                                               |
-| `iris.L`, `iris.R`            | warn                                                                                             | the iris ellipse against the disc found by its own colour: overlap (intersection over union) and centre offset                                                                                    | 0.7                     | move `cx` / `cy` as the hint says; it gives the disc's x span and how far down it reaches (Landmark reference, `eyes`)                                                                                                                                                                                                                                                                                                         |
+| `iris.L`, `iris.R`            | warn                                                                                             | the iris ellipse against the disc found by its own colour: overlap (intersection over union) and centre offset                                                                                    | 0.7                     | the hint's move is a suggestion: make it only if the eye layers then look right (Landmark reference, `eyes`)                                                                                                                                                                                                                                                                                                                   |
 | `brow.L`, `brow.R`            | warn                                                                                             | brow px found in the band                                                                                                                                                                         | 1                       | the line is off the brow: put it along the brow's middle, tail first                                                                                                                                                                                                                                                                                                                                                           |
 | `browBand.L`, `browBand.R`    | warn                                                                                             | the share of the brow's ink left on the face past its band                                                                                                                                        | 0.05                    | as the hint says (move the line's points over the x span it names, widen the band, or extend an end); a hair outline or a crease along the brow can warn falsely: zoom first                                                                                                                                                                                                                                                   |
 | `mouth`                       | fail                                                                                             | px of drawn mouth in `mouth.box`                                                                                                                                                                  | 1                       | move the box onto the drawn mouth; a picture with no mouth drawn needs a lip set                                                                                                                                                                                                                                                                                                                                               |
@@ -959,7 +993,7 @@ A limit of `none` means the check only reports.
 | `fills.body.neck`             | warn                                                                                             | the neck carried up to `neckTopY`, filled by construction                                                                                                                                         | none                    | —                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `fills.hair_front.strands`    | warn                                                                                             | the share of a strand refilled through a brow's band made up over 40 px from its own hair                                                                                                         | 0.25                    | narrow `brows.<side>.halfWidth` to the brow                                                                                                                                                                                                                                                                                                                                                                                    |
 | `fills.hair_side_<side>.root` | warn                                                                                             | the share of the lock's root, carried up under the bangs, made up over 40 px from the lock's own hair (a lock of strands thinner than about 5 px has none clear of its lines)                     | 0.25                    | it never shows at rest; check on `preview-labels.png` that the polygon holds the lock                                                                                                                                                                                                                                                                                                                                          |
-| `frontHairWidth`              | warn                                                                                             | `hair_front`'s width over the face's on the eye row, the side locks not counted                                                                                                                   | 1                       | move a side edge of `frontHair` in to the next strand's edge (Landmark reference); with no value, put `skinSeeds` on the cheeks                                                                                                                                                                                                                                                                                                |
+| `frontHairWidth`              | warn                                                                                             | `hair_front`'s whole width (its widest extent on any row) over the face layer's width on the eye row (the irises' mean `cy`); side locks not counted                                              | 1                       | move a side edge of `frontHair` in to the next strand's edge; with no value, put `skinSeeds` on the cheeks                                                                                                                                                                                                                                                                                                                     |
 | `sideHair.L`, `sideHair.R`    | warn (one per polygon given)                                                                     | the number of problems with the lock                                                                                                                                                              | 0                       | a polygon holding no hair: move it onto the lock, or add `samples.hair` points on the lock's tones if the preview shows it not as hair; a top row with no front hair right above it (the root shows at rest): move the polygon's top up into `frontHair`, or bring `frontHair` down over it; the lock over its eye's outer corner at rest: move the polygon's inner edge outward and widen `frontHair` over the hair it leaves |
 | `pockets`                     | warn                                                                                             | the gaps between strands it keyed as backdrop by itself, plus the backdrop-coloured regions the border's flood cannot reach, counted; pale paint near the backdrop's colour is named, not counted | 0                       | a region named for `backgroundSeeds` that is backdrop: its point there; a keyed point that is really paint: `paintSeeds`; pale paint: nothing                                                                                                                                                                                                                                                                                  |
 
@@ -988,31 +1022,20 @@ Otherwise:
 - `lips: opening W px wide, H px tall at its centre under a L px line — …`
   (with a lip set): the opening the rig reads. Report it.
 - With side locks, one line per problem, each naming the landmark to move:
-  `hair_side_<side>: needs hair_front …` (put `frontHair` round the bangs, or
-  drop that `sideHair`); `… its top row … shows past hair_front …` (the root
-  shows: as `sideHair` above); `… covers eye_<side>'s outer corner at rest …`
-  (as `sideHair` above); `… the lock leans inward about N px and leaves bare
-pixels …` (on the turn nothing is painted behind the lock there: lower
-  `shellLower` under it, down to where the hair behind the lock ends).
+  `hair_side_<side>: needs hair_front …`, a root showing past the bangs and
+  the lock over its eye's outer corner (fix as for `sideHair.<side>`), and
+  `… the lock leans inward about N px and leaves bare pixels …` (nothing is
+  painted behind the lock there on a turn: lower `shellLower` under it).
 - Anything else (a lip set the rig would refuse, a lash whose top row is off
   its sclera's, `the written layers could not be measured`) is a fault in the
   cut, not in your landmarks: report it verbatim and do not rig on it.
 
 ## Pitfalls
 
-- **L and R.** `eyes.L`, `brows.L` and a `tail_L` are on the viewer's RIGHT
-  (larger x). `mouth.cornerL` and a custom part's `side: "left"` are in the
-  viewer's frame. Swapped brows are not refused; they move each brow with the
-  other's motion.
-- **A lock hanging in front of an ear is a side lock** (`sideHair`), not front
-  hair and not back hair; and `skull` never covers an ear.
-- **Tails, ponytails and big ribbons must be custom parts**, and baked (Step
-  8). Left in `hair_back` they make the rig fit the turn to a head far wider
-  than the one drawn.
 - **A brow drawn through the bangs** is fine: the strand over it is refilled
   and the brow passes under it. Keep the band no wider than the brow.
-- **With a lip set the closed mouth at rest is the generated line**, not the
-  drawn one (the drawn lip highlight is gone). Say so to the user.
+- **Never pad, stretch or repaint the picture** to get past a refusal: tell
+  the user what the picture needs.
 - **A brow drawn right out to the face's edge shows over the side hair on a
   wide turn**: the rig moves a brow further than the face's edge, a known
   limit of the rig. It shows in the `turn-m30` / `turn-p30` close-ups as a pale
