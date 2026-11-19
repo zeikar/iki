@@ -299,11 +299,15 @@ async function lashOffSclera(
  * so each check whose only remedy is re-laying-out or regenerating a
  * generated part is left out (an edge or straight cut in the art, a sclera's
  * aspect, the iris's size and place, an eyewhite drawn facing the other way,
- * a speck nose, and the lip set's art: see `lipWarnings`), and so are the
- * arm, pose forearm and side lock checks, whose roles a cut never writes.
- * What stays is what the rig refuses (a lip set partial, mixed or on another
- * canvas, a lash whose top row is off its sclera's), the missing optional
- * roles, and the lip set's opening facts.
+ * a speck nose, the lip set's art: see `lipWarnings`, and a hair_side.png
+ * drawing two locks), and so are the arm and pose forearm checks, whose
+ * roles a cut never writes, and the side lock's eye-corner check, which a
+ * cut eye (stopping where the lock covers it) cannot feed: the cut checks
+ * the lock against the declared eye box itself. What stays is what the rig
+ * refuses (a lip set partial, mixed or on another canvas, a lash whose top
+ * row is off its sclera's, a side lock without hair_front), the side locks'
+ * root and lean checks, each naming the landmark to move, the missing
+ * optional roles, and the lip set's opening facts.
  */
 export async function measureDir(
   absDir: string,
@@ -426,8 +430,8 @@ export async function measureDir(
   warnings.push(...lip.warnings);
 
   // 1f. The side locks: root under the bangs, off the eye corner, paint behind
-  //     the near lean, one lock drawn.
-  if (!inPlace) warnings.push(...(await hairSideWarnings(absDir, layers)));
+  //     the near lean, one lock drawn (not in place: see hairSideWarnings).
+  warnings.push(...(await hairSideWarnings(absDir, layers, inPlace)));
 
   // 2/3/4. Eye stack geometry, per side.
   for (const side of ["L", "R"]) {

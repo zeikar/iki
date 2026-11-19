@@ -1,7 +1,7 @@
 /**
  * The label map of an in-place cut: every painted pixel of the picture to
- * one of face, hair or body, then the hair split into the front hair, the
- * back hair and each custom part.
+ * one of face, hair or body, then the hair split into the front hair, each
+ * side lock, the back hair and each custom part.
  *
  * Colour decides first (`illustration-colour.ts`); where colour cannot tell
  * (lash ink the colour of near-black hair, a dark jacket under it) the
@@ -105,6 +105,55 @@ export function maskBox(size: CanvasSize, m: ArrayLike<number>): Box | null {
     }
   }
   return x1 < 0 ? null : [x0, y0, x1, y1];
+}
+
+/**
+ * Where a lock interrupts the face's own paint: the lock's pixels on a run
+ * of it along a row or a column whose pixels just past both ends are the
+ * face's (a strand crossing from the ear to the cheek, or over the cheek).
+ * A run with the face on one side only (beside the ear's outer edge, under
+ * the lobe, beside the jaw) has hair behind it, and is left out. Its edges
+ * are the lock's own outline along the strand, and across it the row or
+ * column where the face's paint on one side ends. With `must`, only runs
+ * holding a pixel of it count.
+ */
+export function bridges(
+  size: CanvasSize,
+  lock: Mask,
+  face: Mask,
+  must?: Mask,
+): Mask {
+  const { width, height } = size;
+  const out = new Uint8Array(width * height);
+  /** Runs of `lock` along `n` lines of `len` pixels, pixel k of line j at
+   *  `at(j, k)`. */
+  const along = (
+    n: number,
+    len: number,
+    at: (j: number, k: number) => number,
+  ) => {
+    for (let j = 0; j < n; j++) {
+      for (let k = 0; k < len; ) {
+        if (!lock[at(j, k)]) {
+          k++;
+          continue;
+        }
+        const start = k;
+        let held = !must;
+        while (k < len && lock[at(j, k)]) {
+          if (must?.[at(j, k)]) held = true;
+          k++;
+        }
+        if (!held) continue;
+        if (start > 0 && k < len && face[at(j, start - 1)] && face[at(j, k)]) {
+          for (let q = start; q < k; q++) out[at(j, q)] = 1;
+        }
+      }
+    }
+  };
+  along(height, width, (y, x) => y * width + x);
+  along(width, height, (x, y) => y * width + x);
+  return out;
 }
 
 /** Where a pixel lies against a brow's line (`browGeometry`). */
@@ -429,10 +478,14 @@ export interface IllustrationLabels {
   skin: Mask;
   face: Mask;
   body: Mask;
-  /** All of the hair; the three below split it. */
+  /** All of the hair; the four below split it. */
   hair: Mask;
   hairFront: Mask;
-  /** The head's hair behind the face, every custom part taken out. */
+  /** Each side lock's hair, for the `sideHair` polygons given: inside its
+   *  polygon and not the front hair's (nor `L`'s, for `R`). */
+  hairSide: { L?: Mask; R?: Mask };
+  /** The head's hair behind the face, the side locks and every custom part
+   *  taken out. */
   hairBack: Mask;
   parts: CutPart[];
   /** Hair in pieces big enough to run on under the body's edge. */
@@ -689,6 +742,14 @@ export function labelIllustration(
   const { noHair, bodyOnlyArea, browBands } = noHairRegions(pic, lm, classes);
   const skullArea = polygonMask(size, lm.skull);
   const frontHairArea = polygonMask(size, lm.frontHair);
+  const sideAreas = {
+    L: lm.sideHair?.L && polygonMask(size, lm.sideHair.L),
+    R: lm.sideHair?.R && polygonMask(size, lm.sideHair.R),
+  };
+  /** Where hair is the front hair's or a side lock's: drawn over the face. */
+  const overFace = [sideAreas.L, sideAreas.R]
+    .filter((m) => m !== undefined)
+    .reduce(or, frontHairArea);
 
   const bandList = [browBands.L, browBands.R].filter((b) => b !== undefined);
   const bands = bandList.length > 0 ? bandList.reduce(or) : null;
@@ -760,11 +821,11 @@ export function labelIllustration(
   for (let i = 0; i < n; i++) {
     if (fg[i] && label[i] === LABEL_NONE && bands?.[i]) label[i] = LABEL_FACE;
   }
-  // Hair the face and the front hair close in (an ear's inner shading
-  // between the ear's line and a strand) is the face's: it is no part of
-  // the back hair's mass.
+  // Hair the face and the front hair or a side lock close in (an ear's
+  // inner shading between the ear's line and a strand) is the face's: it is
+  // no part of the back hair's mass.
   const headCover = label.map((l, i) =>
-    l === LABEL_FACE || (l === LABEL_HAIR && frontHairArea[i]) ? 1 : 0,
+    l === LABEL_FACE || (l === LABEL_HAIR && overFace[i]) ? 1 : 0,
   );
   const enclosed = fillHoles(size, headCover);
   for (let i = 0; i < n; i++) {
@@ -777,6 +838,36 @@ export function labelIllustration(
   const hairL = is(LABEL_HAIR);
   const hairFront = and(hairL, frontHairArea);
   let hairBack = andNot(hairL, frontHairArea);
+  const hairSide: IllustrationLabels["hairSide"] = {};
+  // Just under the front hair the lock still moves as the bangs, and its
+  // outline there runs on up beside the root: left to the face, so the
+  // lock's first row stays under the bangs.
+  const underFront = dilate(size, frontHairArea, OUTLINE_PX);
+  for (const side of ["L", "R"] as const) {
+    const area = sideAreas[side];
+    if (!area) continue;
+    const lock = and(hairBack, area);
+    hairBack = andNot(hairBack, area);
+    // The lock's own outline where it crosses the face: ink the face's outline rule took beside it, on a run of the lock
+    // the face's paint closes at both ends. Left on the face, it shows as a line where the lock was once
+    // the lock moves; the face's outer edge beside a lock stays the face's.
+    const face = label.map((l) => (l === LABEL_FACE ? 1 : 0));
+    const ink = face.map((v, i) =>
+      v && area[i] && solid[i] && classes[i] === NEITHER ? 1 : 0,
+    );
+    const near = andNot(and(ink, dilate(size, lock, OUTLINE_PX)), underFront);
+    const own = and(
+      near,
+      bridges(size, or(lock, near), andNot(face, near), lock),
+    );
+    for (let i = 0; i < n; i++) {
+      if (own[i]) {
+        label[i] = LABEL_HAIR;
+        hairL[i] = 1;
+      }
+    }
+    hairSide[side] = or(lock, own);
+  }
   const parts: CutPart[] = [];
   for (const cut of lm.customParts) {
     const mask = cutPart(size, cut, hairBack, classes);
@@ -794,6 +885,7 @@ export function labelIllustration(
     body: is(LABEL_BODY),
     hair: hairL,
     hairFront,
+    hairSide,
     hairBack,
     parts,
     bigHair: bigPieces(size, hairL),

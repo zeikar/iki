@@ -209,6 +209,20 @@ describe("validateLandmarks", () => {
     expect(out.customParts[0]).not.toHaveProperty("ribbonBox");
   });
 
+  it("keeps a sideHair polygon per side given, and leaves the key out when it is", () => {
+    const lm = full();
+    const R = [
+      [340, 330],
+      [400, 330],
+      [369, 632],
+    ];
+    lm.sideHair = { R };
+    expect(validateLandmarks(lm, CANVAS).sideHair).toEqual({ R });
+    lm.sideHair = { L: points(2000), R };
+    expect(validateLandmarks(lm, CANVAS).sideHair!.L).toHaveLength(2000);
+    expect(validateLandmarks(full(), CANVAS)).not.toHaveProperty("sideHair");
+  });
+
   it("accepts the last row and column, the list caps, and the editor's id rule", () => {
     const lm = full();
     lm.skinSeeds.push([1099, 1099]);
@@ -236,7 +250,7 @@ describe("validateLandmarks", () => {
     const top = full();
     top.mouthBox = [0, 0, 1, 1];
     expect(messageOf(top)).toBe(
-      "landmarks.mouthBox is not one of samples, eyes, brows, nose, mouth, frontHair, skull, shellLower, skinSeeds, bodySeeds, backgroundSeeds, paintSeeds, neckTopY, bodyOnly, customParts",
+      "landmarks.mouthBox is not one of samples, eyes, brows, nose, mouth, frontHair, sideHair, skull, shellLower, skinSeeds, bodySeeds, backgroundSeeds, paintSeeds, neckTopY, bodyOnly, customParts",
     );
   });
 
@@ -758,6 +772,46 @@ describe("validateLandmarks", () => {
       (lm) =>
         void (lm.bodyOnly = Array.from({ length: 17 }, () => lm.bodyOnly[0])),
       "landmarks.bodyOnly has 17 polygons, over the 16 one picture may hold",
+    ],
+
+    // side locks
+    [
+      "a sideHair that is not an object",
+      (lm) => void (lm.sideHair = [[0, 0]]),
+      "landmarks.sideHair must be a plain object, got [[0,0]]",
+    ],
+    [
+      "a sideHair side that is neither L nor R",
+      (lm) => void (lm.sideHair = { left: [] }),
+      "landmarks.sideHair.left is not one of L, R",
+    ],
+    [
+      "a side polygon of two points",
+      (lm) =>
+        void (lm.sideHair = {
+          L: [
+            [700, 330],
+            [760, 330],
+          ],
+        }),
+      "landmarks.sideHair.L must have 3 or more points, got 2",
+    ],
+    [
+      "a side polygon point off the canvas",
+      (lm) =>
+        void (lm.sideHair = {
+          R: [
+            [340, 330],
+            [1100, 330],
+            [369, 632],
+          ],
+        }),
+      "landmarks.sideHair.R[1] [1100,330] is outside",
+    ],
+    [
+      "a side polygon over the list cap",
+      (lm) => void (lm.sideHair = { R: points(2001) }),
+      "landmarks.sideHair.R has 2001 points, over the 2000",
     ],
 
     // custom parts

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
-import { measureLayers } from "../src/measure";
+import { measureDir, measureLayers } from "../src/measure";
 
 /**
  * Real painted pixels, as in measure.test.ts. The clean set: a face 80 wide
@@ -326,5 +326,58 @@ describe("measure_layers side-lock checks", () => {
     await writeRects(dir, "face", [[60, 40, 80, 120]]);
     await writeRects(dir, "hair_front", [[30, 20, 140, 30]]);
     expect(await lockWarnings(dir)).toEqual([]);
+  });
+});
+
+describe("the side-lock checks on a cut picture (measureDir inPlace)", () => {
+  async function inPlace(dir: string): Promise<string[]> {
+    const r = await measureDir(dir, undefined, { inPlace: true });
+    return r.warnings.filter((w) => /hair_side/.test(w));
+  }
+
+  it("names the landmark to move for a root past the bangs, not the layout", async () => {
+    const w = await inPlace(await writeSet({ lock: [[45, 55, 15, 60]] }));
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatch(
+      /^hair_side_R: its top row \(canvas y 55\) shows past hair_front on 15 px — the root is visible at rest\. Move landmarks\.sideHair\.R's top up into landmarks\.frontHair, or extend landmarks\.frontHair down over the lock's top\.$/,
+    );
+  });
+
+  it("leaves out the eye-corner check: a cut eye stops where the lock covers it, and the cut checks the declared eye box", async () => {
+    const dir = await writeSet({ lock: [[45, 30, 30, 90]] });
+    expect((await lockWarnings(dir)).join("\n")).toMatch(/outer corner/);
+    expect(await inPlace(dir)).toEqual([]);
+  });
+
+  it("names shellLower for a bare lean", async () => {
+    const w = await inPlace(await writeSet({ hairBack: [[50, 30, 110, 120]] }));
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatch(
+      /leaves bare pixels spanning columns 45–49, rows 30–119, where neither hair_back nor the face is painted — lower landmarks\.shellLower under it, down to where the hair behind the lock ends \(back hair is filled under the lock above it\)\.$/,
+    );
+  });
+
+  it("names frontHair when the cut wrote no hair_front for a lock", async () => {
+    const w = await inPlace(
+      await writeSet({
+        hairFront: null,
+        lock: null,
+        lockL: [[140, 30, 15, 90]],
+      }),
+    );
+    expect(w).toEqual([
+      "hair_side_L: needs hair_front — the rig refuses a lock without the bangs its root hides under. Put landmarks.frontHair round the bangs, or drop landmarks.sideHair.L.",
+    ]);
+  });
+
+  it("leaves out two locks in one polygon: only redrawing hair_side.png answers it", async () => {
+    const dir = await writeSet({
+      lock: [
+        [45, 30, 20, 90],
+        [90, 30, 20, 90],
+      ],
+    });
+    expect((await lockWarnings(dir)).join("\n")).toMatch(/draws two locks/);
+    expect((await inPlace(dir)).join("\n")).not.toMatch(/two locks/);
   });
 });

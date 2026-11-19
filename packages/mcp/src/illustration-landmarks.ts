@@ -140,9 +140,27 @@ export interface IllustrationLandmarks {
    *  Wider than the face, the turn is clamped; narrower, the bangs' edge
    *  stays in the back hair. */
   frontHair: Point[];
+  /** Polygons, 3 or more points each, round a lock that hangs from under
+   *  the bangs in front of the ear and the cheek's edge, each side optional
+   *  (`L` the character's left, on the viewer's right): its hair is
+   *  `hair_side_<side>`, drawn over the face and under `hair_front`, and
+   *  rigged to ride the face. Trace the lock's outline from up inside
+   *  `frontHair` (the two may overlap: the front hair keeps the paint both
+   *  claim) down round its tip. The lock's root is carried up under the
+   *  bangs. Under the lock, skin is filled only where it crosses the face's
+   *  own paint (the ear on one side and the cheek on the other) and inside
+   *  `skull`; the back hair is filled under it down to `shellLower`, so lower
+   *  `shellLower` at that side to where the hair behind the lock ends. A top
+   *  below the front hair leaves a strip of the lock in the back hair and
+   *  its root showing; a polygon reaching over the eye's outer corner puts it under
+   *  the lock at rest; one wider than the lock takes the back hair beside
+   *  it, which then rides the face. */
+  sideHair?: { L?: Point[]; R?: Point[] };
   /** Polygon, 3 or more points: the head's skin, the part hidden under the
-   *  hair included; skin is filled in under the bangs inside it, so too
-   *  small shows hair through the forehead on a turn. */
+   *  hair included, the ears not; skin is filled in under the bangs and the
+   *  side locks inside it, so too small shows hair through the forehead on
+   *  a turn, and one out over an ear lays skin where hair is behind a
+   *  lock. */
   skull: Point[];
   /** The back hair's lower edge behind the face, left to right (x strictly
    *  ascending), 2 or more points; hair is filled in behind the face down to
@@ -188,6 +206,7 @@ const KEYS = {
     "nose",
     "mouth",
     "frontHair",
+    "sideHair",
     "skull",
     "shellLower",
     "skinSeeds",
@@ -566,6 +585,14 @@ export function validateLandmarks(
   const list = (key: string, min: number): Point[] =>
     points(`${at}.${key}`, required(at, root, key), min, canvas);
   const frontHair = list("frontHair", 3);
+  let sideHair: IllustrationLandmarks["sideHair"];
+  if (root.sideHair !== undefined) {
+    const shp = `${at}.sideHair`;
+    const sh = object(shp, root.sideHair, KEYS.sides);
+    sideHair = {};
+    if (sh.L !== undefined) sideHair.L = points(`${shp}.L`, sh.L, 3, canvas);
+    if (sh.R !== undefined) sideHair.R = points(`${shp}.R`, sh.R, 3, canvas);
+  }
   const skull = list("skull", 3);
   const shellLower = list("shellLower", 2);
   ascending(`${at}.shellLower`, shellLower, 0);
@@ -627,6 +654,7 @@ export function validateLandmarks(
     ...(nose && { nose }),
     mouth: { box: mouthBox, cornerL, cornerR },
     frontHair,
+    ...(sideHair && { sideHair }),
     skull,
     shellLower,
     skinSeeds,

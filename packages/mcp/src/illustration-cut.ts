@@ -1,10 +1,12 @@
 /**
  * `cutLayersFromIllustration`: one finished character picture cut, in
  * place, into role layers on the canvas: the face, the front and back hair,
- * the body and each custom part (a tail, a ponytail) as its own file. Every
+ * a side lock on each side given, the body and each custom part (a tail, a
+ * ponytail) as its own file. Every
  * visible pixel is copied from the picture; what a layer hides when the rig
  * moves it (the forehead under the bangs, the hair behind the face, the
- * neck behind the chin) is filled in from the paint around it.
+ * neck behind the chin, the cheek under a side lock) is filled in from the
+ * paint around it.
  *
  * Driven by landmarks an agent reads off `view_illustration_grid`
  * (`illustration-landmarks.ts`), and checked: the report says, in numbers,
@@ -77,6 +79,7 @@ import {
 import { cutFeatures, type FeatureCut } from "./illustration-features";
 import { drawLandmarks, pictureView } from "./illustration-grid";
 import {
+  bridges,
   labelIllustration,
   LABEL_BODY,
   LABEL_FACE,
@@ -97,6 +100,7 @@ import {
   writeFileAtomic,
 } from "./limits";
 import { formatLipFacts, measureDir } from "./measure";
+import { VISIBLE_MIN_PX } from "./measure-hair-side";
 import type { LipFacts } from "./measure-lips";
 
 export interface CutLayersFromIllustrationInput {
@@ -161,6 +165,23 @@ export type CutLayersFromIllustrationResult =
 /** Skin carried under strands that cross the face's edge, px past it: what
  *  shows when the strand swings off the face. Too little shows a gap. */
 const FACE_MARGIN = 10;
+/** A drawn line's width at the canvas size, px: the strand's outline
+ *  beside a side lock, kept out of what the skin under it is coloured
+ *  from. */
+const LOCK_LINE = 4;
+/** How far a side lock is carried up under the bangs from its top edge, px:
+ *  its hidden root. The rig moves a lock as the front hair down to the first
+ *  row on which it shows under the bangs and eases it to the face's motion
+ *  over 0.2 hh below; the measure (`measure-hair-side.ts`) reads the root as
+ *  hidden when the lock's top row lies under `hair_front`. Where the bangs'
+ *  hem dips below that first row, the lock under the dip already eases
+ *  toward the face while the hem moves as the bangs: on the nod the two
+ *  part by up to about 0.02 hh (the bangs' 0.18 against the face's 0.16),
+ *  about 5 px on a head at this canvas size, plus the measure's 3 px of
+ *  antialiasing. 12 px keeps the root under the hem past both with a
+ *  margin; the carry runs only where `hair_front` is opaque above, so more
+ *  would only lengthen the lock's box, whose top the rig pins its sway to. */
+const SIDE_ROOT_REACH = 12;
 /** Hair and custom parts run on under the body's edge this far, px: what
  *  shows when the body breathes or the head turns. Too little shows a gap
  *  at the shoulder. */
@@ -282,6 +303,8 @@ interface BuiltLayers {
   parts: { id: string; tie: Point; paint: LayerPaint }[];
   fills: FillRegion[];
   features: FeatureCut;
+  /** Where the picture's paint is opaque: what a fill may lie under. */
+  opaque: Mask;
 }
 
 /** The face: its skin as drawn, the features lifted off it; under them,
@@ -304,17 +327,44 @@ function faceLayer(
     limit: null,
     hint: "the skin under the eyes, the brows, the nose and the mouth, filled from the skin around by construction (it shows when a feature moves or an eye shuts)",
   });
-  const under = and(
-    or(labels.skullArea, dilate(pic, labels.face, FACE_MARGIN)),
-    and(labels.hairFront, opaque),
-  );
+  const head = or(labels.skullArea, dilate(pic, labels.face, FACE_MARGIN));
   fills.push({
     id: "face.forehead",
-    region: fillUnder(pic, face, under, skin),
+    region: fillUnder(
+      pic,
+      face,
+      and(head, and(labels.hairFront, opaque)),
+      skin,
+    ),
     sources,
     limit: FILL_LIMIT,
     hint: "the skin under the bangs is made up far from any skin: pull landmarks.skull in to the head's outline, and put a landmarks.skinSeeds point on any forehead skin between strands the face's flood missed",
   });
+  const locks = sideLocks(labels);
+  if (locks) {
+    // No margin here: grown outward from the face, it lays skin beside the
+    // ear's outer edge and under the lobe, where the hair is behind the
+    // lock, and the lock leaning away shows it as a patch.
+    const bridge = bridges(pic, locks, labels.face);
+    // Coloured smoothly from the face's own paint round the gap, the ear's
+    // shading with it (it reads neither skin nor hair, so the skin fill
+    // would lay it flat and pale), less a line's width beside the lock: the
+    // strand's soft edge and any of its outline the face kept.
+    const across = fillFrom(
+      pic,
+      andNot(and(labels.face, labels.solid), dilate(pic, locks, LOCK_LINE)),
+    );
+    const hidden = or(labels.skullArea, bridge);
+    fills.push({
+      id: "face.sideHair",
+      region: fillUnder(pic, face, and(hidden, and(locks, opaque)), (i) =>
+        (bridge[i] ? across : skin).subarray(i * 3, i * 3 + 3),
+      ),
+      sources,
+      limit: FILL_LIMIT,
+      hint: "the skin under the side locks is made up far from any skin: put a landmarks.skinSeeds point on the cheek and the ear beside each lock",
+    });
+  }
   return face;
 }
 
@@ -392,6 +442,21 @@ function hairLayers(ctx: CutContext, opaque: Mask, fills: FillRegion[]) {
     limit: null,
     hint: "the hair behind the face and the bangs, made up by construction (it shows only at the head's edge on a turn)",
   });
+  const locks = sideLocks(labels);
+  if (locks) {
+    fills.push({
+      id: "hair_back.sideHair",
+      region: fillUnder(
+        pic,
+        hairBack,
+        and(and(locks, shellArea), opaque),
+        filled,
+      ),
+      sources,
+      limit: null,
+      hint: "the hair behind the side locks down to landmarks.shellLower, made up by construction (it shows beside a lock when the lock swings or the head turns)",
+    });
+  }
   const near = dilate(pic, labels.hairBack, UNDER_PART);
   labels.parts.forEach(({ cut, mask }, k) => {
     fills.push({
@@ -532,6 +597,49 @@ function bodyLayer(ctx: CutContext, opaque: Mask, fills: FillRegion[]) {
   return body;
 }
 
+/** Every side lock's hair, or null with no `sideHair` polygon. */
+function sideLocks(labels: IllustrationLabels): Mask | null {
+  const { L, R } = labels.hairSide;
+  return L && R ? or(L, R) : (L ?? R ?? null);
+}
+
+/** Each side lock with paint, its root carried up from its top edge under
+ *  the front hair by SIDE_ROOT_REACH, column by column, as far as the front
+ *  hair is opaque above it, filled from the lock's own hair. */
+function sideLockLayers(
+  ctx: CutContext,
+  opaque: Mask,
+  fills: FillRegion[],
+): Map<string, LayerPaint> {
+  const { pic, labels } = ctx;
+  const { width } = pic;
+  const out = new Map<string, LayerPaint>();
+  for (const side of ["L", "R"] as const) {
+    const mask = labels.hairSide[side];
+    if (!mask || count(mask) === 0) continue;
+    const layer = paintOf(pic, mask);
+    const root = new Uint8Array(mask.length);
+    for (let i = width; i < mask.length; i++) {
+      if (!mask[i] || mask[i - width]) continue;
+      for (let j = i - width, k = 0; j >= 0 && k < SIDE_ROOT_REACH; k++) {
+        if (!labels.hairFront[j] || !opaque[j]) break;
+        root[j] = 1;
+        j -= width;
+      }
+    }
+    const own = hairSources(ctx, mask);
+    fills.push({
+      id: `hair_side_${side}.root`,
+      region: fillUnder(pic, layer, root, fillFrom(pic, own)),
+      sources: own,
+      limit: FILL_LIMIT,
+      hint: `the lock's root under the bangs is filled far from the lock's own hair (strands thinner than about 5 px have none clear of their lines); it never shows at rest: check on preview-labels.png that landmarks.sideHair.${side} holds the lock`,
+    });
+    out.set(`hair_side_${side}`, layer);
+  }
+  return out;
+}
+
 /** The neck's own skin: skin-class body paint, solid, clear of lines. */
 function neckSkin(ctx: CutContext): Mask {
   const { labels } = ctx;
@@ -544,8 +652,9 @@ function neckSkin(ctx: CutContext): Mask {
   );
 }
 
-/** The face, the features, the hair, the body and the custom parts, with
- *  their fills. With `lipSet` the drawn mouth leaves the face as no layer. */
+/** The face, the features, the hair (the side locks too), the body and the
+ *  custom parts, with their fills. With `lipSet` the drawn mouth leaves the
+ *  face as no layer. */
 function buildLayers(ctx: CutContext, lipSet: boolean): BuiltLayers {
   const { pic } = ctx;
   const fills: FillRegion[] = [];
@@ -560,11 +669,13 @@ function buildLayers(ctx: CutContext, lipSet: boolean): BuiltLayers {
       ["body", body],
       ["face", face],
       ...features.roles,
+      ...sideLockLayers(ctx, opaque, fills),
       ["hair_front", frontHairLayer(ctx, fills)],
     ]),
     parts,
     fills,
     features,
+    opaque,
   };
 }
 
@@ -1165,6 +1276,162 @@ function frontHairWidthCheck(ctx: CutContext, built: BuiltLayers): CutCheck {
   };
 }
 
+/**
+ * A side lock as the rig needs it: hair in its polygon; a top row whose
+ * pixels each have the front hair's opaque paint right above, so its root is
+ * carried under the bangs (a stretch of VISIBLE_MIN_PX or more past them
+ * shows the root at rest, the measure's reading); and, at rest, clear of its
+ * eye (`overEye`: the rig slides the eye's outer corner under the lock on
+ * the turn). Each problem names which way to move the polygon.
+ */
+function sideHairCheck(
+  ctx: CutContext,
+  built: BuiltLayers,
+  side: "L" | "R",
+): CutCheck {
+  const { pic, labels } = ctx;
+  const { opaque } = built;
+  const { width } = pic;
+  const at = `landmarks.sideHair.${side}`;
+  const role = `hair_side_${side}`;
+  /** Outward, as the viewer sees it: L is on the viewer's right. */
+  const outward = side === "L" ? "right" : "left";
+  const mask = labels.hairSide[side]!;
+  const problems: string[] = [];
+  const box = maskBox(pic, mask);
+  if (!box) {
+    // Hair inside the polygon that another cut took: the front hair keeps
+    // what both claim, and L what both sides' polygons claim.
+    const inside = and(labels.hair, polygonMask(pic, ctx.lm.sideHair![side]!));
+    const takers = [
+      [
+        labels.hairFront,
+        "landmarks.frontHair, which keeps the paint both claim",
+      ],
+      [
+        side === "R" ? labels.hairSide.L : undefined,
+        "landmarks.sideHair.L, which keeps the paint both sides' polygons claim",
+      ],
+    ] as const;
+    const took = takers.filter(([m]) => m && count(and(inside, m)) > 0);
+    problems.push(
+      count(inside) === 0
+        ? `${at} holds no hair, so no ${role} is written: move it onto the lock hanging in front of the ear on the viewer's ${outward}, or check on preview-labels.png that the lock is labelled hair (add landmarks.samples.hair points on its tones)`
+        : `all of the hair inside ${at} is taken by ${took.map(([, by]) => by).join(", and by ")}, so no ${role} is written: ${took.some(([m]) => m !== labels.hairFront) ? "pull the two polygons apart" : "start the polygon below the front hair's edge (or the hair is the bangs', not a side lock)"}`,
+    );
+  } else {
+    const top = box[1];
+    const front = (j: number) => j >= 0 && labels.hairFront[j] && opaque[j];
+    // The top row's pixels with no front hair right above, in stretches.
+    let shown = 0;
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    let stretch = 0;
+    for (let x = box[0]; x <= box[2] + 1; x++) {
+      const i = top * width + x;
+      if (x <= box[2] && mask[i] && !front(i - width)) {
+        stretch++;
+        continue;
+      }
+      if (stretch >= VISIBLE_MIN_PX) {
+        shown += stretch;
+        x0 = Math.min(x0, x - stretch);
+        x1 = Math.max(x1, x - 1);
+      }
+      stretch = 0;
+    }
+    if (shown > 0) {
+      // How far up the front hair is over those columns, if anywhere.
+      let gap = Infinity;
+      for (let x = x0; x <= x1; x++) {
+        for (let y = top - 1; y >= 0 && top - 1 - y < gap; y--) {
+          if (front(y * width + x)) {
+            gap = top - 1 - y;
+            break;
+          }
+        }
+      }
+      const above = Number.isFinite(gap)
+        ? `hair_front ends ${gap} px above it there`
+        : "no hair_front lies above it there";
+      problems.push(
+        `${role}'s top row (y ${top}) shows past hair_front on ${shown} px, x ${x0}-${x1}: ${above}, so its root shows at rest and is not carried under the bangs. Move ${at}'s top up${Number.isFinite(gap) ? ` ${gap} px or more` : ""} into landmarks.frontHair (the two may overlap; the front hair keeps the paint both take), or extend landmarks.frontHair down over the lock's top`,
+      );
+    }
+    const over = overEye(ctx, built, side);
+    if (over) {
+      problems.push(
+        `${role} reaches ${over.px} px over eye_${side} at rest (to x ${over.x} on y ${over.y}), past landmarks.eyes.${side}.box's ${EYE_BOX_SPARE} px of spare and the lock's ${LOCK_LINE} px outline: the rig slides the eye's outer corner under the lock on the turn, so it must lie clear of it at rest. Pull ${at}'s inner edge back ${over.px} px or more to the ${outward}, to x ${side === "R" ? "<=" : ">="} ${over.edge}, and widen landmarks.frontHair over the hair it leaves; if hair is really drawn over the eye there, the cut cannot split it from the eye: report it`,
+      );
+    }
+  }
+  return {
+    id: `sideHair.${side}`,
+    level: "warn",
+    pass: problems.length === 0,
+    value: problems.length,
+    limit: 0,
+    hint:
+      problems.length > 0
+        ? problems.join("; ")
+        : `${role} is ${count(mask)} px, its root carried up to ${SIDE_ROOT_REACH} px under hair_front`,
+  };
+}
+
+/** The spare a declared eye box keeps past the drawn eye, px: the opening
+ *  check asks for 2 to 4. */
+const EYE_BOX_SPARE = 4;
+
+/**
+ * Whether a side lock lies over its eye at rest (the rig slides the eye's
+ * outer corner under the lock on the turn, so the corner must be clear of
+ * it). A cut eye stops where a lock covers it, so the eye's own layer cannot
+ * tell; this reads the box the agent declared round the whole drawn eye
+ * instead. On the eye's rows (its layer's, or the box's without one) the
+ * lock's paint may reach into the box from its outer edge by the box's spare
+ * and the lock's own outline (EYE_BOX_SPARE + LOCK_LINE); `px` is how far
+ * past that it reaches, reported from VISIBLE_MIN_PX, with the column it
+ * reaches and its row.
+ */
+function overEye(
+  ctx: CutContext,
+  built: BuiltLayers,
+  side: "L" | "R",
+): { px: number; x: number; y: number; edge: number } | null {
+  const { pic, lm } = ctx;
+  const { width } = pic;
+  const lock = built.roles.get(`hair_side_${side}`);
+  if (!lock) return null;
+  const [x0, y0, x1, y1] = lm.eyes[side].box;
+  const eye = built.roles.get(`eye_${side}`);
+  const eyeBox =
+    eye &&
+    maskBox(
+      pic,
+      eye.alpha.map((a) => (a >= 0.5 ? 1 : 0)),
+    );
+  const top = eyeBox ? Math.max(y0, eyeBox[1]) : y0;
+  const bottom = eyeBox ? Math.min(y1, eyeBox[3]) : y1;
+  const allowed = EYE_BOX_SPARE + LOCK_LINE;
+  let best: { px: number; x: number; y: number; edge: number } | null = null;
+  for (let y = top; y <= bottom; y++) {
+    for (let x = x0; x <= x1; x++) {
+      if (lock.alpha[y * width + x] < 0.5) continue;
+      const depth = side === "R" ? x - x0 + 1 : x1 - x + 1;
+      const px = depth - allowed;
+      if (px >= VISIBLE_MIN_PX && (!best || px > best.px)) {
+        best = {
+          px,
+          x,
+          y,
+          edge: side === "R" ? x0 + allowed - 1 : x1 - allowed + 1,
+        };
+      }
+    }
+  }
+  return best;
+}
+
 // ---- previews ----
 
 type Image = ReturnType<typeof pictureView>;
@@ -1173,6 +1440,7 @@ const LABEL_COLOURS: Record<string, RGB> = {
   features: [40, 200, 70],
   face: [255, 190, 140],
   hair_front: [235, 50, 60],
+  hair_side: [250, 140, 30],
   hair_back: [150, 60, 220],
   body: [40, 100, 240],
 };
@@ -1207,6 +1475,9 @@ function labelsPreview(ctx: CutContext, built: BuiltLayers): Image {
   tint(labels.body, LABEL_COLOURS.body);
   tint(labels.hairFront, LABEL_COLOURS.hair_front);
   tint(labels.hairBack, LABEL_COLOURS.hair_back);
+  for (const m of [labels.hairSide.L, labels.hairSide.R]) {
+    if (m) tint(m, LABEL_COLOURS.hair_side);
+  }
   labels.parts.forEach(({ mask }, k) =>
     tint(mask, PART_COLOURS[k % PART_COLOURS.length]),
   );
@@ -1310,6 +1581,9 @@ export async function cutLayersFromIllustration(
       ...built.features.checks,
       ...built.fills.map((f) => fillCheck(pic, f)),
       frontHairWidthCheck(ctx, built),
+      ...(["L", "R"] as const)
+        .filter((side) => lm.sideHair?.[side])
+        .map((side) => sideHairCheck(ctx, built, side)),
       pocketsCheck(ctx),
     ];
 

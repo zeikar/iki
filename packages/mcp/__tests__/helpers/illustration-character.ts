@@ -456,6 +456,52 @@ export const TEMPLE_LOCK = {
     [770, 332],
   ] as [number, number][],
 };
+/** A side lock on the viewer's left (the character's right, `hair_side_R`),
+ *  hanging from under the fringe in front of the ear and the cheek's edge,
+ *  outlined, in the hair's main colour; `SIDE_LOCKS` draws it and its mirror
+ *  about x = 550. Its top lies under the cap, which hides it down to the
+ *  fringe. `overEye` is a lobe off its inner edge over the right eye's outer
+ *  corner, the white's outer end under it; `nearEye` a lobe that ends in
+ *  the right eye box's spare, short of the eye. `short` is a lock drawn instead
+ *  that ends on the cheek, inside the face's outline: the face and the
+ *  fringe close it in. `outer` is a strand drawn instead, hanging beside
+ *  the ear's outer edge and on below the lobe, over the back hair. */
+export const SIDE_LOCK = {
+  R: [
+    [345, 300],
+    [395, 300],
+    [394, 480],
+    [388, 580],
+    [368, 625],
+    [346, 570],
+  ] as [number, number][],
+  overEye: [
+    [390, 418],
+    [456, 418],
+    [456, 446],
+    [390, 446],
+  ] as [number, number][],
+  nearEye: [
+    [390, 418],
+    [432, 418],
+    [432, 446],
+    [390, 446],
+  ] as [number, number][],
+  outer: [
+    [298, 380],
+    [308, 380],
+    [308, 560],
+    [298, 560],
+  ] as [number, number][],
+  short: [
+    [375, 300],
+    [400, 300],
+    [399, 470],
+    [388, 490],
+    [376, 470],
+  ] as [number, number][],
+};
+
 /** A thin dark stroke (a strand's line) crossing the right eye box's
  *  lower-left corner from inside it and running far on down the cheek,
  *  dashed as an antialiased thin stroke breaks into pieces: `dash` px of
@@ -489,6 +535,9 @@ export interface CharacterOptions {
   chinShadow?: boolean;
   /** TEMPLE_LOCK. */
   templeLock?: boolean;
+  /** SIDE_LOCK on each side; "overEye" or "nearEye" with that lobe off the
+   *  right one; "short" or "outer" that one on each side instead. */
+  sideLocks?: boolean | "overEye" | "nearEye" | "short" | "outer";
   /** EYE_STROKE: "dashed", or "joined" to the lower lid. */
   eyeStroke?: "dashed" | "joined";
   /** The torso's outline inked in this colour instead of the ink along
@@ -547,6 +596,12 @@ function shapes(
   o: CharacterOptions,
 ): [Inside, RGB, boolean][] {
   const { pocket = false, gap = false, ornament = false, eyes = {} } = o;
+  const lock =
+    o.sideLocks === "short"
+      ? SIDE_LOCK.short
+      : o.sideLocks === "outer"
+        ? SIDE_LOCK.outer
+        : SIDE_LOCK.R;
   const strands: [Inside, RGB, boolean][] = gap
     ? [
         [rect(676, 640, 692, 840), c.hair, true],
@@ -583,6 +638,23 @@ function shapes(
     ...features(c, eyes),
     ...(o.templeLock
       ? [[polygon(TEMPLE_LOCK.polygon), c.hair, true] as [Inside, RGB, boolean]]
+      : []),
+    ...(o.sideLocks
+      ? [
+          [polygon(lock), c.hair, true] as [Inside, RGB, boolean],
+          [polygon(mirror(lock)), c.hair, true] as [Inside, RGB, boolean],
+        ]
+      : []),
+    ...(o.sideLocks === "overEye" || o.sideLocks === "nearEye"
+      ? [
+          [
+            (x: number, y: number) =>
+              polygon(SIDE_LOCK.R)(x, y) ||
+              polygon(SIDE_LOCK[o.sideLocks as "overEye" | "nearEye"])(x, y),
+            c.hair,
+            true,
+          ] as [Inside, RGB, boolean],
+        ]
       : []),
     ...(o.eyeStroke
       ? [
@@ -798,6 +870,22 @@ export function characterLandmarks(): Record<string, any> {
       },
     ],
   };
+}
+
+/** `sideHair` round each SIDE_LOCK, 5 px out past its outline, from up
+ *  inside the front hair; a fresh copy. */
+export function sideLockLandmarks(): {
+  sideHair: { L: [number, number][]; R: [number, number][] };
+} {
+  const R: [number, number][] = [
+    [340, 330],
+    [400, 330],
+    [399, 480],
+    [393, 582],
+    [369, 632],
+    [340, 572],
+  ];
+  return { sideHair: { L: mirror(R), R } };
 }
 
 /** A polygon over the torso, for a picture whose torso reads as hair. */

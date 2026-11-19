@@ -5,6 +5,11 @@
  * under the far one. Four ways a drawing or its placement breaks that, each
  * naming the free `layout` move, where one exists, before the billed
  * regenerate. A lock the rig refuses (no `hair_front`) is warned of alone.
+ * On a cut picture (`inPlace`) each names the landmark to move instead; the
+ * two-locks check, whose only remedy is redrawing `hair_side.png`, is left
+ * out, and so is the eye-corner check, which a cut eye (stopping where the
+ * lock covers it) cannot feed: the cut checks the lock against the declared
+ * eye box itself.
  */
 
 import {
@@ -23,7 +28,7 @@ type LockRole = (typeof LOCK_ROLES)[number];
 /** Rules 1 and 2: a stretch of the lock this wide past the bangs, or over
  *  the eye's corner, shows at rest; 1-2 px is antialiasing the neighbouring
  *  layer's edge hides. */
-const VISIBLE_MIN_PX = 3;
+export const VISIBLE_MIN_PX = 3;
 
 /** Rule 3: how far the near lock leans inward at the turn's extreme, as a
  *  share of the head unit (the eye row to the chin): the default profile's
@@ -76,11 +81,13 @@ function opaqueRows(
  * at rest, one over the eye white's outer corner at rest, one whose near-turn
  * lean bares columns nothing is painted behind, and a `hair_side.png` that
  * draws two locks. `layers` holds the measured, non-empty layers of `absDir`
- * by role.
+ * by role. `inPlace`: the layers were cut out of one picture, each lock from
+ * `landmarks.sideHair.<side>` (see `measureDir`).
  */
 export async function hairSideWarnings(
   absDir: string,
   layers: Record<string, LayerStats>,
+  inPlace = false,
 ): Promise<string[]> {
   const present = LOCK_ROLES.filter((r) => layers[r] !== undefined);
   if (present.length === 0) return [];
@@ -90,7 +97,9 @@ export async function hairSideWarnings(
     for (const role of present) {
       warnings.push(
         `${role}: needs hair_front — the rig refuses a lock without the bangs its root hides ` +
-          `under. Remove hair_side.png and recompose (free), or draw hair_front.png. Billed.`,
+          (inPlace
+            ? `under. Put landmarks.frontHair round the bangs, or drop ${landmark(role)}.`
+            : `under. Remove hair_side.png and recompose (free), or draw hair_front.png. Billed.`),
       );
     }
     return warnings;
@@ -139,19 +148,23 @@ export async function hairSideWarnings(
     );
     const eye = eyeRole === undefined ? undefined : layers[eyeRole];
 
-    const root = rootWarning(role, lock, front);
+    const root = rootWarning(role, lock, front, inPlace);
     if (root !== undefined) warnings.push(root);
-    if (eyeRole !== undefined && eye !== undefined) {
+    // A cut eye stops where a lock covers it, so its corner reads clear
+    // here: the cut checks the lock against the declared eye box instead
+    // (`sideHair.<side>`).
+    if (!inPlace && eyeRole !== undefined && eye !== undefined) {
       const w = eyeCornerWarning(role, lock, side, eyeRole, eye);
       if (w !== undefined) warnings.push(w);
     }
     // The lean needs only an eye row, so the other eye's serves.
     const rowEye = eye ?? layers.eye_L ?? layers.eye_R;
     if (face !== undefined && rowEye !== undefined) {
-      const w = leanWarning(role, lock, side, face, back, rowEye);
+      const w = leanWarning(role, lock, side, face, back, rowEye, inPlace);
       if (w !== undefined) warnings.push(w);
     }
   }
+  if (inPlace) return warnings;
 
   // The as-drawn copy: a mirror of two locks is two locks too, so one reading
   // is enough, and the composer's input is the one the message is about.
@@ -164,6 +177,9 @@ export async function hairSideWarnings(
   return warnings;
 }
 
+/** The landmark a cut lock comes from: `hair_side_L` from `sideHair.L`. */
+const landmark = (role: string) => `landmarks.sideHair.${role.slice(-1)}`;
+
 /**
  * Rule 1. The lock's root hides under the bangs, so on its top row every run
  * of its columns must lie under `hair_front`'s runs on that row; a stretch of
@@ -175,6 +191,7 @@ function rootWarning(
   role: LockRole,
   lock: LayerInput,
   front: LayerInput | undefined,
+  inPlace: boolean,
 ): string | undefined {
   const y = opaqueRows(lock)?.top;
   if (y === undefined) return undefined;
@@ -195,9 +212,19 @@ function rootWarning(
     }
   }
   if (shown === 0) return undefined;
-  return (
+  const lead =
     `${role}: its top row (canvas y ${y}) shows past hair_front on ${shown} px — the root is ` +
-    `visible at rest. Move it under the bangs — up (layout.${role}.cy) or toward the face ` +
+    `visible at rest. `;
+  if (inPlace) {
+    return (
+      lead +
+      `Move ${landmark(role)}'s top up into landmarks.frontHair, or extend landmarks.frontHair ` +
+      `down over the lock's top.`
+    );
+  }
+  return (
+    lead +
+    `Move it under the bangs — up (layout.${role}.cy) or toward the face ` +
     `(layout.${role}.cx) (free), or regenerate hair_side.png with a longer hidden root. Billed.`
   );
 }
@@ -225,10 +252,13 @@ function eyeCornerWarning(
     overlap = side < 0 ? runs[i + 1] - corner : corner - runs[i] + 1;
   }
   if (overlap < VISIBLE_MIN_PX) return undefined;
-  return (
+  const lead =
     `${role}: covers ${eyeRole}'s outer corner at rest (canvas x ${corner}, y ${row}) by ` +
-    `${overlap} px — the eye's outer tail may only slide under it on the turn. Move ` +
-    `layout.${role}.cx ${overlap} px ${side < 0 ? "left" : "right"}, outward (free), or regenerate it narrower. Billed.`
+    `${overlap} px — the eye's outer tail may only slide under it on the turn. `;
+  const way = side < 0 ? "left" : "right";
+  return (
+    lead +
+    `Move layout.${role}.cx ${overlap} px ${way}, outward (free), or regenerate it narrower. Billed.`
   );
 }
 
@@ -251,6 +281,7 @@ function leanWarning(
   face: LayerInput,
   back: LayerInput | undefined,
   eye: LayerStats,
+  inPlace: boolean,
 ): string | undefined {
   const faceRows = opaqueRows(face);
   const lockRows = opaqueRows(lock);
@@ -285,6 +316,15 @@ function leanWarning(
     `leaves bare pixels spanning columns ${cols[0]}–${cols[cols.length - 1]}, ` +
     `rows ${ys[0]}–${ys[ys.length - 1]}`;
   const lead = `${role}: when the head turns away from it the lock leans inward about ${lean} px and ${where}, where`;
+  if (inPlace) {
+    // The cut fills the back hair under a lock down to shellLower, a
+    // landmark; skin only where the lock crosses the face's own paint.
+    return (
+      `${lead} neither hair_back nor the face is painted — lower landmarks.shellLower ` +
+      `under it, down to where the hair behind the lock ends (back hair is filled under ` +
+      `the lock above it).`
+    );
+  }
   if (back === undefined) {
     // No layout move clears this: the strip is measured from the lock's own
     // edge, so it moves with the lock, and rows above the face are bare

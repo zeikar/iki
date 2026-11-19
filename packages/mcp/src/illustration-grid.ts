@@ -92,6 +92,9 @@ const LANDMARK_COLORS: RGB[] = [
 ];
 /** Polylines under these keys close back to their first point. */
 const CLOSED_KEYS = new Set(["frontHair", "skull", "polygon", "bodyOnly"]);
+/** So do those at these paths: the side locks' polygons, under `L` and `R`
+ *  as an eye's or a brow's parts are. */
+const CLOSED_PATHS = new Set(["sideHair.L", "sideHair.R"]);
 /** Deeper than any landmark set nests; a cyclic object stops here. */
 const MAX_DEPTH = 16;
 
@@ -304,7 +307,7 @@ const isPair = (v: unknown): v is [number, number] =>
 /**
  * Every shape the landmarks hold, by shape alone: a 4-number array is a box,
  * `{ cx, cy, rx, ry }` an ellipse, a list of `[x, y]` a polyline (closed
- * under CLOSED_KEYS), points under a key ending in `Seeds` or anywhere under
+ * under CLOSED_KEYS and at CLOSED_PATHS), points under a key ending in `Seeds` or anywhere under
  * `samples` markers, a lone `[x, y]` a marker. Anything else is walked into,
  * or skipped.
  */
@@ -331,7 +334,11 @@ function collectShapes(landmarks: Record<string, unknown>): LabelledShape[] {
         return add({ kind: "points", points: v });
       }
       if (v.length < 2) return;
-      return add({ kind: "line", points: v, closed: CLOSED_KEYS.has(key) });
+      return add({
+        kind: "line",
+        points: v,
+        closed: CLOSED_KEYS.has(key) || CLOSED_PATHS.has(path),
+      });
     }
     if (Array.isArray(v)) {
       v.forEach((item, i) =>

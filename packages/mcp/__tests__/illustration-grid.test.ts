@@ -270,6 +270,13 @@ describe("viewIllustrationGrid", () => {
             [290, 1490],
           ],
         ],
+        sideHair: {
+          L: [
+            [410, 1410],
+            [490, 1410],
+            [490, 1490],
+          ],
+        },
         skinSeeds: [[820, 1420]],
         paintSeeds: [[920, 1420]],
         samples: { hair: { base: [[620, 1520]] } },
@@ -288,8 +295,9 @@ describe("viewIllustrationGrid", () => {
     // Open under any other key: no edge back to the first point.
     expect(changed(490, 1250)).toBe(true);
     expect(changed(450, 1250)).toBe(false);
-    // Each bodyOnly polygon closes too.
+    // Each bodyOnly polygon closes too, and each side lock's.
     expect(changed(250, 1450)).toBe(true);
+    expect(changed(450, 1450)).toBe(true);
     expect(changed(820, 1420)).toBe(true); // a seed marker
     expect(changed(920, 1420)).toBe(true); // a paint seed's marker
     expect(changed(620, 1520)).toBe(true); // a sample marker
