@@ -27,6 +27,33 @@
     <meta property="og:url" content="https://zeikar.dev/iki/playground/" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- Page views on the published site only, in zeikar.dev's own GA4
+         property. A browser that once opened zeikar.dev/?internal is tagged so
+         the property's internal-traffic filter drops it. -->
+    <script>
+      if (location.hostname === "zeikar.dev") {
+        var gaScript = document.createElement("script");
+        gaScript.async = true;
+        gaScript.src =
+          "https://www.googletagmanager.com/gtag/js?id=G-TL9N5ZKRN2";
+        document.head.appendChild(gaScript);
+        window.dataLayer = window.dataLayer || [];
+        window.gtag = function () {
+          dataLayer.push(arguments);
+        };
+        gtag("js", new Date());
+        var gaInternal = false;
+        try {
+          gaInternal = localStorage.getItem("ga_internal") === "1";
+        } catch (e) {}
+        gtag(
+          "config",
+          "G-TL9N5ZKRN2",
+          gaInternal ? { traffic_type: "internal" } : {},
+        );
+      }
+    </script>
     <style>
       :root {
         color-scheme: dark;
