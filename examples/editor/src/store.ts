@@ -38,6 +38,7 @@ import {
   renderAtlas,
   type DecodedSource,
 } from "./atlas-image";
+import { fetchSampleLayers } from "./sample-layers";
 import {
   buildLayerInputs,
   cropBitmap,
@@ -138,7 +139,8 @@ interface EditorState {
   atlasError: string | null;
   /** Visible banner for auto-rig import failures. */
   generatorError: string | null;
-  /** True while importLayerSet is in flight — used to disable the import button. */
+  /** True while importLayerSet is in flight, or importSampleLayers is fetching
+   *  — used to disable the import buttons. */
   importing: boolean;
   /**
    * Monotonically increasing import sequence counter. Incremented at the START of
@@ -220,6 +222,13 @@ interface EditorState {
    * newer one when multiple imports are initiated before the first completes.
    */
   importLayerSet: (files: File[]) => Promise<void>;
+
+  /**
+   * Import the bundled sample layer set (`sample-layers.ts`) the same way a
+   * picked one is. A no-op while an import is in flight; a failed fetch sets
+   * generatorError and leaves the doc untouched.
+   */
+  importSampleLayers: () => Promise<void>;
 
   /** Abandon any active capture session, restoring the ephemeral base. */
   abandonCapture: () => void;
@@ -644,6 +653,26 @@ export const useEditorStore = create<EditorState>((set, get) => {
       } catch (e) {
         set({ editError: e instanceof Error ? e.message : String(e) });
       }
+    },
+
+    importSampleLayers: async () => {
+      if (get().importing) return;
+      // Held across the fetch, so the buttons stay disabled meanwhile.
+      set({ importing: true, generatorError: null });
+      let files: File[];
+      try {
+        files = await fetchSampleLayers();
+      } catch (e) {
+        set({
+          importing: false,
+          generatorError: e instanceof Error ? e.message : String(e),
+        });
+        return;
+      }
+      // Handed back before the handoff, in the same task: importLayerSet
+      // claims the flag itself, and its early refusals return without it.
+      set({ importing: false });
+      await get().importLayerSet(files);
     },
 
     importLayerSet: async (files) => {

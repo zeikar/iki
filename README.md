@@ -108,7 +108,9 @@ Art already separated into layers needs no AI and no install. Open the
 [editor](https://zeikar.dev/iki/editor/), press **Import layer set**, and pick
 one PNG per part, or a PSD of the same layers. The auto-rigger measures them
 and rigs them in the browser, in seconds, and the files never leave it.
-**Export .iki** saves the model.
+**Export .iki** saves the model. No art at hand?
+[Watch it rig a sample set](https://zeikar.dev/iki/editor/?sample), or press
+**Try sample layers** in the editor.
 
 Layers are matched by name, all on one canvas, each drawn where it sits.
 `Eye-L`, `eye l` and `eye_L.png` all read as `eye_L`; `_L` and `_R` are the

@@ -1,10 +1,11 @@
 import type { IkiPlayer } from "@ikijs/engine";
 import { IkiFormatError } from "@ikijs/format";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 
 import { Inspector } from "./Inspector";
 import { PartsTree } from "./PartsTree";
 import { Preview } from "./Preview";
+import { sampleRequested } from "./sample-layers";
 import { useEditorStore } from "./store";
 import { useReloadPreview } from "./useReloadPreview";
 
@@ -25,6 +26,12 @@ function downloadIki(filename: string, json: string): void {
 export function App() {
   const playerRef = useRef<IkiPlayer | null>(null);
   useReloadPreview(playerRef);
+
+  // Opened as `?sample`: import the sample layer set straight away. StrictMode's
+  // second run of this effect is a no-op, since an import is already in flight.
+  useEffect(() => {
+    if (sampleRequested()) void useEditorStore.getState().importSampleLayers();
+  }, []);
 
   const doc = useEditorStore((s) => s.doc);
   const exportError = useEditorStore((s) => s.exportError);

@@ -1,6 +1,6 @@
 # Corpus
 
-Committed inputs for six characters, used as a regression baseline for the auto-rig and, for one of them, the illustration cut. Five are part layers: each has `layers/*.png` (the role-named parts), `rig-plan.json` and, when a character has accepted patches, `patches.json` (none does today); a character with custom parts also has `custom-parts.json`, `custom/*.png` and `bakes.json`. The sixth, `twin-picture`, is one finished picture with the landmarks to cut it (below).
+Committed inputs for six characters, used as a regression baseline for the auto-rig and, for one of them, the illustration cut. Five are part layers: each has `layers/*.png` (the role-named parts), `rig-plan.json` and, when a character has accepted patches, `patches.json` (none does today); a character with custom parts also has `custom-parts.json`, `custom/*.png` and `bakes.json`. The sixth, `twin-picture`, is one finished picture with the landmarks to cut it (below). Bob's `layers/` also ship as the editor's sample layer set (`examples/editor/src/sample-layers.ts`, opened by `editor/?sample`), so a change to them changes what that link shows.
 
 - `pnpm corpus` re-rigs every character, rewrites `examples/playground/public/<name>.iki` (twin-tails' is `hero.iki`, the site's hero) and `corpus/<name>/metrics.json`.
 - `pnpm corpus:check` re-rigs into `.corpus-check/` and diffs against the committed files.

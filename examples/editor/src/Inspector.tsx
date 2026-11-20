@@ -184,6 +184,7 @@ export function Inspector() {
     return s.doc.canRedo();
   });
   const importLayerSet = useEditorStore((s) => s.importLayerSet);
+  const importSampleLayers = useEditorStore((s) => s.importSampleLayers);
   const generatorError = useEditorStore((s) => s.generatorError);
   const importing = useEditorStore((s) => s.importing);
   const layerSetInputRef = useRef<HTMLInputElement>(null);
@@ -212,7 +213,16 @@ export function Inspector() {
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <span style={labelStyle}>Auto-rig from layers</span>
         <p style={{ margin: 0, fontSize: 11, color: "#9a9aa5" }}>
-          Named PNG layers: face, eye_L, eye_R, mouth, … or a single .psd
+          Named PNG layers: face, eye_L, eye_R, mouth, … or a single .psd (
+          <a
+            href="https://github.com/zeikar/iki#auto-rig-layers-you-already-have"
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: "inherit" }}
+          >
+            layer names
+          </a>
+          )
         </p>
         <input
           ref={layerSetInputRef}
@@ -229,6 +239,14 @@ export function Inspector() {
           style={smallBtnStyle}
         >
           {importing ? "Importing…" : "Import layer set"}
+        </button>
+        <button
+          type="button"
+          onClick={() => void importSampleLayers()}
+          disabled={importing}
+          style={smallBtnStyle}
+        >
+          Try sample layers
         </button>
         {generatorError && <p style={errorStyle}>{generatorError}</p>}
       </div>

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type MutableRefObject } from "react";
 
 import { GridOverlay } from "./GridOverlay";
 import { PivotOverlay } from "./PivotOverlay";
+import { sampleRequested } from "./sample-layers";
 import { useEditorStore } from "./store";
 
 interface PreviewProps {
@@ -29,7 +30,8 @@ export function Preview({ playerRef }: PreviewProps) {
   const loadGeneration = useEditorStore((s) => s.loadGeneration);
   // Idle is ephemeral PREVIEW state — never the store. It drives the player
   // directly and must leave authoring `params` untouched.
-  const [idleOn, setIdleOn] = useState(false);
+  // It starts on for `?sample`, so the sample is seen moving, not posed.
+  const [idleOn, setIdleOn] = useState(sampleRequested);
 
   // True when idle must be blocked: grid-edit mode OR a matrix deformer is
   // selected (matrix deformer needs stable pose for the pivot gizmo; warp does
