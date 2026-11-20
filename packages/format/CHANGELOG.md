@@ -1,5 +1,11 @@
 # @ikijs/format
 
+## 0.11.1
+
+### Patch Changes
+
+- 42f4817: Docs only: the package READMEs and npm descriptions carry Iki's new tagline, "the open Live2D alternative that rigs itself", and `@ikijs/mcp`'s description and keywords name the one-picture cut. No code change.
+
 ## 0.11.0
 
 ### Minor Changes
