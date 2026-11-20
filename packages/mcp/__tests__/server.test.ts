@@ -113,6 +113,10 @@ async function createPair(): Promise<Pair> {
   return { server, client, cleanup };
 }
 
+/** The MCP request's budget for the full cut under v8 coverage on a CI runner,
+ *  inside that test's own 180 s. */
+const CUT_REQUEST_TIMEOUT = 170_000;
+
 describe("MCP server integration", () => {
   let pair: Pair | undefined;
 
@@ -1023,18 +1027,27 @@ describe("MCP server integration", () => {
       cornerL: [490, 561],
       cornerR: [610, 561],
     };
-    const result = await pair.client.callTool({
-      name: "cut_layers_from_illustration",
-      arguments: {
-        imagePath,
-        outputDir,
-        landmarks,
-        mouthKeyed: path.join(dir, "mouth_keyed.png"),
-        mouthInterior: path.join(dir, "mouth_interior.png"),
+    const result = await pair.client.callTool(
+      {
+        name: "cut_layers_from_illustration",
+        arguments: {
+          imagePath,
+          outputDir,
+          landmarks,
+          mouthKeyed: path.join(dir, "mouth_keyed.png"),
+          mouthInterior: path.join(dir, "mouth_interior.png"),
+        },
       },
-    });
+      undefined,
+      // The client gives a request 60 s by default, which the cut outlasts
+      // under coverage on a slow runner.
+      { timeout: CUT_REQUEST_TIMEOUT },
+    );
     expect(result.isError).toBeFalsy();
-    expect(result.structuredContent).toMatchObject({ ok: true, passed: true });
+    expect(result.structuredContent).toMatchObject({
+      ok: true,
+      passed: true,
+    });
     const [text] = result.content as { type: string; text: string }[];
     const lines = text.text.split("\n");
     const real = fs.realpathSync(outputDir);
@@ -1087,7 +1100,11 @@ describe("MCP server integration", () => {
     ] as const) {
       const refused = await pair.client.callTool({
         name: "cut_layers_from_illustration",
-        arguments: { imagePath, outputDir: tmpDir(), landmarks: landmarksArg },
+        arguments: {
+          imagePath,
+          outputDir: tmpDir(),
+          landmarks: landmarksArg,
+        },
       });
       expect(refused.isError).toBeFalsy();
       expect(refused.structuredContent).toMatchObject({ ok: false });
