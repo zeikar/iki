@@ -169,12 +169,21 @@ export function Preview({ playerRef }: PreviewProps) {
         </label>
       </div>
 
-      <div style={{ flex: 1, display: "grid", placeItems: "center" }}>
+      {/* The canvas is taken out of the flow: its pixel size, which the player
+          sets, would otherwise hold this row open and push the sliders off
+          the page instead of giving way to them. */}
+      <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
         {/* position:relative container so the overlay can sit absolutely over the canvas */}
-        <div style={{ position: "relative", width: "100%", height: "100%" }}>
+        <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
           <canvas
             ref={canvasRef}
-            style={{ width: "100%", height: "100%", display: "block" }}
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              display: "block",
+            }}
           />
           {gridEditMode && <GridOverlay canvasRef={canvasRef} />}
           {!gridEditMode && !idleOn && selectedDeformerId !== null && (
@@ -182,12 +191,17 @@ export function Preview({ playerRef }: PreviewProps) {
           )}
         </div>
       </div>
-      <ParamSliders playerRef={playerRef} />
+      {/* Idle rewrites the pose every frame, so a slider moved under it would
+          seem dead: moving one hands the pose back to the author. */}
+      <ParamSliders playerRef={playerRef} onEdit={() => setIdleOn(false)} />
     </main>
   );
 }
 
-function ParamSliders({ playerRef }: PreviewProps & {}) {
+function ParamSliders({
+  playerRef,
+  onEdit,
+}: PreviewProps & { onEdit: () => void }) {
   // A layer import or a create-from-scratch swaps the whole document, so the
   // descriptors change between loads. Keying on the load COUNT (not a boolean
   // "has loaded") re-renders these sliders after every completed load — a
@@ -230,6 +244,7 @@ function ParamSliders({ playerRef }: PreviewProps & {}) {
               value={value}
               onChange={(e) => {
                 const next = Number(e.target.value);
+                onEdit();
                 // loadGeneration > 0 guarantees playerRef.current is loaded.
                 playerRef.current!.setParameter(param.id, next);
                 setParam(param.id, next);

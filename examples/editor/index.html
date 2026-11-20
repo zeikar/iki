@@ -35,7 +35,11 @@
       body {
         margin: 0;
         display: flex;
-        min-height: 100vh;
+        /* The viewport's height exactly: the panels scroll inside it, so the
+           sliders stay beside the preview they move. dvh where it is known,
+           so a phone's toolbar does not cover the bottom strip. */
+        height: 100vh;
+        height: 100dvh;
         background: #14151a;
         color: #e7e7ea;
       }
