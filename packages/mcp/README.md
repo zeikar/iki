@@ -1,6 +1,6 @@
 # @ikijs/mcp
 
-> Part of [Iki](https://github.com/zeikar/iki), the open Live2D alternative that AI can build — free and MIT-licensed, with an open `.iki` format and a [Claude Code / Codex plugin](https://github.com/zeikar/iki/tree/main/plugin) that draws and rigs characters.
+> Part of [Iki](https://github.com/zeikar/iki), the open Live2D alternative that rigs itself — free and MIT-licensed, with an open `.iki` format and a [Claude Code / Codex plugin](https://github.com/zeikar/iki/tree/main/plugin) that draws and rigs characters.
 
 A stdio [MCP](https://modelcontextprotocol.io/) server that exposes `.iki` model tools to AI agents (Claude, LLMs, and any MCP-compatible client): read/validate a model, and auto-rig one from role-named PNG layers, composed from generated parts or cut in place out of one finished picture.
 

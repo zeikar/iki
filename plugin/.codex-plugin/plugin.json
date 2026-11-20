@@ -1,7 +1,7 @@
 {
   "name": "iki",
-  "version": "0.59.1",
-  "description": "Make rigged, animated 2D puppet characters with AI: an image model draws the parts and the Iki auto-rigger makes them blink, talk, turn and nod — in an open .iki model. Iki is free and MIT-licensed.",
+  "version": "0.59.2",
+  "description": "Make rigged, animated 2D puppet characters with AI: an image model draws the parts, or one finished picture is cut into them, and the Iki auto-rigger makes them blink, talk, turn and nod — in an open .iki model. Iki is free and MIT-licensed.",
   "author": {
     "name": "Zeikar",
     "url": "https://github.com/zeikar"
@@ -10,6 +10,7 @@
   "repository": "https://github.com/zeikar/iki",
   "license": "MIT",
   "keywords": [
+    "ai-rigging",
     "iki",
     "live2d",
     "vtuber",

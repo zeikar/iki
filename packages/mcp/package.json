@@ -1,8 +1,9 @@
 {
   "name": "@ikijs/mcp",
   "version": "0.38.0",
-  "description": "MCP server that lets AI agents build 2D puppet characters: compose AI-drawn part images, check their geometry and auto-rig them into an open .iki model — Iki, the free Live2D alternative.",
+  "description": "MCP server that lets AI agents build 2D puppet characters: compose AI-drawn part images, or cut one finished illustration into layers, check their geometry and auto-rig them into an open .iki model — Iki, the free Live2D alternative.",
   "keywords": [
+    "ai-rigging",
     "iki",
     "mcp",
     "model-context-protocol",
@@ -14,6 +15,8 @@
     "2d-animation",
     "puppet",
     "auto-rig",
+    "illustration",
+    "image-to-rig",
     "rigging",
     "character-generation",
     "ai-character",

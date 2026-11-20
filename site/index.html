@@ -3,11 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Iki — the open Live2D alternative that AI can build</title>
+    <title>
+      Iki — the open Live2D alternative that rigs itself · AI rigging
+    </title>
     <meta
       name="description"
-      content="Iki is a free, MIT-licensed Live2D and Inochi2D alternative for the web whose characters an AI agent can build: an image model draws the parts and the auto-rigger makes them blink, talk, turn and nod. The model is open, plain JSON."
+      content="Free, MIT-licensed Live2D alternative with AI rigging for the web. Auto-rig PNG or PSD layers, one finished picture, or parts an AI draws, with no hand rigging."
     />
+    <link rel="canonical" href="https://zeikar.dev/iki/" />
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230F1320'/%3E%3Ctext x='16' y='23' font-size='19' text-anchor='middle' fill='%23E9A23B' font-family='sans-serif'%3E%E6%81%AF%3C/text%3E%3C/svg%3E"
@@ -15,11 +18,11 @@
 
     <meta
       property="og:title"
-      content="Iki — the open Live2D alternative that AI can build"
+      content="Iki — the open Live2D alternative that rigs itself"
     />
     <meta
       property="og:description"
-      content="Free and MIT-licensed. An image model draws the parts, the auto-rigger makes them blink, talk, turn and nod, and the model is open, plain JSON."
+      content="Free and MIT-licensed. The auto-rigger makes layers you have, one finished picture, or parts an AI draws blink, talk, turn and nod. The model is open, plain JSON."
     />
     <meta property="og:image" content="https://zeikar.dev/iki/og.png" />
     <meta property="og:image:width" content="1280" />
@@ -27,6 +30,28 @@
     <meta property="og:url" content="https://zeikar.dev/iki/" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Iki",
+        "description": "A free, MIT-licensed 2D puppet animation engine for the web and an alternative to Live2D, with AI rigging: its auto-rigger rigs PNG or PSD layers, one finished picture, or parts drawn by an image model into a character that blinks, talks, turns and nods, saved as an open JSON model.",
+        "url": "https://zeikar.dev/iki/",
+        "image": "https://zeikar.dev/iki/og.png",
+        "applicationCategory": "MultimediaApplication",
+        "operatingSystem": "Web",
+        "isAccessibleForFree": true,
+        "license": "https://opensource.org/licenses/MIT",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "author": {
+          "@type": "Person",
+          "name": "Zeikar",
+          "url": "https://github.com/zeikar"
+        },
+        "sameAs": ["https://github.com/zeikar/iki"]
+      }
+    </script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -569,16 +594,17 @@
         </figure>
 
         <div>
-          <h1>The open Live2D alternative that AI can build.</h1>
+          <h1>The open Live2D alternative that rigs itself.</h1>
           <p class="deck">
-            Iki is a free, MIT-licensed 2D puppet engine for the web. Ask its
-            Claude Code or Codex plugin for a character: an image model draws
-            the parts, and the auto-rigger makes them blink, talk, turn and nod.
-            The model is <strong>plain JSON</strong> — an open
-            <code>.iki</code> file you own, played in WebGL.
+            Iki is a free, MIT-licensed 2D puppet engine for the web. Its
+            auto-rigger takes layers you already have, one finished picture, or
+            parts an image model draws, and makes them blink, talk, turn and
+            nod, with no hand rigging. The model is
+            <strong>plain JSON</strong> — an open <code>.iki</code> file you
+            own, played in WebGL.
           </p>
           <div class="actions">
-            <a class="btn btn-primary" href="#make">Make a character</a>
+            <a class="btn btn-primary" href="#ways">Make a character</a>
             <a class="btn btn-secondary" href="playground/"
               >Open the playground</a
             >
@@ -690,13 +716,56 @@
         </div>
       </div>
 
-      <section class="shell band" id="make">
+      <section class="shell band" id="ways">
+        <h2>Three ways to an auto-rigged character</h2>
+        <p class="lede">
+          AI rigging for 2D characters: start from layers, from one picture, or
+          from a sentence. The same auto-rigger wires blink, gaze, lip-sync,
+          head turn, nod, brows, breathing and hair physics, with no hand
+          rigging.
+        </p>
+        <dl class="facts">
+          <div>
+            <dt>From layers</dt>
+            <dd>
+              Art already separated? Open the <a href="editor/">editor</a> and
+              import one PNG per part, named by role — <code>face</code>,
+              <code>eye_L</code>, <code>hair_front</code> — or a plain PSD of
+              the same layers. It is rigged in your browser in seconds: no
+              install, no AI, and the files never leave the page. The
+              <a
+                href="https://github.com/zeikar/iki#auto-rig-layers-you-already-have"
+                >layer names</a
+              >
+              are in the README.
+            </dd>
+          </div>
+          <div>
+            <dt>From one picture</dt>
+            <dd>
+              Hand the plugin one finished, front-facing illustration. It cuts
+              the picture into layers in place, fills in what each layer hides,
+              and rigs them — at rest the model is your picture.
+            </dd>
+          </div>
+          <div>
+            <dt>From a sentence</dt>
+            <dd>
+              Describe a character. An image model draws each part on its own,
+              and the plugin composes, checks and rigs them.
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="shell band" id="make" style="padding-top: 0">
         <h2>Ask for a character</h2>
         <p class="lede">
           Install the plugin in
           <a href="https://github.com/anthropics/claude-code">Claude Code</a>
           or <a href="https://github.com/openai/codex">Codex</a>, then ask in
-          plain words. It needs an image generator — see the
+          plain words, or hand it a picture. Drawing needs an image generator —
+          see the
           <a href="https://github.com/zeikar/iki/tree/main/plugin#prerequisites"
             >prerequisites</a
           >.
@@ -708,7 +777,8 @@
 codex plugin marketplace add zeikar/iki
 codex plugin add iki@iki
 
-&gt; make me an iki character: short copper bob, green eyes, school uniform</code></pre>
+&gt; make me an iki character: short copper bob, green eyes, school uniform
+&gt; rig this picture so it moves: my-character.png</code></pre>
         <dl class="facts">
           <div>
             <dt>Draw</dt>
@@ -746,12 +816,13 @@ codex plugin add iki@iki
 
         <dl class="facts">
           <div>
-            <dt>AI generator</dt>
+            <dt>AI rigging</dt>
             <dd>
               Rigs a character from role-named PNG layers — blink, gaze, mouth,
-              head turn, brows and hair physics, wired automatically. It runs as
-              an MCP server and a Claude Code / Codex plugin, so an AI agent can
-              go from a prompt to a rigged model without a human in the loop.
+              head turn, brows and hair physics, wired automatically — and cuts
+              one finished picture into those layers. It runs as an MCP server
+              and a Claude Code / Codex plugin, so an AI agent can go from a
+              prompt or a picture to a rigged model without a human in the loop.
             </dd>
           </div>
           <div>
@@ -765,8 +836,9 @@ codex plugin add iki@iki
           <div>
             <dt>Editor</dt>
             <dd>
-              Authors parts, deformers, and physics rigs in the browser, with
-              undo and redo on every edit. Imports layered PSDs.
+              Auto-rigs a set of PNG layers or a PSD in the browser, then
+              authors parts, deformers, and physics rigs, with undo and redo on
+              every edit.
             </dd>
           </div>
           <div>

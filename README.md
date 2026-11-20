@@ -15,17 +15,26 @@
   <sub>Parts drawn by an image model and rigged by Iki's auto-rigger, with no hand rigging. <a href="https://zeikar.dev/iki/">See it live</a>.</sub>
 </p>
 
-<h3 align="center">The open Live2D alternative that AI can build.</h3>
+<h3 align="center">The open Live2D alternative that rigs itself.</h3>
 
 > 息 (breath) · 生き (life) · 粋 (chic)
 
 **Iki** is a free, MIT-licensed 2D puppet animation engine for the web — an
 alternative to Live2D and [Inochi2D](https://inochi2d.com/) whose characters an
-AI agent can make. Ask for one, and the bundled
-[Claude Code / Codex plugin](./plugin) has an image model draw its parts, or
-cuts a finished picture of yours into parts, then rigs them
-into a character that blinks, looks around, talks, turns and nods, with hair
-that sways. What you get is an open `.iki` file — plain JSON you own — that the
+AI agent can make: AI rigging for 2D characters. Its auto-rigger turns art into a character that blinks,
+looks around, talks, turns and nods, with hair that sways, from any of three
+starting points:
+
+- **A sentence.** Ask the bundled [Claude Code / Codex plugin](./plugin) for a
+  character and an image model [draws its parts](#draw-every-part).
+- **One finished picture.** The plugin
+  [cuts it into parts](#cut-a-picture-you-already-have) and fills in what each
+  part hides.
+- **Layers you already have.** One PNG per part, or a PSD of the same layers,
+  is [rigged as it is](#auto-rig-layers-you-already-have), in the browser, with
+  no AI and no install.
+
+What you get is an open `.iki` file — plain JSON you own — that the
 WebGL runtime plays in any browser, and that a host (such as
 [Charivo](https://github.com/zeikar/charivo)) drives from lip-sync, gaze and
 expressions.
@@ -34,11 +43,12 @@ expressions.
 > atlas-sampled texture parts, warp-mesh and grid deformation, stencil clipping
 > masks and part occlusion, and spring/chain physics. The editor authors parts,
 > deformers, and physics rigs; the generator rigs a character from role-named
-> PNG/PSD layers, including through an MCP server that AI agents can drive.
+> PNG layers (or a PSD, in the editor), including through an MCP server that AI
+> agents can drive.
 
 ## Make a character with AI
 
-There are two ways in, through one plugin: have an image model **draw every
+Two of the three ways in go through one plugin: have an image model **draw every
 part**, or **cut a picture you already have** into parts. Either way you get a
 rigged `.iki` model. Install the plugin in
 [Claude Code](https://github.com/anthropics/claude-code):
@@ -92,9 +102,42 @@ picture; a closed mouth is stretched open to talk, and a generated mouth talks
 more cleanly (the skill asks before drawing one). A clean front-facing bust
 works best.
 
-Art already in layers? Hand role-named PNG layers to the auto-rigger through
-the [`@ikijs/mcp`](./packages/mcp) server, or import a layered PSD in the
-editor.
+## Auto-rig layers you already have
+
+Art already separated into layers needs no AI and no install. Open the
+[editor](https://zeikar.dev/iki/editor/), press **Import layer set**, and pick
+one PNG per part, or a PSD of the same layers. The auto-rigger measures them
+and rigs them in the browser, in seconds, and the files never leave it.
+**Export .iki** saves the model.
+
+Layers are matched by name, all on one canvas, each drawn where it sits.
+`Eye-L`, `eye l` and `eye_L.png` all read as `eye_L`; `_L` and `_R` are the
+character's own left and right, so `eye_L` is on the viewer's right.
+
+| Layer                                                            | What it is                                                                                                                                                                                                |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `face` (required)                                                | The head's skin, drawn without the eyes                                                                                                                                                                   |
+| `eye_L`, `eye_R` (required)                                      | Each eye. With `iris_*`, `lash_*` and `lash_lower_*` as layers of their own, the eye white alone: it folds shut under the lash, and the iris (with optional `pupil_*` and `highlight_*`) follows the gaze |
+| `mouth`, or `mouth_inner` + `lip_lower` + `lip_upper` (required) | A closed mouth, with an optional `mouth_open` to cross-fade to; or a lip set that folds open, with optional `mouth_teeth` and `mouth_tongue`                                                              |
+| `brow_L`, `brow_R`                                               | Brows, raised and angled by expressions                                                                                                                                                                   |
+| `nose`                                                           | A nose drawn apart from the face, so it leads the head turn                                                                                                                                               |
+| `hair_front`, `hair_back`, `hair_side_L`, `hair_side_R`          | Bangs and back hair, which sway on springs, and the locks beside the ears, rooted under the bangs (they need `hair_front`)                                                                                |
+| `body`, `arm_L`, `arm_R`                                         | The torso, which breathes and turns, and hanging arms that raise and bend (they need `body`)                                                                                                              |
+| `blush_L`, `blush_R`                                             | A cheek blush that rests faint and deepens with an expression                                                                                                                                             |
+
+The rig is only as good as the separation: a face with the eyes painted on, or
+hair in one piece, has nothing to move apart. A PSD has to be a plain stack of
+those layers: every layer one visible raster part, named by role, at normal
+blend and full opacity. Delete a background or sketch layer, and merge groups,
+masks, clipped layers and effects into their part; text, shape, smart-object
+and adjustment layers are refused too, each by name (8-bit RGB, up to 64
+megapixels, no PSB). For one flattened picture, use
+[the cut](#cut-a-picture-you-already-have) above.
+
+An agent or a script does the same from PNG paths with `auto_rig_from_layers`
+in [`@ikijs/mcp`](./packages/mcp), which also reports folds and physics, and
+the function under both is `generateIkiFromLayerSet` in
+[`@ikijs/editor`](./packages/editor#auto-rig).
 
 ## Try it
 
@@ -104,8 +147,9 @@ No install — both demos run in the browser:
   that a host would drive, on a hand-authored model or one of the six
   regression-corpus characters — the hero with her baked twin tails, the same
   character cut from one picture, three full bodies and a plain bust.
-- **[Editor](https://zeikar.dev/iki/editor/)** — author parts, deformers,
-  and physics rigs, import a layered PSD, and export a validated `.iki`.
+- **[Editor](https://zeikar.dev/iki/editor/)** — auto-rig a layered PSD or
+  named PNG layers, author parts, deformers, and physics rigs, and export a
+  validated `.iki`.
 
 ## Why
 
@@ -235,15 +279,34 @@ the v1 schema is still settling. See **Stability** above for what that means for
 a model you save today.
 
 **Do I need the editor to use it?** No. `@ikijs/engine` + `@ikijs/format` are
-enough to play a model. The editor packages are for building authoring tools.
+enough to play a model. The editor packages are for building authoring tools,
+and the editor app is where you auto-rig layers.
 
 **How do I make a model?** Ask for one with the
 [Claude Code / Codex plugin](#make-a-character-with-ai), which draws the parts and rigs
 them, or [cuts a finished picture of yours](#cut-a-picture-you-already-have)
-into them. With art already in layers, feed role-named PNG layers to the
-auto-rigger in [`@ikijs/editor`](./packages/editor) /
-[`@ikijs/mcp`](./packages/mcp), which wires up blink, gaze, lip-sync, head-turn
-and brows for you. Or hand-write the JSON — it is small, see above.
+into them. With art already in layers,
+[auto-rig them](#auto-rig-layers-you-already-have) in the editor. Or hand-write
+the JSON — it is small, see above.
+
+**Is this AI rigging?** The rigging is automatic, and an AI agent drives it: it
+draws or cuts the parts, reads the checks, tunes the rig plan and rigs the
+parts that have no role, such as twin tails. The rigger itself is geometry
+measured from the layers' pixels, with no model to download, which is why it
+also runs in the browser with no AI at all.
+
+**Can it auto-rig a PSD?** Yes, a simple one. Name the layers by role (`face`,
+`eye_L`, `hair_front`, …), merge groups, masks and effects into them at normal
+blend and full opacity, delete any background or sketch layer, and import the
+PSD, or the same layers as PNGs, in the
+[editor](https://zeikar.dev/iki/editor/): blink, gaze, lip-sync, head turn,
+brows and hair physics are wired for you. See
+[Auto-rig layers you already have](#auto-rig-layers-you-already-have).
+
+**Can it rig a single image?** Yes, through the plugin: it
+[cuts one finished, front-facing picture](#cut-a-picture-you-already-have)
+into layers and rigs those. It needs an AI agent to read the picture; there is
+no one-click upload.
 
 ## Roadmap
 

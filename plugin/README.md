@@ -1,6 +1,7 @@
 # Iki — Claude Code and Codex plugin
 
-Make a rigged, animated 2D character by asking for one.
+Make a rigged, animated 2D character by asking for one, or by handing over one
+finished picture to cut into parts.
 
 ```
 "make me an iki character: silver-haired swordswoman, flat cel shading"
