@@ -36,5 +36,7 @@ jobs:
 
       # Apart from the coverage run: block coverage slows the cut's pixel
       # loops many times over, and one cut then outlasts the test timeout.
+      # Its tests are split across illustration-cut.*.test.ts so vitest runs
+      # them a worker each; in one file they took over ten minutes.
       - name: Test the illustration cut
         run: pnpm test:cut

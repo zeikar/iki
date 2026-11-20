@@ -33,9 +33,10 @@ export default defineConfig({
         "packages/mcp/src/render-page.ts",
         // Process entry / stdio transport — can't be unit-tested.
         "packages/mcp/src/cli.ts",
-        // The illustration cut's pixel passes: their tests run without
-        // coverage (`pnpm test:cut`), since v8's block coverage slows those
-        // loops enough to push one cut past 30 s on a CI runner.
+        // The illustration cut's pixel passes: their tests
+        // (illustration-cut.*.test.ts) run without coverage (`pnpm test:cut`),
+        // since v8's block coverage slows those loops enough to push one cut
+        // past 30 s on a CI runner.
         "packages/mcp/src/illustration-cut.ts",
         "packages/mcp/src/illustration-features.ts",
       ],
