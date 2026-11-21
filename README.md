@@ -7,7 +7,7 @@
 [![Codex plugin](https://img.shields.io/badge/Codex-plugin-412991?logo=openai&logoColor=white)](./plugin#codex)
 [![Live demo](https://img.shields.io/badge/demo-zeikar.dev%2Fiki-E9A23B)](https://zeikar.dev/iki/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Built with HyperClaude](https://img.shields.io/badge/Built%20with-HyperClaude-D97757?logo=anthropic&logoColor=white)](http://zeikar.dev/hyperclaude/)
+[![Built with HyperClaude](https://img.shields.io/badge/Built%20with-HyperClaude-D97757?logo=anthropic&logoColor=white)](https://zeikar.dev/hyperclaude/)
 
 <p align="center">
   <img src="./.github/assets/hero.gif" width="360" alt="An Iki character turning its head, blinking and talking, rendered by the engine." />
@@ -19,20 +19,27 @@
 
 > 息 (breath) · 生き (life) · 粋 (chic)
 
-**Iki** is a free, MIT-licensed 2D puppet animation engine for the web — an
-alternative to Live2D and [Inochi2D](https://inochi2d.com/) whose characters an
-AI agent can make: AI rigging for 2D characters. Its auto-rigger turns art into a character that blinks,
-looks around, talks, turns and nods, with hair that sways, from any of three
-starting points:
+**Iki** is a free, MIT-licensed engine that plays animated 2D characters in a
+web page — an alternative to Live2D and [Inochi2D](https://inochi2d.com/). Its
+auto-rigger takes a character split into parts (face, eyes, mouth, hair…) and
+wires them to move, which is what "rigging" means here: the character blinks,
+looks around, talks, turns and nods, with hair that sways. Start from whichever
+you have:
 
-- **A sentence.** Ask the bundled [Claude Code / Codex plugin](./plugin) for a
-  character and an image model [draws its parts](#draw-every-part).
-- **One finished picture.** The plugin
-  [cuts it into parts](#cut-a-picture-you-already-have) and fills in what each
-  part hides.
-- **Layers you already have.** One PNG per part, or a PSD of the same layers,
-  is [rigged as it is](#auto-rig-layers-you-already-have), in the browser, with
-  no AI and no install.
+- **A sentence** — AI rigging, in Claude Code or Codex (the AI coding
+  assistants). Install the [plugin](#make-a-character-with-ai), ask for a
+  character, and an image model [draws every part](#draw-every-part).
+- **One finished picture** — AI rigging, in Claude Code or Codex. The plugin
+  [cuts a front-facing bust into parts](#cut-a-picture-you-already-have) and
+  paints in what each part hides.
+- **Layers you already have** — only a browser. One PNG per part, or a simple
+  PSD of the same layers, is
+  [rigged in the editor](#auto-rig-layers-you-already-have): no AI, no install,
+  no upload.
+
+**Try it now, no install:**
+[watch the editor rig a sample character](https://zeikar.dev/iki/editor/?sample)
+· [drive a finished one in the playground](https://zeikar.dev/iki/playground/)
 
 <p align="center">
   <img src="./.github/assets/import.gif" width="680" alt="A finished front-facing picture of a twin-tailed girl, still on the left; on the right the same picture rigged by Iki, turning its head, blinking and talking." />
@@ -40,17 +47,10 @@ starting points:
   <sub>One finished picture, left, and the model cut from it, right: the hero's character, made the other way.</sub>
 </p>
 
-What you get is an open `.iki` file — plain JSON you own — that the
-WebGL runtime [plays in any browser](#play-a-model), and that a host (such as
-[Charivo](https://github.com/zeikar/charivo)) drives from lip-sync, gaze and
-expressions.
-
-> Status: **early, but real.** The runtime renders parameter-driven color quads,
-> atlas-sampled texture parts, warp-mesh and grid deformation, stencil clipping
-> masks and part occlusion, and spring/chain physics. The editor authors parts,
-> deformers, and physics rigs; the generator rigs a character from role-named
-> PNG layers (or a PSD, in the editor), including through an MCP server that AI
-> agents can drive.
+Whichever way, you get one `.iki` file: plain JSON you own, textures included.
+The WebGL runtime [plays it in any browser](#play-a-model), and your app drives
+it by setting its mouth, gaze and expression, as
+[Charivo](https://github.com/zeikar/charivo) does.
 
 ## Make a character with AI
 
@@ -71,8 +71,9 @@ codex plugin marketplace add zeikar/iki
 codex plugin add iki@iki
 ```
 
-Start a new Codex session to load it. The same skills and MCP server work in
-both hosts; see the [plugin installation guide](./plugin#codex) for a local
+Start a new Codex session to load it. Both get the same thing: the plugin's
+instructions ("skills") and the tool server the assistant calls (an MCP
+server). See the [plugin installation guide](./plugin#codex) for a local
 checkout and prerequisites.
 
 ### Draw every part
@@ -88,31 +89,53 @@ eyes, school uniform"_. The plugin:
    head turn, nod and tilt, brows, breathing and hair physics, written to a
    `.iki` model.
 
-The character at the top of this page was made this way. The plugin needs an
-image generator — see its [prerequisites](./plugin#prerequisites).
+The drawing runs through the [Codex CLI](https://github.com/openai/codex)'s
+image tool, even from Claude Code, so it needs `codex login` on a ChatGPT plan.
+Each image is billed and takes a few minutes, and a character is fifteen to
+twenty images (some parts are drawn twice to pick the better one); without
+Codex, the plugin hands you the prompts to run in another image tool. The tool
+server needs Node 22 or later, and checking the renders needs Chrome, Edge or
+Chromium.
+See the plugin's [prerequisites](./plugin#prerequisites).
+
+One pass gives a first draft, written to `iki-char/iki-character.iki` in the
+folder you ran it from ([open it](#see-your-model-move); in a repository, add
+`iki-char/` to `.gitignore`). The character at the top of this page started
+that way and was then refined: the plugin's `iki-character-loop` has a critic
+compare renders with the reference and redraw what is off. After that her
+irises and mouth were redrawn, her eyes and mouth resized from renders, and
+her back hair cut into twin tails that an agent rigged as extra parts.
 
 ### Cut a picture you already have
 
 Hand the plugin one finished, front-facing picture — _"rig this picture so it
-moves: `my-character.png`"_ — as in the capture near the top of this page. Its `iki-import-illustration` skill reads
-landmarks off it (`view_illustration_grid`), cuts it into layers in place and
+moves: `my-character.png`"_ — as in the capture near the top of this page. Its
+`iki-import-illustration` skill finds where the eyes, mouth and hair are on the picture (`view_illustration_grid`), cuts it into layers in place and
 fills in what each layer hides (`cut_layers_from_illustration`), then rigs
 them as above. The model keeps the picture's own pixels, so at rest it is your
 picture; a closed mouth is stretched open to talk, and a generated mouth talks
-more cleanly (the skill asks before drawing one). A clean front-facing bust
-works best.
+more cleanly (the skill asks before drawing one).
+
+It needs a front-facing bust on a transparent or one-colour background, with
+both eyes uncovered and the face at least about a quarter of the picture's
+width. A three-quarter view, a hand or a prop over the face, or a busy
+background is turned away. In a full-body picture the arms stay painted on the
+body and the face comes out too small, so crop it to a bust first, keeping a
+little more below the chin than there is from the eyes to the chin: a crop that
+ends just under the chin is turned away too.
 
 ## Auto-rig layers you already have
 
 Art already separated into layers needs no AI and no install. Open the
-[editor](https://zeikar.dev/iki/editor/), press **Import layer set**, and pick
-one PNG per part, or a PSD of the same layers. The auto-rigger measures them
-and rigs them in the browser, in seconds, and the files never leave it.
-**Export .iki** saves the model. No art at hand?
+[editor](https://zeikar.dev/iki/editor/), press **Import layer set** in the
+right-hand panel, and pick one PNG per part, or a PSD of the same layers. The
+auto-rigger measures them and rigs them in the browser, in seconds, and the
+files never leave it. **Export .iki** downloads the model. No art at hand?
 [Watch it rig a sample set](https://zeikar.dev/iki/editor/?sample), or press
 **Try sample layers** in the editor.
 
-Layers are matched by name, all on one canvas, each drawn where it sits.
+Each layer's name says which part it is. All layers are the same size, each
+part drawn where it sits on the character.
 `Eye-L`, `eye l` and `eye_L.png` all read as `eye_L`; `_L` and `_R` are the
 character's own left and right, so `eye_L` is on the viewer's right.
 
@@ -126,10 +149,11 @@ character's own left and right, so `eye_L` is on the viewer's right.
 | `hair_front`, `hair_back`, `hair_side_L`, `hair_side_R`          | Bangs and back hair, which sway on springs, and the locks beside the ears, rooted under the bangs (they need `hair_front`)                                                                                |
 | `body`, `arm_L`, `arm_R`                                         | The torso, which breathes and turns, and hanging arms that raise and bend (they need `body`)                                                                                                              |
 | `blush_L`, `blush_R`                                             | A cheek blush that rests faint and deepens with an expression                                                                                                                                             |
+| `forearm_pose_L`, `forearm_pose_R`                               | A second forearm drawn raised, which swaps in to wave (they need the arm)                                                                                                                                 |
 
 The rig is only as good as the separation: a face with the eyes painted on, or
 hair in one piece, has nothing to move apart. A PSD has to be a plain stack of
-those layers: every layer one visible raster part, named by role, at normal
+those layers: every layer one visible raster part, named for its part, at normal
 blend and full opacity. Delete a background or sketch layer, and merge groups,
 masks, clipped layers and effects into their part; text, shape, smart-object
 and adjustment layers are refused too, each by name (8-bit RGB, up to 64
@@ -137,21 +161,27 @@ megapixels, no PSB). For one flattened picture, use
 [the cut](#cut-a-picture-you-already-have) above.
 
 An agent or a script does the same from PNG paths with `auto_rig_from_layers`
-in [`@ikijs/mcp`](./packages/mcp), which also reports folds and physics, and
-the function under both is `generateIkiFromLayerSet` in
-[`@ikijs/editor`](./packages/editor#auto-rig).
+in [`@ikijs/mcp`](./packages/mcp), and the function under both is
+`generateIkiFromLayerSet` in [`@ikijs/editor`](./packages/editor#auto-rig).
 
-## Try it
+## See your model move
 
-No install — both demos run in the browser:
+Every way in ends with a `.iki` file: the editor's **Export .iki** downloads
+it, and the plugin writes it in the folder you ran it from, usually under
+`iki-char/`. Open the [playground](https://zeikar.dev/iki/playground/) and
+choose **Load a .iki file…** in the **Model** list. Leave **Idle** on to watch it blink and look around, and press an
+expression; turn Idle off to pose it with the sliders. To put it
+in your own page, see [Play a model](#play-a-model).
 
-- **[Playground](https://zeikar.dev/iki/playground/)** — drag the sliders
-  that a host would drive, on a hand-authored model or one of the six
-  regression-corpus characters — the hero with her baked twin tails, the same
-  character cut from one picture, three full bodies and a plain bust.
-- **[Editor](https://zeikar.dev/iki/editor/)** — auto-rig a layered PSD or
-  named PNG layers, author parts, deformers, and physics rigs, and export a
-  validated `.iki`.
+## What it is not, yet
+
+Iki is early (0.x). It rigs and plays characters; it is not a VTuber app.
+There is no webcam face tracking, so something has to drive the character:
+your code, or a host app such as [Charivo](https://github.com/zeikar/charivo).
+Characters are front views that turn about 30° either way, not full 3D turns.
+It cannot load Live2D models. And until 1.0 the `.iki` format can still change:
+a newer release may refuse a model an older one saved
+([details](./packages/format#stability)).
 
 ## Play a model
 
@@ -167,7 +197,9 @@ import { IkiMotion, IkiPlayer } from "@ikijs/engine";
 import { loadIkiModel, StandardParameter } from "@ikijs/format";
 
 const canvas = document.querySelector("canvas")!;
-const model = loadIkiModel(await (await fetch("my-character.iki")).text());
+// Your own file, or this one to start with: the character at the top of the page.
+const url = "https://zeikar.dev/iki/playground/hero.iki";
+const model = loadIkiModel(await (await fetch(url)).text());
 
 const player = new IkiPlayer(canvas);
 await player.load(model);
@@ -191,30 +223,17 @@ const tick = (now: number) => {
 requestAnimationFrame(tick);
 ```
 
-That is the whole integration. The engine knows nothing about your app: you
-set parameters, it draws. Every auto-rigged model answers to the same
-[standard parameter ids](./packages/format), so nothing is wired per model,
-and `motion.playExpression("smile")` or `motion.playMotion("Nod", 0)` plays
-what the model declares.
+That is the whole integration, in a module script. Give the canvas a CSS size
+and the player fills it. The engine knows nothing about your app: you set
+parameters (named sliders such as mouth open or head angle), and it draws.
+Every auto-rigged model answers to the same
+[standard parameter ids](./packages/format/src/parameters.ts), so nothing is
+wired per model, and `motion.playExpression("smile")` or
+`motion.playMotion("Nod", 0)` plays what the model declares. A full-body model
+is framed with `player.setView` ([`@ikijs/engine`](./packages/engine#usage)).
 
 It runs wherever WebGL2 does: a browser, an Electron window, an OBS browser
-source. There is no native or Unity runtime. `@ikijs/editor` is for building
-authoring tools, and `@ikijs/mcp` runs as a server (`npx -y @ikijs/mcp`)
-rather than being imported.
-
-## Why
-
-- **Characters an AI agent can build.** Part images in, a rigged model that
-  blinks, talks, turns and nods out — through the Claude Code / Codex plugin or any MCP
-  client. That is the part Iki is really exploring.
-- **Free for commercial use.** MIT: no publication license, no revenue tiers —
-  ship whatever you build with it.
-- **Open format.** The `.iki` model is a plain, documented JSON schema you own —
-  which is what makes generating a model tractable in the first place.
-- **Web-native.** WebGL runtime, TypeScript, no native toolchain.
-- **Host-agnostic.** The engine knows nothing about Charivo or any host; it
-  just plays `.iki` models. Charivo consumes it through a thin `render-iki`
-  adapter, the same way it consumes the Live2D SDK today.
+source. There is no native or Unity runtime.
 
 ## How Iki compares
 
@@ -225,14 +244,22 @@ is the established open-source project in this space. Iki is not trying to
 replace either. It exists because three things it wanted never lined up in one
 place: a permissive license, a plain-text format, and a rig an agent can build.
 
-|                          | Live2D Cubism                                                                                                                                            | Inochi2D                     | Iki                                                                                                                                                                                                     |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| License                  | Proprietary SDK license; a publication license is required to distribute, with exemptions for individuals and small businesses ([terms][live2d-license]) | BSD-2-Clause                 | **MIT** — free for commercial use                                                                                                                                                                       |
-| Editor                   | Cubism Editor (paid PRO tier, free tier)                                                                                                                 | Inochi Creator (open source) | Headless editor core + example app (early)                                                                                                                                                              |
-| Model format             | `.moc3`, compiled and proprietary                                                                                                                        | Open                         | Plain JSON with a documented schema and a validator                                                                                                                                                     |
-| Runtime                  | Native SDKs, including a Web SDK                                                                                                                         | Native (D)                   | TypeScript + WebGL2, `npm install`                                                                                                                                                                      |
-| An AI agent can build it | —                                                                                                                                                        | —                            | Yes: a Claude Code / Codex plugin that draws and rigs a character, over an MCP server (`compose_layers_from_parts`, `measure_layers`, `auto_rig_from_layers`, `measure_turn_reference`, `render_poses`) |
-| Maturity                 | Industry standard                                                                                                                                        | Established                  | Early (0.x, schema still settling)                                                                                                                                                                      |
+- **Characters an AI agent can build.** Part images in, a rigged model out,
+  through the Claude Code / Codex plugin or any MCP client. That is the part
+  Iki is really exploring.
+- **Free for commercial use.** MIT: no publication license, no revenue tiers.
+- **Open format.** The `.iki` model is plain, typed and validated JSON you
+  own, which is what makes generating one tractable in the first place.
+- **Web-native.** A WebGL runtime in TypeScript, with no native toolchain.
+
+|                          | Live2D Cubism                                                                                                                                            | Inochi2D                     | Iki                                                                                               |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------- |
+| License                  | Proprietary SDK license; a publication license is required to distribute, with exemptions for individuals and small businesses ([terms][live2d-license]) | BSD-2-Clause                 | **MIT** — free for commercial use                                                                 |
+| Editor                   | Cubism Editor (paid PRO tier, free tier)                                                                                                                 | Inochi Creator (open source) | A browser editor that auto-rigs layers, and an editing library for tools (early)                  |
+| Model format             | `.moc3`, compiled and proprietary                                                                                                                        | Open                         | Plain JSON, typed and validated                                                                   |
+| Runtime                  | Native SDKs, including a Web SDK                                                                                                                         | Native (D)                   | TypeScript + WebGL2, `npm install`                                                                |
+| An AI agent can build it | —                                                                                                                                                        | —                            | Yes: a Claude Code / Codex plugin that draws a character, or cuts one from a picture, and rigs it |
+| Maturity                 | Industry standard                                                                                                                                        | Established                  | Early (0.x, schema still settling)                                                                |
 
 [live2d-license]: https://www.live2d.com/en/sdk/license/
 
@@ -241,17 +268,19 @@ web format you can script against, that is what this is.
 
 ## Packages
 
-| Package                                                                                     | What it is                                                                                                                                                                                                                                                 |
-| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`@ikijs/format`](./packages/format)                                                        | The `.iki` model schema, types, loader, and validator                                                                                                                                                                                                      |
-| [`@ikijs/engine`](./packages/engine)                                                        | WebGL2 runtime that plays a `.iki` model                                                                                                                                                                                                                   |
-| [`@ikijs/editor`](./packages/editor)                                                        | Headless editing core (no UI): EditorDocument, edit commands, undo/redo, atlas layout/UV helpers, auto-rigger (depends only on @ikijs/format)                                                                                                              |
-| [`@ikijs/mcp`](./packages/mcp)                                                              | stdio MCP server exposing `.iki` read/validate plus `compose_layers_from_parts`, `measure_layers`, `auto_rig_from_layers`, `measure_turn_reference`, `render_poses`, `probe_rig`, `view_illustration_grid` and `cut_layers_from_illustration` to AI agents |
-| [`examples/playground`](./examples/playground) ([live](https://zeikar.dev/iki/playground/)) | Slider-driven demo of the six regression-corpus characters (the hero with her baked twin tails, the same character cut from one picture, three full bodies and a plain bust) and a hand-authored model                                                     |
-| [`examples/editor`](./examples/editor) ([live](https://zeikar.dev/iki/editor/))             | Private React+Zustand app — load/import art, numeric part + deformer + physics editing, pivot gizmo, live IkiPlayer preview, validated .iki export                                                                                                         |
-| [`plugin/`](./plugin)                                                                       | Claude Code / Codex plugin — shared character-generation skills, two agent roles, and the MCP server, wired up in one install                                                                                                                              |
+| Package                                          | What it is                                                                                                  |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| [`@ikijs/engine`](./packages/engine)             | The WebGL2 runtime that plays a `.iki` model                                                                |
+| [`@ikijs/format`](./packages/format)             | The `.iki` format: types, loader and validator                                                              |
+| [`@ikijs/editor`](./packages/editor)             | The auto-rigger and an editing core with no screen of its own (commands, undo and redo), for building tools |
+| [`@ikijs/mcp`](./packages/mcp)                   | The tool server an AI assistant calls (MCP): compose and check parts, cut a picture, rig, render poses      |
+| [`plugin/`](./plugin)                            | The Claude Code / Codex plugin: the character skills and the tool server in one install                     |
+| [Playground](https://zeikar.dev/iki/playground/) | Sliders on six test characters, or a `.iki` file of your own ([source](./examples/playground))              |
+| [Editor](https://zeikar.dev/iki/editor/)         | Auto-rig layers, edit parts, deformers and physics, export a `.iki` ([source](./examples/editor))           |
 
 ## Quick start (this repo)
+
+Needs Node 22.13 or later and pnpm 11.
 
 ```bash
 pnpm install
@@ -259,96 +288,40 @@ pnpm build
 pnpm playground   # open the Vite URL and drag the sliders
 ```
 
-## The `.iki` model
+## The `.iki` format
 
-A model is a flat list of parts composited back-to-front, plus parameters wired
-to those parts through linear bindings:
-
-```ts
-import { StandardParameter, type IkiModel } from "@ikijs/format";
-
-const model: IkiModel = {
-  version: 1,
-  name: "Hello",
-  canvas: { width: 1000, height: 1000 },
-  parameters: [{ id: StandardParameter.MouthOpen, min: 0, max: 1, default: 0 }],
-  parts: [
-    {
-      id: "mouth",
-      color: [0.78, 0.32, 0.36, 1], // solid fill, or tint multiplier when a texture is present
-      width: 150,
-      height: 34,
-      order: 0,
-      transform: { x: 0, y: -150 },
-      bindings: [
-        {
-          parameter: StandardParameter.MouthOpen,
-          channel: "scaleY",
-          from: 0,
-          to: 3,
-        },
-      ],
-    },
-  ],
-};
-```
-
-Stick to the `StandardParameter` ids (`ParamMouthOpenY`, `ParamAngleX`, …) so
-any host can drive any model without per-model wiring. `Left`/`Right` in those
-ids name the **character's** side, so the character's left eye is the part at
-positive x (the viewer's right).
-
-A model can also declare expressions and motion clips, each with a description.
-A host plays an expression by its id and a clip by its group and index.
-
-> **Stability:** `IKI_FORMAT_VERSION` identifies the `.iki` contract, and from
-> 1.0 on, any breaking schema change bumps it. Until then the v1 schema is still
-> settling: a 0.x release may tighten validation and reject a model an earlier
-> one accepted (canvas extents must now be `> 0`, for instance). Such changes
-> are called out in the changelog. The TypeScript surface can likewise shift
-> between 0.x minors.
+A model is one JSON document: a flat list of parts drawn back to front, the
+parameters that move them, and optional deformers, physics, expressions and
+motion clips. The schema's types, a small hand-written example, the left/right
+convention and the stability rules are in
+[`@ikijs/format`](./packages/format#the-model).
 
 ## FAQ
 
 **Can I use this commercially?** Yes — MIT, for everything in this repo. Models
 you make are yours.
 
-**Can it load Live2D models?** No. `.moc3` is a proprietary compiled format;
-Iki has its own open schema and no importer for it.
-
-**Is it production ready?** Not yet — the packages are published from 0.1.0 and
-the v1 schema is still settling. See **Stability** above for what that means for
-a model you save today.
-
-**Do I need the editor to use it?** No. `@ikijs/engine` + `@ikijs/format` are
-enough to [play a model](#play-a-model). The editor packages are for building authoring tools,
-and the editor app is where you auto-rig layers.
-
-**How do I make a model?** Ask for one with the
-[Claude Code / Codex plugin](#make-a-character-with-ai), which draws the parts and rigs
-them, or [cuts a finished picture of yours](#cut-a-picture-you-already-have)
-into them. With art already in layers,
-[auto-rig them](#auto-rig-layers-you-already-have) in the editor. Or hand-write
-the JSON — it is small, see above.
-
 **Is this AI rigging?** The rigging is automatic, and an AI agent drives it: it
-draws or cuts the parts, reads the checks, tunes the rig plan and rigs the
-parts that have no role, such as twin tails. The rigger itself is geometry
-measured from the layers' pixels, with no model to download, which is why it
-also runs in the browser with no AI at all.
+draws or cuts the parts, reads the checks, tunes the rig's settings and rigs
+the parts that have no standard name, such as twin tails. The rigger itself is
+geometry measured from the layers' pixels, with no model to download, which is
+why it also runs in the browser with no AI at all.
 
-**Can it auto-rig a PSD?** Yes, a simple one. Name the layers by role (`face`,
-`eye_L`, `hair_front`, …), merge groups, masks and effects into them at normal
-blend and full opacity, delete any background or sketch layer, and import the
-PSD, or the same layers as PNGs, in the
-[editor](https://zeikar.dev/iki/editor/): blink, gaze, lip-sync, head turn,
-brows and hair physics are wired for you. See
+**Can it auto-rig a PSD?** Yes, a simple one: layers named by part, with
+groups, masks and effects merged in. See
 [Auto-rig layers you already have](#auto-rig-layers-you-already-have).
 
-**Can it rig a single image?** Yes, through the plugin: it
+**Can it rig a single image?** Yes, through the plugin, which
 [cuts one finished, front-facing picture](#cut-a-picture-you-already-have)
-into layers and rigs those. It needs an AI agent to read the picture; there is
-no one-click upload.
+into layers and rigs those. It needs an AI coding assistant to read the
+picture; there is no one-click upload.
+
+**Can it load Live2D models?** No. `.moc3` is a proprietary compiled format;
+Iki has its own open format and no importer for it.
+
+**Do I need the editor to use it?** No. `@ikijs/engine` and `@ikijs/format`
+are enough to [play a model](#play-a-model). The editor app is where you
+auto-rig layers, and `@ikijs/editor` is for building authoring tools.
 
 ## Roadmap
 
