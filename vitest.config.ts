@@ -36,7 +36,9 @@ export default defineConfig({
         // The illustration cut's pixel passes: their tests
         // (illustration-cut.*.test.ts) run without coverage (`pnpm test:cut`),
         // since v8's block coverage slows those loops enough to push one cut
-        // past 30 s on a CI runner.
+        // past 30 s on a CI runner. `pnpm test` runs them after the rest for
+        // the same load: six cuts at once starve the render tests' browser
+        // of its 30 s to start.
         "packages/mcp/src/illustration-cut.ts",
         "packages/mcp/src/illustration-features.ts",
       ],

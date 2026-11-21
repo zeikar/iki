@@ -45,7 +45,7 @@
     "typecheck": "pnpm -r --parallel typecheck && tsc -p site",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run",
+    "test": "vitest run --exclude 'packages/mcp/__tests__/illustration-cut.*.test.ts' && pnpm test:cut",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage --exclude 'packages/mcp/__tests__/illustration-cut.*.test.ts'",
     "test:cut": "vitest run packages/mcp/__tests__/illustration-cut.",
