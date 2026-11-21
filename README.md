@@ -34,6 +34,12 @@ starting points:
   is [rigged as it is](#auto-rig-layers-you-already-have), in the browser, with
   no AI and no install.
 
+<p align="center">
+  <img src="./.github/assets/import.gif" width="680" alt="A finished front-facing picture of a twin-tailed girl, still on the left; on the right the same picture rigged by Iki, turning its head, blinking and talking." />
+  <br />
+  <sub>One finished picture, left, and the model cut from it, right: the hero's character, made the other way.</sub>
+</p>
+
 What you get is an open `.iki` file — plain JSON you own — that the
 WebGL runtime plays in any browser, and that a host (such as
 [Charivo](https://github.com/zeikar/charivo)) drives from lip-sync, gaze and
@@ -87,14 +93,8 @@ image generator — see its [prerequisites](./plugin#prerequisites).
 
 ### Cut a picture you already have
 
-<p align="center">
-  <img src="./.github/assets/import.gif" width="680" alt="A finished front-facing picture of a twin-tailed girl, still on the left; on the right the same picture rigged by Iki, turning its head, blinking and talking." />
-  <br />
-  <sub>One finished picture, left, and the model cut from it, right: the hero's character, made the other way.</sub>
-</p>
-
 Hand the plugin one finished, front-facing picture — _"rig this picture so it
-moves: `my-character.png`"_. Its `iki-import-illustration` skill reads
+moves: `my-character.png`"_ — as in the capture near the top of this page. Its `iki-import-illustration` skill reads
 landmarks off it (`view_illustration_grid`), cuts it into layers in place and
 fills in what each layer hides (`cut_layers_from_illustration`), then rigs
 them as above. The model keeps the picture's own pixels, so at rest it is your
