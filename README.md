@@ -41,7 +41,7 @@ starting points:
 </p>
 
 What you get is an open `.iki` file — plain JSON you own — that the
-WebGL runtime plays in any browser, and that a host (such as
+WebGL runtime [plays in any browser](#play-a-model), and that a host (such as
 [Charivo](https://github.com/zeikar/charivo)) drives from lip-sync, gaze and
 expressions.
 
@@ -153,6 +153,55 @@ No install — both demos run in the browser:
   named PNG layers, author parts, deformers, and physics rigs, and export a
   validated `.iki`.
 
+## Play a model
+
+A `.iki` file is played by [`@ikijs/engine`](./packages/engine), a WebGL2
+runtime, on a `<canvas>` in your own page:
+
+```bash
+npm install @ikijs/engine @ikijs/format
+```
+
+```ts
+import { IkiMotion, IkiPlayer } from "@ikijs/engine";
+import { loadIkiModel, StandardParameter } from "@ikijs/format";
+
+const canvas = document.querySelector("canvas")!;
+const model = loadIkiModel(await (await fetch("my-character.iki")).text());
+
+const player = new IkiPlayer(canvas);
+await player.load(model);
+player.start();
+
+// Alive on its own: blinking, breathing, a wandering gaze, hair physics.
+const motion = new IkiMotion(
+  model,
+  (id) => player.getParameter(id),
+  (id, value) => player.setParameter(id, value),
+);
+
+let mouthOpen = 0; // 0 to 1, from your lip-sync
+
+const tick = (now: number) => {
+  motion.update(now);
+  // What your app drives goes after update(), so it wins.
+  player.setParameter(StandardParameter.MouthOpen, mouthOpen);
+  requestAnimationFrame(tick);
+};
+requestAnimationFrame(tick);
+```
+
+That is the whole integration. The engine knows nothing about your app: you
+set parameters, it draws. Every auto-rigged model answers to the same
+[standard parameter ids](./packages/format), so nothing is wired per model,
+and `motion.playExpression("smile")` or `motion.playMotion("Nod", 0)` plays
+what the model declares.
+
+It runs wherever WebGL2 does: a browser, an Electron window, an OBS browser
+source. There is no native or Unity runtime. `@ikijs/editor` is for building
+authoring tools, and `@ikijs/mcp` runs as a server (`npx -y @ikijs/mcp`)
+rather than being imported.
+
 ## Why
 
 - **Characters an AI agent can build.** Part images in, a rigged model that
@@ -201,15 +250,6 @@ web format you can script against, that is what this is.
 | [`examples/playground`](./examples/playground) ([live](https://zeikar.dev/iki/playground/)) | Slider-driven demo of the six regression-corpus characters (the hero with her baked twin tails, the same character cut from one picture, three full bodies and a plain bust) and a hand-authored model                                                     |
 | [`examples/editor`](./examples/editor) ([live](https://zeikar.dev/iki/editor/))             | Private React+Zustand app — load/import art, numeric part + deformer + physics editing, pivot gizmo, live IkiPlayer preview, validated .iki export                                                                                                         |
 | [`plugin/`](./plugin)                                                                       | Claude Code / Codex plugin — shared character-generation skills, two agent roles, and the MCP server, wired up in one install                                                                                                                              |
-
-## Install
-
-```bash
-npm install @ikijs/engine @ikijs/format
-```
-
-`@ikijs/editor` is for building authoring tools; `@ikijs/mcp` runs as a
-server (`npx -y @ikijs/mcp`) rather than being imported.
 
 ## Quick start (this repo)
 
@@ -281,7 +321,7 @@ the v1 schema is still settling. See **Stability** above for what that means for
 a model you save today.
 
 **Do I need the editor to use it?** No. `@ikijs/engine` + `@ikijs/format` are
-enough to play a model. The editor packages are for building authoring tools,
+enough to [play a model](#play-a-model). The editor packages are for building authoring tools,
 and the editor app is where you auto-rig layers.
 
 **How do I make a model?** Ask for one with the
