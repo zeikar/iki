@@ -66,6 +66,13 @@ function buildControls(): void {
     slider.step = String((param.max - param.min) / 100);
     slider.value = String(def);
     slider.addEventListener("input", () => {
+      // Idle rewrites the pose every frame, so a slider dragged under it would
+      // snap straight back: a drag hands the pose to the user. (Only the user's
+      // own changes fire "input"; the loop's writes to the slider do not.)
+      if (idleCheckbox.checked) {
+        idleCheckbox.checked = false;
+        stopIdle();
+      }
       const value = Number(slider.value);
       // Route through mirrorParam so the readout tracks the engine's clamp.
       mirrorParam(param.id, value);

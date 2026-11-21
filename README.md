@@ -169,8 +169,9 @@ in [`@ikijs/mcp`](./packages/mcp), and the function under both is
 Every way in ends with a `.iki` file: the editor's **Export .iki** downloads
 it, and the plugin writes it in the folder you ran it from, usually under
 `iki-char/`. Open the [playground](https://zeikar.dev/iki/playground/) and
-choose **Load a .iki file…** in the **Model** list. Leave **Idle** on to watch it blink and look around, and press an
-expression; turn Idle off to pose it with the sliders. To put it
+choose **Load a .iki file…** in the **Model** list. Leave **Idle** on to watch it blink
+and look around, press an expression, or drag a slider to pose it yourself
+(that turns Idle off). To put it
 in your own page, see [Play a model](#play-a-model).
 
 ## What it is not, yet
