@@ -37,6 +37,7 @@ fail-fast and throw one path-qualified message at a time, e.g.
 | ----------------------------------- | ----------------------------------------------------------------- |
 | `parseIkiModel(value: unknown)`     | Validate a plain object, returning a typed `IkiModel` or throwing |
 | `loadIkiModel(json: string)`        | `JSON.parse` + `parseIkiModel`                                    |
+| `parseIkiGenerator(value, path?)`   | Validate a model's `generator` on its own                         |
 | `IkiFormatError`                    | The only error either loader throws                               |
 | `IKI_FORMAT_VERSION`                | The format version this package implements (`1`)                  |
 | `StandardParameter`                 | Recommended parameter ids so any host can drive any model         |
@@ -80,7 +81,10 @@ Beyond flat parts the schema also carries triangle meshes with per-vertex UV,
 per-vertex and per-control-point warp keyforms (1D and 2D parameter grids),
 matrix and warp deformer hierarchies, clipping masks, occlusion (a part hidden
 where other parts cover it, by an amount keyed on a parameter), spring/chain
-physics rigs, and named expressions and motion clips for a host to play. See [`src/types.ts`](https://github.com/zeikar/iki/tree/main/packages/format/src/types.ts) and [`src/animations.ts`](https://github.com/zeikar/iki/tree/main/packages/format/src/animations.ts) — every field is documented there.
+physics rigs, and named expressions and motion clips for a host to play. A
+model may also say what generated it: `generator` is `{ tool, rigger?, plugin? }`,
+each a short label such as `@ikijs/mcp@0.39.0`, written once, kept through a
+load and a save, and read by nothing that draws. See [`src/types.ts`](https://github.com/zeikar/iki/tree/main/packages/format/src/types.ts) and [`src/animations.ts`](https://github.com/zeikar/iki/tree/main/packages/format/src/animations.ts) — every field is documented there.
 
 ### Expressions and motions
 

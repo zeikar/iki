@@ -1,8 +1,10 @@
 import {
   IKI_FORMAT_VERSION,
+  IKI_GENERATOR_LABEL_MAX,
   type IkiBinding,
   type IkiDeformer,
   type IkiDeformerBinding,
+  type IkiGenerator,
   type IkiGrid2DKeyform,
   type IkiGrid2DWarp,
   type IkiGridKeyform,
@@ -1018,6 +1020,48 @@ function parsePart(
 }
 
 /**
+ * Validates a model's `generator` (see {@link IkiGenerator}): `tool`, and
+ * `rigger` and `plugin` where present, each a label that is not blank, at
+ * most {@link IKI_GENERATOR_LABEL_MAX} characters (UTF-16 code units) long and
+ * free of control characters (line separators and direction overrides
+ * among them). Throws
+ * {@link IkiFormatError} naming the field under `path`.
+ */
+export function parseIkiGenerator(
+  input: unknown,
+  path = "generator",
+): IkiGenerator {
+  if (!isObject(input)) throw new IkiFormatError(`${path} must be an object`);
+  const label = (key: "tool" | "rigger" | "plugin") => {
+    const value = str(input[key], `${path}.${key}`);
+    if (value.length > IKI_GENERATOR_LABEL_MAX) {
+      throw new IkiFormatError(
+        `${path}.${key} must be at most ${IKI_GENERATOR_LABEL_MAX} characters`,
+      );
+    }
+    if (value.trim() === "") {
+      throw new IkiFormatError(`${path}.${key} must not be blank`);
+    }
+    // C0 and C1 controls, the line and paragraph separators, and the
+    // direction overrides and isolates: a label is shown to people.
+    if (
+      /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/.test(
+        value,
+      )
+    ) {
+      throw new IkiFormatError(
+        `${path}.${key} must not contain a control character`,
+      );
+    }
+    return value;
+  };
+  const generator: IkiGenerator = { tool: label("tool") };
+  if (input.rigger !== undefined) generator.rigger = label("rigger");
+  if (input.plugin !== undefined) generator.plugin = label("plugin");
+  return generator;
+}
+
+/**
  * Validate and normalize arbitrary input into an {@link IkiModel}.
  * Throws {@link IkiFormatError} with a path-qualified message on bad input.
  */
@@ -1489,6 +1533,9 @@ export function parseIkiModel(input: unknown): IkiModel {
   return {
     version,
     name: str(input.name, "name"),
+    ...(input.generator !== undefined
+      ? { generator: parseIkiGenerator(input.generator) }
+      : {}),
     canvas: { width: canvasWidth, height: canvasHeight },
     parameters,
     textures,

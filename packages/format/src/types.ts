@@ -440,11 +440,33 @@ export interface IkiPhysicsChain {
   segments: IkiPhysicsChainSegment[];
 }
 
+/**
+ * What generated a model: a record for people and tools, which nothing reads
+ * to draw or to validate the rest. It is written once, when the model is
+ * generated, and a later edit or save keeps it as it is. Each field is a
+ * label of at most {@link IKI_GENERATOR_LABEL_MAX} characters, not blank and
+ * with no control character, written `name@version` where there is a version.
+ */
+export interface IkiGenerator {
+  /** The tool that generated the model, e.g. `@ikijs/mcp@0.39.0`. */
+  tool: string;
+  /** The auto-rigger that built the rig, e.g. `@ikijs/editor@0.36.0`. */
+  rigger?: string;
+  /** The plugin that drove the tool, when it said so, e.g. `iki@0.59.4`. */
+  plugin?: string;
+}
+
+/** The longest label an {@link IkiGenerator} field may hold. */
+export const IKI_GENERATOR_LABEL_MAX = 128;
+
 /** A complete `.iki` puppet model. */
 export interface IkiModel {
   /** Format version; see {@link IKI_FORMAT_VERSION}. */
   version: number;
   name: string;
+  /** What generated the model; absent on one written by hand or by a host
+   *  that does not say. A model keeps it through a load and a save. */
+  generator?: IkiGenerator;
   /** Logical model-space canvas the parts are laid out in. */
   canvas: { width: number; height: number };
   parameters: IkiParameter[];

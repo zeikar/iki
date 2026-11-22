@@ -100,6 +100,9 @@ when a tool schema or the role set changes, the skill text and the pin change
 together.
 
 Keep the versions in `.claude-plugin/plugin.json` and
-`.codex-plugin/plugin.json` in sync when updating the shared plugin.
+`.codex-plugin/plugin.json` in sync when updating the shared plugin, and
+`IKI_PLUGIN` in `.mcp.json` with them: the server writes that label (`iki@` and
+the version) into each model it rigs, as `generator.plugin`, beside its own
+version and the rigger's (`@ikijs/mcp` 0.39.0 on).
 
 MIT © [Zeikar](https://github.com/zeikar)

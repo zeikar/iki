@@ -1,9 +1,11 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
+  parseIkiGenerator,
   parseIkiModel,
   loadIkiModel,
   IkiFormatError,
+  type IkiGenerator,
   StandardParameter,
   type IkiModel,
   type IkiDeformer,
@@ -79,6 +81,8 @@ export type ValidateResult = { ok: true } | { ok: false; error: string };
 
 export interface IkiSummary {
   name: string;
+  /** What wrote the model, when it says. */
+  generator?: IkiGenerator;
   canvas: { width: number; height: number };
   parameters: { id: string; min: number; max: number; default: number }[];
   parts: PartSummary[];
@@ -249,6 +253,7 @@ export function describeIki(model: unknown): DescribeResult {
     motions,
     bustScale,
   };
+  if (m.generator !== undefined) summary.generator = m.generator;
   const face = m.parts.find((p) => p.id === "face");
   if (face !== undefined) summary.faceWidth = face.width;
 
@@ -456,6 +461,10 @@ export interface AutoRigLayerInput {
 
 export interface AutoRigInput {
   layers: AutoRigLayerInput[];
+  /** Written as the model's `generator`. The MCP tool passes its own
+   *  (`toolGenerator`) and takes none from its caller; absent, the model
+   *  carries none, so the same layers give the same bytes across releases. */
+  generator?: IkiGenerator;
   /** Output `.iki` path (relative paths resolve against the process cwd). */
   outputPath?: string;
   /** Palette-quantize the atlas PNG to this many colours (integer, 2..256).
@@ -691,6 +700,14 @@ export async function autoRigFromLayers(
   input: AutoRigInput,
 ): Promise<AutoRigResult> {
   try {
+    if (input.generator !== undefined) {
+      try {
+        parseIkiGenerator(input.generator);
+      } catch (e) {
+        if (e instanceof IkiFormatError) throw new AutoRigInputError(e.message);
+        throw e;
+      }
+    }
     const layers = input.layers;
     if (!Array.isArray(layers) || layers.length === 0) {
       throw new AutoRigInputError("layers must be a non-empty array");
@@ -1067,7 +1084,11 @@ export async function autoRigFromLayers(
       }
     }
     // Validate the patched model before writing — never persist an invalid model.
-    const finalModel = parseIkiModel(patched);
+    const finalModel = parseIkiModel(
+      input.generator === undefined
+        ? patched
+        : { ...patched, generator: input.generator },
+    );
     // Landed through the engine before the write: a bake the player does not
     // reproduce is refused, not shipped.
     const bakes =

@@ -1,7 +1,9 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { IKI_FORMAT_VERSION, IkiFormatError } from "@ikijs/format";
 import type { IkiModel, IkiTransformChannel } from "@ikijs/format";
 import {
+  EDITOR_VERSION,
   EditorDocument,
   SetDeformerBindings,
   SetDeformerParent,
@@ -114,6 +116,23 @@ function fixtureModelWithDeformers(): IkiModel {
 // ── Round-trip ────────────────────────────────────────────────────────────────
 
 describe("round-trip", () => {
+  it("keeps the model's generator through a load, an edit and a save, and names this package's version", () => {
+    const generator = {
+      tool: "@ikijs/editor-app",
+      rigger: `@ikijs/editor@${EDITOR_VERSION}`,
+    };
+    const doc = new EditorDocument({ ...fixtureModel(), generator });
+    const part = doc.getModel().parts[0];
+    doc.execute(new SetPartWidth(part.id, part.width + 1));
+    expect((JSON.parse(doc.serialize()) as IkiModel).generator).toEqual(
+      generator,
+    );
+    const pkg = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { version: string };
+    expect(EDITOR_VERSION).toBe(pkg.version);
+  });
+
   it("exports a valid model without throwing", () => {
     const doc = new EditorDocument(fixtureModel());
     expect(() => doc.toIkiModel()).not.toThrow();

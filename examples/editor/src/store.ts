@@ -5,6 +5,7 @@ import {
   DeleteDeformer,
   DeletePart,
   SetPartBindings,
+  EDITOR_VERSION,
   SetDeformerBindings,
   SetPartMesh,
   captureBindingEndpoint,
@@ -829,6 +830,11 @@ export const useEditorStore = create<EditorState>((set, get) => {
           { width: layers[0].canvasW, height: layers[0].canvasH },
           turnOptions,
         );
+        // Kept through every later edit and export: which rigger built it.
+        model.generator = {
+          tool: "@ikijs/editor-app",
+          rigger: `@ikijs/editor@${EDITOR_VERSION}`,
+        };
         const doc = new EditorDocument(model);
 
         // Pack + render atlas from crops.

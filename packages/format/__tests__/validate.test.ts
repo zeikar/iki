@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   IKI_FORMAT_VERSION,
+  IKI_GENERATOR_LABEL_MAX,
   IkiFormatError,
   loadIkiModel,
+  parseIkiGenerator,
   parseIkiModel,
 } from "@ikijs/format";
 
@@ -58,6 +60,74 @@ describe("parseIkiModel — happy path", () => {
     expect(model.parts[0].transform.rotation).toBeUndefined();
     expect(model.parts[0].transform.opacity).toBeUndefined();
     expect(model.parts[0].bindings).toBeUndefined();
+  });
+});
+
+describe("generator", () => {
+  it("keeps a model's generator, the optional labels only where given, and drops other keys", () => {
+    const tool = "@ikijs/mcp@0.39.0";
+    expect(
+      parseIkiModel({ ...validModel(), generator: { tool } }).generator,
+    ).toEqual({ tool });
+    const full = {
+      tool,
+      rigger: "@ikijs/editor@0.36.0",
+      plugin: "iki@0.59.4",
+    };
+    const parsed = parseIkiModel({
+      ...validModel(),
+      generator: { ...full, when: "today" },
+    });
+    expect(parsed.generator).toEqual(full);
+    // Written back where a reader looks first, after the name.
+    expect(Object.keys(parsed).slice(0, 3)).toEqual([
+      "version",
+      "name",
+      "generator",
+    ]);
+    expect(parseIkiModel(validModel())).not.toHaveProperty("generator");
+  });
+
+  it.each([
+    ["a string", "@ikijs/mcp", "generator must be an object"],
+    ["no tool", { rigger: "x" }, "generator.tool must be a non-empty string"],
+    [
+      "an empty plugin",
+      { tool: "x", plugin: "" },
+      "generator.plugin must be a non-empty string",
+    ],
+    [
+      "a rigger that is not a string",
+      { tool: "x", rigger: 3 },
+      "generator.rigger must be a non-empty string",
+    ],
+    [
+      "a label over the limit",
+      { tool: "x".repeat(IKI_GENERATOR_LABEL_MAX + 1) },
+      `generator.tool must be at most ${IKI_GENERATOR_LABEL_MAX} characters`,
+    ],
+    [
+      "a label with a newline",
+      { tool: "x\ny" },
+      "generator.tool must not contain a control character",
+    ],
+    [
+      "a label with a direction override",
+      { tool: "x", plugin: "iki\u202e@1" },
+      "generator.plugin must not contain a control character",
+    ],
+    ["a label of spaces", { tool: "  " }, "generator.tool must not be blank"],
+  ])("refuses %s", (_name, generator, message) => {
+    expect(() => parseIkiModel({ ...validModel(), generator })).toThrow(
+      new IkiFormatError(message),
+    );
+  });
+
+  it("validates one on its own under the path it is given", () => {
+    expect(parseIkiGenerator({ tool: "a@1" })).toEqual({ tool: "a@1" });
+    expect(() => parseIkiGenerator({ tool: "" }, "IKI_PLUGIN")).toThrow(
+      "IKI_PLUGIN.tool must be a non-empty string",
+    );
   });
 });
 

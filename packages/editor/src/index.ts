@@ -121,3 +121,4 @@ export {
   type TurnSolveReport,
   type TurnTargets,
 } from "./auto-rig";
+export { EDITOR_VERSION } from "./version";

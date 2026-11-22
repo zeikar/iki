@@ -1,13 +1,15 @@
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { IKI_FORMAT_VERSION } from "@ikijs/format";
-import { detectAlphaBbox } from "@ikijs/editor";
+import { IKI_FORMAT_VERSION, type IkiModel } from "@ikijs/format";
+import { detectAlphaBbox, EDITOR_VERSION } from "@ikijs/editor";
+import { PLUGIN_ENV } from "../src/generator";
 import { createIkiMcpServer } from "../src/server";
+import { autoRigFromLayers } from "../src/tools";
 import { decodePng } from "../src/node-images";
 import {
   writeInterior,
@@ -188,6 +190,8 @@ describe("MCP server integration", () => {
     };
     expect(sc.summary).toBeDefined();
     expect(sc.summary.name).toBe("test-model");
+    // A model that records no generator has none in its summary.
+    expect(sc.summary).not.toHaveProperty("generator");
   });
 
   it("describe_iki { modelPath } returns the patch writer's view of a written rig", async () => {
@@ -289,6 +293,77 @@ describe("MCP server integration", () => {
     expect(physics).toEqual(["PHYSICS: no rigs"]);
     expect(fs.existsSync(outPath)).toBe(true);
   });
+
+  it("auto_rig_from_layers records itself, the rigger and the plugin of IKI_PLUGIN as the model's generator, which describe_iki shows; the function alone records none", async () => {
+    pair = await createPair();
+    const dir = tmpDir();
+    const layers = (await writeRequiredLayers(dir)).map((p) => ({ path: p }));
+    const mcp = JSON.parse(
+      fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"),
+    ) as { version: string };
+    const generator = {
+      tool: `@ikijs/mcp@${mcp.version}`,
+      rigger: `@ikijs/editor@${EDITOR_VERSION}`,
+    };
+    const rig = async (name: string, plugin: string | undefined) => {
+      if (plugin === undefined) vi.stubEnv(PLUGIN_ENV, "");
+      else vi.stubEnv(PLUGIN_ENV, plugin);
+      const outputPath = path.join(dir, name);
+      const result = await pair!.client.callTool({
+        name: "auto_rig_from_layers",
+        arguments: { layers, outputPath, generator: { tool: "forged" } },
+      });
+      return { outputPath, result };
+    };
+    try {
+      const bare = await rig("bare.iki", undefined);
+      const read = (file: string) =>
+        JSON.parse(fs.readFileSync(file, "utf8")) as IkiModel;
+      expect(read(bare.outputPath).generator).toEqual(generator);
+
+      const named = await rig("named.iki", "iki@0.59.4");
+      const stamped = { ...generator, plugin: "iki@0.59.4" };
+      expect(read(named.outputPath).generator).toEqual(stamped);
+      const described = await pair.client.callTool({
+        name: "describe_iki",
+        arguments: { modelPath: named.outputPath },
+      });
+      expect(
+        (described.structuredContent as { summary: { generator: unknown } })
+          .summary.generator,
+      ).toEqual(stamped);
+
+      // A value that is no label refuses the rig and writes nothing.
+      const bad = await rig("bad.iki", "iki\n0.59.4");
+      expect(bad.result.isError).toBeFalsy();
+      expect((bad.result.content as { text: string }[])[0].text).toMatch(
+        /^INVALID: the IKI_PLUGIN environment variable is no label/,
+      );
+      expect(fs.existsSync(bad.outputPath)).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    // The library call stamps nothing of its own: same layers, same bytes
+    // whatever the release.
+    const plain = await autoRigFromLayers({
+      layers,
+      outputPath: path.join(dir, "plain.iki"),
+    });
+    if (!plain.ok) throw new Error(plain.error);
+    expect(JSON.parse(fs.readFileSync(plain.path, "utf8"))).not.toHaveProperty(
+      "generator",
+    );
+    const refused = await autoRigFromLayers({
+      layers,
+      outputPath: path.join(dir, "refused.iki"),
+      generator: { tool: "" },
+    });
+    expect(refused).toEqual({
+      ok: false,
+      error: "generator.tool must be a non-empty string",
+    });
+  }, 120_000);
 
   it("auto_rig_from_layers prints the HAIRSIDE lines of a set with side locks after the fold and physics lines", async () => {
     pair = await createPair();

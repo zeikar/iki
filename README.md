@@ -302,7 +302,8 @@ pnpm playground   # open the Vite URL and drag the sliders
 
 A model is one JSON document: a flat list of parts drawn back to front, the
 parameters that move them, and optional deformers, physics, expressions and
-motion clips. The schema's types, a small hand-written example, the left/right
+motion clips. One the tools write also records which versions made it
+(`generator`). The schema's types, a small hand-written example, the left/right
 convention and the stability rules are in
 [`@ikijs/format`](./packages/format#the-model).
 

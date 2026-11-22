@@ -10,10 +10,12 @@ export {
 } from "./animations";
 export {
   IKI_FORMAT_VERSION,
+  IKI_GENERATOR_LABEL_MAX,
   type IkiBinding,
   type IkiDeformer,
   type IkiDeformerBinding,
   type IkiDeformerTransform,
+  type IkiGenerator,
   type IkiGrid2DKeyform,
   type IkiGrid2DWarp,
   type IkiGridKeyform,
@@ -42,4 +44,4 @@ export {
 export { StandardParameter, type StandardParameterId } from "./parameters";
 export { physicsInputs } from "./physics";
 export { IkiFormatError } from "./validate-primitives";
-export { loadIkiModel, parseIkiModel } from "./validate";
+export { loadIkiModel, parseIkiGenerator, parseIkiModel } from "./validate";
