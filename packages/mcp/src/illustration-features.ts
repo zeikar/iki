@@ -98,8 +98,15 @@ const DISC_CLOSE = 2;
  *  feature's colour; nearer leaves the corners on the lids. */
 const IRIS_MARGIN = 0.25;
 /** Columns either side of the iris ellipse the lash's thickness is read on,
- *  to carry the lid across an iris shaded as dark as the lash. */
+ *  to carry the lid across an iris shaded as dark as the lash, and a lower
+ *  lid's line is looked for on. */
 const LID_SIDE = 4;
+/** Rows of paint lighter than the lash's ink, though nearer it than the
+ *  white, that a run of the lash's ink carries on through: a streak drawn
+ *  along the lash. Larger carries the run from the lash on into a pupil set
+ *  close under it; smaller ends the lash at the streak, and its lower rows
+ *  go to the iris. */
+const LID_STREAK = 6;
 /** The eye takes this many px of rim past its paint, where it differs from
  *  the skin around: its soft edge. */
 const EYE_EDGE = 2;
@@ -666,13 +673,18 @@ function lashCutOf(pic: Illustration, all: number[]): number {
 }
 
 /**
- * The upper lid: per column, the bottom row of the lash's run of ink from
- * the eye's top (-1 with none), at most to the iris's centre row, so a
- * pupil touching the lash does not carry it down. Over the iris it is also
- * no deeper than the lash's top plus the lash's thickness beside the
- * ellipse (read on LID_SIDE columns either side and carried across in a
- * straight line): an iris shaded as dark as the lash at its top runs on
- * from the lash in colour.
+ * The upper lid: per column, the bottom row of the lash's ink (-1 with
+ * none), at most the iris's centre row, so a pupil touching the lash does
+ * not carry it down. Beside the ellipse it is read from the eye's inside
+ * (the first ink above the centre row), or from the eye's top where the
+ * lash itself hangs to the centre row. Over the ellipse, where the pupil
+ * lies in between, it is the lash's run of ink from the eye's top, a flick
+ * standing clear above the lash passed over. Either way a lighter streak
+ * along the lash (LID_STREAK) is carried through. Over the ellipse the run
+ * ends no deeper than the lash's top plus the lash's thickness beside the
+ * ellipse (LID_SIDE columns either side, carried across in a straight
+ * line): an iris shaded as dark as the lash at its top runs on from the
+ * lash in colour.
  */
 function upperLid(
   pic: Illustration,
@@ -682,22 +694,76 @@ function upperLid(
 ): Int32Array {
   const { width } = pic;
   const { b, cx, cy, rx } = f;
+  const mid = Math.min(b.y1, Math.floor(cy));
   const lid = new Int32Array(width).fill(-1);
-  const lashTop = new Int32Array(width).fill(-1);
+  const dark = (x: number, y: number) => {
+    const i = y * width + x;
+    return eye[i] === 1 && c.dark(i);
+  };
+  const ink = (x: number, y: number) =>
+    dark(x, y) && !c.nearIris(y * width + x);
+  /** The run's top with its soft edge, a blend of the ink and the skin
+   *  that may read nearer the iris's colour. */
+  const softTop = (x: number, top: number) => {
+    let y = top;
+    while (y - 1 >= b.y0 && top - (y - 1) <= EYE_EDGE && dark(x, y - 1)) y--;
+    return y;
+  };
+  /** The last row of the run of ink holding row `y`, going `step` (1 down,
+   *  -1 up) no farther than the centre row: a streak of up to LID_STREAK
+   *  rows of dark paint that is not ink is carried through where ink
+   *  follows it. */
+  const runEnd = (x: number, y: number, step: number) => {
+    const inside = (r: number) => r >= b.y0 && r <= mid;
+    for (;;) {
+      while (inside(y + step) && ink(x, y + step)) y += step;
+      let rows = 0;
+      while (rows <= LID_STREAK) {
+        const r = y + step * (rows + 1);
+        if (!inside(r) || !dark(x, r) || ink(x, r)) break;
+        rows++;
+      }
+      const next = y + step * (rows + 1);
+      if (rows === 0 || rows > LID_STREAK || !inside(next) || !ink(x, next)) {
+        return y;
+      }
+      y = next;
+    }
+  };
+  /** The lash's [top, bottom] rows read from the eye's top: the first run
+   *  of ink, or the one after it wherever skin shows in between. */
+  const fromTop = (x: number): [number, number] | null => {
+    let run: [number, number] | null = null;
+    let skin = false;
+    for (let y = b.y0; y <= mid; y++) {
+      if (!ink(x, y)) {
+        if (eye[y * width + x] === 0) skin = true;
+        continue;
+      }
+      if (run !== null && !skin) break;
+      const top = y;
+      y = runEnd(x, y, 1);
+      run = [softTop(x, top), y];
+      skin = false;
+    }
+    return run;
+  };
+  /** The same read from the eye's inside, where no pupil lies between. */
+  const fromInside = (x: number): [number, number] | null => {
+    let y = mid;
+    // Ink on the centre row: the lash's wing hanging past it, or not the
+    // lash at all.
+    if (ink(x, y)) return null;
+    while (y >= b.y0 && !ink(x, y)) y--;
+    if (y < b.y0) return null;
+    return [softTop(x, runEnd(x, y, -1)), y];
+  };
+  const x0 = Math.max(b.x0, Math.ceil(cx - rx));
+  const x1 = Math.min(b.x1, Math.floor(cx + rx));
   for (let x = b.x0; x <= b.x1; x++) {
-    const at = (y: number) => y * width + x;
-    const lashInk = (y: number) =>
-      eye[at(y)] === 1 && c.dark(at(y)) && !c.nearIris(at(y));
-    let y = b.y0;
-    while (y <= b.y1 && !(eye[at(y)] && c.dark(at(y)))) y++;
-    // The lash's soft top edge, a blend of its ink and the skin, may read
-    // nearer the iris's colour: step past it before deciding.
-    const first = y;
-    while (y <= b.y1 && y - first < EYE_EDGE && !lashInk(y)) y++;
-    if (y > b.y1 || y >= cy || !lashInk(y)) continue;
-    lashTop[x] = first;
-    while (y + 1 <= Math.min(b.y1, Math.floor(cy)) && lashInk(y + 1)) y++;
-    lid[x] = y;
+    if (x >= x0 && x <= x1) continue;
+    const run = fromInside(x) ?? fromTop(x);
+    if (run) lid[x] = run[1];
   }
   const thickness = (from: number, step: number): number | null => {
     const t: number[] = [];
@@ -706,15 +772,22 @@ function upperLid(
       t.length < LID_SIDE && x >= b.x0 && x <= b.x1;
       x += step
     ) {
-      if (lashTop[x] >= 0) t.push(lid[x] - lashTop[x] + 1);
+      // Where the lash hangs to the centre row (a wing, or the lash beside
+      // an iris as wide as the eye), its run from the top.
+      const run = fromInside(x) ?? fromTop(x);
+      if (run) t.push(run[1] - run[0] + 1);
     }
     return t.length > 0 ? median(t) : null;
   };
   const left = thickness(Math.floor(cx - rx) - 1, -1);
   const right = thickness(Math.ceil(cx + rx) + 1, 1);
-  if (left === null && right === null) return lid;
-  for (let x = Math.ceil(cx - rx); x <= Math.floor(cx + rx); x++) {
-    if (x < b.x0 || x > b.x1 || lashTop[x] < 0) continue;
+  for (let x = x0; x <= x1; x++) {
+    const run = fromTop(x);
+    if (!run) continue;
+    if (left === null && right === null) {
+      lid[x] = run[1];
+      continue;
+    }
     const u = (x - (cx - rx)) / (2 * rx);
     const t =
       left === null
@@ -722,7 +795,7 @@ function upperLid(
         : right === null
           ? left
           : left + (right - left) * u;
-    lid[x] = Math.min(lid[x], lashTop[x] + Math.round(t) - 1);
+    lid[x] = Math.min(run[1], run[0] + Math.round(t) - 1);
   }
   return lid;
 }
@@ -763,13 +836,23 @@ function lowerLidAcross(
     // The upper lash's own corner, hanging below the cut, is no lower lid.
     return y > upper[x] ? [y, bottom] : null;
   };
+  // A lid's line runs on past the ellipse: on every one of LID_SIDE columns,
+  // drifting no more than it may across the iris. The iris's own outline
+  // beside an ellipse set a px or two inside it is gone within a column or
+  // two, or falls away steeply.
   const side = (from: number, step: number) => {
     const runs: [number, number][] = [];
     for (let k = 0; k < LID_SIDE; k++) {
       const x = from + k * step;
-      if (x < b.x0 || x > b.x1) break;
-      const run = runAt(x);
-      if (run) runs.push(run);
+      const run = x < b.x0 || x > b.x1 ? null : runAt(x);
+      const prev = runs[runs.length - 1];
+      if (
+        !run ||
+        (prev && (run[0] > prev[1] + LID_DRIFT || run[1] < prev[0] - LID_DRIFT))
+      ) {
+        return [];
+      }
+      runs.push(run);
     }
     return runs;
   };

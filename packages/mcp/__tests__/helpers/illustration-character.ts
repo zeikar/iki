@@ -143,6 +143,12 @@ export const EYE = {
   darkTopTo: 426,
   outline: 2.5,
   outlineFrom: 438,
+  /** "flickedLash": a flick rising from the lash's top either side of the
+   *  iris, across the columns beside the iris ellipse: its foot on the lash
+   *  `foot` px from the centre, its tip `tip` px from it at row `tipY`. */
+  flick: { foot: [9, 12], tip: [17, 20], footY: [413, 414], tipY: [398, 399] },
+  /** "streakedLash": the streak's rows under the lash's top, from and to. */
+  streak: [4, 6],
   /** "greyWhite": a white of warm grey. */
   greyWhite: [228, 222, 222] as RGB,
   /** "bigIris": an iris disc covering most of the white. */
@@ -238,6 +244,10 @@ const mix = (a: RGB, b: RGB, t: number): RGB =>
  *  `lidBand` (open, a pale lid band over the lash instead of the crease);
  *  `darkIris` (open, the disc as dark as the lash at its top and outlined in
  *  that ink at its bottom, a short lower lid joining the outline);
+ *  `flickedLash` (`darkIris` without the crease, and a flick rising from
+ *  the lash either side of the iris); `streakedLash` (`darkIris`, and a
+ *  streak of the iris's colour drawn along the lash, STREAK px under its
+ *  top);
  *  `greyWhite` (open, a warm grey white); `bigIris` (open, an iris covering
  *  most of the white); `closed` (one curved line). */
 export type EyeStyle =
@@ -246,6 +256,8 @@ export type EyeStyle =
   | "shadedWhite"
   | "lidBand"
   | "darkIris"
+  | "flickedLash"
+  | "streakedLash"
   | "greyWhite"
   | "bigIris"
   | "closed";
@@ -277,7 +289,9 @@ function eyeShapes(
   const h = EYE.highlight;
   const o = EYE.creaseOuter;
   const n = EYE.creaseInner;
-  const lo = style === "darkIris" ? EYE.lowerShort : EYE.lower;
+  const darkTop =
+    style === "darkIris" || style === "flickedLash" || style === "streakedLash";
+  const lo = darkTop ? EYE.lowerShort : EYE.lower;
   const size = style === "bigIris" ? EYE.bigIris : ir;
   const disc =
     style === "squareIris"
@@ -308,7 +322,7 @@ function eyeShapes(
       false,
     ]);
   }
-  if (style === "darkIris") {
+  if (darkTop) {
     const inner = ellipse(cx, ir.cy, ir.rx - EYE.outline, ir.ry - EYE.outline);
     out.push(
       [(x, y) => disc(x, y) && y < EYE.darkTopTo, c.ink, false],
@@ -323,8 +337,34 @@ function eyeShapes(
     [ellipse(cx, p.cy, p.rx, p.ry), c.pupil, false],
     [ellipse(cx + h.dx, h.cy, h.r, h.r), WHITE, false],
     [(x, y) => inLash(cx, outer, x, y), c.ink, false],
-    [rect(cx - lo.half, lo.y0, cx + lo.half, lo.y1), c.ink, false],
   );
+  out.push([rect(cx - lo.half, lo.y0, cx + lo.half, lo.y1), c.ink, false]);
+  if (style === "streakedLash") {
+    const [from, to] = EYE.streak;
+    out.push([
+      (x, y) =>
+        inLash(cx, outer, x, y) &&
+        inLash(cx, outer, x, y - from) &&
+        !inLash(cx, outer, x, y - to),
+      c.iris,
+      false,
+    ]);
+  }
+  if (style === "flickedLash") {
+    const k = EYE.flick;
+    for (const s of [-1, 1]) {
+      out.push([
+        polygon([
+          [cx + s * k.foot[0], k.footY[0]],
+          [cx + s * k.foot[1], k.footY[1]],
+          [cx + s * k.tip[1], k.tipY[1]],
+          [cx + s * k.tip[0], k.tipY[0]],
+        ]),
+        c.ink,
+        false,
+      ]);
+    }
+  }
   if (style === "lidBand") {
     const l = EYE.lashOuter;
     const band = ellipse(cx, l.cy, l.rx + 1, l.ry + EYE.lidBand);
@@ -336,7 +376,8 @@ function eyeShapes(
       mix(c.skin, c.ink, 0.2),
       false,
     ]);
-  } else {
+  } else if (style !== "flickedLash") {
+    // The flicks' tips would join the crease to the lash.
     out.push([
       (x, y) =>
         y <= EYE.creaseBottom &&

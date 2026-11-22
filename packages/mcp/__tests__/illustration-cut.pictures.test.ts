@@ -465,6 +465,49 @@ describe.each([
   });
 });
 
+describe("cutting eyes whose lash misleads its thickness", () => {
+  // Both irises as dark as the lash at their top. Right: a flick rising from
+  // the lash either side of the iris, over the columns the lash's thickness
+  // is read on; left: a lighter streak drawn along the lash.
+  let r: Ok;
+  beforeAll(async () => {
+    r = await cut(
+      await picture(PINK_ON_PEACH, {
+        eyes: { L: "streakedLash", R: "flickedLash" },
+      }),
+    );
+  }, CUT_HOOK_TIMEOUT);
+
+  it.each([
+    ["R", "under a flick"],
+    ["L", "through a streak"],
+  ] as const)(
+    "reads the lash's thickness %s %s, so the lash over a dark iris top stays the lash's",
+    async (side) => {
+      const { cx } = EYE[side];
+      const lash = await pixelsOf(layer(r, `lash_${side}`).path);
+      const iris = await pixelsOf(layer(r, `iris_${side}`).path);
+      // In the ellipse and in the lash's drawn rows.
+      for (const [x, y] of [
+        [cx - 4, 417],
+        [cx - 4, 418],
+        [cx - 8, 419],
+      ]) {
+        expect(lash.at(x, y)[3], `${x},${y}`).toBe(255);
+      }
+      // Below the lash's drawn bottom, the dark top is the iris's.
+      for (const x of [cx - 8, cx - 4]) {
+        for (const y of [422, 424]) {
+          expect(lash.at(x, y)[3], `${x},${y}`).toBe(0);
+          expect(iris.at(x, y)[3], `${x},${y}`).toBe(255);
+        }
+      }
+      expect(check(r, `iris.${side}`)).toMatchObject({ pass: true });
+      expect(check(r, `iris.${side}`).value).toBeGreaterThan(0.8);
+    },
+  );
+});
+
 describe("cutting open eyes with little white", () => {
   // Left: a white of warm grey; right: an iris covering most of the white.
   // On peach skin both read as too little white to go by.
