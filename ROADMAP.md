@@ -6,7 +6,7 @@ deliberately deferred.
 
 1. **Format + runtime** (parameter-driven color quads) — done
    - **Idle motion** — host-agnostic `IdleMotion` driver (auto-blink with a brow dip / breath / gaze saccades the head follows / head drift on all three axes / the ambient sway hair physics follows; `setGazeTarget` for a host pointer) shipped by the engine, consumed by the playground and the editor preview — done
-2. **Charivo adapter** — [`@charivo/render-iki`](https://github.com/zeikar/charivo/tree/main/packages/render-iki) implementing the renderer contract — working as a private local-dogfood package in the Charivo repo
+2. **Charivo adapter** — [`@charivo/render-iki`](https://github.com/zeikar/charivo/tree/main/packages/render-iki) implementing the renderer contract — done as a package private to the Charivo repo (not on npm): Charivo's [live web demo](https://charivo.vercel.app/?character=twin) plays Twin and Mint through it, behind the same chat, voice and lip-sync as its other characters
 3. **Textures** — atlas + UV-rect texture sampling, `color` as tint multiplier — done
    > Atlas authors should add padding / extruded borders between sub-rects to avoid LINEAR-filter bleeding.
 4. **Warp/rotation deformers** — the soft 2.5D head-turn that defines the look
@@ -52,5 +52,5 @@ deliberately deferred.
 9. **Expressions and motions** — in progress
    - Slice 1 — done: optional `expressions` and `motions` in the `.iki` format, the engine players on `IkiMotion`, and play buttons in the playground
    - Slice 2 — done: `ParamCheek` fades an auto-rigged blush from faint at rest to as drawn; every auto-rigged model declares the Nod, Shake and Tilt head motions and up to six described default expressions (smile, laugh, angry, sad, surprised, shy — each only where the face has the parts it shows), their values picked by eye on our own characters; the playground hero wears a blush and ships its own set
-   - Next: the Charivo adapter
+   - Done in Charivo: its adapter plays the declared expressions and motions (see 2)
    - Deferred: EyeSmile, the happy eye for smile and laugh (it needs a part-level 2D warp, keyed on EyeOpen × EyeSmile)

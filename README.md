@@ -50,7 +50,10 @@ you have:
 Whichever way, you get one `.iki` file: plain JSON you own, textures included.
 The WebGL runtime [plays it in any browser](#play-a-model), and your app drives
 it by setting its mouth, gaze and expression, as
-[Charivo](https://github.com/zeikar/charivo) does.
+[Charivo](https://github.com/zeikar/charivo) does: its live demo puts
+[Twin](https://charivo.vercel.app/?character=twin) and
+[Mint](https://charivo.vercel.app/?character=mint) behind a chat with voice
+and lip-sync.
 
 ## Make a character with AI
 
@@ -178,7 +181,8 @@ in your own page, see [Play a model](#play-a-model).
 
 Iki is early (0.x). It rigs and plays characters; it is not a VTuber app.
 There is no webcam face tracking, so something has to drive the character:
-your code, or a host app such as [Charivo](https://github.com/zeikar/charivo).
+your code, or a host app such as [Charivo](https://github.com/zeikar/charivo)
+([live demo](https://charivo.vercel.app/?character=twin)).
 Characters are front views that turn about 30° either way, not full 3D turns.
 It cannot load Live2D models. And until 1.0 the `.iki` format can still change:
 a newer release may refuse a model an older one saved
