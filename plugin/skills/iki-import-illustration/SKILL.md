@@ -1036,10 +1036,13 @@ Otherwise:
   and the brow passes under it. Keep the band no wider than the brow.
 - **Never pad, stretch or repaint the picture** to get past a refusal: tell
   the user what the picture needs.
-- **A brow drawn right out to the face's edge shows over the side hair on a
-  wide turn**: the rig moves a brow further than the face's edge, a known
-  limit of the rig. It shows in the `turn-m30` / `turn-p30` close-ups as a pale
-  patch at the temple; report it to the user, and do not move the brow line
+- **A brow drawn past the face's paint shows over the side hair on a wide
+  turn.** The rig clips a brow that lies on the face to the face
+  (`@ikijs/mcp` 0.38.2 on), so the end of a brow drawn right out to the face's
+  edge no longer shows there. A brow whose paint runs out past the face (over
+  the hair at the temple) is left whole, so that the rest pose keeps it, and
+  on a wide turn its end shows in the `turn-m30` / `turn-p30` close-ups as a
+  patch at the temple. Report it to the user, and do not move the brow line
   for it (that only leaves the tail on the face).
 - **Ghosts the rig leaves**, known limits to report, not chase: the chin's line
   can leave a ghost on the neck when the head nods up, and an ear's outline a
