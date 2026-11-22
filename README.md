@@ -50,10 +50,11 @@ you have:
 Whichever way, you get one `.iki` file: plain JSON you own, textures included.
 The WebGL runtime [plays it in any browser](#play-a-model), and your app drives
 it by setting its mouth, gaze and expression, as
-[Charivo](https://github.com/zeikar/charivo) does: its live demo puts
-[Twin](https://charivo.vercel.app/?character=twin) and
-[Mint](https://charivo.vercel.app/?character=mint) behind a chat with voice
-and lip-sync.
+[Charivo](https://github.com/zeikar/charivo), a framework for talking AI
+characters, does: in its live demo you can talk to
+[Twin](https://charivo.vercel.app/?character=twin), the character above, or
+to [Mint](https://charivo.vercel.app/?character=mint), a full body, with
+chat, voice and lip-sync.
 
 ## Make a character with AI
 
@@ -104,10 +105,7 @@ See the plugin's [prerequisites](./plugin#prerequisites).
 One pass gives a first draft, written to `iki-char/iki-character.iki` in the
 folder you ran it from ([open it](#see-your-model-move); in a repository, add
 `iki-char/` to `.gitignore`). The character at the top of this page started
-that way and was then refined: the plugin's `iki-character-loop` has a critic
-compare renders with the reference and redraw what is off. After that her
-irises and mouth were redrawn, her eyes and mouth resized from renders, and
-her back hair cut into twin tails that an agent rigged as extra parts.
+as one and was refined with the plugin's `iki-character-loop`.
 
 ### Cut a picture you already have
 
@@ -177,17 +175,6 @@ and look around, press an expression, or drag a slider to pose it yourself
 (that turns Idle off). To put it
 in your own page, see [Play a model](#play-a-model).
 
-## What it is not, yet
-
-Iki is early (0.x). It rigs and plays characters; it is not a VTuber app.
-There is no webcam face tracking, so something has to drive the character:
-your code, or a host app such as [Charivo](https://github.com/zeikar/charivo)
-([live demo](https://charivo.vercel.app/?character=twin)).
-Characters are front views that turn about 30° either way, not full 3D turns.
-It cannot load Live2D models. And until 1.0 the `.iki` format can still change:
-a newer release may refuse a model an older one saved
-([details](./packages/format#stability)).
-
 ## Play a model
 
 A `.iki` file is played by [`@ikijs/engine`](./packages/engine), a WebGL2
@@ -208,7 +195,6 @@ const model = loadIkiModel(await (await fetch(url)).text());
 
 const player = new IkiPlayer(canvas);
 await player.load(model);
-player.start();
 
 // Alive on its own: blinking, breathing, a wandering gaze, hair physics.
 const motion = new IkiMotion(
@@ -226,6 +212,8 @@ const tick = (now: number) => {
   requestAnimationFrame(tick);
 };
 requestAnimationFrame(tick);
+// Started after the tick, so each frame is drawn with the pose just set.
+player.start();
 ```
 
 That is the whole integration, in a module script. Give the canvas a CSS size
@@ -234,11 +222,28 @@ parameters (named sliders such as mouth open or head angle), and it draws.
 Every auto-rigged model answers to the same
 [standard parameter ids](./packages/format/src/parameters.ts), so nothing is
 wired per model, and `motion.playExpression("smile")` or
-`motion.playMotion("Nod", 0)` plays what the model declares. A full-body model
+`motion.playMotion("Nod", 0)` plays what the model declares.
+`motion.setGazeTarget(x, y)` holds the eyes on a point, each from -1 to 1,
+and the head follows them. A full-body model
 is framed with `player.setView` ([`@ikijs/engine`](./packages/engine#usage)).
 
 It runs wherever WebGL2 does: a browser, an Electron window, an OBS browser
 source. There is no native or Unity runtime.
+
+For a character that talks, you do not have to write that loop. In a Charivo
+app, [`@charivo/render-iki`](https://www.npmjs.com/package/@charivo/render-iki)
+is the renderer for a `.iki` model, and Charivo's chat, voice, lip-sync and
+expressions drive it.
+
+## What it is not, yet
+
+Iki is early (0.x). It rigs and plays characters; it is not a VTuber app.
+There is no webcam face tracking, so something has to drive the character:
+your code, or a host app such as [Charivo](https://github.com/zeikar/charivo).
+Characters are front views that turn about 30° either way, not full 3D turns.
+It cannot load Live2D models. And until 1.0 the `.iki` format can still change:
+a newer release may refuse a model an older one saved
+([details](./packages/format#stability)).
 
 ## How Iki compares
 
@@ -280,7 +285,7 @@ web format you can script against, that is what this is.
 | [`@ikijs/editor`](./packages/editor)             | The auto-rigger and an editing core with no screen of its own (commands, undo and redo), for building tools |
 | [`@ikijs/mcp`](./packages/mcp)                   | The tool server an AI assistant calls (MCP): compose and check parts, cut a picture, rig, render poses      |
 | [`plugin/`](./plugin)                            | The Claude Code / Codex plugin: the character skills and the tool server in one install                     |
-| [Playground](https://zeikar.dev/iki/playground/) | Sliders on six test characters, or a `.iki` file of your own ([source](./examples/playground))              |
+| [Playground](https://zeikar.dev/iki/playground/) | Sliders on six test models, or a `.iki` file of your own ([source](./examples/playground))                  |
 | [Editor](https://zeikar.dev/iki/editor/)         | Auto-rig layers, edit parts, deformers and physics, export a `.iki` ([source](./examples/editor))           |
 
 ## Quick start (this repo)

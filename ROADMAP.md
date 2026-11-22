@@ -6,7 +6,7 @@ deliberately deferred.
 
 1. **Format + runtime** (parameter-driven color quads) — done
    - **Idle motion** — host-agnostic `IdleMotion` driver (auto-blink with a brow dip / breath / gaze saccades the head follows / head drift on all three axes / the ambient sway hair physics follows; `setGazeTarget` for a host pointer) shipped by the engine, consumed by the playground and the editor preview — done
-2. **Charivo adapter** — [`@charivo/render-iki`](https://github.com/zeikar/charivo/tree/main/packages/render-iki) implementing the renderer contract — done as a package private to the Charivo repo (not on npm): Charivo's [live web demo](https://charivo.vercel.app/?character=twin) plays Twin and Mint through it, behind the same chat, voice and lip-sync as its other characters
+2. **Charivo adapter** — [`@charivo/render-iki`](https://www.npmjs.com/package/@charivo/render-iki) implementing the renderer contract — done, published on npm from the [Charivo repo](https://github.com/zeikar/charivo/tree/main/packages/render-iki): Charivo's [live web demo](https://charivo.vercel.app/?character=twin) plays Twin and Mint through it, with the same chat, voice and lip-sync as its other characters
 3. **Textures** — atlas + UV-rect texture sampling, `color` as tint multiplier — done
    > Atlas authors should add padding / extruded borders between sub-rects to avoid LINEAR-filter bleeding.
 4. **Warp/rotation deformers** — the soft 2.5D head-turn that defines the look
