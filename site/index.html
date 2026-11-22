@@ -247,6 +247,12 @@
         text-wrap: balance;
       }
 
+      /* Each phrase breaks as a whole, so no word is left on a line alone:
+         a block of its own still wraps inside a column narrower than it. */
+      h1 span {
+        display: inline-block;
+      }
+
       .deck {
         margin: 1.25rem 0 0;
         max-width: 44ch;
@@ -621,7 +627,10 @@
         </figure>
 
         <div>
-          <h1>The open Live2D alternative that rigs itself.</h1>
+          <h1>
+            The open <span>Live2D alternative</span>
+            <span>that rigs itself.</span>
+          </h1>
           <p class="deck">
             Iki is a free, MIT-licensed 2D puppet engine for the web. Its
             auto-rigger takes layers you already have, one finished picture, or
