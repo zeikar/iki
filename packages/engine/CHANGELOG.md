@@ -1,5 +1,12 @@
 # @ikijs/engine
 
+## 0.12.2
+
+### Patch Changes
+
+- Updated dependencies [5bb4430]
+  - @ikijs/format@0.12.0
+
 ## 0.12.1
 
 ### Patch Changes
