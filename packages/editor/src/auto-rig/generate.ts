@@ -544,6 +544,26 @@ function plateFields(
 
 // --- parts ----------------------------------------------------------------------
 
+/**
+ * Whether every opaque pixel of `layer` lies on `under`'s, by their
+ * `rowRuns`. A layer measured without them reads as not: clipped to `under`,
+ * a part drawn past it would lose at rest what the artist drew there.
+ */
+function drawnOn(layer: LayerInput, under: LayerInput): boolean {
+  if (layer.rowRuns === undefined || under.rowRuns === undefined) return false;
+  return layer.rowRuns.every((runs, k) => {
+    const on = under.rowRuns![layer.bbox.y + k - under.bbox.y] ?? [];
+    for (let i = 0; i < runs.length; i += 2) {
+      let inside = false;
+      for (let j = 0; j < on.length; j += 2) {
+        if (on[j] <= runs[i] && runs[i + 1] <= on[j + 1]) inside = true;
+      }
+      if (!inside) return false;
+    }
+    return true;
+  });
+}
+
 function buildPart(
   spec: RoleSpec,
   b: Box,
@@ -665,6 +685,11 @@ function buildPart(
       const r = browReach(hh);
       bindings.push(...browBindings(side, r));
       extra = [0.15 * bw(b), r + 0.15 * bw(b)];
+      // A brow slides farther on the turn than the face's edge does: past
+      // it, it would show over the hair beside the face.
+      if (drawnOn(byRole.get(spec.role)!, byRole.get("face")!)) {
+        part.clip = { masks: ["face"] };
+      }
       break;
     }
     case "mouth":

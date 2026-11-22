@@ -308,7 +308,7 @@ export function createIkiMcpServer(): McpServer {
                     by: z
                       .array(z.string())
                       .describe(
-                        "Roles of the set whose paint hides the part (an arm role is its three parts); a non-empty list with no role repeated, each a role of the set. A role with a clipped or meshless part (`iris_L`, `forearm_pose_L`) is refused.",
+                        "Roles of the set whose paint hides the part (an arm role is its three parts); a non-empty list with no role repeated, each a role of the set. A role with a clipped or meshless part (`iris_L`, a brow drawn on the face, `forearm_pose_L`) is refused.",
                       ),
                     parameter: z
                       .string()

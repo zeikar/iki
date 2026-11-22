@@ -1060,8 +1060,9 @@ describe.skipIf(findBrowser() === undefined)("renderPoses in a browser", () => {
 
     it("draws without the hidden parts and still reports the whole model", async () => {
       const { modelPath, model: rigged_ } = await rigged();
-      const hide = rigged_.parts.find((p) => p.id === "face")?.id;
-      if (!hide) throw new Error("the fixture has no face");
+      // The back hair masks nothing (the face masks the brows).
+      const hide = rigged_.parts.find((p) => p.id === "hair_back")?.id;
+      if (!hide) throw new Error("the fixture has no back hair");
       const [a, b] = [tmpDir(), tmpDir()];
       const poses = [{ name: "rest", values: {} }];
       const shown = await renderPoses({ modelPath, outDir: a, poses });

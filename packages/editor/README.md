@@ -178,7 +178,10 @@ and `hair_side_R` so the turn and the nod can tell where back hair is painted
 behind the front hair and the rig can tell where a side lock first shows under
 the bangs; absent, the front hair's outline turns only as the back hair does and it keeps its crown's ease
 to the back hair on the turn, and that ease looking down on the nod, while a
-side lock's root band ends a quarter of the way down its box.
+side lock's root band ends a quarter of the way down its box. They are measured
+for `brow_L` and `brow_R` too: a brow whose every run lies inside the face's is
+clipped to the face, so its end does not show past the face's edge on a turn;
+a brow drawn past the face's paint, or without runs, is left whole.
 
 `createLayerSetMeasurer(canvas)` measures all of it — `rowHalfWidths`,
 `rowRuns`, `denseCore`, `headHalfWidth`, `headEdges` and `strandEdges` — off

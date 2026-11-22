@@ -107,7 +107,7 @@ describe("createLayerSetMeasurer", () => {
     expect(measurer.finish().layers).toEqual(inputs);
   });
 
-  it("measures the face's, each hair layer's (the side locks' too), the body's, the arms' and a lip layer's opaque runs per crop row, gaps and empty rows included", () => {
+  it("measures the face's, each hair layer's (the side locks' too), the body's, the arms', a lip layer's and a brow's opaque runs per crop row, gaps and empty rows included", () => {
     const measurer = createLayerSetMeasurer({ width: CANVAS, height: CANVAS });
     const inputs = [
       ...strandLayers(),
@@ -130,6 +130,7 @@ describe("createLayerSetMeasurer", () => {
       ]),
       layer("arm_L", [{ x: 5, y: 60, w: 6, h: 20 }]),
       layer("lip_upper", [{ x: 40, y: 56, w: 20, h: 3 }]),
+      layer("brow_L", [{ x: 58, y: 28, w: 12, h: 2 }]),
       // A side lock on rows 30..33, columns 12..17, a gap on row 34, then
       // 13..17 on rows 35..36.
       layer("hair_side_L", [
@@ -183,6 +184,12 @@ describe("createLayerSetMeasurer", () => {
       ...Array(3).fill([40, 60]),
       [],
     ]);
+    // A brow's, in a crop from row 27.
+    expect(byRole.get("brow_L")!.rowRuns).toEqual([
+      [],
+      ...Array(2).fill([58, 70]),
+      [],
+    ]);
     // A side lock's, its gap row empty, in a crop from row 29.
     expect(byRole.get("hair_side_L")!.rowRuns).toEqual([
       [],
@@ -205,6 +212,7 @@ describe("createLayerSetMeasurer", () => {
           "forearm_pose_L",
           "forearm_pose_R",
           "lip_upper",
+          "brow_L",
         ].includes(l.role)
       ) {
         expect(l.rowRuns).toBeUndefined();

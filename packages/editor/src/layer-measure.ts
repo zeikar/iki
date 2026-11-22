@@ -242,7 +242,7 @@ export interface LayerSetMeasurer {
    * the `LayerInput` it returns outlive the call, so the host may drop `rgba`
    * as soon as it returns. Returns the layer's `LayerInput` — its crop
    * box, the face's `rowHalfWidths`, the face's, hair layers', body's, arms',
-   * pose forearms' and lip set's `rowRuns`, the nose's
+   * pose forearms', lip set's and brows' `rowRuns`, the nose's
    * `denseCore` unless that is a speck of its crop (`isSpeckCore`) — or
    * `null` for an empty layer, one with no pixel at or above
    * `ALPHA_BBOX_THRESHOLD`, which it records nothing for: the host reports
@@ -380,6 +380,8 @@ const ROW_RUN_ROLES: ReadonlySet<string> = new Set([
   "mouth_inner",
   "lip_lower",
   "lip_upper",
+  "brow_L",
+  "brow_R",
 ]);
 
 /** The roles a rest render does not show: a pose forearm's switch rests at 0

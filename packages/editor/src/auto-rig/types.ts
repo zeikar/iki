@@ -25,7 +25,7 @@ export interface LayerInput {
   rowHalfWidths?: number[];
   /** `face` / `hair_front` / `hair_back` / `hair_side_L` / `hair_side_R` /
    *  `body` / `arm_L` / `arm_R` / `forearm_pose_L` / `forearm_pose_R` /
-   *  `mouth_inner` / `lip_lower` / `lip_upper` only:
+   *  `mouth_inner` / `lip_lower` / `lip_upper` / `brow_L` / `brow_R` only:
    *  per crop row, its opaque (alpha ≥ 128) runs as a flat list of canvas
    *  columns `[start0, end0, start1, end1, …]`, each end exclusive (`[]` for a
    *  row with none). The actual pixels, so a gap in the hair is a gap here:
@@ -35,7 +35,8 @@ export interface LayerInput {
    *  report. The body's place the hips (where it splits into legs), and an
    *  arm's place its shoulder and elbow pivots, a pose forearm's its
    *  elbow-end pivot, and a lip set's place the mouth's opening: the upper
-   *  line's bottom, the interior's span, the skin's top. */
+   *  line's bottom, the interior's span, the skin's top. A brow's, against
+   *  the face's, say whether it is drawn on the face (and so clipped to it). */
   rowRuns?: number[][];
   /** Nose only: the tight box of its alpha ≥ 128 pixels, canvas px. */
   denseCore?: { x: number; y: number; w: number; h: number };

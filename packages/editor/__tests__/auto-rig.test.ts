@@ -496,6 +496,41 @@ describe("the other drivers", () => {
     });
   });
 
+  it("clips a brow drawn on the face to the face, and leaves whole one that passes the face's paint or was measured without its runs", () => {
+    const { layers, options } = character({ fullBack: true });
+    const solid = (l: LayerInput) =>
+      Array.from({ length: l.bbox.h }, () => [l.bbox.x, l.bbox.x + l.bbox.w]);
+    const clips = (brow: (l: LayerInput) => LayerInput) => {
+      const model = generateIkiFromLayerSet(
+        layers.map((l) => (l.role.startsWith("brow_") ? brow(l) : l)),
+        CANVAS,
+        options,
+      );
+      expect(() => parseIkiModel(model)).not.toThrow();
+      return ["brow_R", "brow_L"].map(
+        (id) => model.parts.find((p) => p.id === id)!.clip,
+      );
+    };
+    const onFace = { masks: ["face"] };
+    expect(clips((l) => ({ ...l, rowRuns: solid(l) }))).toEqual([
+      onFace,
+      onFace,
+    ]);
+    // The right brow's outer end 20 px past the face's edge on its rows.
+    expect(
+      clips((l) => {
+        const bbox =
+          l.role === "brow_R" ? { ...l.bbox, x: l.bbox.x - 35 } : l.bbox;
+        return { ...l, bbox, rowRuns: solid({ ...l, bbox }) };
+      }),
+    ).toEqual([undefined, onFace]);
+    expect(clips((l) => l)).toEqual([undefined, undefined]);
+    // A face measured without its runs: nothing to say the brow lies on it.
+    expect(hero.model.parts.find((p) => p.id === "brow_L")!.clip).toBe(
+      undefined,
+    );
+  });
+
   it("rigs pupils and highlights with the iris, and blush on the face", () => {
     const { model: m } = rig({ extras: true });
     const part = (id: string) => m.parts.find((p) => p.id === id)!;
