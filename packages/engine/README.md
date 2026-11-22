@@ -97,6 +97,10 @@ const tick = (now: number) => {
 requestAnimationFrame(tick);
 ```
 
+Queue this loop before `player.start()`: the browser runs frame callbacks in
+the order they were queued, so the player then draws the pose this frame just
+set. Queued after it, the draw is one frame behind.
+
 To stop, stop calling `update()` — the drivers leave the pose where it was,
 and `motion.drivenParameterIds` lists every parameter they wrote for a host
 that wants to restore it. The three peer drivers are also exported
