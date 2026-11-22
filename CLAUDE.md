@@ -11,6 +11,11 @@ Read [README.md](./README.md) first for what Iki is, the package map, and the ro
 - Generator inputs — `rigPlan`, `turnTargets`, `patches` — are not part of the `.iki` contract; `@ikijs/editor` validates them and throws its own path-qualified errors (`RigPlanError`, `TurnTargetError`, `PatchError`).
 - Match the surrounding style. Keep changes surgical — every changed line should trace to the request.
 
+## README translations
+
+- `README.md` is the reference; `README.ja.md` and `README.zh-CN.md` are its translations. Change `README.md` and update both in the SAME commit: same sections, links, code and tables, with the wording carried over into each language.
+- A translated heading keeps the English heading's anchor on the line before it (`<a id="play-a-model"></a>`), so in-page links stay the English ones; a new or renamed heading gets its anchor in both.
+
 ## Format versioning
 
 - `IKI_FORMAT_VERSION` identifies the `.iki` model contract.
