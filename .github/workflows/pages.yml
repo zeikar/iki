@@ -24,7 +24,7 @@ jobs:
 
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.redeployment.outputs.page_url }}
 
     steps:
       - name: Checkout repository
@@ -55,6 +55,20 @@ jobs:
         with:
           path: dist
 
+      # The deploy finds the artifact by listing this run's artifacts, and that
+      # list can lag the upload ("Found 0 artifact(s)"). Only the deploy is
+      # tried again: a second upload would leave two artifacts of one name,
+      # which the deploy refuses.
       - name: Deploy to GitHub Pages
         id: deployment
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+      - name: Wait for the artifact to be listed
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 45
+
+      - name: Deploy to GitHub Pages, second try
+        id: redeployment
+        if: steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v4
