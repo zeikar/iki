@@ -6,8 +6,8 @@
   "partCount": 22,
   "parameterCount": 22,
   "atlasBytes": 549172,
-  "modelBytes": 811646,
-  "modelSha256": "841f45eacd1cecc04ad4f4758794fb2dbc8b3fd94bfa957d1f6d7bdfffda0acf",
+  "modelBytes": 811698,
+  "modelSha256": "7fb03b3cce17e61d96e08a68e632e811cafa5ed7a78b49c16bc348ec6888c155",
   "turn": {
     "achieved": {
       "eyeShift": 0.1243,

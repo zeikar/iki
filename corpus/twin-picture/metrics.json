@@ -5,9 +5,9 @@
   },
   "partCount": 22,
   "parameterCount": 21,
-  "atlasBytes": 733314,
-  "modelBytes": 1725708,
-  "modelSha256": "ea87ff668d45c1abf267375bd31c23075102399cac0872b51474ba4b6fa14a18",
+  "atlasBytes": 749022,
+  "modelBytes": 1741468,
+  "modelSha256": "b1e1fb5217a446c30fdbbd14289cde5a1faf17a53dc8eafb05cac29cbfcefcbb",
   "turn": {
     "achieved": {
       "eyeShift": 0.1592,
@@ -259,7 +259,7 @@
       "iris.L": {
         "level": "warn",
         "pass": true,
-        "value": 0.846
+        "value": 0.88
       },
       "opening.R": {
         "level": "fail",
@@ -274,7 +274,7 @@
       "iris.R": {
         "level": "warn",
         "pass": true,
-        "value": 0.85
+        "value": 0.884
       },
       "brow.L": {
         "level": "warn",
