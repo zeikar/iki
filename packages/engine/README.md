@@ -38,6 +38,12 @@ the rest of the tick, and the engine reports that case rather than let a host
 read `[]` and conclude the model declares no parameters. Parameter writes are
 clamped to the declared range; unknown ids and non-finite values are ignored.
 
+A newer `load()` supersedes one still in flight: the older resolves with
+`superseded: true` and adopts nothing. `player.cancelLoad()` does the same
+without starting a load, for a host whose next request failed before it
+reached `load()` (its fetch errored): the installed model stays and keeps
+rendering, and with nothing in flight it does nothing.
+
 **Framing.** By default the player fits the model's box and centres it on the
 canvas. `player.setView({ x, y, width, height })` frames something else: the
 view's centre and size in model units (origin at the model's centre, +y up). A
@@ -51,22 +57,22 @@ values, `setView` throws on a non-finite centre or a non-positive size.
 
 ## API
 
-| Export                                           | What it is                                                                                                                                             |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `IkiPlayer`                                      | The renderer: `load` / `start` / `stop` / `setParameter` / `setView` / `getParameter` / `getParameters` / `destroy`                                    |
-| `IkiView`                                        | `{ x, y, width, height }`: the framing `setView` takes, centre and size in model units                                                                 |
-| `IkiLoadResult`                                  | `{ failedTextures, superseded }` returned by `load()`                                                                                                  |
-| `ParameterStore`                                 | The clamped parameter map the player drives                                                                                                            |
-| `IkiMotion`                                      | Idle, clips, expressions, physics and chains, stepped as one; `playExpression` / `stopExpression` / `playMotion` / `setGazeTarget` / `clearGazeTarget` |
-| `IdleMotion`                                     | Procedural idle: blinks with a brow dip, breath, gaze the head follows, head drift, the ambient sway hair physics follows                              |
-| `PhysicsMotion`                                  | Spring-mass-damper secondary motion (`model.physics`)                                                                                                  |
-| `HairChainMotion`                                | Multi-segment angular chain with gravity (`model.physicsChains`)                                                                                       |
-| `checkFolds`                                     | A report-only `FoldReport`: per warp grid and mesh part, flip / collapse / ok and its least area ratio and pose                                        |
-| `foldPoses`                                      | The `FoldPose[]` `checkFolds` checks by default: rest, every parameter's extremes, angle corners × eyes/mouth/arms                                     |
-| `checkPhysics`                                   | A report-only `PhysicsReport`: per rig and chain segment, ok / frozen / unstable, step and idle amplitude, px moved                                    |
-| `landParts`                                      | Where named parts land at a pose, model space, by the renderer's own path (for a host's geometry readouts)                                             |
-| `occlusionAmount`                                | How far an `occlusion` hides a part at a parameter value (what the player draws)                                                                       |
-| `translate` `rotate` `scale` `multiply` `toMat3` | The 2D affine helpers the engine itself uses                                                                                                           |
+| Export                                           | What it is                                                                                                                                                              |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IkiPlayer`                                      | The renderer: `load` / `cancelLoad` / `start` / `stop` / `setParameter` / `setView` / `getParameter` / `getParameters` / `destroy`                                      |
+| `IkiView`                                        | `{ x, y, width, height }`: the framing `setView` takes, centre and size in model units                                                                                  |
+| `IkiLoadResult`                                  | `{ failedTextures, superseded }` returned by `load()`                                                                                                                   |
+| `ParameterStore`                                 | The clamped parameter map the player drives                                                                                                                             |
+| `IkiMotion`                                      | Idle, clips, expressions, physics and chains, stepped as one; `playExpression` / `stopExpression` / `playMotion` / `activeMotion` / `setGazeTarget` / `clearGazeTarget` |
+| `IdleMotion`                                     | Procedural idle: blinks with a brow dip, breath, gaze the head follows, head drift, the ambient sway hair physics follows                                               |
+| `PhysicsMotion`                                  | Spring-mass-damper secondary motion (`model.physics`)                                                                                                                   |
+| `HairChainMotion`                                | Multi-segment angular chain with gravity (`model.physicsChains`)                                                                                                        |
+| `checkFolds`                                     | A report-only `FoldReport`: per warp grid and mesh part, flip / collapse / ok and its least area ratio and pose                                                         |
+| `foldPoses`                                      | The `FoldPose[]` `checkFolds` checks by default: rest, every parameter's extremes, angle corners × eyes/mouth/arms                                                      |
+| `checkPhysics`                                   | A report-only `PhysicsReport`: per rig and chain segment, ok / frozen / unstable, step and idle amplitude, px moved                                                     |
+| `landParts`                                      | Where named parts land at a pose, model space, by the renderer's own path (for a host's geometry readouts)                                                              |
+| `occlusionAmount`                                | How far an `occlusion` hides a part at a parameter value (what the player draws)                                                                                        |
+| `translate` `rotate` `scale` `multiply` `toMat3` | The 2D affine helpers the engine itself uses                                                                                                                            |
 
 ## Motion drivers
 
@@ -155,6 +161,10 @@ The model is the catalog: a host lists what it can play from
 - `playMotion(group, index)` starts a clip one-shot, at once. It replaces a
   running one-shot, and the new clip fades in from the old one's last pose.
   There is no queue.
+- `activeMotion()` is the running one-shot, `{ group, index }`, or `null`
+  before any and from the `update()` that plays it out. It runs on the clips'
+  clamped clock, so a long frame gap does not end it early. Which clip may
+  interrupt which is the host's call; the engine only reports.
 
 Both `play` methods return `false`, and change nothing, for an id, group or
 index the model does not declare.
@@ -174,9 +184,8 @@ expression that writes one is overwritten in the same update. The host writes
 the signals it owns (lip-sync, brows it drives itself) after `update()`, and
 the last write wins: an expression that opens the mouth writes `MouthOpen` on
 every update, so lip-sync written before `update()` would be overwritten. A
-gaze goes through `setGazeTarget` instead, so the head follows it; only a model
-with an `Idle` group, where that moves nothing, needs `EyeballX/Y` written
-after `update()`.
+gaze goes through `setGazeTarget` instead, so the head follows it (on a model
+with an `Idle` group the eyes go there and the head stays the clips').
 
 A clip or expression composes over a base, never over a parameter's current
 value. The base is what an earlier stage wrote in the same update, else the
@@ -187,12 +196,19 @@ a replace by one that doesn't drive it) or a one-shot ends.
 
 A model that declares an `Idle` motion group loops its clips in place of the
 procedural head and gaze (`AngleX/Y/Z`, `EyeballX/Y`), and the head's breath
-pitch and gaze follow go with them, so `setGazeTarget` moves nothing. Blink,
+pitch and gaze follow go with them. Blink,
 breath, the ambient sway and the brows' blink dip stay procedural; the format
 rejects an `Idle` curve on `EyeOpen`, `Breath` or `AmbientSway`, and an `Idle`
 curve on a brow is written over the dip. A head or gaze parameter the `Idle`
 clips don't animate is left unwritten by idle; a one-shot or an expression can
 still drive it.
+
+Under an `Idle` group, `setGazeTarget` moves the eyes but not the head: they
+spring to the target as the idle eyes would, and the head stays the clips'.
+While a target is set it wins over any `EyeballX/Y` the `Idle` clips animate,
+and a one-shot or an expression still composes over it; with none set, the
+clips' eyes play untouched. `clearGazeTarget()` springs the eyes back to what
+the clips write, else to their resting values, and then stops writing them.
 
 ## Rendering notes
 

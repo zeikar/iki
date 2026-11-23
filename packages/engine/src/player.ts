@@ -37,10 +37,11 @@ const MASK_ALPHA_CUTOFF = 0.5;
 export interface IkiLoadResult {
   failedTextures: number[];
   /**
-   * True when a newer `load()` (or `destroy()`) superseded this call before it
-   * adopted anything — the model was NOT loaded and `failedTextures` is empty
-   * because nothing was attempted, not because everything succeeded. Without
-   * this flag a caller awaiting the losing promise cannot tell the two apart.
+   * True when a newer `load()` (or `cancelLoad()`, `destroy()`) superseded
+   * this call before it adopted anything — the model was NOT loaded and
+   * `failedTextures` is empty because nothing was attempted, not because
+   * everything succeeded. Without this flag a caller awaiting the losing
+   * promise cannot tell the two apart.
    */
   superseded: boolean;
 }
@@ -106,7 +107,10 @@ export class IkiPlayer {
   private rafId?: number;
   /** Uploaded textures, index-aligned with `model.textures`; `null` = unusable. */
   private textures: (WebGLTexture | null)[] = [];
-  /** Bumped by every `load` and by `destroy`; lets a stale async load bail. */
+  /**
+   * Bumped by every `load`, `cancelLoad` and `destroy`; lets a stale async
+   * load bail.
+   */
   private loadGeneration = 0;
   /** True from the moment `load()` is entered until it resolves or throws. */
   private loadPending = false;
@@ -209,6 +213,17 @@ export class IkiPlayer {
     }
   }
 
+  /**
+   * Supersede any in-flight {@link load} as a newer one would: it resolves
+   * `{ superseded: true, failedTextures: [] }` and adopts nothing. The
+   * installed model stays and keeps rendering. For a host whose next request
+   * failed before it reached `load()` (its fetch errored), which would
+   * otherwise let the older load land after it. A no-op with no load pending.
+   */
+  cancelLoad(): void {
+    ++this.loadGeneration;
+  }
+
   private async adoptModel(model: IkiModel): Promise<IkiLoadResult> {
     const { gl } = this;
     const generation = ++this.loadGeneration;
@@ -219,8 +234,8 @@ export class IkiPlayer {
       sources.map((tex) => decodeTexture(tex.source)),
     );
 
-    // A newer load() or destroy() superseded us while decoding — bail without
-    // creating GL textures or swapping any state.
+    // A newer load(), cancelLoad() or destroy() superseded us while decoding —
+    // bail without creating GL textures or swapping any state.
     if (generation !== this.loadGeneration || this.destroyed) {
       for (const result of decoded) {
         if (result.status === "fulfilled" && result.value) result.value.close();

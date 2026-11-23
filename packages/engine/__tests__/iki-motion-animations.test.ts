@@ -234,7 +234,7 @@ describe("IkiMotion animations API", () => {
     expect(motion.playMotion("Nod", 0)).toBe(true);
   });
 
-  it("drivenParameterIds = idle minus head and gaze, curves, expressions, rig outputs, chain outputs, deduplicated", () => {
+  it("drivenParameterIds = idle minus head and gaze, the host gaze's eyes, curves, expressions, rig outputs, chain outputs, deduplicated", () => {
     const motion = new IkiMotion(
       animatedModel(),
       () => 0,
@@ -249,6 +249,9 @@ describe("IkiMotion animations API", () => {
       StandardParameter.BrowLeftY,
       StandardParameter.Breath,
       StandardParameter.AmbientSway,
+      // The host gaze's own eye stage under the Idle group.
+      StandardParameter.EyeballX,
+      StandardParameter.EyeballY,
       // Curve parameters, group by group.
       StandardParameter.AngleX,
       StandardParameter.AngleY,
@@ -556,6 +559,52 @@ describe("IkiMotion Idle replacement", () => {
     ]) {
       expect(only(a, id)).toBe(only(b, id));
     }
+  });
+});
+
+describe("IkiMotion activeMotion", () => {
+  it("is null before any one-shot", () => {
+    expect(harness(animatedModel()).motion.activeMotion()).toBeNull();
+  });
+
+  it("reports the one-shot playMotion started, and a newer one replaces it", () => {
+    const { motion } = harness(animatedModel());
+    motion.playMotion("Nod", 0);
+    expect(motion.activeMotion()).toEqual({ group: "Nod", index: 0 });
+    motion.playMotion(IDLE_MOTION_GROUP, 0);
+    expect(motion.activeMotion()).toEqual({
+      group: IDLE_MOTION_GROUP,
+      index: 0,
+    });
+  });
+
+  it("a rejected playMotion leaves it as it was", () => {
+    const { motion } = harness(animatedModel());
+    expect(motion.playMotion("Nope", 0)).toBe(false);
+    expect(motion.activeMotion()).toBeNull();
+    motion.playMotion("Nod", 0);
+    expect(motion.playMotion("Nope", 0)).toBe(false);
+    expect(motion.playMotion("Nod", 1)).toBe(false);
+    expect(motion.playMotion("Nod", 0.5)).toBe(false);
+    expect(motion.activeMotion()).toEqual({ group: "Nod", index: 0 });
+  });
+
+  it("stays set across a gap longer than the clip until the clip has played out, then is null", () => {
+    // "Nod" lasts 1 s.
+    const { motion, step } = harness(animatedModel());
+    motion.playMotion("Nod", 0);
+    step(1000);
+    // Unclamped, this 5 s gap would end the clip; clamped it advances 0.1 s.
+    step(6000);
+    expect(motion.activeMotion()).toEqual({ group: "Nod", index: 0 });
+    let now = 6000;
+    for (let i = 0; i < 8; i++) step((now += MAX_DT_MS));
+    // 0.9 s in.
+    expect(motion.activeMotion()).toEqual({ group: "Nod", index: 0 });
+    // Two more steps carry it past 1 s, whatever the float sum rounds to.
+    step((now += MAX_DT_MS));
+    step((now += MAX_DT_MS));
+    expect(motion.activeMotion()).toBeNull();
   });
 });
 

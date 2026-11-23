@@ -3,7 +3,7 @@ import { ClipPlayer } from "./clip-player";
 import { ExpressionPlayer } from "./expression-player";
 import { MAX_DT_MS } from "./frame-clock";
 import { HairChainMotion } from "./hair-chain-motion";
-import { IdleMotion } from "./idle-motion";
+import { eyeSpring, IdleMotion } from "./idle-motion";
 import { clamp } from "./math";
 import { ParameterStore } from "./parameter-store";
 import { PhysicsMotion } from "./physics-motion";
@@ -16,6 +16,80 @@ const HEAD_AND_GAZE: ReadonlySet<string> = new Set([
   StandardParameter.EyeballX,
   StandardParameter.EyeballY,
 ]);
+
+/**
+ * Below this on both axes, in parameter units and units per second, a
+ * released host gaze is back on base and its stage stops writing.
+ */
+const GAZE_SETTLED = 1e-3;
+
+/**
+ * The host gaze under a declared Idle group, where idle's own eyes are
+ * dropped. A spring per axis, as stiff as the idle eyes'. While the host
+ * holds a target the spring carries the eyes' value, starting from base (the
+ * Idle loop's EyeballX/Y, else rest), and chases the target, so the eyes stay
+ * on it whatever an Idle eye curve under them does. Once the host lets go it
+ * carries the eyes' offset from base and chases 0, so they come back to base
+ * and, once there, follow an Idle eye curve exactly. Each switch converts at
+ * the current base, so the eyes never jump.
+ */
+class HostGaze {
+  target: { x: number; y: number } | undefined = undefined;
+  /** From the first update with a target until the eyes are back on base. */
+  private active = false;
+  /** The springs carry the value (target held), else the offset from base. */
+  private absolute = false;
+  private readonly x = eyeSpring();
+  private readonly y = eyeSpring();
+
+  apply(
+    dtMs: number,
+    frame: Map<string, number>,
+    rest: (id: string) => number,
+  ): void {
+    if (!this.target && !this.active) return;
+    const baseX =
+      frame.get(StandardParameter.EyeballX) ?? rest(StandardParameter.EyeballX);
+    const baseY =
+      frame.get(StandardParameter.EyeballY) ?? rest(StandardParameter.EyeballY);
+    if (!this.active) {
+      this.active = true;
+      this.absolute = true;
+      this.x.value = baseX;
+      this.y.value = baseY;
+    } else if (this.absolute !== (this.target !== undefined)) {
+      const sign = this.absolute ? -1 : 1;
+      this.x.value += sign * baseX;
+      this.y.value += sign * baseY;
+      this.absolute = !this.absolute;
+    }
+
+    if (this.target) {
+      this.x.step(this.target.x, dtMs);
+      this.y.step(this.target.y, dtMs);
+      frame.set(StandardParameter.EyeballX, this.x.value);
+      frame.set(StandardParameter.EyeballY, this.y.value);
+      return;
+    }
+
+    this.x.step(0, dtMs);
+    this.y.step(0, dtMs);
+    const settled = (s: { value: number; velocity: number }): boolean =>
+      Math.abs(s.value) < GAZE_SETTLED && Math.abs(s.velocity) < GAZE_SETTLED;
+    if (settled(this.x) && settled(this.y)) {
+      // One last write at base, as a one-shot's end does: an eye nothing else
+      // writes rests at its default, not a hair off it.
+      this.active = false;
+      this.x.value = this.x.velocity = 0;
+      this.y.value = this.y.velocity = 0;
+      frame.set(StandardParameter.EyeballX, baseX);
+      frame.set(StandardParameter.EyeballY, baseY);
+      return;
+    }
+    frame.set(StandardParameter.EyeballX, baseX + this.x.value);
+    frame.set(StandardParameter.EyeballY, baseY + this.y.value);
+  }
+}
 
 /**
  * Bundles the model's motion into the one loop every host otherwise
@@ -54,13 +128,13 @@ const HEAD_AND_GAZE: ReadonlySet<string> = new Set([
  * Idle replacement: when the model declares an `Idle` motion group, its clips
  * loop in place of the procedural head and gaze — IdleMotion's AngleX/Y/Z
  * and EyeballX/Y writes are dropped, and with the head its breath pitch and
- * its follow of the gaze, so {@link setGazeTarget} moves nothing. A head or
- * gaze parameter the Idle clips don't animate is left unwritten by idle and
- * rests where it is (a one-shot or an expression can still drive it). Blink
- * (EyeOpen L/R), Breath and the ambient sway stay procedural: the format
- * rejects an Idle curve on them. The brows' blink dip stays too, as part of
- * the blink; an Idle curve on a brow is written over it. Without an `Idle`
- * group the procedural idle runs whole.
+ * its follow of the gaze. A head or gaze parameter the Idle clips don't
+ * animate is left unwritten by idle and rests where it is (a one-shot or an
+ * expression can still drive it); {@link setGazeTarget} still moves the eyes,
+ * but not the head. Blink (EyeOpen L/R), Breath and the ambient sway stay
+ * procedural: the format rejects an Idle curve on them. The brows' blink dip
+ * stays too, as part of the blink; an Idle curve on a brow is written over
+ * it. Without an `Idle` group the procedural idle runs whole.
  *
  * The host schedules; this class has no timers, rAF, DOM, or Date.now.
  *
@@ -71,7 +145,8 @@ const HEAD_AND_GAZE: ReadonlySet<string> = new Set([
 export class IkiMotion {
   /**
    * Everything {@link update} may write, deduplicated, in this order: idle ids
-   * (without head and gaze when the model declares an `Idle` group), the curve
+   * (without head and gaze when the model declares an `Idle` group, with
+   * EyeballX/Y then listed after them for {@link setGazeTarget}), the curve
    * parameters of every motion group, expression parameters, rig outputs,
    * then chain-segment outputs. May name ids the model lacks (idle writes the
    * standard ids regardless, and the player silently drops writes to unknown
@@ -85,6 +160,8 @@ export class IkiMotion {
   private readonly expressions: ExpressionPlayer;
   private readonly physics: PhysicsMotion;
   private readonly chains: HairChainMotion;
+  /** The host gaze's own eye stage; only under a declared Idle group. */
+  private readonly hostGaze: HostGaze | undefined;
   /** Resting value per id; 0 for an undeclared id. */
   private readonly rest: (id: string) => number;
   /** This update's idle, clip and expression writes, in first-write order. */
@@ -121,6 +198,7 @@ export class IkiMotion {
       },
       { parameters: model.parameters },
     );
+    this.hostGaze = this.clips.hasIdleLoop ? new HostGaze() : undefined;
     this.physics = new PhysicsMotion(rigs, model.parameters, read, sink);
     this.chains = new HairChainMotion(
       chains,
@@ -132,6 +210,9 @@ export class IkiMotion {
     this.drivenParameterIds = [
       ...new Set([
         ...this.idle.drivenParameterIds.filter(idleKeeps),
+        ...(this.hostGaze
+          ? [StandardParameter.EyeballX, StandardParameter.EyeballY]
+          : []),
         ...this.clips.parameterIds,
         ...this.expressions.parameterIds,
         ...this.physics.drivenParameterIds,
@@ -169,22 +250,48 @@ export class IkiMotion {
   }
 
   /**
-   * Hold the idle gaze on (`x`, `y`) until {@link clearGazeTarget}: the eyes
-   * go there and the head follows on the turn and nod, as
-   * {@link IdleMotion.setGazeTarget} describes (clamped to [-1, 1]; a pair
-   * with a non-finite value is ignored).
+   * The one-shot {@link playMotion} started, while it runs: null before any
+   * and from the {@link update} that carries it past its duration on. It runs
+   * on the clips' clock, which advances at most `MAX_DT_MS` per update, so
+   * after a long frame gap it is still reported until it has really played
+   * out. A rejected playMotion leaves it as it was. The engine only reports;
+   * which clip may interrupt which is the host's call.
+   */
+  activeMotion(): { group: string; index: number } | null {
+    return this.clips.active();
+  }
+
+  /**
+   * Hold the gaze on (`x`, `y`), in EyeballX/Y units, until
+   * {@link clearGazeTarget}. Each value is clamped to [-1, 1]; a pair with a
+   * non-finite value is ignored and changes nothing.
    *
-   * Under a declared `Idle` motion group this moves nothing: idle's head and
-   * gaze writes are dropped, so a host that wants the eyes on a point writes
-   * EyeballX/Y itself after {@link update}.
+   * Without an `Idle` motion group the idle gaze holds it: the eyes go there
+   * and the head follows on the turn and nod, as
+   * {@link IdleMotion.setGazeTarget} describes.
+   *
+   * Under a declared `Idle` group the eyes go there on springs as stiff as
+   * the idle eyes', and the head stays the Idle clips'. While a target is
+   * set it wins over any EyeballX/Y the Idle clips animate; a one-shot or an
+   * expression still composes over it, as over any base. With no target the
+   * Idle clips' eyes play untouched.
    */
   setGazeTarget(x: number, y: number): void {
     this.idle.setGazeTarget(x, y);
+    if (this.hostGaze && Number.isFinite(x) && Number.isFinite(y)) {
+      this.hostGaze.target = { x: clamp(x, -1, 1), y: clamp(y, -1, 1) };
+    }
   }
 
-  /** Drop the host gaze target; the idle's own gaze resumes. */
+  /**
+   * Drop the host gaze target; the idle's own gaze resumes. Under a declared
+   * `Idle` group the eyes spring back to what the Idle clips write, else to
+   * their resting values, and are left there: nothing of the target stays in
+   * the store.
+   */
   clearGazeTarget(): void {
     this.idle.clearGazeTarget();
+    if (this.hostGaze) this.hostGaze.target = undefined;
   }
 
   /**
@@ -193,7 +300,9 @@ export class IkiMotion {
    *
    * 1. Idle writes blink, the declared brows' blink dip, breath, the ambient
    *    sway (and head and gaze, unless replaced) into this update's frame.
-   * 2. The clip stage writes the `Idle` loop, then the one-shot over it.
+   * 2. The clip stage writes the `Idle` loop, then, under a declared `Idle`
+   *    group, the host gaze's eyes ({@link setGazeTarget}), then the one-shot
+   *    over both.
    * 3. The expression stage writes the active expression, fading in from the
    *    pose it replaced, or a stop fading back to base.
    * 4. The frame goes to `sink`, each id exactly once, in the order its first
@@ -208,8 +317,7 @@ export class IkiMotion {
    * itself) AFTER update(); the last write wins. That is how lip-sync beats
    * an expression that opens the mouth, and how a host's brow beats idle's
    * blink dip. A host pointer goes through {@link setGazeTarget} instead, so
-   * the head follows it; only on a model with an `Idle` group, where that
-   * moves nothing, does the host write EyeballX/Y itself after update().
+   * the head follows it (the eyes alone under an `Idle` group).
    *
    * The clips and expressions advance by `clamp(now − prev, 0, MAX_DT_MS)`,
    * 0 on the first update. A non-finite `nowMs` is a dropped frame: idle and
@@ -226,7 +334,9 @@ export class IkiMotion {
           ? 0
           : clamp(nowMs - this.prevNowMs, 0, MAX_DT_MS) / 1000;
       this.prevNowMs = nowMs;
-      this.clips.apply(dtS, this.frame, this.rest);
+      this.clips.applyLoop(dtS, this.frame);
+      this.hostGaze?.apply(dtS * 1000, this.frame, this.rest);
+      this.clips.applyOneShot(dtS, this.frame, this.rest);
       this.expressions.apply(dtS, this.frame, this.rest);
     }
     this.frame.forEach(this.flush);

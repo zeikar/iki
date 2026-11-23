@@ -99,6 +99,8 @@ export function fadeWeights(
 
 /** The one-shot slot: one playing clip, no queue. */
 interface Slot {
+  group: string;
+  index: number;
   clip: IkiMotionClip;
   /** Seconds since the clip started. */
   t: number;
@@ -184,8 +186,20 @@ export class ClipPlayer {
     // last output too: a second play before the next apply inherits the same
     // pose instead of dropping the ids the first one never got to write.
     const from = this.slot?.last ?? new Map<string, number>();
-    this.slot = { clip: clips[index], t: 0, from, last: from };
+    this.slot = { group, index, clip: clips[index], t: 0, from, last: from };
     return true;
+  }
+
+  /**
+   * The one-shot in the slot, or null once it has ended. It ends in the
+   * {@link applyOneShot} that carries it past its duration, so it is still
+   * reported after a frame gap longer than the clip: the clip advances by the
+   * dt it is given, which the caller clamps.
+   */
+  active(): { group: string; index: number } | null {
+    return this.slot
+      ? { group: this.slot.group, index: this.slot.index }
+      : null;
   }
 
   /**
@@ -202,7 +216,24 @@ export class ClipPlayer {
     frame: Map<string, number>,
     rest: (id: string) => number,
   ): void {
+    this.applyLoop(dtS, frame);
+    this.applyOneShot(dtS, frame, rest);
+  }
+
+  /**
+   * {@link apply}'s first layer alone, for a caller that writes a stage of
+   * its own between the Idle loop and the one-shot.
+   */
+  applyLoop(dtS: number, frame: Map<string, number>): void {
     if (this.hasIdleLoop) this.applyIdle(dtS, frame);
+  }
+
+  /** {@link apply}'s second layer alone; see {@link applyLoop}. */
+  applyOneShot(
+    dtS: number,
+    frame: Map<string, number>,
+    rest: (id: string) => number,
+  ): void {
     if (this.slot) this.applySlot(this.slot, dtS, frame, rest);
   }
 

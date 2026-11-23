@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   IkiDeformer,
   IkiModel,
+  IkiMotionClip,
   IkiPhysics,
   IkiPhysicsChain,
 } from "@ikijs/format";
@@ -272,29 +273,233 @@ describe("IkiMotion", () => {
       ).toBeCloseTo(HEAD_FOLLOW_DEG, 3);
     });
 
-    it("moves nothing under a declared Idle group: idle's head and gaze are dropped", () => {
-      vi.spyOn(Math, "random").mockReturnValue(0.37);
-      const withIdle = model({
-        motions: {
-          [IDLE_MOTION_GROUP]: [
-            {
-              description: "hold the turn",
-              duration: 1,
-              fadeIn: 0,
-              fadeOut: 0,
-              curves: [{ parameter: StandardParameter.AngleX, keys: [[0, 5]] }],
-            },
-          ],
-        },
+    describe("under a declared Idle group", () => {
+      /** Idle holds AngleX at 5; `eyes`, when given, holds EyeballX there too. */
+      function idleModel(
+        eyes?: number,
+        parameters: IkiModel["parameters"] = PARAMS,
+      ): IkiModel {
+        return model({
+          parameters,
+          motions: {
+            [IDLE_MOTION_GROUP]: [
+              {
+                description: "hold the turn",
+                duration: 1,
+                fadeIn: 0,
+                fadeOut: 0,
+                curves: [
+                  { parameter: StandardParameter.AngleX, keys: [[0, 5]] },
+                  ...(eyes === undefined
+                    ? []
+                    : [
+                        {
+                          parameter: StandardParameter.EyeballX,
+                          keys: [[0, eyes]] as [number, number][],
+                        },
+                      ]),
+                ],
+              },
+            ],
+            Look: [
+              {
+                description: "look aside",
+                duration: 20,
+                fadeIn: 0,
+                fadeOut: 0,
+                curves: [
+                  { parameter: StandardParameter.EyeballX, keys: [[0, -0.3]] },
+                ],
+              },
+            ],
+          },
+        });
+      }
+
+      /**
+       * An IkiMotion over a store, as a host wires it. `run(ms)` steps that
+       * long in frames and returns each id's writes during it.
+       */
+      function hosted(m: IkiModel) {
+        const store = new Map(m.parameters.map((p) => [p.id, p.default]));
+        let emissions = new Map<string, number[]>();
+        const motion = new IkiMotion(
+          m,
+          (id) => store.get(id) ?? 0,
+          (id, value) => {
+            store.set(id, value);
+            if (!emissions.has(id)) emissions.set(id, []);
+            emissions.get(id)!.push(value);
+          },
+        );
+        let now = 0;
+        const run = (ms: number): Map<string, number[]> => {
+          emissions = new Map();
+          for (const end = now + ms; now < end; now += FRAME_MS) {
+            motion.update(now);
+          }
+          return emissions;
+        };
+        return { motion, store, run };
+      }
+
+      it("moves the eyes to the target and leaves the head the Idle clip's", () => {
+        vi.spyOn(Math, "random").mockReturnValue(0.37);
+        const targeted = hosted(idleModel());
+        targeted.motion.setGazeTarget(1, 0.5);
+        const a = targeted.run(10000);
+        const b = hosted(idleModel()).run(10000);
+
+        expect(targeted.store.get(StandardParameter.EyeballX)).toBeCloseTo(
+          1,
+          5,
+        );
+        expect(targeted.store.get(StandardParameter.EyeballY)).toBeCloseTo(
+          0.5,
+          5,
+        );
+        // The eyes start where they rest and travel, no jump to the target.
+        expect(a.get(StandardParameter.EyeballX)![0]).toBe(0);
+        expect(a.get(StandardParameter.EyeballX)![1]).toBeLessThan(0.5);
+        // No head follow: the head is the Idle clip's either way.
+        expect(a.get(StandardParameter.AngleX)).toEqual(
+          b.get(StandardParameter.AngleX),
+        );
+        expect(a.has(StandardParameter.AngleY)).toBe(false);
+        // Without a target nothing writes the eyes, as before.
+        expect(b.has(StandardParameter.EyeballX)).toBe(false);
+        expect(b.has(StandardParameter.EyeballY)).toBe(false);
+        // Every write is a published one.
+        for (const id of a.keys()) {
+          expect(targeted.motion.drivenParameterIds).toContain(id);
+        }
       });
-      const targeted = run(withIdle, [1, 0.5]);
-      expect(targeted).toEqual(run(withIdle));
-      expect(targeted.has(StandardParameter.EyeballX)).toBe(false);
-      expect(targeted.has(StandardParameter.EyeballY)).toBe(false);
-      expect(targeted.has(StandardParameter.AngleY)).toBe(false);
-      expect(new Set(targeted.get(StandardParameter.AngleX))).toEqual(
-        new Set([5]),
-      );
+
+      it("clearGazeTarget hands the eyes back to their declared defaults, then stops writing them", () => {
+        const offRest = PARAMS.map((p) =>
+          p.id === StandardParameter.EyeballX ? { ...p, default: 0.2 } : p,
+        );
+        const { motion, store, run } = hosted(idleModel(undefined, offRest));
+        motion.setGazeTarget(-1, 1);
+        run(2000);
+        expect(store.get(StandardParameter.EyeballX)).toBeCloseTo(-1, 3);
+
+        motion.clearGazeTarget();
+        const back = run(3000);
+        const xs = back.get(StandardParameter.EyeballX)!;
+        // Sprung back, not snapped: the first frame is still near the target.
+        expect(xs[0]).toBeLessThan(-0.5);
+        // Exactly at rest, not a hair off it, and then left alone.
+        expect(xs.at(-1)).toBe(0.2);
+        expect(back.get(StandardParameter.EyeballY)!.at(-1)).toBe(0);
+        expect(store.get(StandardParameter.EyeballX)).toBe(0.2);
+        expect(store.get(StandardParameter.EyeballY)).toBe(0);
+        expect(run(1000).has(StandardParameter.EyeballX)).toBe(false);
+
+        // A new target after the hand-back works as the first did.
+        motion.setGazeTarget(0.5, 0);
+        run(2000);
+        expect(store.get(StandardParameter.EyeballX)).toBeCloseTo(0.5, 3);
+      });
+
+      it("a target wins over an Idle eye curve while set; the curve plays untouched without one", () => {
+        const { motion, store, run } = hosted(idleModel(0.4));
+        run(1000);
+        expect(store.get(StandardParameter.EyeballX)).toBe(0.4);
+
+        motion.setGazeTarget(-0.6, 0);
+        run(2000);
+        expect(store.get(StandardParameter.EyeballX)).toBeCloseTo(-0.6, 3);
+
+        motion.clearGazeTarget();
+        run(3000);
+        expect(store.get(StandardParameter.EyeballX)).toBe(0.4);
+      });
+
+      it("a one-shot on the eyes composes over the target", () => {
+        const { motion, store, run } = hosted(idleModel());
+        motion.setGazeTarget(1, 0);
+        run(2000);
+        motion.playMotion("Look", 0);
+        run(500);
+        expect(store.get(StandardParameter.EyeballX)).toBeCloseTo(-0.3, 9);
+      });
+
+      it("ignores a non-finite pair, as without an Idle group", () => {
+        const { motion, store, run } = hosted(idleModel());
+        motion.setGazeTarget(1, 0.5);
+        motion.setGazeTarget(Number.NaN, 0);
+        run(2000);
+        expect(store.get(StandardParameter.EyeballX)).toBeCloseTo(1, 3);
+      });
+
+      /** The largest change between two consecutive writes. */
+      const largestStep = (xs: number[]): number =>
+        Math.max(...xs.slice(1).map((x, i) => Math.abs(x - xs[i])));
+
+      it("a held target stays put over an Idle eye curve that jumps at each clip seam", () => {
+        const look = (x: number): IkiMotionClip => ({
+          description: "hold the eyes",
+          duration: 1,
+          fadeIn: 0,
+          fadeOut: 0,
+          curves: [{ parameter: StandardParameter.EyeballX, keys: [[0, x]] }],
+        });
+        const { motion, run } = hosted(
+          model({
+            motions: {
+              [IDLE_MOTION_GROUP]: [look(0.5), look(-0.5)],
+            },
+          }),
+        );
+        motion.setGazeTarget(0, 0);
+        run(1000);
+        // Four seams, each a 1.0 jump in the curve under the eyes.
+        const held = run(4000).get(StandardParameter.EyeballX)!;
+        expect(Math.max(...held.map(Math.abs))).toBeLessThan(1e-3);
+      });
+
+      it("clearing mid-spring turns the eyes back from where they are", () => {
+        const { motion, store, run } = hosted(idleModel());
+        motion.setGazeTarget(1, 0);
+        const out = run(64).get(StandardParameter.EyeballX)!;
+        expect(out.at(-1)!).toBeGreaterThan(0.1);
+        expect(out.at(-1)!).toBeLessThan(0.9);
+
+        motion.clearGazeTarget();
+        const back = run(3000).get(StandardParameter.EyeballX)!;
+        expect(largestStep([...out, ...back])).toBeLessThan(0.15);
+        expect(back.at(-1)).toBe(0);
+        expect(store.get(StandardParameter.EyeballX)).toBe(0);
+      });
+
+      it("a target set again during the release springs on from where the eyes are", () => {
+        const { motion, store, run } = hosted(idleModel(0.4));
+        motion.setGazeTarget(1, 0);
+        const out = run(2000).get(StandardParameter.EyeballX)!;
+        motion.clearGazeTarget();
+        const releasing = run(64).get(StandardParameter.EyeballX)!;
+        expect(releasing.at(-1)!).toBeGreaterThan(0.45);
+        expect(releasing.at(-1)!).toBeLessThan(0.95);
+
+        motion.setGazeTarget(-1, 0);
+        const again = run(2000).get(StandardParameter.EyeballX)!;
+        expect(largestStep([...out, ...releasing, ...again])).toBeLessThan(
+          0.25,
+        );
+        expect(store.get(StandardParameter.EyeballX)).toBeCloseTo(-1, 3);
+      });
+
+      it("a target set and cleared before any update writes nothing", () => {
+        vi.spyOn(Math, "random").mockReturnValue(0.37);
+        const touched = hosted(idleModel());
+        touched.motion.setGazeTarget(1, 0.5);
+        touched.motion.clearGazeTarget();
+        const a = touched.run(2000);
+        expect(a.has(StandardParameter.EyeballX)).toBe(false);
+        expect(a.has(StandardParameter.EyeballY)).toBe(false);
+        expect(a).toEqual(hosted(idleModel()).run(2000));
+      });
     });
   });
 });

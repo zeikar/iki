@@ -159,8 +159,11 @@ function fbm(seed: number, x: number): number {
   );
 }
 
-/** A damped spring chasing a moving target. */
-class Spring {
+/**
+ * A damped spring chasing a moving target. Exported for IkiMotion; not part
+ * of the package entry.
+ */
+export class Spring {
   value = 0;
   velocity = 0;
 
@@ -181,6 +184,15 @@ class Spring {
       this.value += this.velocity * h;
     }
   }
+}
+
+/**
+ * A spring with the idle eyes' stiffness and damping, so IkiMotion's host
+ * gaze under an `Idle` group moves the eyes as the idle gaze does. Exported
+ * for IkiMotion; not part of the package entry.
+ */
+export function eyeSpring(): Spring {
+  return new Spring(EYE_SPRING_OMEGA, EYE_SPRING_ZETA);
 }
 
 // --- Public API ---------------------------------------------------------------
@@ -269,8 +281,8 @@ export class IdleMotion {
   // Gaze state: the scheduled pick starts at eye contact, (0, 0), until the
   // first retarget. A host target, while set, replaces the pick as what the
   // eyes and head chase; the schedule keeps picking underneath it.
-  private readonly eyeX = new Spring(EYE_SPRING_OMEGA, EYE_SPRING_ZETA);
-  private readonly eyeY = new Spring(EYE_SPRING_OMEGA, EYE_SPRING_ZETA);
+  private readonly eyeX = eyeSpring();
+  private readonly eyeY = eyeSpring();
   private gazeTargetX = 0;
   private gazeTargetY = 0;
   private nextGazeRetargetMs: number;
