@@ -46,8 +46,10 @@
 | _必要なもの：_ Claude Code または Codex（AI コーディングアシスタント）と[プラグイン](#make-a-character-with-ai) | _必要なもの：_ Claude Code または Codex とプラグイン                                                                              | _必要なもの：_ ブラウザだけ                                                                                                                                               |
 
 **インストールなしで今すぐ試せます：**
-[エディタがサンプルキャラクターをリギングする様子を見る](https://zeikar.dev/iki/editor/?sample)
-· [完成したキャラクターをプレイグラウンドで動かす](https://zeikar.dev/iki/playground/)
+
+- [Charivo で Twin と Mint が反応し、声付きで話す様子を見る](https://zeikar.dev/charivo/playground/)
+- [エディタがサンプルキャラクターをリギングする様子を見る](https://zeikar.dev/iki/editor/?sample)
+- [完成したキャラクターをプレイグラウンドで動かす](https://zeikar.dev/iki/playground/)
 
 どの方法でも、できあがるのは 1 つの `.iki` ファイルです。テクスチャも含んだプレーンな JSON で、ファイルは作った人のものです。WebGL ランタイムが[どのブラウザでも再生](#play-a-model)し、アプリ側は口・視線・表情を設定してキャラクターを動かします。話す AI キャラクターのためのフレームワーク [Charivo](https://github.com/zeikar/charivo) もこの方式です。Charivo のライブデモでは、上のキャラクター [Twin](https://charivo.vercel.app/?character=twin) や、全身モデルの [Mint](https://charivo.vercel.app/?character=mint) と、チャット・音声・リップシンク付きで会話できます。
 

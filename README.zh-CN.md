@@ -45,7 +45,11 @@
 | 描述你想要的角色，图像生成模型就会[画出每个部件](#draw-every-part)，再由插件完成绑定。 | 插件[把一张正面半身像切成部件](#cut-a-picture-you-already-have)，并补画出每个部件被遮住的部分。 | 每个部件一张 PNG，或者由同样这些图层组成的简单 PSD，都能[在编辑器里完成绑定](#auto-rig-layers-you-already-have)：不用 AI，不用安装，也不用上传。 |
 | _需要：_ Claude Code 或 Codex（AI 编程助手），加上[插件](#make-a-character-with-ai)    | _需要：_ Claude Code 或 Codex，加上插件                                                         | _需要：_ 一个浏览器就够                                                                                                                          |
 
-**无需安装，马上试试：**[看编辑器绑定一个示例角色](https://zeikar.dev/iki/editor/?sample) · [在 Playground 里操控一个做好的角色](https://zeikar.dev/iki/playground/)
+**无需安装，马上试试：**
+
+- [在 Charivo 里看 Twin 和 Mint 做出反应、开口说话（带语音）](https://zeikar.dev/charivo/playground/)
+- [看编辑器绑定一个示例角色](https://zeikar.dev/iki/editor/?sample)
+- [在 Playground 里操控一个做好的角色](https://zeikar.dev/iki/playground/)
 
 无论走哪条路，最终都会得到一个 `.iki` 文件：归你所有的纯 JSON，贴图也包含在内。WebGL 运行时可以[在任何浏览器里播放它](#play-a-model)，你的应用通过设置嘴部、视线和表情来驱动它。[Charivo](https://github.com/zeikar/charivo) 就是这样做的，它是一个用于打造会说话的 AI 角色的框架。在它的在线演示里，你可以和上面这个角色 [Twin](https://charivo.vercel.app/?character=twin) 对话，也可以和全身角色 [Mint](https://charivo.vercel.app/?character=mint) 对话，支持文字聊天、语音和口型同步。
 

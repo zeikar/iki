@@ -48,8 +48,10 @@ Start from whichever you have:
 | _Needs:_ Claude Code or Codex (AI coding assistants) with the [plugin](#make-a-character-with-ai)  | _Needs:_ Claude Code or Codex with the plugin                                                                         | _Needs:_ only a browser                                                                                                                           |
 
 **Try it now, no install:**
-[watch the editor rig a sample character](https://zeikar.dev/iki/editor/?sample)
-· [drive a finished one in the playground](https://zeikar.dev/iki/playground/)
+
+- [Watch Twin and Mint react and talk, with voice, in Charivo](https://zeikar.dev/charivo/playground/)
+- [Watch the editor rig a sample character](https://zeikar.dev/iki/editor/?sample)
+- [Drive a finished character in the playground](https://zeikar.dev/iki/playground/)
 
 Whichever way, you get one `.iki` file: plain JSON you own, textures included.
 The WebGL runtime [plays it in any browser](#play-a-model), and your app drives
