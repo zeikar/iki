@@ -27,10 +27,10 @@
     <th colspan="3">从一张画好的图切出</th>
   </tr>
   <tr>
-    <td><img src="./.github/assets/hero.gif" width="220" alt="由 Iki 引擎渲染的角色，正在转头、眨眼和说话。" /></td>
-    <td><img src="./.github/assets/import-picture.png" width="220" alt="一张画好的双马尾女孩正面图。" /></td>
+    <td><a href="https://zeikar.dev/iki/"><img src="./.github/assets/hero.gif" width="220" alt="由 Iki 引擎渲染的角色，正在转头、眨眼和说话。" /></a></td>
+    <td><a href="https://zeikar.dev/iki/playground/"><img src="./.github/assets/import-picture.png" width="220" alt="一张画好的双马尾女孩正面图。" /></a></td>
     <td>→</td>
-    <td><img src="./.github/assets/import-rigged.gif" width="220" alt="经 Iki 绑定后的同一张图，会转头、眨眼和说话。" /></td>
+    <td><a href="https://zeikar.dev/iki/playground/"><img src="./.github/assets/import-rigged.gif" width="220" alt="经 Iki 绑定后的同一张图，会转头、眨眼和说话。" /></a></td>
   </tr>
 </table>
 

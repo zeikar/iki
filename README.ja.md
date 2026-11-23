@@ -27,10 +27,10 @@
     <th colspan="3">完成した 1 枚絵から切り出す</th>
   </tr>
   <tr>
-    <td><img src="./.github/assets/hero.gif" width="220" alt="エンジンで描画された Iki のキャラクター。顔を左右に向け、まばたきし、話しています。" /></td>
-    <td><img src="./.github/assets/import-picture.png" width="220" alt="正面向きのツインテールの女の子の完成イラスト。" /></td>
+    <td><a href="https://zeikar.dev/iki/"><img src="./.github/assets/hero.gif" width="220" alt="エンジンで描画された Iki のキャラクター。顔を左右に向け、まばたきし、話しています。" /></a></td>
+    <td><a href="https://zeikar.dev/iki/playground/"><img src="./.github/assets/import-picture.png" width="220" alt="正面向きのツインテールの女の子の完成イラスト。" /></a></td>
     <td>→</td>
-    <td><img src="./.github/assets/import-rigged.gif" width="220" alt="同じイラストを Iki でリギングしたもの。顔を左右に向け、まばたきし、話しています。" /></td>
+    <td><a href="https://zeikar.dev/iki/playground/"><img src="./.github/assets/import-rigged.gif" width="220" alt="同じイラストを Iki でリギングしたもの。顔を左右に向け、まばたきし、話しています。" /></a></td>
   </tr>
 </table>
 

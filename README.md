@@ -25,10 +25,10 @@ English | [日本語](./README.ja.md) | [简体中文](./README.zh-CN.md)
     <th colspan="3">Cut from one finished picture</th>
   </tr>
   <tr>
-    <td><img src="./.github/assets/hero.gif" width="220" alt="An Iki character turning its head, blinking and talking, rendered by the engine." /></td>
-    <td><img src="./.github/assets/import-picture.png" width="220" alt="A finished front-facing picture of a twin-tailed girl." /></td>
+    <td><a href="https://zeikar.dev/iki/"><img src="./.github/assets/hero.gif" width="220" alt="An Iki character turning its head, blinking and talking, rendered by the engine." /></a></td>
+    <td><a href="https://zeikar.dev/iki/playground/"><img src="./.github/assets/import-picture.png" width="220" alt="A finished front-facing picture of a twin-tailed girl." /></a></td>
     <td>→</td>
-    <td><img src="./.github/assets/import-rigged.gif" width="220" alt="The same picture rigged by Iki, turning its head, blinking and talking." /></td>
+    <td><a href="https://zeikar.dev/iki/playground/"><img src="./.github/assets/import-rigged.gif" width="220" alt="The same picture rigged by Iki, turning its head, blinking and talking." /></a></td>
   </tr>
 </table>
 
