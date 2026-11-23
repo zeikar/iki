@@ -1,8 +1,12 @@
+<div align="center">
+
 # Iki
 
-[English](./README.md) | [日本語](./README.ja.md) | 简体中文
+<h3>能自动绑定的开源 Live2D 替代方案。</h3>
 
-本文译自英文版 README，内容如有出入，以英文版为准。
+<sub>息（呼吸）· 生き（生命）· 粋（潇洒）——日语里都读作 iki</sub>
+
+[English](./README.md) | [日本語](./README.ja.md) | 简体中文
 
 [![@ikijs/engine on npm](https://img.shields.io/npm/v/@ikijs/engine?label=%40ikijs%2Fengine&color=cb3837&logo=npm)](https://www.npmjs.com/package/@ikijs/engine)
 [![@ikijs/format on npm](https://img.shields.io/npm/v/@ikijs/format?label=%40ikijs%2Fformat&color=cb3837&logo=npm)](https://www.npmjs.com/package/@ikijs/format)
@@ -13,29 +17,35 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Built with HyperClaude](https://img.shields.io/badge/Built%20with-HyperClaude-D97757?logo=anthropic&logoColor=white)](https://zeikar.dev/hyperclaude/)
 
-<p align="center">
-  <img src="./.github/assets/hero.gif" width="360" alt="由 Iki 引擎渲染的角色，正在转头、眨眼和说话。" />
-  <br />
-  <sub>部件由图像生成模型绘制，再由 Iki 的自动绑定器完成绑定，全程无需手动绑定。<a href="https://zeikar.dev/iki/">查看在线演示</a>。</sub>
-</p>
+</div>
 
-<h3 align="center">能自动绑定的开源 Live2D 替代方案。</h3>
+本文译自英文版 README，内容如有出入，以英文版为准。
 
-> 息（呼吸）· 生き（生命）· 粋（潇洒）——日语里都读作 iki
+<table align="center">
+  <tr>
+    <th>从一句话画出</th>
+    <th colspan="3">从一张画好的图切出</th>
+  </tr>
+  <tr>
+    <td><img src="./.github/assets/hero.gif" width="220" alt="由 Iki 引擎渲染的角色，正在转头、眨眼和说话。" /></td>
+    <td><img src="./.github/assets/import-picture.png" width="220" alt="一张画好的双马尾女孩正面图。" /></td>
+    <td>→</td>
+    <td><img src="./.github/assets/import-rigged.gif" width="220" alt="经 Iki 绑定后的同一张图，会转头、眨眼和说话。" /></td>
+  </tr>
+</table>
 
-**Iki** 是一个免费、采用 MIT 许可的引擎，用来在网页里播放 2D 动画角色，可以替代 Live2D 和 [Inochi2D](https://inochi2d.com/)。把拆分成部件（脸、眼睛、嘴、头发……）的角色交给自动绑定器，它会把这些部件串起来，让它们动起来。这里说的“绑定”（rigging，Live2D 圈也常叫“建模”）就是这个意思：角色会眨眼、四处张望、说话、转头和点头，头发也会随之摆动。手上有什么，就从哪里开始：
+<p align="center"><sub>同一个角色，用两种方法各做了一遍，都由 Iki 的自动绑定器完成绑定，全程无需手动绑定。<a href="https://zeikar.dev/iki/">查看在线演示</a>。</sub></p>
 
-- **一句话**：AI 绑定（AI rigging），在 Claude Code 或 Codex（AI 编程助手）里完成。安装[插件](#make-a-character-with-ai)，描述你想要的角色，图像生成模型就会[画出每个部件](#draw-every-part)。
-- **一张画好的图**：AI 绑定，同样在 Claude Code 或 Codex 里完成。插件会[把一张正面半身像切成部件](#cut-a-picture-you-already-have)，并补画出每个部件被遮住的部分。
-- **现成的图层**：只需要浏览器。每个部件一张 PNG，或者由同样这些图层组成的简单 PSD，都能[在编辑器里完成绑定](#auto-rig-layers-you-already-have)：不用 AI，不用安装，也不用上传。
+**Iki** 是一个免费、采用 MIT 许可的引擎，用来在网页里播放 2D 动画角色，可以替代 Live2D 和 [Inochi2D](https://inochi2d.com/)。把拆分成部件（脸、眼睛、嘴、头发……）的角色交给自动绑定器，它会把这些部件串起来，让它们动起来。这里说的“绑定”（rigging，Live2D 圈也常叫“建模”）就是这个意思：角色会眨眼、四处张望、说话、转头和点头，头发也会随之摆动。
+
+手上有什么，就从哪里开始：
+
+| 一句话                                                                                 | 一张画好的图                                                                                    | 现成的图层                                                                                                                                       |
+| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 描述你想要的角色，图像生成模型就会[画出每个部件](#draw-every-part)，再由插件完成绑定。 | 插件[把一张正面半身像切成部件](#cut-a-picture-you-already-have)，并补画出每个部件被遮住的部分。 | 每个部件一张 PNG，或者由同样这些图层组成的简单 PSD，都能[在编辑器里完成绑定](#auto-rig-layers-you-already-have)：不用 AI，不用安装，也不用上传。 |
+| _需要：_ Claude Code 或 Codex（AI 编程助手），加上[插件](#make-a-character-with-ai)    | _需要：_ Claude Code 或 Codex，加上插件                                                         | _需要：_ 一个浏览器就够                                                                                                                          |
 
 **无需安装，马上试试：**[看编辑器绑定一个示例角色](https://zeikar.dev/iki/editor/?sample) · [在 Playground 里操控一个做好的角色](https://zeikar.dev/iki/playground/)
-
-<p align="center">
-  <img src="./.github/assets/import.gif" width="680" alt="左边是一张画好的双马尾女孩正面图，静止不动；右边是经 Iki 绑定后的同一张图，会转头、眨眼和说话。" />
-  <br />
-  <sub>左边是一张画好的图，右边是从它切出来的模型：就是页首那个角色，只是换了另一种做法。</sub>
-</p>
 
 无论走哪条路，最终都会得到一个 `.iki` 文件：归你所有的纯 JSON，贴图也包含在内。WebGL 运行时可以[在任何浏览器里播放它](#play-a-model)，你的应用通过设置嘴部、视线和表情来驱动它。[Charivo](https://github.com/zeikar/charivo) 就是这样做的，它是一个用于打造会说话的 AI 角色的框架。在它的在线演示里，你可以和上面这个角色 [Twin](https://charivo.vercel.app/?character=twin) 对话，也可以和全身角色 [Mint](https://charivo.vercel.app/?character=mint) 对话，支持文字聊天、语音和口型同步。
 

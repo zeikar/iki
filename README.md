@@ -1,4 +1,10 @@
+<div align="center">
+
 # Iki
+
+<h3>The open Live2D alternative that rigs itself.</h3>
+
+<sub>息 (breath) · 生き (life) · 粋 (chic)</sub>
 
 English | [日本語](./README.ja.md) | [简体中文](./README.zh-CN.md)
 
@@ -11,43 +17,39 @@ English | [日本語](./README.ja.md) | [简体中文](./README.zh-CN.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Built with HyperClaude](https://img.shields.io/badge/Built%20with-HyperClaude-D97757?logo=anthropic&logoColor=white)](https://zeikar.dev/hyperclaude/)
 
-<p align="center">
-  <img src="./.github/assets/hero.gif" width="360" alt="An Iki character turning its head, blinking and talking, rendered by the engine." />
-  <br />
-  <sub>Parts drawn by an image model and rigged by Iki's auto-rigger, with no hand rigging. <a href="https://zeikar.dev/iki/">See it live</a>.</sub>
-</p>
+</div>
 
-<h3 align="center">The open Live2D alternative that rigs itself.</h3>
+<table align="center">
+  <tr>
+    <th>Drawn from a sentence</th>
+    <th colspan="3">Cut from one finished picture</th>
+  </tr>
+  <tr>
+    <td><img src="./.github/assets/hero.gif" width="220" alt="An Iki character turning its head, blinking and talking, rendered by the engine." /></td>
+    <td><img src="./.github/assets/import-picture.png" width="220" alt="A finished front-facing picture of a twin-tailed girl." /></td>
+    <td>→</td>
+    <td><img src="./.github/assets/import-rigged.gif" width="220" alt="The same picture rigged by Iki, turning its head, blinking and talking." /></td>
+  </tr>
+</table>
 
-> 息 (breath) · 生き (life) · 粋 (chic)
+<p align="center"><sub>The same character, made both ways, and rigged by Iki's auto-rigger with no hand rigging. <a href="https://zeikar.dev/iki/">See it live</a>.</sub></p>
 
 **Iki** is a free, MIT-licensed engine that plays animated 2D characters in a
 web page — an alternative to Live2D and [Inochi2D](https://inochi2d.com/). Its
 auto-rigger takes a character split into parts (face, eyes, mouth, hair…) and
 wires them to move, which is what "rigging" means here: the character blinks,
-looks around, talks, turns and nods, with hair that sways. Start from whichever
-you have:
+looks around, talks, turns and nods, with hair that sways.
 
-- **A sentence** — AI rigging, in Claude Code or Codex (the AI coding
-  assistants). Install the [plugin](#make-a-character-with-ai), ask for a
-  character, and an image model [draws every part](#draw-every-part).
-- **One finished picture** — AI rigging, in Claude Code or Codex. The plugin
-  [cuts a front-facing bust into parts](#cut-a-picture-you-already-have) and
-  paints in what each part hides.
-- **Layers you already have** — only a browser. One PNG per part, or a simple
-  PSD of the same layers, is
-  [rigged in the editor](#auto-rig-layers-you-already-have): no AI, no install,
-  no upload.
+Start from whichever you have:
+
+| A sentence                                                                                         | One finished picture                                                                                                  | Layers you already have                                                                                                                           |
+| -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ask for a character and an image model [draws every part](#draw-every-part); the plugin rigs them. | The plugin [cuts a front-facing bust into parts](#cut-a-picture-you-already-have) and paints in what each part hides. | One PNG per part, or a simple PSD of the same layers, is [rigged in the editor](#auto-rig-layers-you-already-have): no AI, no install, no upload. |
+| _Needs:_ Claude Code or Codex (AI coding assistants) with the [plugin](#make-a-character-with-ai)  | _Needs:_ Claude Code or Codex with the plugin                                                                         | _Needs:_ only a browser                                                                                                                           |
 
 **Try it now, no install:**
 [watch the editor rig a sample character](https://zeikar.dev/iki/editor/?sample)
 · [drive a finished one in the playground](https://zeikar.dev/iki/playground/)
-
-<p align="center">
-  <img src="./.github/assets/import.gif" width="680" alt="A finished front-facing picture of a twin-tailed girl, still on the left; on the right the same picture rigged by Iki, turning its head, blinking and talking." />
-  <br />
-  <sub>One finished picture, left, and the model cut from it, right: the hero's character, made the other way.</sub>
-</p>
 
 Whichever way, you get one `.iki` file: plain JSON you own, textures included.
 The WebGL runtime [plays it in any browser](#play-a-model), and your app drives

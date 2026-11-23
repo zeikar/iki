@@ -1,8 +1,12 @@
+<div align="center">
+
 # Iki
 
-[English](./README.md) | 日本語 | [简体中文](./README.zh-CN.md)
+<h3>リギングまで自動でこなす、オープンな Live2D 代替エンジン。</h3>
 
-この文書は英語版 README の翻訳です。内容に食い違いがある場合は英語版を正とします。
+<sub>息・生き・粋 — どれも「いき」</sub>
+
+[English](./README.md) | 日本語 | [简体中文](./README.zh-CN.md)
 
 [![@ikijs/engine on npm](https://img.shields.io/npm/v/@ikijs/engine?label=%40ikijs%2Fengine&color=cb3837&logo=npm)](https://www.npmjs.com/package/@ikijs/engine)
 [![@ikijs/format on npm](https://img.shields.io/npm/v/@ikijs/format?label=%40ikijs%2Fformat&color=cb3837&logo=npm)](https://www.npmjs.com/package/@ikijs/format)
@@ -13,31 +17,37 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Built with HyperClaude](https://img.shields.io/badge/Built%20with-HyperClaude-D97757?logo=anthropic&logoColor=white)](https://zeikar.dev/hyperclaude/)
 
-<p align="center">
-  <img src="./.github/assets/hero.gif" width="360" alt="エンジンで描画された Iki のキャラクター。顔を左右に向け、まばたきし、話しています。" />
-  <br />
-  <sub>パーツは画像生成モデルが描き、リギングは Iki の自動リガーが行いました。手作業のリギングは一切していません。<a href="https://zeikar.dev/iki/">デモを見る</a>。</sub>
-</p>
+</div>
 
-<h3 align="center">リギングまで自動でこなす、オープンな Live2D 代替エンジン。</h3>
+この文書は英語版 README の翻訳です。内容に食い違いがある場合は英語版を正とします。
 
-> 息・生き・粋 — どれも「いき」
+<table align="center">
+  <tr>
+    <th>文章ひとつから描く</th>
+    <th colspan="3">完成した 1 枚絵から切り出す</th>
+  </tr>
+  <tr>
+    <td><img src="./.github/assets/hero.gif" width="220" alt="エンジンで描画された Iki のキャラクター。顔を左右に向け、まばたきし、話しています。" /></td>
+    <td><img src="./.github/assets/import-picture.png" width="220" alt="正面向きのツインテールの女の子の完成イラスト。" /></td>
+    <td>→</td>
+    <td><img src="./.github/assets/import-rigged.gif" width="220" alt="同じイラストを Iki でリギングしたもの。顔を左右に向け、まばたきし、話しています。" /></td>
+  </tr>
+</table>
 
-**Iki** は、動く 2D キャラクターを Web ページ上で再生する、MIT ライセンスの無料エンジンです。Live2D や [Inochi2D](https://inochi2d.com/) の代わりに使えます。自動リガーは、パーツ（顔、目、口、髪など）に分けたキャラクターを受け取り、それぞれが動くように組み上げます。ここで言う「リギング」とはこの作業のことです。キャラクターはまばたきし、視線を動かし、話し、顔を左右に向け、うなずき、髪も揺れます。手元にあるものに合わせて、次のどれからでも始められます。
+<p align="center"><sub>同じキャラクターを 2 つの方法で作りました。どちらも Iki の自動リガーによるもので、手作業のリギングは一切していません。<a href="https://zeikar.dev/iki/">デモを見る</a>。</sub></p>
 
-- **文章ひとつから** — Claude Code または Codex（AI コーディングアシスタント）での AI リギング。[プラグイン](#make-a-character-with-ai)を入れてキャラクターを頼むと、画像生成モデルが[パーツをすべて描きます](#draw-every-part)。
-- **完成した 1 枚絵から** — Claude Code または Codex での AI リギング。プラグインが[正面向きのバストアップをパーツに切り分け](#cut-a-picture-you-already-have)、各パーツに隠れていた部分も描き足します。
-- **手持ちのレイヤーから** — ブラウザだけで完結します。パーツごとの PNG、または同じレイヤー構成のシンプルな PSD を[エディタで自動リギング](#auto-rig-layers-you-already-have)できます。AI もインストールもアップロードも不要です。
+**Iki** は、動く 2D キャラクターを Web ページ上で再生する、MIT ライセンスの無料エンジンです。Live2D や [Inochi2D](https://inochi2d.com/) の代わりに使えます。自動リガーは、パーツ（顔、目、口、髪など）に分けたキャラクターを受け取り、それぞれが動くように組み上げます。ここで言う「リギング」とはこの作業のことです。キャラクターはまばたきし、視線を動かし、話し、顔を左右に向け、うなずき、髪も揺れます。
+
+手元にあるものに合わせて、次のどれからでも始められます。
+
+| 文章ひとつ                                                                                                      | 完成した 1 枚絵                                                                                                                   | 手持ちのレイヤー                                                                                                                                                          |
+| --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| キャラクターを頼むと、画像生成モデルが[パーツをすべて描き](#draw-every-part)、プラグインがリギングします。      | プラグインが[正面向きのバストアップをパーツに切り分け](#cut-a-picture-you-already-have)、各パーツに隠れていた部分も描き足します。 | パーツごとの PNG、または同じレイヤー構成のシンプルな PSD を[エディタで自動リギング](#auto-rig-layers-you-already-have)します。AI もインストールもアップロードも不要です。 |
+| _必要なもの：_ Claude Code または Codex（AI コーディングアシスタント）と[プラグイン](#make-a-character-with-ai) | _必要なもの：_ Claude Code または Codex とプラグイン                                                                              | _必要なもの：_ ブラウザだけ                                                                                                                                               |
 
 **インストールなしで今すぐ試せます：**
 [エディタがサンプルキャラクターをリギングする様子を見る](https://zeikar.dev/iki/editor/?sample)
 · [完成したキャラクターをプレイグラウンドで動かす](https://zeikar.dev/iki/playground/)
-
-<p align="center">
-  <img src="./.github/assets/import.gif" width="680" alt="左は正面向きのツインテールの女の子の完成イラストで、静止しています。右は同じイラストを Iki でリギングしたもので、顔を左右に向け、まばたきし、話しています。" />
-  <br />
-  <sub>左が完成した 1 枚絵、右がそこから切り出したモデルです。冒頭のキャラクターを、別の方法で作りました。</sub>
-</p>
 
 どの方法でも、できあがるのは 1 つの `.iki` ファイルです。テクスチャも含んだプレーンな JSON で、ファイルは作った人のものです。WebGL ランタイムが[どのブラウザでも再生](#play-a-model)し、アプリ側は口・視線・表情を設定してキャラクターを動かします。話す AI キャラクターのためのフレームワーク [Charivo](https://github.com/zeikar/charivo) もこの方式です。Charivo のライブデモでは、上のキャラクター [Twin](https://charivo.vercel.app/?character=twin) や、全身モデルの [Mint](https://charivo.vercel.app/?character=mint) と、チャット・音声・リップシンク付きで会話できます。
 
