@@ -848,6 +848,179 @@ describe("splitLipSet and closedLips", () => {
   });
 });
 
+describe("splitLipSet: the green the key leaves", () => {
+  /** A greenish halo on the outline's inner edge: 35 levels of excess green,
+   *  under the old check's 40, and off the line from the ink to the fill, so
+   *  the key has no ramp to read it on and keeps it as drawn. */
+  const HALO: RGB = [70, 110, 75];
+  const excess = (b: Buffer, i: number) => b[i + 1] - Math.max(b[i], b[i + 2]);
+
+  it("despills every layer of the set, the halo opaque or soft", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lips-spill-"));
+    try {
+      await writeKeyedMouth(dir);
+      await writeInterior(dir);
+      const src = await decodePng(path.join(dir, "mouth_keyed.png"));
+      const { rgba, width: W, height: H } = src;
+      const green = (p: number) =>
+        rgba[p * 4 + 3] === 255 &&
+        rgba[p * 4 + 1] === 255 &&
+        rgba[p * 4] === 0 &&
+        rgba[p * 4 + 2] === 0;
+      let halo = 0;
+      for (let y = 1; y < H - 1; y++) {
+        for (let x = 1; x < W - 1; x++) {
+          const p = y * W + x;
+          if (rgba[p * 4 + 3] === 0 || green(p)) continue;
+          if (![p - 1, p + 1, p - W, p + W].some(green)) continue;
+          // Every other one antialiased: a soft edge pixel.
+          rgba.set([...HALO, halo++ % 2 === 0 ? 255 : 200], p * 4);
+        }
+      }
+      expect(halo).toBeGreaterThan(100);
+      const keyed = keyGreen(rgba, W, H);
+      let kept = 0;
+      for (let i = 0; i < keyed.length; i += 4)
+        if (keyed[i + 3] >= 128 && excess(keyed, i) > 16) kept++;
+      expect(kept, "the key keeps the halo").toBeGreaterThan(0);
+
+      const i = await decodePng(path.join(dir, "mouth_interior.png"));
+      const interior = await prepInterior(i.rgba, i.width, i.height);
+      const w = 76;
+      const h = Math.round((H * w) / W);
+      const frame = await sharp(keyed, {
+        raw: { width: W, height: H, channels: 4 },
+      })
+        .resize(w, h, { fit: "fill" })
+        .png()
+        .toBuffer();
+      const split = await splitLipSet(frame, w, h, interior);
+      for (const [role, png] of Object.entries({
+        mouth_inner: split.inner,
+        lip_lower: split.lower,
+        lip_upper: split.upper,
+        mouth_tongue: split.tongue,
+        mouth_teeth: split.teeth,
+      })) {
+        const { data } = await sharp(png)
+          .ensureAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        let spill = 0;
+        for (let k = 0; k < data.length; k += 4)
+          if (data[k + 3] > 0 && excess(data, k) > 1) spill++;
+        expect(spill, role).toBe(0);
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves the interior's own colours as drawn: only the keyed frame is despilled", async () => {
+    // A green-grey cavity: green over red and blue, but none of it the key's.
+    const FILL: RGB = [24, 64, 32];
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lips-interior-"));
+    try {
+      await writeKeyedMouth(dir);
+      await writeInterior(dir, { dark: true, fill: FILL });
+      const src = await decodePng(path.join(dir, "mouth_keyed.png"));
+      const keyed = keyGreen(src.rgba, src.width, src.height);
+      const i = await decodePng(path.join(dir, "mouth_interior.png"));
+      const interior = await prepInterior(i.rgba, i.width, i.height);
+      expect(interior.cavity).toEqual(FILL);
+      const w = 76;
+      const h = Math.round((src.height * w) / src.width);
+      const frame = await sharp(keyed, {
+        raw: { width: src.width, height: src.height, channels: 4 },
+      })
+        .resize(w, h, { fit: "fill" })
+        .png()
+        .toBuffer();
+      const split = await splitLipSet(frame, w, h, interior);
+      const { data } = await sharp(split.inner)
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      let asDrawn = 0;
+      let clamped = 0;
+      for (let k = 0; k < data.length; k += 4) {
+        if (data[k + 3] === 0) continue;
+        const [r, g, b] = [data[k], data[k + 1], data[k + 2]];
+        if (r === FILL[0] && g === FILL[1] && b === FILL[2]) asDrawn++;
+        if (r === FILL[0] && g === Math.max(FILL[0], FILL[2]) && b === FILL[2])
+          clamped++;
+      }
+      expect(asDrawn, "the fill as drawn").toBeGreaterThan(100);
+      expect(clamped, "the fill despilled").toBe(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reads the frame as keyed: a pale green lower lip is still its skin", async () => {
+    // Luma over BAND_LUMA as drawn, under it once clamped to (145, 145, 145):
+    // despilled before the analysis, the split found no skin under the opening.
+    const LIP: RGB = [145, 162, 145];
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lips-keyed-"));
+    try {
+      await writeKeyedMouth(dir, { lip: LIP });
+      await writeInterior(dir);
+      const src = await decodePng(path.join(dir, "mouth_keyed.png"));
+      const keyed = keyGreen(src.rgba, src.width, src.height);
+      const i = await decodePng(path.join(dir, "mouth_interior.png"));
+      const interior = await prepInterior(i.rgba, i.width, i.height);
+      const frame = await sharp(keyed, {
+        raw: { width: src.width, height: src.height, channels: 4 },
+      })
+        .png()
+        .toBuffer();
+      const split = await splitLipSet(frame, src.width, src.height, interior);
+      const { data } = await sharp(split.lower)
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      // The lip's bottom rows, past SPILL_REACH of the opening, as drawn.
+      const p = (57 * src.width + 60) * 4;
+      expect([data[p], data[p + 1], data[p + 2]]).toEqual(LIP);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("despills only near the opening: teal shading the key never touched stays", async () => {
+    const SHADE: RGB = [50, 110, 90];
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lips-shade-"));
+    try {
+      await writeKeyedMouth(dir, { shade: SHADE });
+      await writeInterior(dir);
+      const src = await decodePng(path.join(dir, "mouth_keyed.png"));
+      const keyed = keyGreen(src.rgba, src.width, src.height);
+      const i = await decodePng(path.join(dir, "mouth_interior.png"));
+      const interior = await prepInterior(i.rgba, i.width, i.height);
+      const frame = await sharp(keyed, {
+        raw: { width: src.width, height: src.height, channels: 4 },
+      })
+        .png()
+        .toBuffer();
+      const split = await splitLipSet(frame, src.width, src.height, interior);
+      const { data } = await sharp(split.lower)
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      for (const [x, y] of [
+        [52, 55],
+        [60, 56],
+        [67, 57],
+      ]) {
+        const p = (y * src.width + x) * 4;
+        expect([data[p], data[p + 1], data[p + 2]], `${x},${y}`).toEqual(SHADE);
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("closedLips: a sub-pixel shift", () => {
   it("moves a straight line smoothly, no one-row steps, alpha kept", async () => {
     const W = 20;

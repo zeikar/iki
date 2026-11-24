@@ -59,6 +59,11 @@ interface Variant {
   inner?: [number, number, number, number];
   lowerFrom?: number;
   green?: boolean;
+  /** A green fringe on the line's bottom row: 35 levels of excess green,
+   *  opaque, or 60 at alpha 100 (23.5 once drawn). */
+  fringe?: "opaque" | "soft";
+  /** The cavity's colour instead of CAVITY. */
+  cavity?: [number, number, number];
   /** Rows cleared across the opening inside the interior. */
   hollow?: [number, number];
   /** Columns cleared out of the interior altogether. */
@@ -88,11 +93,15 @@ async function writeSet(v: Variant = {}): Promise<string> {
       block(lx0, lx1, ly0, ly1, DARK)(set);
       block(54, 59, 90, 95, DARK)(set);
       block(140, 145, 90, 95, DARK)(set);
+      for (let x = 70; x < 130 && v.fringe !== undefined; x++) {
+        if (v.fringe === "opaque") set(x, ly1, [70, 110, 75]);
+        else set(x, ly1, [40, 100, 30], 100);
+      }
     });
   }
   if (v.omit !== "mouth_inner") {
     await writeLayer(dir, "mouth_inner.png", (set) => {
-      block(ix0, ix1, iy0, iy1, CAVITY)(set);
+      block(ix0, ix1, iy0, iy1, v.cavity ?? CAVITY)(set);
       block(ix0, ix1, Math.max(iy0, 115), iy1, DARK)(set);
       if (v.green) block(70, 74, 100, 103, KEY_GREEN)(set);
       if (v.innerGap) {
@@ -225,6 +234,28 @@ describe("measure_layers: the lip set", () => {
     expect(
       (await warningsOf(await writeSet({ green: true }))).join("\n"),
     ).toMatch(/green/);
+  });
+
+  it("warns of a green fringe the old opaque-only check passed, at the alpha it is drawn at", async () => {
+    for (const fringe of ["opaque", "soft"] as const) {
+      expect(await warningsOf(await writeSet({ fringe })), fringe).toContain(
+        "lip_upper: green left (key green: g over r and b by more than 40 in an opaque pixel, or by more " +
+          "than 16 at the pixel's alpha on the opening's edge) — it shows " +
+          "as a green fringe on the lips. Recompose from mouth_keyed.png + mouth_interior.png (free); if it " +
+          "persists, regenerate mouth_keyed.png with the green only inside the opening. Billed.",
+      );
+    }
+    expect((await warningsOf(await writeSet())).join("\n")).not.toMatch(
+      /green/,
+    );
+  });
+
+  it("reads the opening's edge, not the interior's own green-grey fill", async () => {
+    // 32 levels of excess green, the interior's own colour: the key never
+    // touched it, and regenerating mouth_keyed.png cannot change it.
+    expect(
+      (await warningsOf(await writeSet({ cavity: [24, 64, 32] }))).join("\n"),
+    ).not.toMatch(/green/);
   });
 
   it("warns of the interior's transparent holes", async () => {

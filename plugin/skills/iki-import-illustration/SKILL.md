@@ -1032,6 +1032,16 @@ Otherwise:
 
 ## Pitfalls
 
+- **Judge every result at full size.** `preview-labels.png`, the stack and the
+  renders shrunk to fit a screen hide a green fringe on the lips, a hair-tinted
+  collar or a seam. Read them at full size, or as full-size crops of the place
+  in question.
+- **Compare with the picture by overlay, not by eye.** Scale the render so its
+  chin and the face's centre land on the picture's, then overlay the two (half
+  each, or flip between them) and read the differences off the overlay.
+- **A long braid passing behind a shoulder** is hidden there in the picture, so
+  the part of it the cut fills in behind the shoulder is made up. Report it,
+  and judge it on the renders where the shoulder moves off it.
 - **A brow drawn through the bangs** is fine: the strand over it is refilled
   and the brow passes under it. Keep the band no wider than the brow.
 - **Never pad, stretch or repaint the picture** to get past a refusal: tell

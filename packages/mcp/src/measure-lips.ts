@@ -43,9 +43,20 @@ const MIN_OPENING_ROWS = 8;
 /** The line's height at the centre, rows, under which a closed mouth has no
  *  line to close on (a hairline folds to nothing). Our own value, provisional. */
 const MIN_LINE_ROWS = 2;
-/** Green excess `g - max(r, b)` above which an opaque lip pixel is key green
- *  left over rather than art. Our own value, provisional. */
-const GREEN_EXCESS = 40;
+/** Green excess `g - max(r, b)`, at the pixel's alpha (what it adds over the
+ *  face once drawn), above which a pixel on the opening's edge is key green
+ *  left over rather than art: an antialiased edge shows the fringe whatever
+ *  its alpha. The composer despills that edge, so this is for a set it did
+ *  not cut. Our own value, provisional. */
+const GREEN_EXCESS = 16;
+/** Green excess above which an opaque pixel anywhere in the set is flat key
+ *  green left over (a patch of #00FF00), whatever is drawn round it: over
+ *  any interior's own colour. Our own value, provisional. */
+const KEY_GREEN_EXCESS = 40;
+/** How far from `mouth_inner`'s paint, px, a line pixel is on the opening's
+ *  edge, where the key's green spills. The cavity's own fill, and line paint
+ *  further out, never touched the key, so they are not read. Our own value. */
+const EDGE_REACH = 3;
 /** The share of the opening's area that may be transparent inside
  *  `mouth_inner`'s own span before the face shows through it. Our own value,
  *  provisional. */
@@ -152,6 +163,7 @@ export async function lipWarnings(
   });
   const set = new Map<string, LayerInput>();
   const green: string[] = [];
+  const pixels = new Map<string, Buffer>();
   for (const role of LIP_ROLES) {
     const fileName = `${role}.png`;
     const { rgba } = await decodePng(path.join(absDir, fileName));
@@ -159,13 +171,50 @@ export async function lipWarnings(
     // the pixels. layerStats counts alpha > 8 and the measurer alpha >= 8, so
     // a layer measured non-empty is never empty here.
     set.set(role, measurer.add({ role, fileName, rgba })!);
+    pixels.set(role, rgba);
     for (let i = 0; i < rgba.length; i += 4) {
       if (
         rgba[i + 3] >= ALPHA_OPAQUE &&
-        rgba[i + 1] - Math.max(rgba[i], rgba[i + 2]) > GREEN_EXCESS
+        rgba[i + 1] - Math.max(rgba[i], rgba[i + 2]) > KEY_GREEN_EXCESS
       ) {
         green.push(role);
         break;
+      }
+    }
+  }
+  // The opening's edge: within EDGE_REACH of mouth_inner's paint. Only the
+  // lines are read there; mouth_inner's own fill is the interior's colour.
+  {
+    const W = inner.canvasW;
+    const H = inner.canvasH;
+    const cavity = pixels.get("mouth_inner")!;
+    const edge = new Uint8Array(W * H);
+    for (let p = 0; p < W * H; p++) {
+      if (cavity[p * 4 + 3] < 128) continue;
+      const x = p % W;
+      const y = (p - x) / W;
+      for (let dy = -EDGE_REACH; dy <= EDGE_REACH; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= H) continue;
+        for (let dx = -EDGE_REACH; dx <= EDGE_REACH; dx++) {
+          const xx = x + dx;
+          if (xx >= 0 && xx < W) edge[yy * W + xx] = 1;
+        }
+      }
+    }
+    for (const role of ["lip_upper", "lip_lower"] as const) {
+      if (green.includes(role)) continue;
+      const rgba = pixels.get(role)!;
+      for (let p = 0; p < W * H; p++) {
+        const i = p * 4;
+        if (
+          edge[p] &&
+          ((rgba[i + 1] - Math.max(rgba[i], rgba[i + 2])) * rgba[i + 3]) / 255 >
+            GREEN_EXCESS
+        ) {
+          green.push(role);
+          break;
+        }
       }
     }
   }
@@ -265,9 +314,8 @@ export async function lipWarnings(
   }
   if (!inPlace && green.length > 0) {
     warnings.push(
-      `${green.join("/")}: opaque green left (key green, g exceeds r and b by over ${GREEN_EXCESS}) — it shows as a ` +
-        `green fringe on the lips. Regenerate mouth_keyed.png with the green only inside the opening, or ` +
-        `mouth_interior.png without green in it. Billed.`,
+      `${green.join("/")}: green left (key green: g over r and b by more than ${KEY_GREEN_EXCESS} in an opaque pixel, or by more than ${GREEN_EXCESS} at the pixel's alpha on the opening's edge) — it shows as a ` +
+        `green fringe on the lips. ${recompose("mouth_keyed.png", "with the green only inside the opening")}`,
     );
   }
   if (!inPlace && area > 0 && hollow > INTERIOR_GAP_FRACTION * area) {

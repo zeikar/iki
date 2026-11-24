@@ -259,6 +259,13 @@ fix:
   that arm's `cx` toward the body by the px the warning names. When the body
   has no paint on the pivot's row at all, move the arm's `cy` onto the
   shoulder instead.
+- **An arm on the neck.** When the cap warning adds that the body is much
+  narrower on the pivot's row than below it, it gives two readings: settle
+  which on `preview.png`. If that row is the neck (a long neck drawn above the
+  shoulders), move the arm's `cy` down onto the shoulder line; never its `cx`
+  inward, which hangs the arm from the neck. If it is the shoulders over a
+  wider garment (a cloak, a flared dress), move its `cx` toward the body by the
+  px it names.
 
 ## Step 3 — Rig
 
@@ -274,6 +281,13 @@ previews (`preview.png`, `preview-pose.png`).
 
 ## Pitfalls
 
+- **Judging a result on a downscaled preview.** A 3650 px canvas shrunk to fit
+  a screen hides a fringe, a seam or a misplaced shoulder. Read every preview
+  and render at full size, or as full-size crops of the place in question.
+- **Comparing with the reference by eye.** Two pictures side by side hide a
+  head a tenth too big or arms a few px too high. Scale the render so its chin
+  and the face's centre land on the reference's, then overlay the two (half
+  each, or flip between them) and read the differences off the overlay.
 - **The pose forearm drawn with the upper arm.** The joint doubles: the upper
   arm is `arm.png`'s, and stays under the pose forearm. Draw the forearm and
   the hand only, with a closed elbow end.

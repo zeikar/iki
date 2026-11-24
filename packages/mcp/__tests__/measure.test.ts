@@ -647,6 +647,32 @@ describe("arms", () => {
     ]);
   });
 
+  it("gives both readings for an arm whose pivot row is much narrower than the body below", async () => {
+    // A 20-px neck on rows 100..159 over the torso, which starts at row 160.
+    const dir = tmpDir();
+    await writeLayer(
+      dir,
+      "body.png",
+      (set) => {
+        rect(set, 90, 100, 20, 60, DARK);
+        rect(set, 60, 160, 80, 241, DARK);
+      },
+      TALL,
+    );
+    await writeLayer(dir, "arm_R.png", armAt(60), TALL);
+    expect(armChecks((await measureOk(dir)).warnings, "arm_R")).toEqual([
+      "arm_R: its shoulder cap reaches -15 px under the torso's edge on its pivot row (y=115), " +
+        "under half its radius (7.5 px), and the body is 20 px wide there against 80 px at y=160. " +
+        "Read the shoulder line off preview.png: if that row is the neck, move layout.arm_R.cy down " +
+        "onto the shoulder line (free) — not its cx, which hangs the arm from the neck; if it is the " +
+        "shoulders over a wider garment, move layout.arm_R.cx 23 px toward the body (free).",
+    ]);
+
+    // Moved down onto the shoulders (the neck reading), the cap is centred on the torso's edge.
+    await writeLayer(dir, "arm_R.png", armAt(60, 160), TALL);
+    expect(armChecks((await measureOk(dir)).warnings, "arm_R")).toEqual([]);
+  });
+
   it("warns of an arm without a body, and of one too short to rig", async () => {
     const bodiless = tmpDir();
     await writeLayer(bodiless, "arm_R.png", armAt(60), TALL);

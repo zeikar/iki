@@ -18,6 +18,14 @@ import {
 import type { LayerStats } from "./measure";
 import { decodePng } from "./node-images";
 
+/** The share of the body's height, from its top, its shoulders lie in: the
+ *  band the cap warning compares the pivot's row against. Our own value. */
+export const UPPER_BODY = 0.35;
+/** A pivot row under this share of the body's widest row below it in that
+ *  band is much narrower than the body there (a neck, or shoulders over a
+ *  flare). Our own value: a drawn neck is well under half the shoulders. */
+export const NARROW_ROW = 0.6;
+
 /** The arm roles, screen right (`arm_L`) then screen left (`arm_R`). */
 export const ARM_ROLES = ["arm_L", "arm_R"] as const;
 
@@ -114,7 +122,13 @@ export async function armWarnings(
 /**
  * The shoulder cap against the torso's edge on the arm's side, on the canvas
  * row holding the shoulder pivot: the cap reaches r_u past the pivot, so it
- * overlaps the torso by r_u less the pivot's distance outside that edge.
+ * overlaps the torso by r_u less the pivot's distance outside that edge. When
+ * the cap falls short and the body is much narrower on the pivot's row than
+ * below it in its upper band (NARROW_ROW), the row may be a neck — where a
+ * move toward the body hangs the arm from the neck — or shoulders over a
+ * wider garment; row widths cannot tell which, so the warning gives both
+ * readings for the agent to settle on preview.png. An arm that passes the cap
+ * check is never warned, whatever the widths.
  */
 function capWarning(
   arm: (typeof ARM_ROLES)[number],
@@ -136,6 +150,27 @@ function capWarning(
   const overlap = g.shoulderRadius - g.side * (pivotX - edge);
   const need = CAP_OVERLAP * g.shoulderRadius;
   if (overlap >= need) return undefined;
+  const crop = row - body.bbox.y;
+  const width = (r: number[] | undefined) =>
+    r === undefined || r.length === 0 ? 0 : r[r.length - 1] - r[0];
+  const here = width(runs);
+  let below = 0;
+  let belowRow = row;
+  const end = Math.ceil(UPPER_BODY * body.bbox.h);
+  for (let k = crop + 1; k < end; k++) {
+    const w = width(body.rowRuns?.[k]);
+    if (w > below) [below, belowRow] = [w, body.bbox.y + k];
+  }
+  if (here < NARROW_ROW * below) {
+    return (
+      `${arm}: its shoulder cap reaches ${px(overlap)} px under the torso's edge on its pivot row ` +
+      `(y=${row}), under half its radius (${px(need)} px), and the body is ${here} px wide there ` +
+      `against ${below} px at y=${belowRow}. Read the shoulder line off preview.png: if that row is ` +
+      `the neck, move layout.${arm}.cy down onto the shoulder line (free) — not its cx, which hangs ` +
+      `the arm from the neck; if it is the shoulders over a wider garment, move layout.${arm}.cx ` +
+      `${Math.ceil(need - overlap)} px toward the body (free).`
+    );
+  }
   return (
     `${arm}: its shoulder cap reaches ${px(overlap)} px under the torso's edge on its pivot row ` +
     `(y=${row}), under half its radius (${px(need)} px) — a gap opens beside the shoulder once ` +

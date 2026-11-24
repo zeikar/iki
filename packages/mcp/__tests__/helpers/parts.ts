@@ -413,7 +413,9 @@ export const KEY_GREEN: RGB = [0, 255, 0];
  * the green reaches the outside; `noGreen` leaves the hole transparent;
  * `twoRegions` lays a TEETH bar across the hole's middle, parting the green
  * in two; `spill` puts a 10x10 block of KEY_GREEN on the lip's skin (about
- * 4 % of the hole).
+ * 4 % of the hole). `lip` colours the lower lip instead of SKIN; `shade` paints
+ * a 20x4 patch of that colour on the lip's bottom rows (x 50..69, y 54..57),
+ * 8 rows under the hole, where the key never reaches.
  */
 export async function writeKeyedMouth(
   dir: string,
@@ -422,6 +424,8 @@ export async function writeKeyedMouth(
     noGreen?: boolean;
     twoRegions?: boolean;
     spill?: boolean;
+    lip?: RGB;
+    shade?: RGB;
   } = {},
 ): Promise<void> {
   const [cx, cy, rx, ry] = [60, 28, 48, 18];
@@ -444,7 +448,9 @@ export async function writeKeyedMouth(
         } else if (line) {
           set(x, y, DARK);
         } else if (lower) {
-          set(x, y, SKIN);
+          set(x, y, opts.lip ?? SKIN);
+          if (opts.shade && x >= 50 && x < 70 && y >= 54 && y < 58)
+            set(x, y, opts.shade);
         }
         if (
           opts.twoRegions &&
@@ -475,11 +481,11 @@ export async function writeKeyedMouth(
  * `rim` (the default), a LIP_RIM band 6 rows deep along the bottom edge that
  * touches the border, the way a generator draws a lip under the cavity.
  * `allRim` paints the whole oval LIP_RIM; `dark` the whole oval CAVITY, no
- * teeth, tongue or rim.
+ * teeth, tongue or rim; `fill` that colour instead of CAVITY.
  */
 export async function writeInterior(
   dir: string,
-  opts: { rim?: boolean; allRim?: boolean; dark?: true } = {},
+  opts: { rim?: boolean; allRim?: boolean; dark?: true; fill?: RGB } = {},
 ): Promise<void> {
   const inOval = (x: number, y: number) =>
     ((x + 0.5 - 50) / 50) ** 2 + ((y + 0.5 - 25) / 25) ** 2 <= 1;
@@ -487,7 +493,7 @@ export async function writeInterior(
     for (let y = 0; y < 50; y++) {
       for (let x = 0; x < 100; x++) {
         if (!inOval(x, y)) continue;
-        let rgb = CAVITY;
+        let rgb = opts.fill ?? CAVITY;
         if (!opts.dark) {
           if (y < 8) rgb = TEETH;
           else if (
@@ -522,16 +528,40 @@ export async function writeLipParts(
  * are squared with 20 px rounded corners, so its straight sides cover rows
  * 60..299, under half the crop's height; and two 66 px legs from the crotch
  * at row 300 (0.5 of the height) down, with an 8 px gap between them.
+ * `neck` rows of neck instead of 40 (the torso then starts there): 120 is a
+ * long neck, the shoulders 0.2 of the height down, so SHOULDER_DROP's row is
+ * the neck. `aLine`: a dress instead of the torso, 100 px at the shoulders and
+ * flaring without a waist to 200 px at row 200, so the band the shoulders are
+ * sought in widens all the way down.
  */
-async function writeFullBody(dir: string): Promise<void> {
+async function writeFullBody(
+  dir: string,
+  neck = 40,
+  aLine = false,
+): Promise<void> {
   await writeRgbaPart(dir, "body.png", 200, 600, (set) => {
-    for (let y = 0; y < 40; y++) for (let x = 85; x < 115; x++) set(x, y, DARK);
+    for (let y = 0; y < neck; y++)
+      for (let x = 85; x < 115; x++) set(x, y, DARK);
     const r = 20;
-    for (let y = 40; y < 300; y++) {
+    if (aLine) {
+      // 100 px shoulders with 20 px rounded corners on rows 40..59, then a
+      // dress flaring without a waist to the crop's full 200 px at row 200.
+      for (let y = neck; y < 300; y++) {
+        const half = y < 60 ? 50 : Math.min(100, 50 + (50 * (y - 60)) / 140);
+        for (let x = 0; x < 200; x++) {
+          const ox = Math.abs(x + 0.5 - 100);
+          if (ox > half) continue;
+          const dx = y < 60 ? Math.max(0, ox - (half - r)) : 0;
+          const dy = Math.max(0, neck + r - (y + 0.5));
+          if (dx * dx + dy * dy <= r * r) set(x, y, DARK);
+        }
+      }
+    }
+    for (let y = neck; y < (aLine ? 0 : 300); y++) {
       for (let x = 20; x < 180; x++) {
         // Distance past the nearer top corner's centre, 0 off the corners.
         const dx = Math.max(0, 20 + r - (x + 0.5), x + 0.5 - (180 - r));
-        const dy = Math.max(0, 40 + r - (y + 0.5));
+        const dy = Math.max(0, neck + r - (y + 0.5));
         if (dx * dx + dy * dy <= r * r) set(x, y, DARK);
       }
     }
@@ -594,10 +624,17 @@ export async function writeFullBodyParts(
   {
     arm = "hanging",
     pose = false,
-  }: { arm?: "hanging" | "squat"; pose?: boolean } = {},
+    neck,
+    aLine = false,
+  }: {
+    arm?: "hanging" | "squat";
+    pose?: boolean;
+    neck?: number;
+    aLine?: boolean;
+  } = {},
 ): Promise<void> {
   await writePartsSet(dir, { omit: ["body.png"] });
-  await writeFullBody(dir);
+  await writeFullBody(dir, neck, aLine);
   await writeArm(dir, arm);
   if (pose) await writeForearmPose(dir);
 }
