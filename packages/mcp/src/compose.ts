@@ -1489,6 +1489,7 @@ export async function composeLayersFromParts(
             top: body.top,
             w: body.part.w,
             h: body.part.h,
+            buf: body.part.buf,
           },
         );
         const unset = (["cx", "cy"] as const).filter(

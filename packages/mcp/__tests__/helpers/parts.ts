@@ -522,16 +522,20 @@ export async function writeLipParts(
  * are squared with 20 px rounded corners, so its straight sides cover rows
  * 60..299, under half the crop's height; and two 66 px legs from the crotch
  * at row 300 (0.5 of the height) down, with an 8 px gap between them.
+ * `neck` rows of neck instead of 40 (the torso then starts there): 120 is a
+ * long neck, the shoulders 0.2 of the height down, so SHOULDER_DROP's row is
+ * the neck.
  */
-async function writeFullBody(dir: string): Promise<void> {
+async function writeFullBody(dir: string, neck = 40): Promise<void> {
   await writeRgbaPart(dir, "body.png", 200, 600, (set) => {
-    for (let y = 0; y < 40; y++) for (let x = 85; x < 115; x++) set(x, y, DARK);
+    for (let y = 0; y < neck; y++)
+      for (let x = 85; x < 115; x++) set(x, y, DARK);
     const r = 20;
-    for (let y = 40; y < 300; y++) {
+    for (let y = neck; y < 300; y++) {
       for (let x = 20; x < 180; x++) {
         // Distance past the nearer top corner's centre, 0 off the corners.
         const dx = Math.max(0, 20 + r - (x + 0.5), x + 0.5 - (180 - r));
-        const dy = Math.max(0, 40 + r - (y + 0.5));
+        const dy = Math.max(0, neck + r - (y + 0.5));
         if (dx * dx + dy * dy <= r * r) set(x, y, DARK);
       }
     }
@@ -594,10 +598,11 @@ export async function writeFullBodyParts(
   {
     arm = "hanging",
     pose = false,
-  }: { arm?: "hanging" | "squat"; pose?: boolean } = {},
+    neck,
+  }: { arm?: "hanging" | "squat"; pose?: boolean; neck?: number } = {},
 ): Promise<void> {
   await writePartsSet(dir, { omit: ["body.png"] });
-  await writeFullBody(dir);
+  await writeFullBody(dir, neck);
   await writeArm(dir, arm);
   if (pose) await writeForearmPose(dir);
 }

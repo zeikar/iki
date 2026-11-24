@@ -647,6 +647,30 @@ describe("arms", () => {
     ]);
   });
 
+  it("tells an arm hung on a long neck to move down, not toward the body", async () => {
+    // A 20-px neck on rows 100..159 over the torso, which starts at row 160.
+    const dir = tmpDir();
+    await writeLayer(
+      dir,
+      "body.png",
+      (set) => {
+        rect(set, 90, 100, 20, 60, DARK);
+        rect(set, 60, 160, 80, 241, DARK);
+      },
+      TALL,
+    );
+    await writeLayer(dir, "arm_R.png", armAt(60), TALL);
+    expect(armChecks((await measureOk(dir)).warnings, "arm_R")).toEqual([
+      "arm_R: its shoulder pivot's row (y=115) is on the neck: the body is 20 px wide there, its " +
+        "shoulders 80 px from y=160 — the arm hangs from the neck. Move layout.arm_R.cy 60 px down, " +
+        "its cap's top onto the shoulder line (free), not its cx toward the body.",
+    ]);
+
+    // Moved as it says, the cap is centred on the torso's edge.
+    await writeLayer(dir, "arm_R.png", armAt(60, 160), TALL);
+    expect(armChecks((await measureOk(dir)).warnings, "arm_R")).toEqual([]);
+  });
+
   it("warns of an arm without a body, and of one too short to rig", async () => {
     const bodiless = tmpDir();
     await writeLayer(bodiless, "arm_R.png", armAt(60), TALL);

@@ -364,6 +364,46 @@ describe("arms", () => {
     ).toBeLessThanOrEqual(1);
   });
 
+  it("hangs the arms of a long-necked body on its shoulders, not its neck", async () => {
+    // A 120-row neck: the torso starts 0.2 of the crop down, so
+    // SHOULDER_DROP's row (0.12) is the neck. At w 600 the crop is 3.75x: the
+    // neck ends 450 rows under the box's top, and the 75 px corners reach 0.9
+    // of the torso's 600 px 15 rows under that.
+    const dir = partsDir();
+    await writeFullBodyParts(dir, { neck: 120 });
+    const result = await composeOk({
+      partsDir: dir,
+      outDir: outDir(),
+      canvasHeight: TALL,
+      layout: { body },
+    });
+    const box = layerOf(result, "body");
+    const shoulders = box.top + 450 + 15;
+    for (const [role, cornerX] of [
+      ["arm_R", box.left],
+      ["arm_L", box.left + box.width],
+    ] as const) {
+      const { rgba } = await decodePng(layerOf(result, role).path);
+      const layer = createLayerSetMeasurer({
+        width: CANVAS,
+        height: TALL,
+      }).add({ role, fileName: "arm.png", rgba })!;
+      const radius = armGeometry(layer, 0).shoulderRadius;
+      const pivot = await shoulderOf(result, role);
+      expect(Math.abs(pivot.x - cornerX), role).toBeLessThanOrEqual(1);
+      // The cap's top on the shoulder line, well under the old row.
+      expect(Math.abs(pivot.y - radius - shoulders), role).toBeLessThanOrEqual(
+        2,
+      );
+      expect(pivot.y, role).toBeGreaterThan(
+        box.top + SHOULDER_DROP * box.height + radius,
+      );
+    }
+    expect(result.measure.warnings.filter((w) => w.startsWith("arm_"))).toEqual(
+      [],
+    );
+  });
+
   it("leaves a bust's skipped list as it was, and removes an earlier compose's arms", async () => {
     const dir = partsDir();
     await writeFullBodyParts(dir);

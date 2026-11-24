@@ -555,7 +555,8 @@ and how a new character's round-1 compose corrects the provisional
 - On a full body, an arm-cap warning (`arm_R: its shoulder cap reaches …`) is
   a free `layout.arm_*` move: shift that arm's `cx` toward the body by the px
   it names (its `cy` onto the shoulder when the body has no paint on the
-  pivot's row), and recompose — not a reason to regenerate the arm.
+  pivot's row, and down by the px it names when the pivot's row is on the
+  neck), and recompose — not a reason to regenerate the arm.
 - A pose-forearm check (`forearm_pose_R: its elbow end is … px off arm_R's
 elbow`, `… px wide, … % off arm_R's elbow run`) names its own free retune:
   remove `layout.forearm_pose_*.cx` / `cy` (so it stays pinned on the elbow)

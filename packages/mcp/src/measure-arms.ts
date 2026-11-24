@@ -15,6 +15,7 @@ import {
   type LayerInput,
   type LayerSetMeasurer,
 } from "@ikijs/editor";
+import { onNeck, shoulderLine } from "./compose-arms";
 import type { LayerStats } from "./measure";
 import { decodePng } from "./node-images";
 
@@ -114,7 +115,10 @@ export async function armWarnings(
 /**
  * The shoulder cap against the torso's edge on the arm's side, on the canvas
  * row holding the shoulder pivot: the cap reaches r_u past the pivot, so it
- * overlaps the torso by r_u less the pivot's distance outside that edge.
+ * overlaps the torso by r_u less the pivot's distance outside that edge. A
+ * pivot row on the neck (`onNeck`: above the shoulders the body's paint has,
+ * and narrow) is the arm hung too high, where moving it toward the body would
+ * hang it on the neck: that warning names how far down the shoulders are.
  */
 function capWarning(
   arm: (typeof ARM_ROLES)[number],
@@ -129,6 +133,19 @@ function capWarning(
     return (
       `${arm}: the body has no paint on its shoulder pivot's row (y=${row}) — the torso shows a ` +
       `gap beside the shoulder once the arm raises. Retune layout.${arm}.cy onto the shoulder (free).`
+    );
+  }
+  const line = shoulderLine(body);
+  if (line !== null && onNeck(line, row - body.bbox.y)) {
+    const shoulder = body.bbox.y + line.row;
+    const down = Math.round(
+      shoulder + g.shoulderRadius - (body.canvasH / 2 - g.shoulder.y),
+    );
+    return (
+      `${arm}: its shoulder pivot's row (y=${row}) is on the neck: the body is ` +
+      `${line.widths[row - body.bbox.y]} px wide there, its shoulders ${line.span} px from y=${shoulder} — ` +
+      `the arm hangs from the neck. Move layout.${arm}.cy ${down} px down, its cap's top onto the ` +
+      `shoulder line (free), not its cx toward the body.`
     );
   }
   // The outermost run's end on the arm's side; a run's end column is exclusive.

@@ -6,6 +6,10 @@
  * box's left edge for `arm_R`, its right edge for `arm_L`, SHOULDER_DROP of
  * its height under its top. On a torso widest at its shoulders, the cap's
  * centre then sits on the torso's edge, overlapping it by the cap's radius.
+ * A body whose row there is its neck (a long neck, as the skill draws it)
+ * has its shoulders read off its paint instead (`shoulderLine`): the corner
+ * then lies the cap's radius under the shoulders' first row, the cap's top
+ * on the shoulder line.
  * An unset `w` is ARM_WIDTH of the body's width.
  *
  * The pivot is the rig's own: `armGeometry`, run on the resized part as
@@ -31,6 +35,7 @@ import {
   forearmPoseGeometry,
   type ArmGeometry,
   type ForearmPoseGeometry,
+  type LayerInput,
 } from "@ikijs/editor";
 import type { ArmLayout } from "./compose";
 import { AutoRigInputError } from "./limits";
@@ -42,20 +47,111 @@ export const ARM_WIDTH = 0.4;
  *  its height. Our own value, provisional: to be picked by eye on the first
  *  full-body character. */
 export const SHOULDER_DROP = 0.12;
+/** The share of the body box's height, from its top, its shoulders are
+ *  sought in: above the band the rig looks for the hips in. Our own value. */
+export const UPPER_BODY = 0.35;
+/** A row narrower than this share of the widest above it, going down, is the
+ *  waist: the shoulders are the widest rows above it, so hips or a skirt
+ *  wider than the shoulders below it are never read as them. Our own value. */
+export const WAIST_SPAN = 0.85;
+/** A row at least this share of the shoulders' widest is on the shoulders.
+ *  Our own value. */
+export const SHOULDER_SPAN = 0.9;
+/** A row above the shoulders under this share of their span is the neck (or
+ *  a collar), not the shoulder. Our own value: a drawn neck is well under
+ *  half the shoulders' width, a sloping shoulder's upper rows well over. */
+export const NECK_SPAN = 0.6;
 
-/** A placed part's box on the canvas, px. */
+/** The body's shoulders as its paint has them, in its layer's crop rows
+ *  (`rowRuns`, from `bbox.y`). */
+export interface ShoulderLine {
+  /** The shoulders' first crop row: the first at SHOULDER_SPAN of `span`. */
+  row: number;
+  /** The shoulders' widest row, px. */
+  span: number;
+  /** Each crop row's outermost paint, px (0 for a row with none). */
+  widths: number[];
+}
+
+/**
+ * The shoulders of a body layer, each row's width its outermost paint: the
+ * widest rows going down from its top until the waist (WAIST_SPAN), within
+ * UPPER_BODY of its rows, and their first row. On the corpus's full bodies
+ * an accepted arm's top lies within about 1.5 % of the body's height of it.
+ * null for a layer without `rowRuns` or without paint there.
+ */
+export function shoulderLine(body: LayerInput): ShoulderLine | null {
+  const runs = body.rowRuns;
+  if (runs === undefined) return null;
+  const widths = runs.map((r) => (r.length === 0 ? 0 : r[r.length - 1] - r[0]));
+  const upper = Math.max(1, Math.ceil(UPPER_BODY * widths.length));
+  let span = 0;
+  for (let k = 0; k < upper; k++) {
+    if (widths[k] < WAIST_SPAN * span) break;
+    span = Math.max(span, widths[k]);
+  }
+  if (span === 0) return null;
+  const row = widths.findIndex((w) => w >= SHOULDER_SPAN * span);
+  return { row, span, widths };
+}
+
+/**
+ * Whether a body's crop row is its neck: above its shoulder line and under
+ * NECK_SPAN of its span.
+ */
+export const onNeck = (line: ShoulderLine, row: number): boolean =>
+  row >= 0 && row < line.row && line.widths[row] < NECK_SPAN * line.span;
+
+/** A body layer's shoulders (`shoulderLine`) and the canvas row its crop
+ *  starts on, from the placed body's PNG. */
+async function bodyShoulders(
+  body: PlacedBox,
+): Promise<{ line: ShoulderLine; y0: number } | null> {
+  const { data } = await sharp(body.buf)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const layer = createLayerSetMeasurer({ width: body.w, height: body.h }).add({
+    role: "body",
+    fileName: "body.png",
+    rgba: data,
+  });
+  const line = layer === null ? null : shoulderLine(layer);
+  return layer === null || line === null
+    ? null
+    : { line, y0: body.top + layer.bbox.y };
+}
+
+/**
+ * The row an arm's shoulder pivot hangs on by default, canvas px:
+ * SHOULDER_DROP of the body box's height under its top, unless that row is
+ * the neck (`onNeck`); then `radius` (the cap's, r_u) under the shoulders'
+ * first row, so the cap's top lies on the shoulder line.
+ */
+async function shoulderY(body: PlacedBox, radius: number): Promise<number> {
+  const fraction = body.top + SHOULDER_DROP * body.h;
+  const shoulders = await bodyShoulders(body);
+  if (shoulders === null) return fraction;
+  const { line, y0 } = shoulders;
+  return onNeck(line, Math.floor(fraction) - y0)
+    ? y0 + line.row + radius
+    : fraction;
+}
+
+/** A placed part's box on the canvas, px, and its PNG. */
 interface PlacedBox {
   left: number;
   top: number;
   w: number;
   h: number;
+  buf: Buffer;
 }
 
 /**
  * Where an arm's resized part lands: by its rig shoulder pivot on the body
- * box's shoulder corner for each of `cx` / `cy` left unset, centred on a set
- * one as every other role's part is. An arm the rig would refuse as too short
- * is refused here, path-qualified.
+ * box's shoulder corner (`shoulderY`) for each of `cx` / `cy` left unset,
+ * centred on a set one as every other role's part is. An arm the rig would
+ * refuse as too short is refused here, path-qualified.
  */
 export async function armPlacement(
   role: "arm_L" | "arm_R",
@@ -99,7 +195,7 @@ export async function armPlacement(
   const pivotX = g.shoulder.x + part.w / 2;
   const pivotY = part.h / 2 - g.shoulder.y;
   const cornerX = role === "arm_R" ? body.left : body.left + body.w;
-  const cornerY = body.top + SHOULDER_DROP * body.h;
+  const cornerY = await shoulderY(body, g.shoulderRadius);
   const left = Math.round(
     cfg.cx === undefined ? cornerX - pivotX : cfg.cx - part.w / 2,
   );
