@@ -215,9 +215,7 @@ shoulder, not a wider `layout.body.w`, which scales the hips with it.
 
 **The arms.** They start on their derived defaults. `w` is 0.4 of the body's
 width, and each shoulder pivot hangs on the body box's shoulder corner, 0.12
-of its height under its top; on a long neck, where that row is the neck, the
-cap's top lands on the shoulder line instead. Read `preview.png` against
-`reference-full.png`
+of its height under its top. Read `preview.png` against `reference-full.png`
 for two things:
 
 - the shoulder line: where each arm's top meets the torso;
@@ -261,9 +259,13 @@ fix:
   that arm's `cx` toward the body by the px the warning names. When the body
   has no paint on the pivot's row at all, move the arm's `cy` onto the
   shoulder instead.
-- **An arm on the neck** (`arm_R: its shoulder pivot's row (y=…) is on the
-neck`): move that arm's `cy` down by the px the warning names. Never move its
-  `cx` inward to meet a neck: that hangs the arm from the neck.
+- **An arm on the neck.** When the cap warning adds that the body is much
+  narrower on the pivot's row than below it, it gives two readings: settle
+  which on `preview.png`. If that row is the neck (a long neck drawn above the
+  shoulders), move the arm's `cy` down onto the shoulder line; never its `cx`
+  inward, which hangs the arm from the neck. If it is the shoulders over a
+  wider garment (a cloak, a flared dress), move its `cx` toward the body by the
+  px it names.
 
 ## Step 3 — Rig
 

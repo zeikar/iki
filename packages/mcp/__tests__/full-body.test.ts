@@ -364,11 +364,11 @@ describe("arms", () => {
     ).toBeLessThanOrEqual(1);
   });
 
-  it("hangs the arms of a long-necked body on its shoulders, not its neck", async () => {
-    // A 120-row neck: the torso starts 0.2 of the crop down, so
-    // SHOULDER_DROP's row (0.12) is the neck. At w 600 the crop is 3.75x: the
-    // neck ends 450 rows under the box's top, and the 75 px corners reach 0.9
-    // of the torso's 600 px 15 rows under that.
+  it("hangs a long-necked body's arms on SHOULDER_DROP's row and gives both readings", async () => {
+    // A 120-row neck: the torso starts 0.2 of the crop down, so SHOULDER_DROP's
+    // row (0.12) is the neck. The composer keeps it (row widths cannot tell a
+    // neck from shoulders over a garment); the cap check, which fails there,
+    // names both readings instead of a cx move onto the neck.
     const dir = partsDir();
     await writeFullBodyParts(dir, { neck: 120 });
     const result = await composeOk({
@@ -378,36 +378,30 @@ describe("arms", () => {
       layout: { body },
     });
     const box = layerOf(result, "body");
-    const shoulders = box.top + 450 + 15;
     for (const [role, cornerX] of [
       ["arm_R", box.left],
       ["arm_L", box.left + box.width],
     ] as const) {
-      const { rgba } = await decodePng(layerOf(result, role).path);
-      const layer = createLayerSetMeasurer({
-        width: CANVAS,
-        height: TALL,
-      }).add({ role, fileName: "arm.png", rgba })!;
-      const radius = armGeometry(layer, 0).shoulderRadius;
       const pivot = await shoulderOf(result, role);
       expect(Math.abs(pivot.x - cornerX), role).toBeLessThanOrEqual(1);
-      // The cap's top on the shoulder line, well under the old row.
-      expect(Math.abs(pivot.y - radius - shoulders), role).toBeLessThanOrEqual(
-        2,
+      expect(
+        Math.abs(pivot.y - (box.top + SHOULDER_DROP * box.height)),
+        role,
+      ).toBeLessThanOrEqual(1);
+      const [warning, ...rest] = result.measure.warnings.filter((w) =>
+        w.startsWith(`${role}:`),
       );
-      expect(pivot.y, role).toBeGreaterThan(
-        box.top + SHOULDER_DROP * box.height + radius,
-      );
+      expect(rest, role).toEqual([]);
+      expect(warning, role).toContain("Read the shoulder line off preview.png");
+      expect(warning, role).toContain(`move layout.${role}.cy down`);
+      expect(warning, role).toContain(`move layout.${role}.cx`);
     }
-    expect(result.measure.warnings.filter((w) => w.startsWith("arm_"))).toEqual(
-      [],
-    );
   });
 
-  it("keeps an A-line body's arms on SHOULDER_DROP's row: a flare is not its shoulders", async () => {
-    // The dress widens all the way down the band the shoulders are sought in,
-    // so no plateau there is the shoulders; the widest row (the flare) must not
-    // be read as them, or SHOULDER_DROP's row (on the shoulders) reads as a neck.
+  it("never warns an A-line body's arms hung on the dress's edge", async () => {
+    // The dress flares to twice the shoulders inside the upper band, so the
+    // pivot's row is much narrower than the body below it; an arm placed on
+    // its edge passes the cap check, and so gets no warning either way.
     const dir = partsDir();
     await writeFullBodyParts(dir, { aLine: true });
     const input = { partsDir: dir, outDir: outDir(), canvasHeight: TALL };

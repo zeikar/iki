@@ -667,8 +667,8 @@ warning (`body: its bottom row is the canvas's last`) is a `retune` of
 figure is judged against `reference-full`, not `reference`, and as the head's
 scale is fixed, it is a `retune` to a smaller `layout.body.w` and arms' `w`
 (`layout.arm_L.w` and `layout.arm_R.w`, together). An arm-cap warning
-(`arm_R: its shoulder cap reaches …`, its pivot's row on the neck, or no body
-paint on its pivot's row) is
+(`arm_R: its shoulder cap reaches …`, with or without its two readings for a
+narrow pivot row, or no body paint on its pivot's row) is
 a `retune` of that `layout.arm_*` entry, by the px or onto the row it names.
 A pose-forearm pivot or width warning is a `retune` of `layout.forearm_pose_*`;
 a length warning naming no `w`, or an open elbow end, is a `regenerate` of
