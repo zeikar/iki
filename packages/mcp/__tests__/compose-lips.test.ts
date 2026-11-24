@@ -915,6 +915,47 @@ describe("splitLipSet: the green the key leaves", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("leaves the interior's own colours as drawn: only the keyed frame is despilled", async () => {
+    // A green-grey cavity: green over red and blue, but none of it the key's.
+    const FILL: RGB = [24, 64, 32];
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lips-interior-"));
+    try {
+      await writeKeyedMouth(dir);
+      await writeInterior(dir, { dark: true, fill: FILL });
+      const src = await decodePng(path.join(dir, "mouth_keyed.png"));
+      const keyed = keyGreen(src.rgba, src.width, src.height);
+      const i = await decodePng(path.join(dir, "mouth_interior.png"));
+      const interior = await prepInterior(i.rgba, i.width, i.height);
+      expect(interior.cavity).toEqual(FILL);
+      const w = 76;
+      const h = Math.round((src.height * w) / src.width);
+      const frame = await sharp(keyed, {
+        raw: { width: src.width, height: src.height, channels: 4 },
+      })
+        .resize(w, h, { fit: "fill" })
+        .png()
+        .toBuffer();
+      const split = await splitLipSet(frame, w, h, interior);
+      const { data } = await sharp(split.inner)
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      let asDrawn = 0;
+      let clamped = 0;
+      for (let k = 0; k < data.length; k += 4) {
+        if (data[k + 3] === 0) continue;
+        const [r, g, b] = [data[k], data[k + 1], data[k + 2]];
+        if (r === FILL[0] && g === FILL[1] && b === FILL[2]) asDrawn++;
+        if (r === FILL[0] && g === Math.max(FILL[0], FILL[2]) && b === FILL[2])
+          clamped++;
+      }
+      expect(asDrawn, "the fill as drawn").toBeGreaterThan(100);
+      expect(clamped, "the fill despilled").toBe(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("closedLips: a sub-pixel shift", () => {
