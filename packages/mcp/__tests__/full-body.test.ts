@@ -404,6 +404,42 @@ describe("arms", () => {
     );
   });
 
+  it("keeps an A-line body's arms on SHOULDER_DROP's row: a flare is not its shoulders", async () => {
+    // The dress widens all the way down the band the shoulders are sought in,
+    // so no plateau there is the shoulders; the widest row (the flare) must not
+    // be read as them, or SHOULDER_DROP's row (on the shoulders) reads as a neck.
+    const dir = partsDir();
+    await writeFullBodyParts(dir, { aLine: true });
+    const input = { partsDir: dir, outDir: outDir(), canvasHeight: TALL };
+    const first = await composeOk({ ...input, layout: { body } });
+    const box = layerOf(first, "body");
+    const row = box.top + SHOULDER_DROP * box.height;
+    // Hang each arm's pivot on the dress's edge on that row (cx set, cy unset).
+    const { rgba } = await decodePng(layerOf(first, "body").path);
+    const bodyLayer = createLayerSetMeasurer({
+      width: CANVAS,
+      height: TALL,
+    }).add({ role: "body", fileName: "body.png", rgba })!;
+    const runs = bodyLayer.rowRuns![Math.floor(row) - bodyLayer.bbox.y];
+    const layout: Record<string, { cx?: number; w?: number }> = { body };
+    for (const [role, edge] of [
+      ["arm_R", runs[0]],
+      ["arm_L", runs[runs.length - 1]],
+    ] as const) {
+      const layer = layerOf(first, role);
+      const pivot = await shoulderOf(first, role);
+      layout[role] = { cx: layer.left + layer.width / 2 + (edge - pivot.x) };
+    }
+    const result = await composeOk({ ...input, layout });
+    for (const role of ["arm_R", "arm_L"] as const) {
+      const pivot = await shoulderOf(result, role);
+      expect(Math.abs(pivot.y - row), role).toBeLessThanOrEqual(1);
+    }
+    expect(result.measure.warnings.filter((w) => w.startsWith("arm_"))).toEqual(
+      [],
+    );
+  });
+
   it("leaves a bust's skipped list as it was, and removes an earlier compose's arms", async () => {
     const dir = partsDir();
     await writeFullBodyParts(dir);

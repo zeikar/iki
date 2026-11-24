@@ -50,10 +50,18 @@ export const SHOULDER_DROP = 0.12;
 /** The share of the body box's height, from its top, its shoulders are
  *  sought in: above the band the rig looks for the hips in. Our own value. */
 export const UPPER_BODY = 0.35;
-/** A row narrower than this share of the widest above it, going down, is the
- *  waist: the shoulders are the widest rows above it, so hips or a skirt
- *  wider than the shoulders below it are never read as them. Our own value. */
-export const WAIST_SPAN = 0.85;
+/** A plateau, a run of rows the width barely changes over, is at least this
+ *  share of the body's rows long. Our own value. */
+export const PLATEAU_ROWS = 0.02;
+/** Within a plateau every row is within this share of its first row's width.
+ *  Our own value: a drawn outline's jitter stays well under it, a skirt's
+ *  or a cloak's steady flare leaves it within a few rows. */
+export const PLATEAU_TOL = 0.03;
+/** A plateau the shoulders can be is reached by a step: over the PLATEAU_ROWS
+ *  of rows above it the width rose at least this share of its own (the
+ *  shoulders' corners). A flare's tail, flattening out within the band, is
+ *  reached by a drift instead. Our own value: twice PLATEAU_TOL. */
+export const PLATEAU_STEP = 0.06;
 /** A row at least this share of the shoulders' widest is on the shoulders.
  *  Our own value. */
 export const SHOULDER_SPAN = 0.9;
@@ -75,24 +83,57 @@ export interface ShoulderLine {
 
 /**
  * The shoulders of a body layer, each row's width its outermost paint: the
- * widest rows going down from its top until the waist (WAIST_SPAN), within
- * UPPER_BODY of its rows, and their first row. On the corpus's full bodies
- * an accepted arm's top lies within about 1.5 % of the body's height of it.
- * null for a layer without `rowRuns` or without paint there.
+ * first plateau of rows (PLATEAU_ROWS long, within PLATEAU_TOL) inside
+ * UPPER_BODY of its rows, reached by a step (PLATEAU_STEP), that is not a
+ * neck, and the first row at
+ * SHOULDER_SPAN of its width. A plateau is a neck when a row under it inside
+ * that band is wider than it by more than 1 / NECK_SPAN: a torso under a neck,
+ * or a skirt flaring out under the shoulders. Bounding the span to a plateau,
+ * not the widest row of the band, keeps a flare that never narrows (an A-line
+ * dress, a cloak, a poncho) from being read as the shoulders. On the corpus's
+ * full bodies an accepted arm's top lies within about 1.5 % of the body's
+ * height of it. null for a layer without `rowRuns` or without paint there,
+ * and for a silhouette without such a plateau (one widening all the way down
+ * the band): the caller keeps SHOULDER_DROP's row then.
  */
 export function shoulderLine(body: LayerInput): ShoulderLine | null {
   const runs = body.rowRuns;
   if (runs === undefined) return null;
   const widths = runs.map((r) => (r.length === 0 ? 0 : r[r.length - 1] - r[0]));
-  const upper = Math.max(1, Math.ceil(UPPER_BODY * widths.length));
-  let span = 0;
-  for (let k = 0; k < upper; k++) {
-    if (widths[k] < WAIST_SPAN * span) break;
-    span = Math.max(span, widths[k]);
+  const upper = Math.min(
+    widths.length,
+    Math.max(1, Math.ceil(UPPER_BODY * widths.length)),
+  );
+  const long = Math.max(2, Math.round(PLATEAU_ROWS * widths.length));
+  for (let s = 0; s < upper; ) {
+    const w0 = widths[s];
+    let end = s + 1;
+    while (
+      end < upper &&
+      w0 > 0 &&
+      Math.abs(widths[end] - w0) <= PLATEAU_TOL * w0
+    )
+      end++;
+    if (w0 === 0 || end - s < long) {
+      s++;
+      continue;
+    }
+    if (s >= long && widths[s] - widths[s - long] < PLATEAU_STEP * w0) {
+      s = end; // reached by a drift: a flare flattening out, not the shoulders
+      continue;
+    }
+    let span = 0;
+    for (let k = s; k < end; k++) span = Math.max(span, widths[k]);
+    let below = 0;
+    for (let k = end; k < upper; k++) below = Math.max(below, widths[k]);
+    if (below * NECK_SPAN > span) {
+      s = end; // a neck (or shoulders over a flare): the shoulders are further down, if anywhere
+      continue;
+    }
+    const row = widths.findIndex((w) => w >= SHOULDER_SPAN * span);
+    return { row, span, widths };
   }
-  if (span === 0) return null;
-  const row = widths.findIndex((w) => w >= SHOULDER_SPAN * span);
-  return { row, span, widths };
+  return null;
 }
 
 /**

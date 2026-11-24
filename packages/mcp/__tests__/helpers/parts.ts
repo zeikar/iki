@@ -524,14 +524,34 @@ export async function writeLipParts(
  * at row 300 (0.5 of the height) down, with an 8 px gap between them.
  * `neck` rows of neck instead of 40 (the torso then starts there): 120 is a
  * long neck, the shoulders 0.2 of the height down, so SHOULDER_DROP's row is
- * the neck.
+ * the neck. `aLine`: a dress instead of the torso, 100 px at the shoulders and
+ * flaring without a waist to 200 px at row 200, so the band the shoulders are
+ * sought in widens all the way down.
  */
-async function writeFullBody(dir: string, neck = 40): Promise<void> {
+async function writeFullBody(
+  dir: string,
+  neck = 40,
+  aLine = false,
+): Promise<void> {
   await writeRgbaPart(dir, "body.png", 200, 600, (set) => {
     for (let y = 0; y < neck; y++)
       for (let x = 85; x < 115; x++) set(x, y, DARK);
     const r = 20;
-    for (let y = neck; y < 300; y++) {
+    if (aLine) {
+      // 100 px shoulders with 20 px rounded corners on rows 40..59, then a
+      // dress flaring without a waist to the crop's full 200 px at row 200.
+      for (let y = neck; y < 300; y++) {
+        const half = y < 60 ? 50 : Math.min(100, 50 + (50 * (y - 60)) / 140);
+        for (let x = 0; x < 200; x++) {
+          const ox = Math.abs(x + 0.5 - 100);
+          if (ox > half) continue;
+          const dx = y < 60 ? Math.max(0, ox - (half - r)) : 0;
+          const dy = Math.max(0, neck + r - (y + 0.5));
+          if (dx * dx + dy * dy <= r * r) set(x, y, DARK);
+        }
+      }
+    }
+    for (let y = neck; y < (aLine ? 0 : 300); y++) {
       for (let x = 20; x < 180; x++) {
         // Distance past the nearer top corner's centre, 0 off the corners.
         const dx = Math.max(0, 20 + r - (x + 0.5), x + 0.5 - (180 - r));
@@ -599,10 +619,16 @@ export async function writeFullBodyParts(
     arm = "hanging",
     pose = false,
     neck,
-  }: { arm?: "hanging" | "squat"; pose?: boolean; neck?: number } = {},
+    aLine = false,
+  }: {
+    arm?: "hanging" | "squat";
+    pose?: boolean;
+    neck?: number;
+    aLine?: boolean;
+  } = {},
 ): Promise<void> {
   await writePartsSet(dir, { omit: ["body.png"] });
-  await writeFullBody(dir, neck);
+  await writeFullBody(dir, neck, aLine);
   await writeArm(dir, arm);
   if (pose) await writeForearmPose(dir);
 }
