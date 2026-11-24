@@ -279,6 +279,18 @@ previews (`preview.png`, `preview-pose.png`).
 
 ## Pitfalls
 
+- **Judging a result on a downscaled preview.** A 3650 px canvas shrunk to fit
+  a screen hides a fringe, a seam or a misplaced shoulder. Read every preview
+  and render at full size, or as full-size crops of the place in question.
+- **Comparing with the reference by eye.** Two pictures side by side hide a
+  head a tenth too big or arms a few px too high. Scale the render so its chin
+  and the face's centre land on the reference's, then overlay the two (half
+  each, or flip between them) and read the differences off the overlay.
+- **Generating a head the user already has.** When the character has a
+  finished picture, generated hair never matches it. Cut the picture with
+  `cut_layers_from_illustration` (the **iki-import-illustration** skill) and
+  take its `face`, `hair_front` and `hair_back` layers as those parts; generate
+  only what the picture does not show.
 - **The pose forearm drawn with the upper arm.** The joint doubles: the upper
   arm is `arm.png`'s, and stays under the pose forearm. Draw the forearm and
   the hand only, with a closed elbow end.
