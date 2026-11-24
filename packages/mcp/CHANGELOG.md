@@ -1,5 +1,12 @@
 # @ikijs/mcp
 
+## 0.39.1
+
+### Patch Changes
+
+- 7569bc2: The measure's shoulder-cap check no longer tells an arm hung on a long neck to move onto the neck. When the cap falls short and the body is much narrower on the pivot's row than below it in its upper band (a pivot row under 0.6 of the widest row there), the warning says what it measured and gives both readings: if that row is the neck, move the arm's `cy` down by the px the shoulder line, read off `preview.png`, lies under that row; if it is the shoulders over a wider garment, move its `cx` toward the body by the px. An arm that passes the cap check is never warned. The composer's default pivot is unchanged: 0.12 of the body box's height under its top for every body.
+- 7569bc2: The lip set carries no green fringe. The key leaves green in an antialiased edge pixel it has no ramp to read (a halo off the line from the ink to the fill, or a share it takes for the stroke's own shading), and the resize spreads it, so `lip_upper` and `mouth_inner` showed a green rim at every opening. `compose_layers_from_parts` and `cut_layers_from_illustration` now despill the colours the split writes within 3 px of the opening (its boundary and the neighbourhood the resize spreads the key over): a pixel's green is clamped to the larger of its red and blue, alpha untouched. The split still reads the frame as keyed, so no read of its shape or the fold's contract changes, and the interior's own colours and paint the key never touched (teal lip shading away from the opening) pass through as drawn. The measure's green check reads what is drawn on the opening's edge: a line pixel within 3 px of the cavity whose excess green at its own alpha is over 16 levels, where it read only opaque pixels over 40, which passed the fringe; flat key green (opaque, over 40) is still flagged anywhere, and the interior's own fill is never read. Its remedy is recomposing (free) before regenerating, and it names `mouth_interior.png` beside `mouth_keyed.png` when `mouth_inner` is the layer flagged.
+
 ## 0.39.0
 
 ### Minor Changes
