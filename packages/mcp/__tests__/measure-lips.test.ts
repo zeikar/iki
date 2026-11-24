@@ -230,10 +230,14 @@ describe("measure_layers: the lip set", () => {
     expect(w.join("\n")).toMatch(/narrow/);
   });
 
-  it("warns of key green left in a lip layer", async () => {
-    expect(
-      (await warningsOf(await writeSet({ green: true }))).join("\n"),
-    ).toMatch(/green/);
+  it("warns of key green left in mouth_inner, naming the interior as a source too", async () => {
+    expect(await warningsOf(await writeSet({ green: true }))).toContain(
+      "mouth_inner: green left (key green: g over r and b by more than 40 in an opaque pixel, or by more " +
+        "than 16 at the pixel's alpha on the opening's edge) — it shows " +
+        "as a green fringe on the lips. Recompose from mouth_keyed.png + mouth_interior.png (free); if it " +
+        "persists, regenerate mouth_keyed.png with the green only inside the opening, or mouth_interior.png " +
+        "without green in it. Billed.",
+    );
   });
 
   it("warns of a green fringe the old opaque-only check passed, at the alpha it is drawn at", async () => {

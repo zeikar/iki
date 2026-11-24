@@ -664,7 +664,7 @@ describe("arms", () => {
       "arm_R: its shoulder cap reaches -15 px under the torso's edge on its pivot row (y=115), " +
         "under half its radius (7.5 px), and the body is 20 px wide there against 80 px at y=160. " +
         "Read the shoulder line off preview.png: if that row is the neck, move layout.arm_R.cy down " +
-        "onto the shoulder line (free) — not its cx, which hangs the arm from the neck; if it is the " +
+        "by the px the shoulder line lies under y=115 (free) — not its cx, which hangs the arm from the neck; if it is the " +
         "shoulders over a wider garment, move layout.arm_R.cx 23 px toward the body (free).",
     ]);
 

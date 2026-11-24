@@ -166,9 +166,9 @@ function capWarning(
       `${arm}: its shoulder cap reaches ${px(overlap)} px under the torso's edge on its pivot row ` +
       `(y=${row}), under half its radius (${px(need)} px), and the body is ${here} px wide there ` +
       `against ${below} px at y=${belowRow}. Read the shoulder line off preview.png: if that row is ` +
-      `the neck, move layout.${arm}.cy down onto the shoulder line (free) — not its cx, which hangs ` +
-      `the arm from the neck; if it is the shoulders over a wider garment, move layout.${arm}.cx ` +
-      `${Math.ceil(need - overlap)} px toward the body (free).`
+      `the neck, move layout.${arm}.cy down by the px the shoulder line lies under y=${row} (free) — ` +
+      `not its cx, which hangs the arm from the neck; if it is the shoulders over a wider garment, ` +
+      `move layout.${arm}.cx ${Math.ceil(need - overlap)} px toward the body (free).`
     );
   }
   return (

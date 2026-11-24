@@ -315,7 +315,13 @@ export async function lipWarnings(
   if (!inPlace && green.length > 0) {
     warnings.push(
       `${green.join("/")}: green left (key green: g over r and b by more than ${KEY_GREEN_EXCESS} in an opaque pixel, or by more than ${GREEN_EXCESS} at the pixel's alpha on the opening's edge) — it shows as a ` +
-        `green fringe on the lips. ${recompose("mouth_keyed.png", "with the green only inside the opening")}`,
+        `green fringe on the lips. ${recompose(
+          "mouth_keyed.png",
+          // mouth_inner's fill is the interior's own paint, which the composer keeps as drawn.
+          green.includes("mouth_inner")
+            ? "with the green only inside the opening, or mouth_interior.png without green in it"
+            : "with the green only inside the opening",
+        )}`,
     );
   }
   if (!inPlace && area > 0 && hollow > INTERIOR_GAP_FRACTION * area) {

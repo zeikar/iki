@@ -262,8 +262,9 @@ fix:
 - **An arm on the neck.** When the cap warning adds that the body is much
   narrower on the pivot's row than below it, it gives two readings: settle
   which on `preview.png`. If that row is the neck (a long neck drawn above the
-  shoulders), move the arm's `cy` down onto the shoulder line; never its `cx`
-  inward, which hangs the arm from the neck. If it is the shoulders over a
+  shoulders), move the arm's `cy` down by the px the shoulder line lies under
+  the pivot's row (the `y` the warning names); never its `cx` inward, which
+  hangs the arm from the neck. If it is the shoulders over a
   wider garment (a cloak, a flared dress), move its `cx` toward the body by the
   px it names.
 

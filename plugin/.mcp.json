@@ -4,7 +4,7 @@
       "command": "npx",
       "args": ["-y", "@ikijs/mcp@^0.39.0"],
       "env": {
-        "IKI_PLUGIN": "iki@0.59.6"
+        "IKI_PLUGIN": "iki@0.59.7"
       }
     }
   }
