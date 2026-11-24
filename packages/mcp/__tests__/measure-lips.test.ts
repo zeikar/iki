@@ -59,6 +59,9 @@ interface Variant {
   inner?: [number, number, number, number];
   lowerFrom?: number;
   green?: boolean;
+  /** A green fringe on the line's bottom row: 35 levels of excess green,
+   *  opaque, or 60 at alpha 100 (23.5 once drawn). */
+  fringe?: "opaque" | "soft";
   /** Rows cleared across the opening inside the interior. */
   hollow?: [number, number];
   /** Columns cleared out of the interior altogether. */
@@ -88,6 +91,10 @@ async function writeSet(v: Variant = {}): Promise<string> {
       block(lx0, lx1, ly0, ly1, DARK)(set);
       block(54, 59, 90, 95, DARK)(set);
       block(140, 145, 90, 95, DARK)(set);
+      for (let x = 70; x < 130 && v.fringe !== undefined; x++) {
+        if (v.fringe === "opaque") set(x, ly1, [70, 110, 75]);
+        else set(x, ly1, [40, 100, 30], 100);
+      }
     });
   }
   if (v.omit !== "mouth_inner") {
@@ -225,6 +232,19 @@ describe("measure_layers: the lip set", () => {
     expect(
       (await warningsOf(await writeSet({ green: true }))).join("\n"),
     ).toMatch(/green/);
+  });
+
+  it("warns of a green fringe the old opaque-only check passed, at the alpha it is drawn at", async () => {
+    for (const fringe of ["opaque", "soft"] as const) {
+      expect(await warningsOf(await writeSet({ fringe })), fringe).toContain(
+        "lip_upper: green left (key green, g exceeds r and b by over 16 at the pixel's alpha) — it shows " +
+          "as a green fringe on the lips. Recompose from mouth_keyed.png + mouth_interior.png (free); if it " +
+          "persists, regenerate mouth_keyed.png with the green only inside the opening. Billed.",
+      );
+    }
+    expect((await warningsOf(await writeSet())).join("\n")).not.toMatch(
+      /green/,
+    );
   });
 
   it("warns of the interior's transparent holes", async () => {

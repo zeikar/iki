@@ -41,6 +41,13 @@
  * end) keeps every pixel in `lip_upper`; the rig still accepts it, its wall
  * past the opening thinned and, shut, shaped like a drawn flick.
  *
+ * The key leaves green in a pixel it reads as a stroke's own shading (a share
+ * under KEY_MIN_SHARE) or that has no reference on its ramp within reach, and
+ * the resize mixes the line's edge with what is left. Every layer the split
+ * writes is therefore despilled (`despill`): a pixel's green is clamped to the
+ * larger of its red and blue, so no edge of the set shows a green fringe at
+ * any opening.
+ *
  * The preview (`closedLips`) shows the set as the rig draws it at rest: the
  * lips resampled through the lip meshes' own landed rows (`mouthRestShift`,
  * measured as the rig measures the final canvas layers), so the thinned line
@@ -329,6 +336,20 @@ export function keyGreen(rgba: Buffer, W: number, H: number): Buffer {
     );
   }
   return out;
+}
+
+/**
+ * Clamp, in place, each pixel's green to the larger of its red and blue where
+ * it exceeds both: the standard despill, which takes the key's green out of a
+ * mixed edge and leaves every colour without excess green as it was. Alpha is
+ * untouched, so no read of the fold's contract changes.
+ */
+export function despill(rgba: Buffer): Buffer {
+  for (let i = 0; i < rgba.length; i += 4) {
+    const cap = Math.max(rgba[i], rgba[i + 2]);
+    if (rgba[i + 1] > cap) rgba[i + 1] = cap;
+  }
+  return rgba;
 }
 
 /** Levels (per channel) from the ground's median colour within which a pixel
@@ -671,8 +692,8 @@ function assertFoldContract(layers: LipRgba, w: number, h: number): Opening {
  *              128..254: the cavity's fill at `255 - alpha` in `mouth_inner`.
  * A side column (beside the hole) whose frame has no ink above its first grown
  * row keeps those rows in `lip_upper` and out of `mouth_inner`'s fold.
- * The result is read back through the rig's own `mouthOpening` and the
- * contract asserted (`assertFoldContract`).
+ * Every layer is despilled (`despill`). The result is read back through the
+ * rig's own `mouthOpening` and the contract asserted (`assertFoldContract`).
  */
 export async function splitLipSet(
   keyedPng: Buffer,
@@ -846,6 +867,7 @@ export async function splitLipSet(
     }
   }
 
+  for (const layer of [inner, lower, upper, tongue, teeth]) despill(layer);
   const opening = assertFoldContract(
     { mouth_inner: inner, lip_lower: lower, lip_upper: upper },
     w,

@@ -16,7 +16,6 @@
 
 import path from "node:path";
 import {
-  ALPHA_OPAQUE,
   LIP_INSIDE_ROLES,
   LIP_ROLES,
   LayerGeometryError,
@@ -43,9 +42,12 @@ const MIN_OPENING_ROWS = 8;
 /** The line's height at the centre, rows, under which a closed mouth has no
  *  line to close on (a hairline folds to nothing). Our own value, provisional. */
 const MIN_LINE_ROWS = 2;
-/** Green excess `g - max(r, b)` above which an opaque lip pixel is key green
- *  left over rather than art. Our own value, provisional. */
-const GREEN_EXCESS = 40;
+/** Green excess `g - max(r, b)`, at the pixel's alpha (what it adds over the
+ *  face once drawn), above which a lip pixel is key green left over rather
+ *  than art: an antialiased edge shows the fringe whatever its alpha. The
+ *  composer despills the set, so this is for one it did not cut. Our own
+ *  value, provisional. */
+const GREEN_EXCESS = 16;
 /** The share of the opening's area that may be transparent inside
  *  `mouth_inner`'s own span before the face shows through it. Our own value,
  *  provisional. */
@@ -161,8 +163,8 @@ export async function lipWarnings(
     set.set(role, measurer.add({ role, fileName, rgba })!);
     for (let i = 0; i < rgba.length; i += 4) {
       if (
-        rgba[i + 3] >= ALPHA_OPAQUE &&
-        rgba[i + 1] - Math.max(rgba[i], rgba[i + 2]) > GREEN_EXCESS
+        ((rgba[i + 1] - Math.max(rgba[i], rgba[i + 2])) * rgba[i + 3]) / 255 >
+        GREEN_EXCESS
       ) {
         green.push(role);
         break;
@@ -265,9 +267,8 @@ export async function lipWarnings(
   }
   if (!inPlace && green.length > 0) {
     warnings.push(
-      `${green.join("/")}: opaque green left (key green, g exceeds r and b by over ${GREEN_EXCESS}) — it shows as a ` +
-        `green fringe on the lips. Regenerate mouth_keyed.png with the green only inside the opening, or ` +
-        `mouth_interior.png without green in it. Billed.`,
+      `${green.join("/")}: green left (key green, g exceeds r and b by over ${GREEN_EXCESS} at the pixel's alpha) — it shows as a ` +
+        `green fringe on the lips. ${recompose("mouth_keyed.png", "with the green only inside the opening")}`,
     );
   }
   if (!inPlace && area > 0 && hollow > INTERIOR_GAP_FRACTION * area) {
