@@ -1039,9 +1039,6 @@ Otherwise:
 - **Compare with the picture by overlay, not by eye.** Scale the render so its
   chin and the face's centre land on the picture's, then overlay the two (half
   each, or flip between them) and read the differences off the overlay.
-- **Dark clothes read as hair.** A dark garment or tie, and a garment's outline
-  where it touches the hair, take the hair's samples: put a `bodyOnly` polygon
-  over each before the first cut, rather than waiting for `seeds` to ask.
 - **A long braid passing behind a shoulder** is hidden there in the picture, so
   the part of it the cut fills in behind the shoulder is made up. Report it,
   and judge it on the renders where the shoulder moves off it.
