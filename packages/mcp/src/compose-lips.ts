@@ -43,11 +43,14 @@
  *
  * The key leaves green in a pixel it reads as a stroke's own shading (a share
  * under KEY_MIN_SHARE) or that has no reference on its ramp within reach, and
- * the resize mixes the line's edge with what is left. The keyed frame is
- * therefore despilled (`despill`) before the split mixes it with the interior:
- * a pixel's green is clamped to the larger of its red and blue, so no edge of
- * the set shows a green fringe at any opening, while the interior's own
- * colours (a green-grey cavity, say) pass through as drawn.
+ * the resize mixes the line's edge with what is left. The split reads the
+ * frame as keyed, and the colours it writes out are despilled (`despill`)
+ * within SPILL_REACH of the opening — the opening's boundary and the
+ * neighbourhood the resize spreads the key over: a pixel's green is clamped
+ * to the larger of its red and blue, so no edge of the set shows a green
+ * fringe at any opening, while the interior's own colours (a green-grey
+ * cavity) and paint the key never touched (teal lip shading away from the
+ * opening) pass through as drawn.
  *
  * The preview (`closedLips`) shows the set as the rig draws it at rest: the
  * lips resampled through the lip meshes' own landed rows (`mouthRestShift`,
@@ -339,14 +342,22 @@ export function keyGreen(rgba: Buffer, W: number, H: number): Buffer {
   return out;
 }
 
+/** How far past the opening's hole, px, the written colours are despilled:
+ *  its boundary and the neighbourhood the resize spreads the key's green
+ *  over (the key runs at source size, a model's parts are a few times the
+ *  frame's). Paint further out never touched the key. Our own value. */
+export const SPILL_REACH = 3;
+
 /**
  * Clamp, in place, each pixel's green to the larger of its red and blue where
  * it exceeds both: the standard despill, which takes the key's green out of a
  * mixed edge and leaves every colour without excess green as it was. Alpha is
- * untouched, so no read of the fold's contract changes.
+ * untouched, so no read of the fold's contract changes. With `only`, a pixel
+ * mask, just the pixels it marks.
  */
-export function despill(rgba: Buffer): Buffer {
+export function despill(rgba: Buffer, only?: Uint8Array): Buffer {
   for (let i = 0; i < rgba.length; i += 4) {
+    if (only !== undefined && !only[i >> 2]) continue;
     const cap = Math.max(rgba[i], rgba[i + 2]);
     if (rgba[i + 1] > cap) rgba[i + 1] = cap;
   }
@@ -693,8 +704,8 @@ function assertFoldContract(layers: LipRgba, w: number, h: number): Opening {
  *              128..254: the cavity's fill at `255 - alpha` in `mouth_inner`.
  * A side column (beside the hole) whose frame has no ink above its first grown
  * row keeps those rows in `lip_upper` and out of `mouth_inner`'s fold.
- * The keyed frame is despilled (`despill`) first, so only what the key left
- * loses its green, never the interior's paint. The result is read back through the
+ * The frame's colours are despilled within SPILL_REACH of the hole before they
+ * are written, never the interior's paint. The result is read back through the
  * rig's own `mouthOpening` and the contract asserted (`assertFoldContract`).
  */
 export async function splitLipSet(
@@ -716,12 +727,36 @@ export async function splitLipSet(
       `splitLipSet: the frame is ${info.width}x${info.height}, not ${w}x${h}`,
     );
   }
-  // What the key left, after the resize: its green out before any mixing.
-  despill(frame);
   const n = w * h;
   const alpha = (p: number) => frame[p * 4 + 3];
   const { label, main, box: hb } = enclosedHole(frame, w, h);
   const holeW = hb.x1 - hb.x0 + 1;
+  // The colours written out: the frame's, despilled within SPILL_REACH of the
+  // hole (what the key left, after the resize). Every read of the frame's
+  // shape and luma below stays on the frame as keyed.
+  const near = new Uint8Array(n);
+  for (
+    let y = Math.max(0, hb.y0 - SPILL_REACH);
+    y <= Math.min(h - 1, hb.y1 + SPILL_REACH);
+    y++
+  ) {
+    for (
+      let x = Math.max(0, hb.x0 - SPILL_REACH);
+      x <= Math.min(w - 1, hb.x1 + SPILL_REACH);
+      x++
+    ) {
+      if (label[y * w + x] !== main) continue;
+      for (let dy = -SPILL_REACH; dy <= SPILL_REACH; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= h) continue;
+        for (let dx = -SPILL_REACH; dx <= SPILL_REACH; dx++) {
+          const xx = x + dx;
+          if (xx >= 0 && xx < w) near[yy * w + xx] = 1;
+        }
+      }
+    }
+  }
+  const paint = despill(Buffer.from(frame), near);
 
   const top = new Int32Array(w).fill(-1);
   const bot = new Int32Array(w).fill(-1);
@@ -820,7 +855,7 @@ export async function splitLipSet(
   const tongue = Buffer.alloc(n * 4);
   const teeth = Buffer.alloc(n * 4);
   const copy = (to: Buffer, p: number) =>
-    frame.copy(to, p * 4, p * 4, p * 4 + 4);
+    paint.copy(to, p * 4, p * 4, p * 4 + 4);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const p = y * w + x;
@@ -855,7 +890,7 @@ export async function splitLipSet(
       // a side wall's rows.
       if ((inM[p] || wall[x]) && !faintUpper(p, x, y)) {
         const a = alpha(p) / 255;
-        for (let c = 0; c < 3; c++) out[c] += (frame[p * 4 + c] - out[c]) * a;
+        for (let c = 0; c < 3; c++) out[c] += (paint[p * 4 + c] - out[c]) * a;
       }
       inner[p * 4] = Math.round(out[0]);
       inner[p * 4 + 1] = Math.round(out[1]);

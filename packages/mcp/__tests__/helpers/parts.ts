@@ -413,7 +413,9 @@ export const KEY_GREEN: RGB = [0, 255, 0];
  * the green reaches the outside; `noGreen` leaves the hole transparent;
  * `twoRegions` lays a TEETH bar across the hole's middle, parting the green
  * in two; `spill` puts a 10x10 block of KEY_GREEN on the lip's skin (about
- * 4 % of the hole).
+ * 4 % of the hole). `lip` colours the lower lip instead of SKIN; `shade` paints
+ * a 20x4 patch of that colour on the lip's bottom rows (x 50..69, y 54..57),
+ * 8 rows under the hole, where the key never reaches.
  */
 export async function writeKeyedMouth(
   dir: string,
@@ -422,6 +424,8 @@ export async function writeKeyedMouth(
     noGreen?: boolean;
     twoRegions?: boolean;
     spill?: boolean;
+    lip?: RGB;
+    shade?: RGB;
   } = {},
 ): Promise<void> {
   const [cx, cy, rx, ry] = [60, 28, 48, 18];
@@ -444,7 +448,9 @@ export async function writeKeyedMouth(
         } else if (line) {
           set(x, y, DARK);
         } else if (lower) {
-          set(x, y, SKIN);
+          set(x, y, opts.lip ?? SKIN);
+          if (opts.shade && x >= 50 && x < 70 && y >= 54 && y < 58)
+            set(x, y, opts.shade);
         }
         if (
           opts.twoRegions &&

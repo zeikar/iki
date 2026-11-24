@@ -956,6 +956,69 @@ describe("splitLipSet: the green the key leaves", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("reads the frame as keyed: a pale green lower lip is still its skin", async () => {
+    // Luma over BAND_LUMA as drawn, under it once clamped to (145, 145, 145):
+    // despilled before the analysis, the split found no skin under the opening.
+    const LIP: RGB = [145, 162, 145];
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lips-keyed-"));
+    try {
+      await writeKeyedMouth(dir, { lip: LIP });
+      await writeInterior(dir);
+      const src = await decodePng(path.join(dir, "mouth_keyed.png"));
+      const keyed = keyGreen(src.rgba, src.width, src.height);
+      const i = await decodePng(path.join(dir, "mouth_interior.png"));
+      const interior = await prepInterior(i.rgba, i.width, i.height);
+      const frame = await sharp(keyed, {
+        raw: { width: src.width, height: src.height, channels: 4 },
+      })
+        .png()
+        .toBuffer();
+      const split = await splitLipSet(frame, src.width, src.height, interior);
+      const { data } = await sharp(split.lower)
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      // The lip's bottom rows, past SPILL_REACH of the opening, as drawn.
+      const p = (57 * src.width + 60) * 4;
+      expect([data[p], data[p + 1], data[p + 2]]).toEqual(LIP);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("despills only near the opening: teal shading the key never touched stays", async () => {
+    const SHADE: RGB = [50, 110, 90];
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lips-shade-"));
+    try {
+      await writeKeyedMouth(dir, { shade: SHADE });
+      await writeInterior(dir);
+      const src = await decodePng(path.join(dir, "mouth_keyed.png"));
+      const keyed = keyGreen(src.rgba, src.width, src.height);
+      const i = await decodePng(path.join(dir, "mouth_interior.png"));
+      const interior = await prepInterior(i.rgba, i.width, i.height);
+      const frame = await sharp(keyed, {
+        raw: { width: src.width, height: src.height, channels: 4 },
+      })
+        .png()
+        .toBuffer();
+      const split = await splitLipSet(frame, src.width, src.height, interior);
+      const { data } = await sharp(split.lower)
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      for (const [x, y] of [
+        [52, 55],
+        [60, 56],
+        [67, 57],
+      ]) {
+        const p = (y * src.width + x) * 4;
+        expect([data[p], data[p + 1], data[p + 2]], `${x},${y}`).toEqual(SHADE);
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("closedLips: a sub-pixel shift", () => {
